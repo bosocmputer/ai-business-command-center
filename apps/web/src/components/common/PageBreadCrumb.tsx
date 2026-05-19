@@ -3,9 +3,15 @@ import React from "react";
 
 interface BreadcrumbProps {
   pageTitle: string;
+  homeLabel?: string;
+  homeHref?: string;
 }
 
-const PageBreadcrumb: React.FC<BreadcrumbProps> = ({ pageTitle }) => {
+const PageBreadcrumb: React.FC<BreadcrumbProps> = ({
+  pageTitle,
+  homeLabel = "Home",
+  homeHref = "/",
+}) => {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h2
@@ -19,9 +25,9 @@ const PageBreadcrumb: React.FC<BreadcrumbProps> = ({ pageTitle }) => {
           <li>
             <Link
               className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400"
-              href="/"
+              href={homeHref}
             >
-              Home
+              {homeLabel}
               <svg
                 className="stroke-current"
                 width="17"

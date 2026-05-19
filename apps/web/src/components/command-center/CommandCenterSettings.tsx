@@ -11,6 +11,9 @@ import {
   type TenantId,
   type WorkerHeartbeatRecord,
 } from "@ai-bcc/shared";
+import ComponentCard from "@/components/common/ComponentCard";
+import PageBreadcrumb from "@/components/common/PageBreadCrumb";
+import Alert from "@/components/ui/alert/Alert";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import Select from "@/components/form/Select";
@@ -359,6 +362,12 @@ export default function CommandCenterSettings() {
 
   return (
     <div className="space-y-6">
+      <PageBreadcrumb
+        pageTitle="ตั้งค่าระบบ"
+        homeLabel="แดชบอร์ด"
+        homeHref="/command-center"
+      />
+
       <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
@@ -394,9 +403,11 @@ export default function CommandCenterSettings() {
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:border-error-800 dark:bg-error-500/10 dark:text-error-400">
-          {error}
-        </div>
+        <Alert
+          variant="error"
+          title="โหลดสถานะระบบไม่สำเร็จ"
+          message={error}
+        />
       )}
 
       {loading ? (
@@ -475,19 +486,15 @@ function ReadinessChecklist({
   }>;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            Checklist ความพร้อม
-          </h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            ใช้เช็คก่อน demo หรือก่อนเปิด tenant ให้ลูกค้าใช้งานจริง
-          </p>
-        </div>
-        <Badge color="light">{items.filter((item) => item.ok === true).length}/{items.length}</Badge>
-      </div>
-
+    <ComponentCard
+      title="Checklist ความพร้อม"
+      desc="ใช้เช็คก่อน demo หรือก่อนเปิด tenant ให้ลูกค้าใช้งานจริง"
+      action={
+        <Badge color="light">
+          {items.filter((item) => item.ok === true).length}/{items.length}
+        </Badge>
+      }
+    >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {items.map((item) => (
           <div
@@ -508,7 +515,7 @@ function ReadinessChecklist({
           </div>
         ))}
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -528,16 +535,10 @@ function ActionPanel({
   onSendLine: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className="mb-5">
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          ปุ่มทดสอบระบบ
-        </h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          ใช้ทดสอบทีละขั้นโดยไม่ต้องเข้า server
-        </p>
-      </div>
-
+    <ComponentCard
+      title="ปุ่มทดสอบระบบ"
+      desc="ใช้ทดสอบทีละขั้นโดยไม่ต้องเข้า server"
+    >
       <div className="grid grid-cols-1 gap-3">
         <Button
           className="h-11 w-full justify-center"
@@ -596,7 +597,7 @@ function ActionPanel({
           )}
         </div>
       )}
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -688,10 +689,7 @@ function LatestLineDeliveryCard({
 
 function InfoPanel({ title, rows }: { title: string; rows: string[][] }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <h3 className="mb-4 text-lg font-semibold text-gray-800 dark:text-white/90">
-        {title}
-      </h3>
+    <ComponentCard title={title}>
       <div className="space-y-3">
         {rows.map(([label, value]) => (
           <div key={`${title}-${label}`} className="flex items-start justify-between gap-4">
@@ -702,7 +700,7 @@ function InfoPanel({ title, rows }: { title: string; rows: string[][] }) {
           </div>
         ))}
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 

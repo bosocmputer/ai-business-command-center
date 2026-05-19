@@ -16,11 +16,15 @@ import {
   type TenantId,
   type WorkerHeartbeatRecord,
 } from "@ai-bcc/shared";
+import ComponentCard from "@/components/common/ComponentCard";
+import PageBreadcrumb from "@/components/common/PageBreadCrumb";
+import Alert from "@/components/ui/alert/Alert";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import Select from "@/components/form/Select";
 import Label from "@/components/form/Label";
 import Input from "@/components/form/input/InputField";
+import Pagination from "@/components/tables/Pagination";
 import {
   Table,
   TableBody,
@@ -371,6 +375,12 @@ export default function CommandCenterDashboard() {
 
   return (
     <div className="space-y-6">
+      <PageBreadcrumb
+        pageTitle="แดชบอร์ดธุรกิจ"
+        homeLabel="หน้าแรก"
+        homeHref="/command-center"
+      />
+
       <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-3xl">
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -475,9 +485,11 @@ export default function CommandCenterDashboard() {
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:border-error-800 dark:bg-error-500/10 dark:text-error-400">
-          {error}
-        </div>
+        <Alert
+          variant="error"
+          title="โหลดข้อมูลไม่สำเร็จ"
+          message={error}
+        />
       )}
 
       {loading && <LoadingState />}
@@ -596,16 +608,11 @@ function OperationsReadinessPanel({
       : formatDuration(status.worker.age_seconds);
 
   return (
-    <div id="operations-readiness" className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            สถานะระบบพร้อมใช้งาน
-          </h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            ตรวจว่า API, งานส่งรายงานเช้า, ฐานข้อมูลของบริษัท และ LINE OA พร้อมใช้งานหรือไม่
-          </p>
-        </div>
+    <ComponentCard
+      id="operations-readiness"
+      title="สถานะระบบพร้อมใช้งาน"
+      desc="ตรวจว่า API, งานส่งรายงานเช้า, ฐานข้อมูลของบริษัท และ LINE OA พร้อมใช้งานหรือไม่"
+      action={
         <div className="flex flex-wrap gap-2">
           <Badge color={status.api.system_store === "postgres" ? "success" : "warning"}>
             {status.api.system_store === "postgres" ? "ฐานระบบพร้อม" : "โหมดไฟล์ทดลอง"}
@@ -615,8 +622,8 @@ function OperationsReadinessPanel({
             ส่งอัตโนมัติ {status.scheduler.enabled ? "เปิดอยู่" : "ปิดอยู่"}
           </Badge>
         </div>
-      </div>
-
+      }
+    >
       <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-6">
         <SummaryBlock
           label="API"
@@ -652,7 +659,7 @@ function OperationsReadinessPanel({
           )}
         />
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -768,16 +775,18 @@ function MorningBriefControl({
   const resultDelivery = latestResult?.delivery ?? sentDelivery;
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+    <ComponentCard
+      title="ส่งสรุปยอดขายเข้า LINE"
+      desc="ทดสอบข้อความหรือส่ง Morning Brief ของเมื่อวานจากข้อมูลที่ trace ได้"
+      action={
+        <div className="flex flex-wrap gap-2">
+          <Badge color={statusColor}>{statusText}</Badge>
+          <Badge color="light">08:00 Asia/Bangkok</Badge>
+        </div>
+      }
+    >
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <h3 className="mr-auto text-lg font-semibold text-gray-800 dark:text-white/90">
-              ส่งสรุปยอดขายเข้า LINE
-            </h3>
-            <Badge color={statusColor}>{statusText}</Badge>
-            <Badge color="light">08:00 Asia/Bangkok</Badge>
-          </div>
           <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
             <SummaryBlock label="บริษัท" value={tenantName} />
             <SummaryBlock
@@ -831,7 +840,7 @@ function MorningBriefControl({
           ระบบกันส่งซ้ำทำงานแล้วสำหรับข้อมูลวันที่ {formatReportPeriod(period.date_from, period.date_to)}
         </p>
       )}
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -870,74 +879,79 @@ function MorningBriefPreview({
   const latestDelivery = latestResult?.delivery ?? deliveries[0] ?? null;
 
   return (
-    <div id="morning-brief" className="grid grid-cols-1 gap-4 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] lg:grid-cols-[minmax(0,1fr)_320px] md:p-6">
-      <div>
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <h3 className="mr-auto text-lg font-semibold text-gray-800 dark:text-white/90">
-            ตัวอย่างข้อความ LINE ตอนเช้า
-          </h3>
+    <ComponentCard
+      id="morning-brief"
+      title="ตัวอย่างข้อความ LINE ตอนเช้า"
+      desc="ข้อความที่ลูกค้าจะได้รับจากข้อมูลรายงานล่าสุด"
+      action={
+        <div className="flex flex-wrap gap-2">
           <Badge color={preview.source === "sml_postgres" ? "success" : "warning"}>
             {formatSource(preview.source)}
           </Badge>
           <Badge color="light">ข้อความ LINE</Badge>
         </div>
+      }
+    >
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div>
         <pre className="max-h-[320px] overflow-y-auto whitespace-pre-wrap rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700 dark:bg-gray-900 dark:text-gray-300">
           {preview.text}
         </pre>
-      </div>
-      <div className="space-y-4">
-        {latestDelivery && (
-          <div className="rounded-xl border border-gray-100 p-3 dark:border-gray-800">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-xs font-medium uppercase text-gray-400">
-                การส่ง LINE ล่าสุด
+        </div>
+        <div className="space-y-4">
+          {latestDelivery && (
+            <div className="rounded-xl border border-gray-100 p-3 dark:border-gray-800">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-medium uppercase text-gray-400">
+                  การส่ง LINE ล่าสุด
+                </p>
+                <Badge color={lineDeliveryBadgeColor(latestDelivery.status)}>
+                  {formatDeliveryStatus(latestDelivery.status)}
+                </Badge>
+              </div>
+              <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                {latestDelivery.id}
               </p>
-              <Badge color={lineDeliveryBadgeColor(latestDelivery.status)}>
-                {formatDeliveryStatus(latestDelivery.status)}
-              </Badge>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                ปลายทาง: {latestDelivery.target_id_masked || "ยังไม่ตั้งค่า"}
+              </p>
+              {latestDelivery.safe_error_message && (
+                <p className="mt-2 rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400">
+                  {latestDelivery.safe_error_message}
+                </p>
+              )}
             </div>
-            <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-              {latestDelivery.id}
+          )}
+          <SummaryRow label="เลขอ้างอิงรอบรัน" value={preview.run_id} />
+          <SummaryRow label="สร้างเมื่อ" value={formatDateTime(preview.generated_at)} />
+          <SummaryRow
+            label="ลิงก์แดชบอร์ด"
+            value={preview.dashboard_url ? "แนบในข้อความแล้ว" : "ยังไม่ตั้งค่า"}
+          />
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase text-gray-400">
+              หมายเหตุ
             </p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              ปลายทาง: {latestDelivery.target_id_masked || "ยังไม่ตั้งค่า"}
-            </p>
-            {latestDelivery.safe_error_message && (
-              <p className="mt-2 rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400">
-                {latestDelivery.safe_error_message}
+            {preview.warnings.length ? (
+              <div className="space-y-2">
+                {preview.warnings.map((warning) => (
+                  <p
+                    key={warning}
+                    className="rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400"
+                  >
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg bg-success-50 px-3 py-2 text-xs text-success-700 dark:bg-success-500/10 dark:text-success-500">
+                พร้อมส่งเข้า LINE OA
               </p>
             )}
           </div>
-        )}
-        <SummaryRow label="เลขอ้างอิงรอบรัน" value={preview.run_id} />
-        <SummaryRow label="สร้างเมื่อ" value={formatDateTime(preview.generated_at)} />
-        <SummaryRow
-          label="ลิงก์แดชบอร์ด"
-          value={preview.dashboard_url ? "แนบในข้อความแล้ว" : "ยังไม่ตั้งค่า"}
-        />
-        <div>
-          <p className="mb-2 text-xs font-medium uppercase text-gray-400">
-            หมายเหตุ
-          </p>
-          {preview.warnings.length ? (
-            <div className="space-y-2">
-              {preview.warnings.map((warning) => (
-                <p
-                  key={warning}
-                  className="rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400"
-                >
-                  {warning}
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-lg bg-success-50 px-3 py-2 text-xs text-success-700 dark:bg-success-500/10 dark:text-success-500">
-              พร้อมส่งเข้า LINE OA
-            </p>
-          )}
         </div>
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -1001,13 +1015,10 @@ function BranchSalesChart({
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-5 pt-5 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 sm:pt-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          ยอดขายแยกตามสาขา
-        </h3>
-        <Badge color="light">{snapshot.branch_sales.length} สาขา</Badge>
-      </div>
+    <ComponentCard
+      title="ยอดขายแยกตามสาขา"
+      action={<Badge color="light">{snapshot.branch_sales.length} สาขา</Badge>}
+    >
       <div className="max-w-full overflow-x-auto custom-scrollbar">
         <div className="-ml-5 min-w-[650px] xl:min-w-full pl-2">
           <ReactApexChart
@@ -1025,7 +1036,7 @@ function BranchSalesChart({
           />
         </div>
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -1059,13 +1070,10 @@ function TopProductsChart({
   };
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          สินค้าขายดี
-        </h3>
-        <Badge color="success">จากรายการสินค้า</Badge>
-      </div>
+    <ComponentCard
+      title="สินค้าขายดี"
+      action={<Badge color="success">จากรายการสินค้า</Badge>}
+    >
       <ReactApexChart
         options={options}
         series={[
@@ -1077,7 +1085,7 @@ function TopProductsChart({
         type="bar"
         height={260}
       />
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -1090,15 +1098,14 @@ function ReconciliationPanel({
     Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
-      <div className="mb-5 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          ตรวจยอดขาย
-        </h3>
+    <ComponentCard
+      title="ตรวจยอดขาย"
+      action={
         <Badge color={hasWarning ? "warning" : "success"}>
           {hasWarning ? "ควรตรวจสอบ" : "ยอดตรงกัน"}
         </Badge>
-      </div>
+      }
+    >
       <div className="space-y-4">
         <SummaryRow
           label="ยอดขายตามบิล"
@@ -1120,19 +1127,17 @@ function ReconciliationPanel({
         ตัวเลขยอดขายหลักใช้ยอดรวมจากหัวบิล SML ส่วนกราฟสินค้าและจำนวนใช้รายการสินค้าในบิล
         ถ้ามีส่วนต่าง อาจเกิดจาก VAT ส่วนลด การปัดเศษ หรือวิธีเก็บข้อมูลหัวบิลกับรายการสินค้าไม่เหมือนกัน
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
 function RunHistory({ runs }: { runs: ReportRunRecord[] }) {
   return (
-    <div id="run-history" className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          ประวัติการรันรายงาน
-        </h3>
-        <Badge color="light">{runs.length} รอบ</Badge>
-      </div>
+    <ComponentCard
+      id="run-history"
+      title="ประวัติการรันรายงาน"
+      action={<Badge color="light">{runs.length} รอบ</Badge>}
+    >
       <div className="space-y-3">
         {runs.slice(0, 6).map((run) => (
           <div
@@ -1173,19 +1178,17 @@ function RunHistory({ runs }: { runs: ReportRunRecord[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
 function AuditTrail({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
   return (
-    <div id="audit-trail" className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          บันทึกกิจกรรมระบบ
-        </h3>
-        <Badge color="light">{auditLogs.length} รายการ</Badge>
-      </div>
+    <ComponentCard
+      id="audit-trail"
+      title="บันทึกกิจกรรมระบบ"
+      action={<Badge color="light">{auditLogs.length} รายการ</Badge>}
+    >
       {auditLogs.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">
           ยังไม่มีกิจกรรมของบริษัทนี้
@@ -1217,7 +1220,7 @@ function AuditTrail({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
           ))}
         </div>
       )}
-    </div>
+    </ComponentCard>
   );
 }
 
@@ -1284,18 +1287,10 @@ function DataTable(props: {
   );
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            {props.title}
-          </h3>
-          {props.description && (
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-gray-500 dark:text-gray-400">
-              {props.description}
-            </p>
-          )}
-        </div>
+    <ComponentCard
+      title={props.title}
+      desc={props.description}
+      action={
         <div className="flex flex-col gap-2 sm:w-[360px] sm:flex-row sm:items-center">
           <Input
             type="text"
@@ -1307,7 +1302,9 @@ function DataTable(props: {
           />
           <Badge color="light">{props.badge}</Badge>
         </div>
-      </div>
+      }
+      bodyClassName="sm:p-0"
+    >
       <div className="max-w-full overflow-x-auto">
         <Table>
           <TableHeader className="border-y border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
@@ -1345,29 +1342,15 @@ function DataTable(props: {
           {Math.min((currentPage + 1) * pageSize, filteredRows.length)} จาก{" "}
           {filteredRows.length}
         </span>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setPage(Math.max(0, currentPage - 1))}
-            disabled={currentPage === 0}
-          >
-            ก่อนหน้า
-          </Button>
-          <span className="text-xs">
-            {currentPage + 1} / {pageCount}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setPage(Math.min(pageCount - 1, currentPage + 1))}
-            disabled={currentPage >= pageCount - 1}
-          >
-            ถัดไป
-          </Button>
-        </div>
+        <Pagination
+          currentPage={currentPage + 1}
+          totalPages={pageCount}
+          onPageChange={(nextPage) => setPage(nextPage - 1)}
+          previousLabel="ก่อนหน้า"
+          nextLabel="ถัดไป"
+        />
       </div>
-    </div>
+    </ComponentCard>
   );
 }
 
