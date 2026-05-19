@@ -728,7 +728,7 @@ function ReportControlBar({
 }) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-theme-xs dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,1fr)_160px_160px_240px]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_160px_160px_minmax(220px,240px)]">
         <div>
           <Label>บริษัท / ฐานข้อมูล</Label>
           <Select
