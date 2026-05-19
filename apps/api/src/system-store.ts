@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import {
   type LineDeliveryRecord,
+  type LineWebhookEventRecord,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type Tenant,
@@ -42,6 +43,8 @@ export type SystemStore = {
   upsertRun(run: ReportRunRecord): Promise<void>;
   saveLineDelivery(delivery: LineDeliveryRecord): Promise<void>;
   listLineDeliveries(tenantId: TenantId): Promise<LineDeliveryRecord[]>;
+  saveLineWebhookEvents(events: LineWebhookEventRecord[]): Promise<void>;
+  listLineWebhookEvents(limit: number): Promise<LineWebhookEventRecord[]>;
   appendAuditLog(entry: Omit<AuditLogEntry, "created_at">): Promise<void>;
   listAuditLogs(limit: number): Promise<AuditLogEntry[]>;
   close(): Promise<void>;
@@ -53,6 +56,7 @@ type StoreFile = {
   runs: ReportRunRecord[];
   snapshots: SalesGoodsServicesSnapshot[];
   lineDeliveries: LineDeliveryRecord[];
+  lineWebhookEvents: LineWebhookEventRecord[];
   auditLogs: AuditLogEntry[];
 };
 
@@ -151,6 +155,26 @@ class LocalJsonSystemStore implements SystemStore {
       .slice(0, 50);
   }
 
+  async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
+    if (!events.length) {
+      return;
+    }
+
+    const data = this.requireData();
+    const incomingIds = new Set(events.map((event) => event.id));
+    data.lineWebhookEvents = [
+      ...events,
+      ...data.lineWebhookEvents.filter((event) => !incomingIds.has(event.id)),
+    ].slice(0, 200);
+    await this.persist();
+  }
+
+  async listLineWebhookEvents(limit: number) {
+    return this.requireData().lineWebhookEvents
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
+  }
+
   async appendAuditLog(entry: Omit<AuditLogEntry, "created_at">) {
     const data = this.requireData();
     data.auditLogs.unshift({
@@ -180,6 +204,7 @@ class LocalJsonSystemStore implements SystemStore {
         runs: parsed.runs ?? [],
         snapshots: parsed.snapshots ?? [],
         lineDeliveries: parsed.lineDeliveries ?? [],
+        lineWebhookEvents: parsed.lineWebhookEvents ?? [],
         auditLogs: parsed.auditLogs ?? [],
       };
     } catch {
@@ -189,6 +214,7 @@ class LocalJsonSystemStore implements SystemStore {
         runs: [],
         snapshots: [],
         lineDeliveries: [],
+        lineWebhookEvents: [],
         auditLogs: [],
       };
     }
@@ -478,6 +504,80 @@ limit 50
     })) as LineDeliveryRecord[];
   }
 
+  async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
+    for (const event of events) {
+      await this.pool.query(
+        `
+insert into line_webhook_events (
+  id,
+  event_type,
+  source_type,
+  source_id,
+  source_id_masked,
+  user_id,
+  message_text,
+  raw_event_json,
+  created_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz)
+on conflict (id) do update
+set event_type = excluded.event_type,
+    source_type = excluded.source_type,
+    source_id = excluded.source_id,
+    source_id_masked = excluded.source_id_masked,
+    user_id = excluded.user_id,
+    message_text = excluded.message_text,
+    raw_event_json = excluded.raw_event_json,
+    created_at = excluded.created_at
+`,
+        [
+          event.id,
+          event.event_type,
+          event.source_type,
+          event.source_id,
+          event.source_id_masked,
+          event.user_id,
+          event.message_text,
+          JSON.stringify(event.raw_event_json),
+          event.created_at,
+        ],
+      );
+    }
+  }
+
+  async listLineWebhookEvents(limit: number) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  event_type,
+  source_type,
+  source_id,
+  source_id_masked,
+  user_id,
+  message_text,
+  raw_event_json,
+  created_at
+from line_webhook_events
+order by created_at desc
+limit $1
+`,
+      [limit],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      event_type: row.event_type,
+      source_type: row.source_type,
+      source_id: row.source_id,
+      source_id_masked: row.source_id_masked,
+      user_id: row.user_id,
+      message_text: row.message_text,
+      raw_event_json: row.raw_event_json,
+      created_at: toIsoString(row.created_at),
+    })) as LineWebhookEventRecord[];
+  }
+
   async appendAuditLog(entry: Omit<AuditLogEntry, "created_at">) {
     await this.pool.query(
       `
@@ -626,6 +726,21 @@ create table if not exists line_deliveries (
 
 create index if not exists line_deliveries_latest_idx
 on line_deliveries (tenant_id, report_key, created_at desc);
+
+create table if not exists line_webhook_events (
+  id text primary key,
+  event_type text not null,
+  source_type text not null,
+  source_id text,
+  source_id_masked text,
+  user_id text,
+  message_text text,
+  raw_event_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists line_webhook_events_latest_idx
+on line_webhook_events (created_at desc);
 
 create table if not exists audit_logs (
   id bigserial primary key,

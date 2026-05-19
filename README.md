@@ -81,3 +81,18 @@ LINE_DEMO_TARGET_ID=
 LINE_OFFICE_CHANNEL_ACCESS_TOKEN=
 LINE_OFFICE_TARGET_ID=
 ```
+
+## LINE Webhook Target Discovery
+
+ใช้ตอน onboarding LINE OA เข้ากลุ่ม เพื่อหา `groupId` สำหรับ Morning Brief:
+
+```text
+POST /api/line/webhook
+GET  /api/line/webhook-events/latest
+```
+
+`POST /api/line/webhook` ตรวจ `x-line-signature` ด้วย `LINE_CHANNEL_SECRET`
+ก่อนเก็บ event เสมอ ส่วน latest-events จะคืน masked IDs เป็นค่า default
+ถ้าต้อง reveal `groupId` ระหว่าง setup ให้ตั้ง `LINE_WEBHOOK_DEBUG_TOKEN`
+บน server แล้วเรียก `?reveal=1` พร้อม header `x-ai-bcc-debug-token`
+เฉพาะช่วง setup เท่านั้น

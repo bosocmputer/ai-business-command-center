@@ -189,6 +189,20 @@ export type LineSendResult = {
   mode: LineSendMode;
 };
 
+export type LineWebhookSourceType = "user" | "group" | "room" | "unknown";
+
+export type LineWebhookEventRecord = {
+  id: string;
+  event_type: string;
+  source_type: LineWebhookSourceType;
+  source_id: string | null;
+  source_id_masked: string | null;
+  user_id: string | null;
+  message_text: string | null;
+  raw_event_json: Record<string, unknown>;
+  created_at: string;
+};
+
 export type ReportRunRecord = {
   id: string;
   tenant_id: TenantId;

@@ -13,6 +13,11 @@ type LineChannelConfig = {
   targetId: string;
 };
 
+type LineWebhookConfig = {
+  channelSecret: string;
+  debugToken: string | null;
+};
+
 type TenantDefinition = Omit<Tenant, "datasourceConfigured"> & {
   envPrefix: "SML_DEMO_DB" | "SML_OFFICE_DB";
   lineEnvPrefix: "LINE_DEMO" | "LINE_OFFICE";
@@ -110,8 +115,20 @@ export function readLineChannelConfig(
   };
 }
 
+export function readLineWebhookConfig(): LineWebhookConfig | null {
+  const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
+  if (!channelSecret) {
+    return null;
+  }
+
+  return {
+    channelSecret,
+    debugToken: process.env.LINE_WEBHOOK_DEBUG_TOKEN?.trim() || null,
+  };
+}
+
 function readEnv(name: string, fallback: string) {
   return process.env[name] || fallback;
 }
 
-export type { DatasourceConfig, LineChannelConfig };
+export type { DatasourceConfig, LineChannelConfig, LineWebhookConfig };

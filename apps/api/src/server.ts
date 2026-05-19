@@ -12,6 +12,7 @@ import {
   listTenants,
   readDatasourceConfig,
   readLineChannelConfig,
+  readLineWebhookConfig,
 } from "./config.js";
 import {
   runSalesGoodsServicesReport,
@@ -20,6 +21,11 @@ import {
 import { renderSalesGoodsServicesLinePreview } from "@ai-bcc/reports";
 import { createSystemStore } from "./system-store.js";
 import { sendLineBrief } from "./line-client.js";
+import {
+  normalizeLineWebhookEvents,
+  sanitizeLineWebhookEvent,
+  verifyLineSignature,
+} from "./line-webhook.js";
 
 const app = Fastify({
   logger: {
@@ -31,6 +37,22 @@ const app = Fastify({
 await app.register(cors, {
   origin: true,
 });
+
+app.removeContentTypeParser("application/json");
+app.addContentTypeParser(
+  "application/json",
+  { parseAs: "buffer" },
+  (request, body, done) => {
+    const rawBody = body.toString("utf8");
+    (request as FastifyRequestWithRawBody).rawBody = rawBody;
+
+    try {
+      done(null, rawBody.trim() ? JSON.parse(rawBody) : {});
+    } catch (error) {
+      done(error as Error, undefined);
+    }
+  },
+);
 
 const systemStore = createSystemStore();
 await systemStore.initialize({
@@ -61,6 +83,77 @@ app.get("/health", async () => ({
 app.get("/api/tenants", async () => ({
   data: listTenants(),
 }));
+
+app.post("/api/line/webhook", async (request, reply) => {
+  const webhookConfig = readLineWebhookConfig();
+  if (!webhookConfig) {
+    request.log.warn("LINE webhook rejected because LINE_CHANNEL_SECRET is missing");
+    return reply.status(503).send({
+      error: "LINE webhook is not configured.",
+    });
+  }
+
+  const rawBody = (request as FastifyRequestWithRawBody).rawBody ?? "";
+  const signature = request.headers["x-line-signature"];
+  const signatureValue = Array.isArray(signature) ? signature[0] : signature;
+
+  if (
+    !verifyLineSignature({
+      rawBody,
+      channelSecret: webhookConfig.channelSecret,
+      signature: signatureValue,
+    })
+  ) {
+    request.log.warn("LINE webhook rejected because signature is invalid");
+    return reply.status(401).send({ error: "Invalid LINE signature." });
+  }
+
+  const events = normalizeLineWebhookEvents(request.body as { events?: unknown[] });
+  await systemStore.saveLineWebhookEvents(events);
+
+  for (const event of events) {
+    await systemStore.appendAuditLog({
+      tenant_id: null,
+      actor_id: event.user_id,
+      action: "line_webhook_received",
+      target_type: "line_webhook_event",
+      target_id: event.id,
+      metadata_json: {
+        event_type: event.event_type,
+        source_type: event.source_type,
+        source_id_masked: event.source_id_masked,
+        message_text: event.message_text,
+      },
+    });
+  }
+
+  return { ok: true, event_count: events.length };
+});
+
+app.get("/api/line/webhook-events/latest", async (request, reply) => {
+  const webhookConfig = readLineWebhookConfig();
+  const query = lineWebhookEventsQuerySchema.safeParse(request.query);
+  if (!query.success) {
+    return reply.status(400).send({ error: "Invalid query" });
+  }
+
+  const debugToken = request.headers["x-ai-bcc-debug-token"];
+  const debugTokenValue = Array.isArray(debugToken) ? debugToken[0] : debugToken;
+  const reveal =
+    query.data.reveal === "1" &&
+    Boolean(webhookConfig?.debugToken) &&
+    debugTokenValue === webhookConfig?.debugToken;
+
+  const events = await systemStore.listLineWebhookEvents(
+    Number(query.data.limit ?? 10),
+  );
+
+  return {
+    data: reveal ? events : events.map(sanitizeLineWebhookEvent),
+    reveal,
+    debug_token_configured: Boolean(webhookConfig?.debugToken),
+  };
+});
 
 app.get(
   "/api/reports/:tenantId/sales_goods_services/latest",
@@ -337,3 +430,12 @@ function buildDashboardUrl() {
 const tenantParamsSchema = z.object({
   tenantId: tenantIdSchema,
 });
+
+const lineWebhookEventsQuerySchema = z.object({
+  reveal: z.enum(["0", "1"]).optional().default("0"),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+});
+
+type FastifyRequestWithRawBody = {
+  rawBody?: string;
+};
