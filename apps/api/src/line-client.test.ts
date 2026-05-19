@@ -33,9 +33,16 @@ describe("sendLineBrief", () => {
         channelAccessToken: "line-token",
         targetId: "C1234567890abcdef",
       },
+      deliveryKey:
+        "tenant_demo_remote:sales_goods_services:morning_brief:2026-05-18:2026-05-18",
+      deliveryType: "morning_brief",
+      periodFrom: "2026-05-18",
+      periodTo: "2026-05-18",
     });
 
     expect(result.status).toBe("dry_run");
+    expect(result.delivery_type).toBe("morning_brief");
+    expect(result.period_from).toBe("2026-05-18");
     expect(result.target_id_masked).toBe("C123...cdef");
     expect(fetchSpy).not.toHaveBeenCalled();
   });

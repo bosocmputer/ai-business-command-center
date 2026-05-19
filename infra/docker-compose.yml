@@ -45,6 +45,26 @@ services:
       api:
         condition: service_healthy
 
+  worker:
+    container_name: ai-bcc-worker
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - ${AI_BCC_ENV_FILE:-../.env.server}
+    environment:
+      MORNING_BRIEF_ENABLED: ${MORNING_BRIEF_ENABLED:-true}
+      MORNING_BRIEF_API_BASE_URL: http://api:4000
+      MORNING_BRIEF_TENANT_IDS: ${MORNING_BRIEF_TENANT_IDS:-tenant_demo_remote}
+      MORNING_BRIEF_TIMEZONE: ${MORNING_BRIEF_TIMEZONE:-Asia/Bangkok}
+      MORNING_BRIEF_TIME: ${MORNING_BRIEF_TIME:-08:00}
+      MORNING_BRIEF_MODE: ${MORNING_BRIEF_MODE:-send}
+      MORNING_BRIEF_FORCE: ${MORNING_BRIEF_FORCE:-false}
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   ai_bcc_data:
     name: ai_bcc_data

@@ -42,6 +42,10 @@ export type SystemStore = {
   listRuns(tenantId: TenantId): Promise<ReportRunRecord[]>;
   upsertRun(run: ReportRunRecord): Promise<void>;
   saveLineDelivery(delivery: LineDeliveryRecord): Promise<void>;
+  findSuccessfulLineDeliveryByKey(input: {
+    tenantId: TenantId;
+    deliveryKey: string;
+  }): Promise<LineDeliveryRecord | null>;
   listLineDeliveries(tenantId: TenantId): Promise<LineDeliveryRecord[]>;
   saveLineWebhookEvents(events: LineWebhookEventRecord[]): Promise<void>;
   listLineWebhookEvents(limit: number): Promise<LineWebhookEventRecord[]>;
@@ -146,6 +150,20 @@ class LocalJsonSystemStore implements SystemStore {
       ...data.lineDeliveries.filter((existing) => existing.id !== delivery.id),
     ].slice(0, 500);
     await this.persist();
+  }
+
+  async findSuccessfulLineDeliveryByKey(input: {
+    tenantId: TenantId;
+    deliveryKey: string;
+  }) {
+    return (
+      this.requireData().lineDeliveries.find(
+        (delivery) =>
+          delivery.tenant_id === input.tenantId &&
+          delivery.delivery_key === input.deliveryKey &&
+          delivery.status === "success",
+      ) ?? null
+    );
   }
 
   async listLineDeliveries(tenantId: TenantId) {
@@ -433,6 +451,10 @@ insert into line_deliveries (
   tenant_id,
   report_key,
   report_run_id,
+  delivery_key,
+  delivery_type,
+  period_from,
+  period_to,
   target_id_masked,
   message_type,
   status,
@@ -441,7 +463,7 @@ insert into line_deliveries (
   safe_error_message,
   created_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::jsonb, $10, $11::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $13::jsonb, $14, $15::timestamptz)
 on conflict (id) do update
 set status = excluded.status,
     sent_at = excluded.sent_at,
@@ -453,6 +475,10 @@ set status = excluded.status,
         delivery.tenant_id,
         delivery.report_key,
         delivery.report_run_id,
+        delivery.delivery_key,
+        delivery.delivery_type,
+        delivery.period_from,
+        delivery.period_to,
         delivery.target_id_masked,
         delivery.message_type,
         delivery.status,
@@ -466,6 +492,42 @@ set status = excluded.status,
     );
   }
 
+  async findSuccessfulLineDeliveryByKey(input: {
+    tenantId: TenantId;
+    deliveryKey: string;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_key,
+  report_run_id,
+  delivery_key,
+  delivery_type,
+  period_from,
+  period_to,
+  target_id_masked,
+  message_type,
+  status,
+  sent_at,
+  provider_response_json,
+  safe_error_message,
+  created_at
+from line_deliveries
+where tenant_id = $1
+  and report_key = 'sales_goods_services'
+  and delivery_key = $2
+  and status = 'success'
+order by created_at desc
+limit 1
+`,
+      [input.tenantId, input.deliveryKey],
+    );
+
+    return result.rows[0] ? mapLineDeliveryRow(result.rows[0]) : null;
+  }
+
   async listLineDeliveries(tenantId: TenantId) {
     const result = await this.pool.query(
       `
@@ -474,6 +536,10 @@ select
   tenant_id,
   report_key,
   report_run_id,
+  delivery_key,
+  delivery_type,
+  period_from,
+  period_to,
   target_id_masked,
   message_type,
   status,
@@ -489,19 +555,7 @@ limit 50
       [tenantId],
     );
 
-    return result.rows.map((row) => ({
-      id: row.id,
-      tenant_id: row.tenant_id,
-      report_key: row.report_key,
-      report_run_id: row.report_run_id,
-      target_id_masked: row.target_id_masked,
-      message_type: row.message_type,
-      status: row.status,
-      sent_at: row.sent_at ? toIsoString(row.sent_at) : null,
-      provider_response_json: row.provider_response_json,
-      safe_error_message: row.safe_error_message,
-      created_at: toIsoString(row.created_at),
-    })) as LineDeliveryRecord[];
+    return result.rows.map(mapLineDeliveryRow);
   }
 
   async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
@@ -659,6 +713,44 @@ function toIsoString(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function toDateOnly(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return typeof value === "string" ? value.slice(0, 10) : null;
+}
+
+function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
+  return {
+    id: String(row.id),
+    tenant_id: row.tenant_id as TenantId,
+    report_key: "sales_goods_services",
+    report_run_id: String(row.report_run_id),
+    delivery_key: typeof row.delivery_key === "string" ? row.delivery_key : null,
+    delivery_type:
+      row.delivery_type === "morning_brief" ? "morning_brief" : "manual_test",
+    period_from: toDateOnly(row.period_from),
+    period_to: toDateOnly(row.period_to),
+    target_id_masked:
+      typeof row.target_id_masked === "string" ? row.target_id_masked : null,
+    message_type: "text",
+    status: row.status as LineDeliveryRecord["status"],
+    sent_at: row.sent_at ? toIsoString(row.sent_at as string | Date) : null,
+    provider_response_json:
+      (row.provider_response_json as Record<string, unknown> | null) ?? null,
+    safe_error_message:
+      typeof row.safe_error_message === "string"
+        ? row.safe_error_message
+        : null,
+    created_at: toIsoString(row.created_at as string | Date),
+  };
+}
+
 function isNoSpaceError(error: unknown) {
   return (
     error instanceof Error &&
@@ -715,6 +807,10 @@ create table if not exists line_deliveries (
   tenant_id text not null references tenants(id),
   report_key text not null references report_definitions(report_key),
   report_run_id text not null references report_runs(id),
+  delivery_key text,
+  delivery_type text not null default 'manual_test',
+  period_from date,
+  period_to date,
   target_id_masked text,
   message_type text not null,
   status text not null,
@@ -724,8 +820,18 @@ create table if not exists line_deliveries (
   created_at timestamptz not null default now()
 );
 
+alter table line_deliveries
+  add column if not exists delivery_key text,
+  add column if not exists delivery_type text not null default 'manual_test',
+  add column if not exists period_from date,
+  add column if not exists period_to date;
+
 create index if not exists line_deliveries_latest_idx
 on line_deliveries (tenant_id, report_key, created_at desc);
+
+create index if not exists line_deliveries_delivery_key_idx
+on line_deliveries (tenant_id, report_key, delivery_key, status)
+where delivery_key is not null;
 
 create table if not exists line_webhook_events (
   id text primary key,

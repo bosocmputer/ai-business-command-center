@@ -165,6 +165,10 @@ export type LineDeliveryRecord = {
   tenant_id: TenantId;
   report_key: ReportKey;
   report_run_id: string;
+  delivery_key: string | null;
+  delivery_type: "manual_test" | "morning_brief";
+  period_from: string | null;
+  period_to: string | null;
   target_id_masked: string | null;
   message_type: "text";
   status: LineDeliveryStatus;
@@ -181,6 +185,54 @@ export const lineSendRequestSchema = z.object({
 });
 
 export type LineSendRequest = z.infer<typeof lineSendRequestSchema>;
+
+export const morningBriefRequestSchema = z.object({
+  period: z.literal("yesterday").default("yesterday"),
+  mode: z.enum(["dry_run", "send"]).default("send"),
+  force: z.boolean().default(false),
+});
+
+export type MorningBriefRequest = z.infer<typeof morningBriefRequestSchema>;
+
+export const BANGKOK_TIME_ZONE = "Asia/Bangkok";
+
+export function deriveMorningBriefDateRange(input?: {
+  period?: MorningBriefRequest["period"];
+  now?: Date;
+  timeZone?: string;
+}): SalesGoodsServicesParams {
+  const period = input?.period ?? "yesterday";
+  if (period !== "yesterday") {
+    throw new Error(`Unsupported morning brief period: ${period}`);
+  }
+
+  const currentYmd = formatDateInTimeZone(
+    input?.now ?? new Date(),
+    input?.timeZone ?? BANGKOK_TIME_ZONE,
+  );
+  const yesterday = addDays(currentYmd, -1);
+  return {
+    date_from: yesterday,
+    date_to: yesterday,
+  };
+}
+
+export function formatDateInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addDays(ymd: string, days: number): string {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
 
 export type LineSendResult = {
   delivery: LineDeliveryRecord;

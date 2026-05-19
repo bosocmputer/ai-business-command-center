@@ -13,6 +13,10 @@ export type SendLineBriefInput = {
   mode: LineSendMode;
   preview: SalesGoodsServicesLinePreview;
   config: LineChannelConfig | null;
+  deliveryKey?: string | null;
+  deliveryType?: LineDeliveryRecord["delivery_type"];
+  periodFrom?: string | null;
+  periodTo?: string | null;
 };
 
 export async function sendLineBrief(
@@ -25,6 +29,10 @@ export async function sendLineBrief(
     tenant_id: input.tenantId,
     report_key: input.preview.report_key,
     report_run_id: input.preview.run_id,
+    delivery_key: input.deliveryKey ?? null,
+    delivery_type: input.deliveryType ?? "manual_test",
+    period_from: input.periodFrom ?? null,
+    period_to: input.periodTo ?? null,
     target_id_masked: input.config ? maskTargetId(input.config.targetId) : null,
     message_type: "text" as const,
     sent_at: null,

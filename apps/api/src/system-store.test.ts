@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ReportRunRecord, Tenant } from "@ai-bcc/shared";
+import type { LineDeliveryRecord, ReportRunRecord, Tenant } from "@ai-bcc/shared";
 import { createSystemStore } from "./system-store.js";
 
 const tempDirs: string[] = [];
@@ -60,6 +60,25 @@ describe("local JSON system store", () => {
     };
 
     await firstStore.upsertRun(run);
+    const delivery: LineDeliveryRecord = {
+      id: "line_persisted",
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+      report_run_id: run.id,
+      delivery_key:
+        "tenant_demo_remote:sales_goods_services:morning_brief:2026-05-10:2026-05-10",
+      delivery_type: "morning_brief",
+      period_from: "2026-05-10",
+      period_to: "2026-05-10",
+      target_id_masked: "C123...cdef",
+      message_type: "text",
+      status: "success",
+      sent_at: "2026-05-19T01:00:02.000Z",
+      provider_response_json: {},
+      safe_error_message: null,
+      created_at: "2026-05-19T01:00:02.000Z",
+    };
+    await firstStore.saveLineDelivery(delivery);
     await firstStore.appendAuditLog({
       tenant_id: "tenant_demo_remote",
       actor_id: null,
@@ -91,6 +110,16 @@ describe("local JSON system store", () => {
         expect.objectContaining({ action: "report_run_failed" }),
       ]),
     );
+    await expect(
+      secondStore.findSuccessfulLineDeliveryByKey({
+        tenantId: "tenant_demo_remote",
+        deliveryKey: delivery.delivery_key ?? "",
+      }),
+    ).resolves.toMatchObject({
+      id: "line_persisted",
+      delivery_type: "morning_brief",
+      period_from: "2026-05-10",
+    });
     await secondStore.close();
   });
 });

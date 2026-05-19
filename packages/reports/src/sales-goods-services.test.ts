@@ -226,10 +226,14 @@ describe("sales_goods_services contract", () => {
     const preview = renderSalesGoodsServicesLinePreview({
       snapshot,
       dashboardUrl: "http://localhost:3000/command-center",
+      tenantName: "Demo Remote",
     });
 
+    expect(preview.text).toContain("AI Business Center");
+    expect(preview.text).toContain("บริษัท: Demo Remote");
+    expect(preview.text).toContain("วันที่ข้อมูล: 10 พ.ค. 2026 - 19 พ.ค. 2026");
     expect(preview.text).toContain("ยอดขายสุทธิ: 107.00 บาท");
-    expect(preview.text).toContain("- 0000: 107.00 บาท");
+    expect(preview.text).toContain("1. 0000: 107.00 บาท");
     expect(preview.text).toContain("Product A");
     expect(preview.text).toContain("Run ID: run_line_preview");
     expect(preview.text).toContain("http://localhost:3000/command-center");
@@ -245,7 +249,6 @@ describe("sales_goods_services contract", () => {
 
     const preview = renderSalesGoodsServicesLinePreview({ snapshot });
 
-    expect(preview.text).toContain("แหล่งข้อมูล: ข้อมูลตัวอย่าง");
     expect(preview.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("ข้อมูลตัวอย่าง"),

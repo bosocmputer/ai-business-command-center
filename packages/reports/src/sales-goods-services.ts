@@ -294,36 +294,41 @@ export function createEmptySalesGoodsServicesSnapshot(input: {
 export function renderSalesGoodsServicesLinePreview(input: {
   snapshot: SalesGoodsServicesSnapshot;
   dashboardUrl?: string | null;
+  tenantName?: string | null;
 }): SalesGoodsServicesLinePreview {
   const { snapshot } = input;
-  const sourceLabel =
-    snapshot.source === "sml_postgres" ? "SML PostgreSQL" : "ข้อมูลตัวอย่าง";
   const warnings = buildLineWarnings(snapshot);
-  const branchLines = snapshot.branch_sales.slice(0, 3).map((branch) => {
-    return `- ${branch.branch_code}: ${formatMoney(branch.total_amount)} บาท (${branch.document_count.toLocaleString("th-TH")} บิล)`;
+  const branchLines = snapshot.branch_sales.slice(0, 3).map((branch, index) => {
+    return `${index + 1}. ${branch.branch_code}: ${formatMoney(branch.total_amount)} บาท`;
   });
-  const topProductLines = snapshot.top_products.slice(0, 3).map((product) => {
-    return `- ${product.item_name}: ${formatMoney(product.sum_amount)} บาท`;
+  const topProductLines = snapshot.top_products.slice(0, 3).map((product, index) => {
+    return `${index + 1}. ${product.item_name}: ${formatMoney(product.sum_amount)} บาท`;
   });
   const dashboardLine = input.dashboardUrl
     ? [`Dashboard: ${input.dashboardUrl}`]
     : [];
+  const tenantName = input.tenantName?.trim() || snapshot.tenant_id;
+  const generatedAt = formatThaiDateTime(snapshot.generated_at);
 
   const lines = [
-    "Morning Brief - รายงานขายสินค้าและบริการ",
-    `ช่วงวันที่: ${snapshot.params.date_from} ถึง ${snapshot.params.date_to}`,
-    `แหล่งข้อมูล: ${sourceLabel}`,
+    "AI Business Center",
+    "รายงานขายสินค้าและบริการ",
+    "",
+    `บริษัท: ${tenantName}`,
+    `วันที่ข้อมูล: ${formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}`,
+    `อัปเดต: ${generatedAt}`,
+    "",
     `ยอดขายสุทธิ: ${formatMoney(snapshot.summary.total_sales)} บาท`,
-    `เอกสาร: ${snapshot.summary.document_count.toLocaleString("th-TH")} ใบ`,
+    `บิลขาย: ${snapshot.summary.document_count.toLocaleString("th-TH")} ใบ`,
     `รายการสินค้า/บริการ: ${snapshot.summary.line_count.toLocaleString("th-TH")} แถว`,
     `จำนวนรวม: ${snapshot.summary.total_qty.toLocaleString("th-TH", {
       maximumFractionDigits: 3,
     })}`,
     "",
-    "ยอดขายตามสาขา:",
+    "ยอดขายตามสาขา",
     ...(branchLines.length ? branchLines : ["- ไม่มีข้อมูลสาขา"]),
     "",
-    "Top products:",
+    "สินค้าขายดี",
     ...(topProductLines.length ? topProductLines : ["- ไม่มีสินค้าในช่วงเวลานี้"]),
     ...warnings.map((warning) => `\nหมายเหตุ: ${warning}`),
     "",
@@ -355,7 +360,7 @@ function buildLineWarnings(snapshot: SalesGoodsServicesSnapshot): string[] {
 
   if (snapshot.quality_status === "reconciled_with_warning") {
     warnings.push(
-      "ยอดหัวเอกสารและยอดรายละเอียดสินค้าไม่เท่ากัน ระบบใช้ยอดขายจาก ic_trans.total_amount เป็นตัวเลขหลัก",
+      "ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount เป็นยอดขายหลัก",
     );
   }
 
@@ -364,6 +369,36 @@ function buildLineWarnings(snapshot: SalesGoodsServicesSnapshot): string[] {
   }
 
   return warnings;
+}
+
+function formatReportPeriod(dateFrom: string, dateTo: string) {
+  if (dateFrom === dateTo) {
+    return formatThaiDate(dateFrom);
+  }
+
+  return `${formatThaiDate(dateFrom)} - ${formatThaiDate(dateTo)}`;
+}
+
+function formatThaiDate(ymd: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    timeZone: "Asia/Bangkok",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function formatThaiDateTime(value: string) {
+  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    timeZone: "Asia/Bangkok",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(value));
 }
 
 function resolveQualityStatus(
