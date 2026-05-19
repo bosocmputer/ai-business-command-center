@@ -721,10 +721,10 @@ function ExecutiveBriefPanel({
   const lineSent = lineDelivery?.status === "success";
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-900 bg-[#101828] shadow-theme-md dark:border-gray-800">
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
-        <div className="p-6 text-white md:p-8">
-          <div className="mb-5 flex flex-wrap items-center gap-2">
+    <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-theme-xs dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <Badge color={qualityColor}>{qualityText}</Badge>
             <Badge color={datasourceReady ? "success" : "warning"}>
               {datasourceReady ? "เชื่อม SML แล้ว" : "รอเชื่อม SML"}
@@ -736,128 +736,46 @@ function ExecutiveBriefPanel({
               งานเบื้องหลัง {workerOk ? "ปกติ" : "ต้องตรวจ"}
             </Badge>
           </div>
-
-          <p className="text-sm font-medium text-gray-300">
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
             Executive Morning Brief
           </p>
-          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-semibold text-white md:text-4xl">
-                {tenantName}
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-300">
-                เมื่อวานมียอดขาย {formatMoney(snapshot.summary.total_sales)} บาท จาก{" "}
-                {formatInteger(snapshot.summary.document_count)} บิล
-                {topBranch
-                  ? ` สาขาที่นำคือ ${topBranch.branch_code} (${formatPercent(branchShare)})`
-                  : ""}
-                {topProduct ? ` สินค้าหลักคือ ${topProduct.item_name}` : ""}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4">
-              <p className="text-xs font-medium uppercase text-gray-400">
-                ยอดขายเมื่อวาน
-              </p>
-              <p className="mt-2 text-4xl font-semibold text-white">
-                {formatMoney(snapshot.summary.total_sales)}
-              </p>
-              <p className="mt-1 text-sm text-gray-300">บาท</p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <ExecutivePulse
-              label="ความถูกต้องข้อมูล"
-              value={reconciliationOk ? "ยอดตรงกัน" : "มีส่วนต่าง"}
-              tone={reconciliationOk ? "success" : "warning"}
-            />
-            <ExecutivePulse
-              label="ช่วงวันที่"
-              value={formatReportPeriod(
-                snapshot.params.date_from,
-                snapshot.params.date_to,
-              )}
-              tone="info"
-            />
-            <ExecutivePulse
-              label="อัปเดตล่าสุด"
-              value={formatDateTime(snapshot.generated_at)}
-              tone="light"
-            />
-          </div>
+          <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white/90">
+            {tenantName}
+          </h1>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-gray-600 dark:text-gray-300">
+            เมื่อวานมียอดขาย {formatMoney(snapshot.summary.total_sales)} บาท จาก{" "}
+            {formatInteger(snapshot.summary.document_count)} บิล
+            {topBranch
+              ? ` สาขาที่นำคือ ${topBranch.branch_code} (${formatPercent(branchShare)})`
+              : ""}
+            {topProduct ? ` สินค้าหลักคือ ${topProduct.item_name}` : ""}
+          </p>
         </div>
-
-        <div className="border-t border-white/10 bg-white/[0.04] p-6 md:p-8 xl:border-l xl:border-t-0">
-          <div className="grid grid-cols-2 gap-3">
-            <ExecutiveStat
-              label="บิลขาย"
-              value={formatInteger(snapshot.summary.document_count)}
-              detail="ใบ"
-              tone="primary"
-            />
-            <ExecutiveStat
-              label="รายการ"
-              value={formatInteger(snapshot.summary.line_count)}
-              detail={`จำนวนรวม ${formatQty(snapshot.summary.total_qty)}`}
-              tone="info"
-            />
-            <ExecutiveStat
-              label="สาขานำ"
-              value={topBranch?.branch_code ?? "-"}
-              detail={topBranch ? `${formatMoney(topBranch.total_amount)} บาท` : "ยังไม่มีข้อมูล"}
-              tone="success"
-            />
-            <ExecutiveStat
-              label="LINE"
-              value={lineSent ? "ส่งแล้ว" : "รอส่ง"}
-              detail={lineDelivery ? formatDateTime(lineDelivery.created_at) : "ยังไม่พบการส่งสำเร็จ"}
-              tone={lineSent ? "success" : "warning"}
-            />
-          </div>
+        <div className="grid min-w-full grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[520px]">
+          <ExecutiveFact label="ยอดขาย" value={`${formatMoney(snapshot.summary.total_sales)} บาท`} />
+          <ExecutiveFact label="บิลขาย" value={`${formatInteger(snapshot.summary.document_count)} ใบ`} />
+          <ExecutiveFact label="สาขานำ" value={topBranch?.branch_code ?? "-"} />
+          <ExecutiveFact label="ข้อมูล" value={reconciliationOk ? "ยอดตรงกัน" : "มีส่วนต่าง"} />
         </div>
       </div>
     </section>
   );
 }
 
-function ExecutivePulse({
+function ExecutiveFact({
   label,
   value,
-  tone,
 }: {
   label: string;
   value: string;
-  tone: BadgeTone;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4">
-      <p className="text-xs font-medium uppercase text-gray-400">{label}</p>
-      <div className="mt-2">
-        <Badge color={tone}>{value}</Badge>
-      </div>
-    </div>
-  );
-}
-
-function ExecutiveStat({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: BadgeTone;
-}) {
-  return (
-    <div className="min-h-[132px] rounded-2xl border border-white/10 bg-white/[0.07] p-4">
-      <Badge color={tone}>{label}</Badge>
-      <p className="mt-4 line-clamp-2 text-2xl font-semibold text-white">
-        {value}
+    <div className="min-w-0 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 dark:border-gray-800 dark:bg-white/[0.04]">
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+        {label}
       </p>
-      <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-300">
-        {detail}
+      <p className="mt-1 truncate text-sm font-semibold text-gray-900 dark:text-white/90" title={value}>
+        {value}
       </p>
     </div>
   );
