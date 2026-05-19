@@ -21,15 +21,15 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     icon: <GridIcon />,
-    name: "Command Center",
+    name: "แดชบอร์ดหลัก",
     path: "/command-center",
   },
   {
     icon: <TableIcon />,
-    name: "Reports",
+    name: "รายงาน",
     subItems: [
       {
-        name: "Sales Goods & Services",
+        name: "ขายสินค้าและบริการ",
         path: "/command-center#sales-report",
         pro: false,
       },
@@ -37,10 +37,10 @@ const navItems: NavItem[] = [
   },
   {
     icon: <CalenderIcon />,
-    name: "Morning Brief",
+    name: "สรุปตอนเช้า",
     subItems: [
       {
-        name: "LINE Preview",
+        name: "ตัวอย่าง LINE",
         path: "/command-center#morning-brief",
         pro: false,
       },
@@ -48,10 +48,10 @@ const navItems: NavItem[] = [
   },
   {
     icon: <TableIcon />,
-    name: "Operations",
+    name: "การทำงานระบบ",
     subItems: [
-      { name: "Run History", path: "/command-center#run-history", pro: false },
-      { name: "Audit Trail", path: "/command-center#audit-trail", pro: false },
+      { name: "ประวัติรันรายงาน", path: "/command-center#run-history", pro: false },
+      { name: "บันทึกกิจกรรม", path: "/command-center#audit-trail", pro: false },
     ],
   },
 ];
@@ -278,7 +278,7 @@ const AppSidebar: React.FC = () => {
                   AI Business
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">
-                  Command Center
+                  แดชบอร์ดธุรกิจ
                 </div>
               </div>
             </>
@@ -301,7 +301,7 @@ const AppSidebar: React.FC = () => {
                 }`}
               >
                 {isExpanded || isHovered || isMobileOpen ? (
-                  "Menu"
+                  "เมนู"
                 ) : (
                   <HorizontaLDots />
                 )}
@@ -313,14 +313,13 @@ const AppSidebar: React.FC = () => {
         {(isExpanded || isHovered || isMobileOpen) && (
           <div className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.03]">
             <p className="text-xs font-medium uppercase text-gray-400">
-              Phase 1
+              ระยะที่ 1
             </p>
             <p className="mt-2 text-sm font-semibold text-gray-800 dark:text-white/90">
-              SML Sales Dashboard
+              แดชบอร์ดยอดขาย SML
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              Approved report contract, tenant isolation, traceable snapshots,
-              and LINE Morning Brief preview.
+              รายงานที่ตรวจสอบได้ แยกข้อมูลแต่ละบริษัท และส่งสรุปยอดขายเข้า LINE ตอนเช้า
             </p>
           </div>
         )}

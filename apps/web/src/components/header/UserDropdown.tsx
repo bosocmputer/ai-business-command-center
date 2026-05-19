@@ -32,7 +32,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
         </span>
 
         <span className="block mr-1 font-medium text-theme-sm">
-          Admin
+          ผู้ดูแล
         </span>
 
         <svg
@@ -62,7 +62,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
       >
         <div>
           <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
-            AI Business Admin
+            ผู้ดูแล AI Business
           </span>
           <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
             admin@ai-business.local
@@ -92,7 +92,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
                   fill=""
                 />
               </svg>
-              Edit profile
+              แก้ไขโปรไฟล์
             </DropdownItem>
           </li>
           <li>
@@ -117,7 +117,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
                   fill=""
                 />
               </svg>
-              Account settings
+              ตั้งค่าบัญชี
             </DropdownItem>
           </li>
           <li>
@@ -142,7 +142,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
                   fill=""
                 />
               </svg>
-              Support
+              ศูนย์ช่วยเหลือ
             </DropdownItem>
           </li>
         </ul>
@@ -165,7 +165,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
               fill=""
             />
           </svg>
-          Sign out
+          ออกจากระบบ
         </Link>
       </Dropdown>
     </div>

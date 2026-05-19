@@ -116,10 +116,10 @@ const defaultDateRange = {
   date_to: "2026-05-19",
 };
 const fallbackTenantOptions = [
-  { value: "tenant_demo_remote", label: "Demo Remote (demo)" },
+  { value: "tenant_demo_remote", label: "บริษัท Demo Remote (ฐาน demo)" },
   {
     value: "tenant_office_sml1_2026",
-    label: "Office SML1 2026 (sml1_2026)",
+    label: "บริษัท Office SML1 2026 (ฐาน sml1_2026)",
   },
 ];
 
@@ -189,7 +189,7 @@ export default function CommandCenterDashboard() {
         !lineDeliveriesResponse.ok ||
         !operationsResponse.ok
       ) {
-        throw new Error("Dashboard API is not ready.");
+        throw new Error("API ของแดชบอร์ดยังไม่พร้อมใช้งาน");
       }
 
       const tenantsPayload = (await tenantsResponse.json()) as {
@@ -229,7 +229,7 @@ export default function CommandCenterDashboard() {
       setError(
         unknownError instanceof Error
           ? unknownError.message
-          : "Unable to load dashboard.",
+          : "โหลดแดชบอร์ดไม่สำเร็จ",
       );
     } finally {
       setLoading(false);
@@ -243,7 +243,7 @@ export default function CommandCenterDashboard() {
   const selectedTenant = tenants.find((tenant) => tenant.id === tenantId);
   const tenantOptions = tenants.map((tenant) => ({
     value: tenant.id,
-    label: `${tenant.name} (${tenant.databaseName})`,
+    label: `${tenant.name} (ฐาน ${tenant.databaseName})`,
   }));
   const morningBriefPeriod = useMemo(
     () => deriveMorningBriefDateRange({ period: "yesterday" }),
@@ -267,18 +267,18 @@ export default function CommandCenterDashboard() {
     }
 
     if (snapshot.quality_status === "valid") {
-      return { color: "success" as const, text: "Valid" };
+      return { color: "success" as const, text: "ข้อมูลพร้อมใช้" };
     }
 
     if (snapshot.quality_status === "stale") {
-      return { color: "warning" as const, text: "Stale sample" };
+      return { color: "warning" as const, text: "ข้อมูลตัวอย่าง" };
     }
 
     if (snapshot.quality_status === "failed") {
-      return { color: "error" as const, text: "Failed" };
+      return { color: "error" as const, text: "รันรายงานไม่สำเร็จ" };
     }
 
-    return { color: "warning" as const, text: "Reconciliation warning" };
+    return { color: "warning" as const, text: "ยอดขายต้องตรวจสอบ" };
   }, [snapshot]);
 
   async function runReport() {
@@ -314,7 +314,7 @@ export default function CommandCenterDashboard() {
       setError(
         unknownError instanceof Error
           ? unknownError.message
-          : "Report run failed.",
+          : "รันรายงานไม่สำเร็จ",
       );
       await loadDashboard(tenantId);
     } finally {
@@ -361,7 +361,7 @@ export default function CommandCenterDashboard() {
       setError(
         unknownError instanceof Error
           ? unknownError.message
-          : "Morning brief request failed.",
+          : "ส่งสรุปเช้าไม่สำเร็จ",
       );
       await loadDashboard(tenantId);
     } finally {
@@ -377,40 +377,39 @@ export default function CommandCenterDashboard() {
             <Badge color={qualityBadge.color}>{qualityBadge.text}</Badge>
             <Badge color={selectedTenant?.datasourceConfigured ? "success" : "warning"}>
               {selectedTenant?.datasourceConfigured
-                ? "Datasource configured"
-                : "Env required for live run"}
+                ? "เชื่อมฐานข้อมูลแล้ว"
+                : "ยังไม่ตั้งค่าฐานข้อมูล"}
             </Badge>
           </div>
           <h1 className="text-2xl font-semibold text-gray-800 dark:text-white/90">
-            AI Business Command Center
+            แดชบอร์ดยอดขาย SML
           </h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Report contract: sales_goods_services. Financial truth uses SML
-            header total, while product and branch analytics come from detail
-            lines.
+            ดูยอดขายสินค้าและบริการจาก SML แยกตามบริษัท สาขา และสินค้า
+            พร้อมส่งสรุปเข้า LINE OA ทุกเช้า
           </p>
           {snapshot && (
             <div className="mt-4 grid grid-cols-1 gap-3 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-2 xl:grid-cols-4">
               <span>
-                Last run:{" "}
+                อัปเดตล่าสุด:{" "}
                 <strong className="font-medium text-gray-700 dark:text-gray-200">
                   {formatDateTime(snapshot.generated_at)}
                 </strong>
               </span>
               <span>
-                Source:{" "}
+                แหล่งข้อมูล:{" "}
                 <strong className="font-medium text-gray-700 dark:text-gray-200">
                   {formatSource(snapshot.source)}
                 </strong>
               </span>
               <span>
-                Period:{" "}
+                ช่วงวันที่:{" "}
                 <strong className="font-medium text-gray-700 dark:text-gray-200">
-                  {snapshot.params.date_from} to {snapshot.params.date_to}
+                  {formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
                 </strong>
               </span>
               <span className="truncate">
-                Run ID:{" "}
+                เลขอ้างอิง:{" "}
                 <strong className="font-medium text-gray-700 dark:text-gray-200">
                   {snapshot.run_id}
                 </strong>
@@ -421,7 +420,7 @@ export default function CommandCenterDashboard() {
 
         <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-[minmax(280px,1.6fr)_160px_160px_170px]">
           <div>
-            <Label>Tenant</Label>
+            <Label>บริษัท / ฐานข้อมูล</Label>
             <Select
               key={tenantId}
               className="truncate"
@@ -435,7 +434,7 @@ export default function CommandCenterDashboard() {
             />
           </div>
           <div>
-            <Label>From</Label>
+            <Label>วันที่เริ่มต้น</Label>
             <Input
               key={`${tenantId}-from`}
               type="date"
@@ -444,7 +443,7 @@ export default function CommandCenterDashboard() {
             />
           </div>
           <div>
-            <Label>To</Label>
+            <Label>วันที่สิ้นสุด</Label>
             <Input
               key={`${tenantId}-to`}
               type="date"
@@ -460,7 +459,7 @@ export default function CommandCenterDashboard() {
                 onClick={() => void loadDashboard(tenantId)}
                 disabled={running || loading}
               >
-                Refresh
+                โหลดใหม่
               </Button>
               <Button
                 className="h-11 w-full px-3"
@@ -468,7 +467,7 @@ export default function CommandCenterDashboard() {
                 disabled={running || loading}
                 startIcon={<ArrowUpIcon />}
               >
-                {running ? "Running" : "Run"}
+                {running ? "กำลังรัน" : "รันรายงาน"}
               </Button>
             </div>
           </div>
@@ -494,27 +493,27 @@ export default function CommandCenterDashboard() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon={<DollarLineIcon className="text-gray-800 dark:text-white/90" />}
-              label="Total Sales"
+              label="ยอดขายสุทธิ"
               value={formatMoney(snapshot.summary.total_sales)}
-              detail="ic_trans.total_amount"
+              detail="ยอดขายจากหัวบิล SML"
             />
             <MetricCard
               icon={<GroupIcon className="text-gray-800 size-6 dark:text-white/90" />}
-              label="Documents"
+              label="จำนวนบิลขาย"
               value={formatInteger(snapshot.summary.document_count)}
-              detail="Sales invoices"
+              detail="เอกสารขายทั้งหมด"
             />
             <MetricCard
               icon={<TableIcon className="text-gray-800 dark:text-white/90" />}
-              label="Detail Lines"
+              label="รายการสินค้า/บริการ"
               value={formatInteger(snapshot.summary.line_count)}
-              detail={`${formatQty(snapshot.summary.total_qty)} units`}
+              detail={`จำนวนรวม ${formatQty(snapshot.summary.total_qty)}`}
             />
             <MetricCard
               icon={<BoxIconLine className="text-gray-800 dark:text-white/90" />}
-              label="Top Product"
-              value={snapshot.summary.top_product_name || "No data"}
-              detail="By detail sum_amount"
+              label="สินค้าขายดี"
+              value={snapshot.summary.top_product_name || "ยังไม่มีข้อมูล"}
+              detail="เรียงตามยอดขายสินค้า"
               valueTone="compact"
             />
           </div>
@@ -593,7 +592,7 @@ function OperationsReadinessPanel({
   const workerTone = operationsBadgeColor(status.worker.status);
   const workerAge =
     status.worker.age_seconds === null
-      ? "No heartbeat"
+      ? "ยังไม่มีสัญญาณ"
       : formatDuration(status.worker.age_seconds);
 
   return (
@@ -601,19 +600,19 @@ function OperationsReadinessPanel({
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            Operations Readiness
+            สถานะระบบพร้อมใช้งาน
           </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Runtime health for this demo: API, worker, scheduler, tenant datasource, and LINE channel.
+            ตรวจว่า API, งานส่งรายงานเช้า, ฐานข้อมูลของบริษัท และ LINE OA พร้อมใช้งานหรือไม่
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge color={status.api.system_store === "postgres" ? "success" : "warning"}>
-            {status.api.system_store === "postgres" ? "System DB" : "Local JSON"}
+            {status.api.system_store === "postgres" ? "ฐานระบบพร้อม" : "โหมดไฟล์ทดลอง"}
           </Badge>
-          <Badge color={workerTone}>Worker {status.worker.status}</Badge>
+          <Badge color={workerTone}>งานเบื้องหลัง {formatWorkerStatus(status.worker.status)}</Badge>
           <Badge color={status.scheduler.enabled ? "success" : "warning"}>
-            Scheduler {status.scheduler.enabled ? "on" : "off"}
+            ส่งอัตโนมัติ {status.scheduler.enabled ? "เปิดอยู่" : "ปิดอยู่"}
           </Badge>
         </div>
       </div>
@@ -621,30 +620,30 @@ function OperationsReadinessPanel({
       <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-6">
         <SummaryBlock
           label="API"
-          value={status.api.ok ? "Healthy" : "Check needed"}
+          value={status.api.ok ? "พร้อมใช้งาน" : "ต้องตรวจสอบ"}
           tone={status.api.ok ? "success" : "error"}
         />
         <SummaryBlock
-          label="Worker heartbeat"
-          value={`${status.worker.status} · ${workerAge}`}
+          label="งานเบื้องหลัง"
+          value={`${formatWorkerStatus(status.worker.status)} · ${workerAge}`}
           tone={workerTone}
         />
         <SummaryBlock
-          label="Schedule"
+          label="เวลาส่ง LINE"
           value={`${status.scheduler.time} ${status.scheduler.timezone}`}
         />
         <SummaryBlock
-          label="Datasource"
-          value={tenantStatus?.datasource_configured ? "Configured" : "Missing env"}
+          label="ฐานข้อมูลบริษัท"
+          value={tenantStatus?.datasource_configured ? "เชื่อมต่อแล้ว" : "ยังไม่ตั้งค่า"}
           tone={tenantStatus?.datasource_configured ? "success" : "warning"}
         />
         <SummaryBlock
-          label="LINE target"
-          value={tenantStatus?.line_configured ? tenantStatus.line_target_masked ?? "Configured" : "Missing"}
+          label="LINE OA"
+          value={tenantStatus?.line_configured ? tenantStatus.line_target_masked ?? "พร้อมส่ง" : "ยังไม่ตั้งค่า"}
           tone={tenantStatus?.line_configured ? "success" : "warning"}
         />
         <SummaryBlock
-          label="Snapshot"
+          label="ข้อมูลล่าสุด"
           value={formatDuration(
             Math.max(
               0,
@@ -701,21 +700,21 @@ function SnapshotProvenance({
   return (
     <div className="grid grid-cols-1 gap-4 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:grid-cols-4 md:p-6">
       <SnapshotFact
-        label="Snapshot Source"
+        label="แหล่งข้อมูล"
         value={formatSource(snapshot.source)}
       />
       <SnapshotFact
-        label="Last Successful Run"
+        label="รันสำเร็จล่าสุด"
         value={formatDateTime(snapshot.generated_at)}
       />
       <SnapshotFact
-        label="Rows Loaded"
+        label="จำนวนแถวที่โหลด"
         value={formatInteger(
           snapshot.summary.document_count + snapshot.summary.line_count,
         )}
       />
       <SnapshotFact
-        label="Run Trace"
+        label="เลขอ้างอิงรอบรัน"
         value={currentRun ? currentRun.id : snapshot.run_id}
       />
     </div>
@@ -757,10 +756,10 @@ function MorningBriefControl({
   const skippedDuplicate =
     latestResult && "status" in latestResult && latestResult.status === "skipped";
   const statusText = sentDelivery
-    ? "Sent"
+    ? "ส่งแล้ว"
     : skippedDuplicate
-    ? "Duplicate skipped"
-    : "Ready";
+    ? "กันส่งซ้ำแล้ว"
+    : "พร้อมส่ง";
   const statusColor = sentDelivery
     ? "success"
     : skippedDuplicate
@@ -774,21 +773,21 @@ function MorningBriefControl({
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h3 className="mr-auto text-lg font-semibold text-gray-800 dark:text-white/90">
-              Morning Brief Control
+              ส่งสรุปยอดขายเข้า LINE
             </h3>
             <Badge color={statusColor}>{statusText}</Badge>
             <Badge color="light">08:00 Asia/Bangkok</Badge>
           </div>
           <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryBlock label="Tenant" value={tenantName} />
+            <SummaryBlock label="บริษัท" value={tenantName} />
             <SummaryBlock
-              label="Data date"
+              label="วันที่ข้อมูล"
               value={formatReportPeriod(period.date_from, period.date_to)}
             />
-            <SummaryBlock label="Next schedule" value={nextSchedule} />
+            <SummaryBlock label="รอบส่งถัดไป" value={nextSchedule} />
             <SummaryBlock
-              label="Guard"
-              value={sentDelivery ? "Success delivery exists" : "No success yet"}
+              label="กันส่งซ้ำ"
+              value={sentDelivery ? "ส่งสำเร็จแล้ว" : "ยังไม่เคยส่งสำเร็จ"}
             />
           </div>
         </div>
@@ -799,37 +798,37 @@ function MorningBriefControl({
             onClick={onDryRun}
             disabled={running}
           >
-            {running ? "Running" : "Dry run"}
+            {running ? "กำลังทดสอบ" : "ทดสอบข้อความ"}
           </Button>
           <Button
             className="h-11 px-3"
             onClick={onSend}
             disabled={running || Boolean(sentDelivery)}
           >
-            {running ? "Sending" : sentDelivery ? "Sent" : "Send yesterday"}
+            {running ? "กำลังส่ง" : sentDelivery ? "ส่งแล้ว" : "ส่งของเมื่อวาน"}
           </Button>
         </div>
       </div>
       {resultDelivery && (
         <div className="mt-5 grid grid-cols-1 gap-3 border-t border-gray-100 pt-4 text-sm dark:border-gray-800 sm:grid-cols-3">
           <SummaryBlock
-            label="Last delivery"
-            value={resultDelivery.status}
+            label="การส่งล่าสุด"
+            value={formatDeliveryStatus(resultDelivery.status)}
             tone={lineDeliveryBadgeColor(resultDelivery.status)}
           />
           <SummaryBlock
-            label="Target"
-            value={resultDelivery.target_id_masked || "Not configured"}
+            label="ปลายทาง LINE"
+            value={resultDelivery.target_id_masked || "ยังไม่ตั้งค่า"}
           />
           <SummaryBlock
-            label="Trace"
+            label="เลขอ้างอิง"
             value={resultDelivery.report_run_id}
           />
         </div>
       )}
       {latestResult && "status" in latestResult && (
         <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400">
-          Duplicate guard skipped a repeated send for {formatReportPeriod(period.date_from, period.date_to)}.
+          ระบบกันส่งซ้ำทำงานแล้วสำหรับข้อมูลวันที่ {formatReportPeriod(period.date_from, period.date_to)}
         </p>
       )}
     </div>
@@ -875,12 +874,12 @@ function MorningBriefPreview({
       <div>
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <h3 className="mr-auto text-lg font-semibold text-gray-800 dark:text-white/90">
-            Morning Brief Preview
+            ตัวอย่างข้อความ LINE ตอนเช้า
           </h3>
           <Badge color={preview.source === "sml_postgres" ? "success" : "warning"}>
             {formatSource(preview.source)}
           </Badge>
-          <Badge color="light">LINE text</Badge>
+          <Badge color="light">ข้อความ LINE</Badge>
         </div>
         <pre className="max-h-[320px] overflow-y-auto whitespace-pre-wrap rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700 dark:bg-gray-900 dark:text-gray-300">
           {preview.text}
@@ -891,17 +890,17 @@ function MorningBriefPreview({
           <div className="rounded-xl border border-gray-100 p-3 dark:border-gray-800">
             <div className="mb-2 flex items-center justify-between gap-2">
               <p className="text-xs font-medium uppercase text-gray-400">
-                Last LINE Action
+                การส่ง LINE ล่าสุด
               </p>
               <Badge color={lineDeliveryBadgeColor(latestDelivery.status)}>
-                {latestDelivery.status}
+                {formatDeliveryStatus(latestDelivery.status)}
               </Badge>
             </div>
             <p className="truncate text-xs text-gray-500 dark:text-gray-400">
               {latestDelivery.id}
             </p>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Target: {latestDelivery.target_id_masked || "Not configured"}
+              ปลายทาง: {latestDelivery.target_id_masked || "ยังไม่ตั้งค่า"}
             </p>
             {latestDelivery.safe_error_message && (
               <p className="mt-2 rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400">
@@ -910,15 +909,15 @@ function MorningBriefPreview({
             )}
           </div>
         )}
-        <SummaryRow label="Run ID" value={preview.run_id} />
-        <SummaryRow label="Generated" value={formatDateTime(preview.generated_at)} />
+        <SummaryRow label="เลขอ้างอิงรอบรัน" value={preview.run_id} />
+        <SummaryRow label="สร้างเมื่อ" value={formatDateTime(preview.generated_at)} />
         <SummaryRow
-          label="Dashboard"
-          value={preview.dashboard_url ? "Included" : "Not configured"}
+          label="ลิงก์แดชบอร์ด"
+          value={preview.dashboard_url ? "แนบในข้อความแล้ว" : "ยังไม่ตั้งค่า"}
         />
         <div>
           <p className="mb-2 text-xs font-medium uppercase text-gray-400">
-            Warnings
+            หมายเหตุ
           </p>
           {preview.warnings.length ? (
             <div className="space-y-2">
@@ -933,7 +932,7 @@ function MorningBriefPreview({
             </div>
           ) : (
             <p className="rounded-lg bg-success-50 px-3 py-2 text-xs text-success-700 dark:bg-success-500/10 dark:text-success-500">
-              Ready for LINE sender.
+              พร้อมส่งเข้า LINE OA
             </p>
           )}
         </div>
@@ -1005,9 +1004,9 @@ function BranchSalesChart({
     <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-5 pt-5 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 sm:pt-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Sales by Branch
+          ยอดขายแยกตามสาขา
         </h3>
-        <Badge color="light">{snapshot.branch_sales.length} branches</Badge>
+        <Badge color="light">{snapshot.branch_sales.length} สาขา</Badge>
       </div>
       <div className="max-w-full overflow-x-auto custom-scrollbar">
         <div className="-ml-5 min-w-[650px] xl:min-w-full pl-2">
@@ -1015,7 +1014,7 @@ function BranchSalesChart({
             options={options}
             series={[
               {
-                name: "Sales",
+                name: "ยอดขาย",
                 data: snapshot.branch_sales.map(
                   (branch) => branch.total_amount,
                 ),
@@ -1063,15 +1062,15 @@ function TopProductsChart({
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Top Products
+          สินค้าขายดี
         </h3>
-        <Badge color="success">Detail</Badge>
+        <Badge color="success">จากรายการสินค้า</Badge>
       </div>
       <ReactApexChart
         options={options}
         series={[
           {
-            name: "Amount",
+            name: "ยอดขาย",
             data: products.map((product) => product.sum_amount),
           },
         ]}
@@ -1094,23 +1093,23 @@ function ReconciliationPanel({
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
       <div className="mb-5 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Reconciliation
+          ตรวจยอดขาย
         </h3>
         <Badge color={hasWarning ? "warning" : "success"}>
-          {hasWarning ? "Warning" : "Matched"}
+          {hasWarning ? "ควรตรวจสอบ" : "ยอดตรงกัน"}
         </Badge>
       </div>
       <div className="space-y-4">
         <SummaryRow
-          label="Header total"
+          label="ยอดขายตามบิล"
           value={formatMoney(snapshot.reconciliation.header_total_amount)}
         />
         <SummaryRow
-          label="Detail total"
+          label="ยอดรวมตามรายการสินค้า"
           value={formatMoney(snapshot.reconciliation.detail_sum_amount)}
         />
         <SummaryRow
-          label="Difference"
+          label="ส่วนต่าง"
           value={formatMoney(snapshot.reconciliation.difference_amount)}
         />
       </div>
@@ -1118,10 +1117,8 @@ function ReconciliationPanel({
         {snapshot.reconciliation.note}
       </p>
       <div className="mt-4 rounded-xl bg-gray-50 p-4 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
-        Financial KPI uses header `ic_trans.total_amount`. Product, quantity,
-        and top item analytics use detail `ic_trans_detail.sum_amount`. A
-        warning usually means VAT, discount, rounding, or document/detail base
-        differs in SML, not that the run failed.
+        ตัวเลขยอดขายหลักใช้ยอดรวมจากหัวบิล SML ส่วนกราฟสินค้าและจำนวนใช้รายการสินค้าในบิล
+        ถ้ามีส่วนต่าง อาจเกิดจาก VAT ส่วนลด การปัดเศษ หรือวิธีเก็บข้อมูลหัวบิลกับรายการสินค้าไม่เหมือนกัน
       </div>
     </div>
   );
@@ -1132,9 +1129,9 @@ function RunHistory({ runs }: { runs: ReportRunRecord[] }) {
     <div id="run-history" className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Run History
+          ประวัติการรันรายงาน
         </h3>
-        <Badge color="light">{runs.length} runs</Badge>
+        <Badge color="light">{runs.length} รอบ</Badge>
       </div>
       <div className="space-y-3">
         {runs.slice(0, 6).map((run) => (
@@ -1148,12 +1145,12 @@ function RunHistory({ runs }: { runs: ReportRunRecord[] }) {
                   {run.id}
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {run.params.date_from} to {run.params.date_to} ·{" "}
-                  {formatInteger(run.row_count)} rows
+                  {formatReportPeriod(run.params.date_from, run.params.date_to)} ·{" "}
+                  {formatInteger(run.row_count)} แถว
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {formatDateTime(run.started_at)}
-                  {run.finished_at ? ` -> ${formatDateTime(run.finished_at)}` : ""}
+                  {run.finished_at ? ` ถึง ${formatDateTime(run.finished_at)}` : ""}
                 </p>
               </div>
               <Badge
@@ -1165,7 +1162,7 @@ function RunHistory({ runs }: { runs: ReportRunRecord[] }) {
                     : "error"
                 }
               >
-                {run.status}
+                {formatRunStatus(run.status)}
               </Badge>
             </div>
             {run.safe_error_message && (
@@ -1185,13 +1182,13 @@ function AuditTrail({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
     <div id="audit-trail" className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Audit Trail
+          บันทึกกิจกรรมระบบ
         </h3>
-        <Badge color="light">{auditLogs.length} events</Badge>
+        <Badge color="light">{auditLogs.length} รายการ</Badge>
       </div>
       {auditLogs.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          No audit events for this tenant yet.
+          ยังไม่มีกิจกรรมของบริษัทนี้
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1231,15 +1228,15 @@ function DocumentsTable({
 }) {
   return (
     <DataTable
-      title="Sales Documents"
-      description="Header view from ic_trans. If header branch is blank, branch analytics still use detail branch where available."
-      badge={`${snapshot.documents.length} rows`}
-      headers={["Date", "Doc No", "Customer", "Header Branch", "Total", "Cashier"]}
+      title="บิลขาย"
+      description="ข้อมูลหัวบิลจาก SML ใช้เป็นยอดขายหลักของรายงาน"
+      badge={`${snapshot.documents.length} แถว`}
+      headers={["วันที่", "เลขที่บิล", "ลูกค้า", "สาขาบนบิล", "ยอดรวม", "แคชเชียร์"]}
       rows={snapshot.documents.map((document) => [
         document.doc_date,
         document.doc_no,
         document.cust_name || document.cust_code || "-",
-        document.branch_code || "Header blank",
+        document.branch_code || "ไม่ระบุสาขา",
         formatMoney(document.total_amount),
         document.cashier_code || "-",
       ])}
@@ -1250,15 +1247,15 @@ function DocumentsTable({
 function LinesTable({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
   return (
     <DataTable
-      title="Product and Service Lines"
-      description="Detail view from ic_trans_detail. Branch charts and top-product analytics use this detail branch."
-      badge={`${snapshot.lines.length} rows`}
-      headers={["Date", "Doc No", "Item", "Detail Branch", "Qty", "Amount"]}
+      title="รายการสินค้าและบริการ"
+      description="ข้อมูลรายการในบิล ใช้สำหรับดูสินค้าขายดี จำนวนขาย และยอดขายรายสาขา"
+      badge={`${snapshot.lines.length} แถว`}
+      headers={["วันที่", "เลขที่บิล", "สินค้า/บริการ", "สาขา", "จำนวน", "ยอดขาย"]}
       rows={snapshot.lines.map((line) => [
         line.doc_date,
         line.doc_no,
         `${line.item_code || "-"} ${line.item_name || ""}`,
-        line.branch_code || "no_branch",
+        line.branch_code || "ไม่ระบุสาขา",
         formatQty(line.qty),
         formatMoney(line.sum_amount),
       ])}
@@ -1302,7 +1299,7 @@ function DataTable(props: {
         <div className="flex flex-col gap-2 sm:w-[360px] sm:flex-row sm:items-center">
           <Input
             type="text"
-            placeholder="Search table"
+            placeholder="ค้นหาในตาราง"
             onChange={(event) => {
               setQuery(event.target.value);
               setPage(0);
@@ -1344,8 +1341,8 @@ function DataTable(props: {
       </div>
       <div className="flex flex-col gap-3 border-t border-gray-100 px-5 py-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <span>
-          Showing {visibleRows.length ? currentPage * pageSize + 1 : 0}-
-          {Math.min((currentPage + 1) * pageSize, filteredRows.length)} of{" "}
+          แสดง {visibleRows.length ? currentPage * pageSize + 1 : 0}-
+          {Math.min((currentPage + 1) * pageSize, filteredRows.length)} จาก{" "}
           {filteredRows.length}
         </span>
         <div className="flex items-center gap-2">
@@ -1355,7 +1352,7 @@ function DataTable(props: {
             onClick={() => setPage(Math.max(0, currentPage - 1))}
             disabled={currentPage === 0}
           >
-            Previous
+            ก่อนหน้า
           </Button>
           <span className="text-xs">
             {currentPage + 1} / {pageCount}
@@ -1366,7 +1363,7 @@ function DataTable(props: {
             onClick={() => setPage(Math.min(pageCount - 1, currentPage + 1))}
             disabled={currentPage >= pageCount - 1}
           >
-            Next
+            ถัดไป
           </Button>
         </div>
       </div>
@@ -1390,7 +1387,7 @@ function SummaryRow(props: { label: string; value: string }) {
 function LoadingState() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {["Total Sales", "Documents", "Lines", "Top Product"].map((label) => (
+      {["ยอดขายสุทธิ", "จำนวนบิล", "รายการสินค้า", "สินค้าขายดี"].map((label) => (
         <div
           key={label}
           className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
@@ -1409,10 +1406,10 @@ function EmptyRangeState() {
     <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-white/[0.03]">
       <CheckCircleIcon className="mx-auto mb-4 h-10 w-10 text-gray-400" />
       <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-        No sales in this range
+        ไม่พบยอดขายในช่วงวันที่นี้
       </h3>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-        The report returned a valid empty snapshot. Try another period or tenant.
+        รายงานทำงานสำเร็จ แต่ไม่มีข้อมูลขายในช่วงวันที่ที่เลือก ลองเปลี่ยนช่วงวันที่หรือบริษัท
       </p>
     </div>
   );
@@ -1445,20 +1442,68 @@ function formatDateTime(value: string) {
 
 function formatDuration(seconds: number) {
   if (seconds < 60) {
-    return `${seconds}s ago`;
+    return `${seconds} วินาทีที่แล้ว`;
   }
 
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return `${minutes} นาทีที่แล้ว`;
   }
 
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return `${hours}h ago`;
+    return `${hours} ชั่วโมงที่แล้ว`;
   }
 
-  return `${Math.floor(hours / 24)}d ago`;
+  return `${Math.floor(hours / 24)} วันที่แล้ว`;
+}
+
+function formatWorkerStatus(status: OperationsStatus["worker"]["status"]) {
+  if (status === "ok") {
+    return "ปกติ";
+  }
+
+  if (status === "warning") {
+    return "มีคำเตือน";
+  }
+
+  if (status === "error") {
+    return "ผิดพลาด";
+  }
+
+  if (status === "stale") {
+    return "สัญญาณเก่า";
+  }
+
+  return "ยังไม่พบสัญญาณ";
+}
+
+function formatDeliveryStatus(status: LineDeliveryRecord["status"]) {
+  if (status === "success") {
+    return "ส่งสำเร็จ";
+  }
+
+  if (status === "failed") {
+    return "ส่งไม่สำเร็จ";
+  }
+
+  if (status === "dry_run") {
+    return "ทดสอบข้อความ";
+  }
+
+  return "ข้ามการส่ง";
+}
+
+function formatRunStatus(status: ReportRunRecord["status"]) {
+  if (status === "success") {
+    return "สำเร็จ";
+  }
+
+  if (status === "running") {
+    return "กำลังรัน";
+  }
+
+  return "ไม่สำเร็จ";
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {
@@ -1515,5 +1560,5 @@ function addDaysToYmd(value: string, days: number) {
 }
 
 function formatSource(value: SalesGoodsServicesSnapshot["source"]) {
-  return value === "sml_postgres" ? "SML PostgreSQL" : "Sample snapshot";
+  return value === "sml_postgres" ? "SML PostgreSQL" : "ข้อมูลตัวอย่าง";
 }
