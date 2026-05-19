@@ -49,6 +49,7 @@ const navItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
+  const [currentHash, setCurrentHash] = useState("");
 
   const renderMenuItems = (
     navItems: NavItem[],
@@ -185,9 +186,25 @@ const AppSidebar: React.FC = () => {
   );
   const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  useEffect(() => {
+    const syncHash = () => setCurrentHash(window.location.hash);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
+
   const isActive = useCallback(
-    (path: string) => path.split("#")[0] === pathname,
-    [pathname],
+    (path: string) => {
+      const [pathOnly, hash] = path.split("#");
+      if (pathOnly !== pathname) {
+        return false;
+      }
+      if (hash) {
+        return currentHash === `#${hash}`;
+      }
+      return currentHash === "";
+    },
+    [currentHash, pathname],
   );
 
   useEffect(() => {
