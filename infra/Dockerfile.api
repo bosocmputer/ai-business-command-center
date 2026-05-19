@@ -15,8 +15,7 @@ COPY packages/reports packages/reports
 
 RUN corepack pnpm --filter @ai-bcc/shared build \
   && corepack pnpm --filter @ai-bcc/reports build \
-  && corepack pnpm --filter @ai-bcc/api build \
-  && corepack pnpm prune --prod
+  && corepack pnpm --filter @ai-bcc/api build
 
 FROM node:24-alpine AS runner
 
