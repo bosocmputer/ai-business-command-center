@@ -52,7 +52,7 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:4000";
 
-const defaultTenantId: TenantId = "tenant_office_sml1_2026";
+const defaultTenantId: TenantId = "tenant_demo_remote";
 const defaultDateRange = {
   date_from: "2026-05-10",
   date_to: "2026-05-19",
@@ -1128,7 +1128,7 @@ function formatQty(value: number) {
 }
 
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("th-TH", {
+  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Bangkok",
