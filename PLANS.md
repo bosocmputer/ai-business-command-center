@@ -4,12 +4,20 @@
 
 ## Current State
 
-Workspace ตอนนี้ตั้งใจให้เริ่มระบบใหม่แบบ web-first จากศูนย์
+Workspace ตอนนี้มี Phase 1 MVP ที่ deploy ได้แล้ว
 
 สิ่งที่มี:
 
 - `docs/` ชุด blueprint และ engineering playbook
 - `.codex/skills/ai-business-command-center/SKILL.md` project skill สำหรับให้ AI ยึด workflow เดิม
+- `apps/web` TailAdmin Next.js dashboard
+- `apps/api` Fastify report runner + LINE endpoints
+- `apps/worker` placeholder สำหรับ scheduler/worker phase ถัดไป
+- `packages/shared` shared types/Zod schemas
+- `packages/reports` report contract/renderer สำหรับ `sales_goods_services`
+- Docker Compose deploy บน `192.168.2.109`
+- LINE OA demo flow ส่งเข้ากลุ่มทดสอบได้จริง
+- Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
 สิ่งที่ไม่มีแล้ว:
 
@@ -17,6 +25,13 @@ Workspace ตอนนี้ตั้งใจให้เริ่มระบ�
 - proposal เก่า
 - Python generator scripts
 - dependency/cache/build artifacts
+
+Current deployed endpoints:
+
+```text
+Web: http://192.168.2.109:3055/command-center
+API: http://192.168.2.109:4055
+```
 
 ## Product Direction
 
