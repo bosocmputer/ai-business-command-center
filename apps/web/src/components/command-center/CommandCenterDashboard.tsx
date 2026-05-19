@@ -428,105 +428,251 @@ export default function CommandCenterDashboard() {
 
       {!loading && snapshot && (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              icon={<DollarLineIcon className="text-gray-800 dark:text-white/90" />}
-              label="ยอดขายสุทธิ"
-              value={formatMoney(snapshot.summary.total_sales)}
-              detail="ยอดขายจากหัวบิล SML"
-              tone="sales"
-            />
-            <MetricCard
-              icon={<GroupIcon className="text-gray-800 size-6 dark:text-white/90" />}
-              label="จำนวนบิลขาย"
-              value={formatInteger(snapshot.summary.document_count)}
-              detail="เอกสารขายทั้งหมด"
-              tone="volume"
-            />
-            <MetricCard
-              icon={<TableIcon className="text-gray-800 dark:text-white/90" />}
-              label="รายการสินค้า/บริการ"
-              value={formatInteger(snapshot.summary.line_count)}
-              detail={`จำนวนรวม ${formatQty(snapshot.summary.total_qty)}`}
-              tone="activity"
-            />
-            <MetricCard
-              icon={<BoxIconLine className="text-gray-800 dark:text-white/90" />}
-              label="สินค้าขายดี"
-              value={snapshot.summary.top_product_name || "ยังไม่มีข้อมูล"}
-              detail="เรียงตามยอดขายสินค้า"
-              valueTone="compact"
-              tone="product"
-            />
-          </div>
-
           {snapshot.summary.document_count === 0 ? (
             <EmptyRangeState />
           ) : (
-            <div className="grid grid-cols-12 gap-4 md:gap-6">
-              <div className="col-span-12">
-                <SnapshotProvenance snapshot={snapshot} runs={runs} />
+            <div className="space-y-8">
+              <BusinessHealthStrip
+                snapshot={snapshot}
+                lineDelivery={morningBriefSuccessDelivery}
+                operationsStatus={operationsStatus}
+              />
+
+              <ExecutiveSectionHeader
+                eyebrow="Action Required"
+                title="สิ่งที่ต้องตัดสินใจวันนี้"
+                description="จัดลำดับความสำคัญจากยอดขาย สาขา คุณภาพข้อมูล และสถานะส่ง LINE"
+                badge="สำหรับผู้บริหาร"
+              />
+              <DecisionBriefPanel
+                snapshot={snapshot}
+                lineDelivery={morningBriefSuccessDelivery}
+                operationsStatus={operationsStatus}
+              />
+
+              <ExecutiveSectionHeader
+                eyebrow="Sales Intelligence"
+                title="อ่านยอดขายให้เห็นภาพ"
+                description="ดูว่าสาขาไหนขับเคลื่อนยอดขาย และสินค้าใดสร้างรายได้หลักของรอบนี้"
+                badge="ยอดขายและสินค้า"
+              />
+              <div className="grid grid-cols-12 gap-4 md:gap-6">
+                <div className="col-span-12 xl:col-span-7">
+                  <BranchSalesChart snapshot={snapshot} />
+                </div>
+                <div className="col-span-12 xl:col-span-5">
+                  <TopProductsChart snapshot={snapshot} />
+                </div>
               </div>
-              <div className="col-span-12">
-                <DecisionBriefPanel
-                  snapshot={snapshot}
-                  lineDelivery={morningBriefSuccessDelivery}
-                  operationsStatus={operationsStatus}
-                />
-              </div>
-              <div className="col-span-12 xl:col-span-7">
-                <BranchSalesChart snapshot={snapshot} />
-              </div>
-              <div className="col-span-12 xl:col-span-5">
-                <TopProductsChart snapshot={snapshot} />
-              </div>
-              <div className="col-span-12">
-                <MorningBriefControl
-                  tenantName={selectedTenant?.name ?? tenantId}
-                  period={morningBriefPeriod}
-                  sentDelivery={morningBriefSuccessDelivery}
-                  latestResult={morningBriefResult}
-                  running={lineSending}
-                  nextSchedule={formatNextMorningBriefSchedule()}
-                  onDryRun={() => void runMorningBrief("dry_run", true)}
-                  onSend={() => void runMorningBrief("send", false)}
-                />
-              </div>
-              {linePreview && (
-                <div className="col-span-12">
-                  <MorningBriefPreview
-                    preview={linePreview}
-                    deliveries={lineDeliveries}
-                    latestResult={lineSendResult}
+
+              <ExecutiveSectionHeader
+                eyebrow="Morning Brief"
+                title="ส่งข้อมูลที่ตรวจสอบแล้วเข้า LINE"
+                description="ควบคุมข้อความสรุปเช้า กันส่งซ้ำ และตรวจความถูกต้องก่อนลูกค้าได้รับ"
+                badge="08:00 Asia/Bangkok"
+              />
+              <div className="grid grid-cols-12 gap-4 md:gap-6">
+                <div className="col-span-12 xl:col-span-7">
+                  <MorningBriefControl
+                    tenantName={selectedTenant?.name ?? tenantId}
+                    period={morningBriefPeriod}
+                    sentDelivery={morningBriefSuccessDelivery}
+                    latestResult={morningBriefResult}
+                    running={lineSending}
+                    nextSchedule={formatNextMorningBriefSchedule()}
+                    onDryRun={() => void runMorningBrief("dry_run", true)}
+                    onSend={() => void runMorningBrief("send", false)}
                   />
                 </div>
-              )}
-              <div className="col-span-12 xl:col-span-5">
-                <ReconciliationPanel snapshot={snapshot} />
+                <div className="col-span-12 xl:col-span-5">
+                  <ReconciliationPanel snapshot={snapshot} />
+                </div>
+                {linePreview && (
+                  <div className="col-span-12">
+                    <MorningBriefPreview
+                      preview={linePreview}
+                      deliveries={lineDeliveries}
+                      latestResult={lineSendResult}
+                    />
+                  </div>
+                )}
               </div>
-              <div className="col-span-12 xl:col-span-7">
-                <RunHistory runs={runs} />
-              </div>
-              <div className="col-span-12">
-                <OperationsReadinessPanel
-                  status={operationsStatus}
-                  tenantId={tenantId}
-                  snapshot={snapshot}
-                />
-              </div>
-              <div className="col-span-12">
-                <AuditTrail auditLogs={auditLogs} />
-              </div>
-              <div className="col-span-12">
-                <DocumentsTable snapshot={snapshot} />
-              </div>
-              <div className="col-span-12">
-                <LinesTable snapshot={snapshot} />
+
+              <ExecutiveSectionHeader
+                eyebrow="Data Trust"
+                title="หลักฐานและรายละเอียดสำหรับตรวจสอบ"
+                description="เก็บประวัติรันรายงาน audit log และตารางต้นทางไว้ด้านล่าง เพื่อไม่รบกวนภาพรวมผู้บริหาร"
+                badge="Traceable"
+              />
+              <div className="grid grid-cols-12 gap-4 md:gap-6">
+                <div className="col-span-12">
+                  <SnapshotProvenance snapshot={snapshot} runs={runs} />
+                </div>
+                <div className="col-span-12 xl:col-span-7">
+                  <RunHistory runs={runs} />
+                </div>
+                <div className="col-span-12 xl:col-span-5">
+                  <OperationsReadinessPanel
+                    status={operationsStatus}
+                    tenantId={tenantId}
+                    snapshot={snapshot}
+                  />
+                </div>
+                <div className="col-span-12">
+                  <AuditTrail auditLogs={auditLogs} />
+                </div>
+                <div className="col-span-12">
+                  <CollapsibleDataSection snapshot={snapshot} />
+                </div>
               </div>
             </div>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function ExecutiveSectionHeader({
+  eyebrow,
+  title,
+  description,
+  badge,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  badge: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-gray-100 pt-7 dark:border-gray-800 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
+          {eyebrow}
+        </p>
+        <h2 className="mt-2 text-xl font-semibold text-gray-900 dark:text-white/90">
+          {title}
+        </h2>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {description}
+        </p>
+      </div>
+      <Badge color="light">{badge}</Badge>
+    </div>
+  );
+}
+
+function BusinessHealthStrip({
+  snapshot,
+  lineDelivery,
+  operationsStatus,
+}: {
+  snapshot: SalesGoodsServicesSnapshot;
+  lineDelivery: LineDeliveryRecord | null;
+  operationsStatus: OperationsStatus | null;
+}) {
+  const totalSales = snapshot.summary.total_sales;
+  const documentCount = snapshot.summary.document_count;
+  const lineCount = snapshot.summary.line_count;
+  const averageBill = documentCount > 0 ? totalSales / documentCount : 0;
+  const linesPerBill = documentCount > 0 ? lineCount / documentCount : 0;
+  const topBranch = snapshot.branch_sales[0] ?? null;
+  const topBranchShare = topBranch
+    ? (topBranch.total_amount / Math.max(totalSales, 1)) * 100
+    : 0;
+  const topProduct = snapshot.top_products[0] ?? null;
+  const topProductShare = topProduct
+    ? (topProduct.sum_amount / Math.max(totalSales, 1)) * 100
+    : 0;
+  const reconciliationOk =
+    Math.abs(snapshot.reconciliation.difference_amount) <= 0.01;
+  const lineSent = lineDelivery?.status === "success";
+  const workerOk = operationsStatus?.worker.status === "ok";
+  const operationalReady = reconciliationOk && lineSent && workerOk;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <HealthMetricCard
+        icon={<DollarLineIcon className="text-success-600 dark:text-success-400" />}
+        label="ยอดขายเมื่อวาน"
+        value={`${formatMoney(totalSales)} บาท`}
+        detail={`${formatInteger(documentCount)} บิล · บิลเฉลี่ย ${formatMoney(averageBill)} บาท`}
+        tone="success"
+        badge="Revenue"
+      />
+      <HealthMetricCard
+        icon={<GroupIcon className="size-6 text-brand-600 dark:text-brand-400" />}
+        label="ความเข้มข้นของสาขา"
+        value={topBranch ? `${topBranch.branch_code} · ${formatPercent(topBranchShare)}` : "-"}
+        detail={
+          topBranchShare >= 90
+            ? "ยอดขายพึ่งสาขาเดียวสูง ควรตรวจ branch mapping"
+            : `${snapshot.branch_sales.length} สาขามีข้อมูลในรอบนี้`
+        }
+        tone={topBranchShare >= 90 ? "warning" : "primary"}
+        badge="Branch"
+      />
+      <HealthMetricCard
+        icon={<BoxIconLine className="text-warning-600 dark:text-warning-400" />}
+        label="สินค้าที่นำยอด"
+        value={topProduct ? `${formatPercent(topProductShare)} ของยอดขาย` : "ยังไม่มีข้อมูล"}
+        detail={topProduct?.item_name ?? "ยังไม่พบสินค้าขายดีในช่วงนี้"}
+        tone={topProductShare >= 35 ? "warning" : "light"}
+        badge="Product"
+      />
+      <HealthMetricCard
+        icon={<TableIcon className="text-blue-light-600 dark:text-blue-light-400" />}
+        label="พร้อมใช้คุยธุรกิจ"
+        value={operationalReady ? "พร้อมนำเสนอ" : "ควรตรวจก่อนใช้จริง"}
+        detail={`${formatQty(linesPerBill)} รายการต่อบิล · ${
+          lineSent ? "LINE ส่งแล้ว" : "LINE ยังไม่ส่ง"
+        }`}
+        tone={operationalReady ? "success" : "warning"}
+        badge="Trust"
+      />
+    </div>
+  );
+}
+
+function HealthMetricCard({
+  icon,
+  label,
+  value,
+  detail,
+  tone,
+  badge,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+  tone: "success" | "warning" | "primary" | "light";
+  badge: string;
+}) {
+  const toneClass = {
+    success: "border-success-200 bg-success-50/70 dark:border-success-500/20 dark:bg-success-500/10",
+    warning: "border-warning-200 bg-warning-50/70 dark:border-warning-500/20 dark:bg-warning-500/10",
+    primary: "border-brand-200 bg-brand-50/70 dark:border-brand-500/20 dark:bg-brand-500/10",
+    light: "border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]",
+  }[tone];
+
+  return (
+    <div className={`rounded-2xl border p-5 shadow-theme-xs ${toneClass}`}>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white shadow-theme-xs dark:bg-white/10">
+          {icon}
+        </div>
+        <Badge color={tone}>{badge}</Badge>
+      </div>
+      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+        {label}
+      </p>
+      <p className="mt-2 line-clamp-2 text-xl font-semibold text-gray-900 dark:text-white/90">
+        {value}
+      </p>
+      <p className="mt-2 line-clamp-2 text-sm leading-5 text-gray-600 dark:text-gray-300">
+        {detail}
+      </p>
     </div>
   );
 }
@@ -798,78 +944,156 @@ function DecisionBriefPanel({
     Math.abs(snapshot.reconciliation.difference_amount) <= 0.01;
   const workerOk = operationsStatus?.worker.status === "ok";
   const lineSent = lineDelivery?.status === "success";
+  const topBranch = snapshot.branch_sales[0] ?? null;
+  const topBranchShare = topBranch
+    ? (topBranch.total_amount / Math.max(snapshot.summary.total_sales, 1)) * 100
+    : 0;
+  const topProduct = snapshot.top_products[0] ?? null;
+  const topProductShare = topProduct
+    ? (topProduct.sum_amount / Math.max(snapshot.summary.total_sales, 1)) * 100
+    : 0;
   const items = [
     {
-      title: "สาขาที่ต้องดู",
+      title: "ตรวจสาขาที่ไม่ระบุ",
       value: noBranch ? "มีรายการไม่ระบุสาขา" : "ข้อมูลสาขาชัดเจน",
       detail: noBranch
         ? `${formatMoney(noBranch.total_amount)} บาทอยู่ใน no_branch`
         : `${snapshot.branch_sales[0]?.branch_code ?? "-"} เป็นสาขาหลักของรอบนี้`,
+      owner: "ฝ่ายขาย / แอดมิน SML",
       tone: noBranch ? "warning" : "success",
     },
     {
-      title: "คุณภาพยอดขาย",
+      title: "ยืนยันตัวเลขก่อนส่งต่อ",
       value: reconciliationOk ? "ยอดหัวบิลตรงกับรายการ" : "ยอดมีส่วนต่าง",
       detail: reconciliationOk
         ? "ใช้ตัวเลขนี้คุยต่อได้"
         : `ส่วนต่าง ${formatMoney(snapshot.reconciliation.difference_amount)} บาท`,
+      owner: "บัญชี / ผู้ดูแลข้อมูล",
       tone: reconciliationOk ? "success" : "warning",
     },
     {
-      title: "การส่งสรุปเช้า",
+      title: "สถานะ Morning Brief",
       value: lineSent ? "ส่ง LINE แล้ว" : "ยังไม่พบการส่งสำเร็จ",
       detail: lineDelivery
         ? formatDateTime(lineDelivery.created_at)
         : "ควรทดสอบก่อน demo ลูกค้า",
+      owner: "ผู้ดูแลระบบ",
       tone: lineSent ? "success" : "warning",
     },
     {
-      title: "ระบบเบื้องหลัง",
+      title: "สุขภาพงานเบื้องหลัง",
       value: workerOk ? "ทำงานปกติ" : "ควรตรวจ worker",
       detail: operationsStatus?.worker.age_seconds
         ? formatDuration(operationsStatus.worker.age_seconds)
         : "ยังไม่มี heartbeat",
+      owner: "Technical owner",
       tone: workerOk ? "success" : "warning",
+    },
+    {
+      title: "ความเสี่ยงพึ่งสาขาเดียว",
+      value:
+        topBranch && topBranchShare >= 90
+          ? `${topBranch.branch_code} ถือยอด ${formatPercent(topBranchShare)}`
+          : "กระจายยอดขายอยู่ในเกณฑ์",
+      detail:
+        topBranch && topBranchShare >= 90
+          ? "ควรตรวจว่าสาขาอื่นไม่มีข้อมูลจริง หรือ mapping สาขายังไม่ครบ"
+          : `${snapshot.branch_sales.length} สาขาถูกนับในรายงานนี้`,
+      owner: "ผู้จัดการสาขา",
+      tone: topBranch && topBranchShare >= 90 ? "warning" : "success",
+    },
+    {
+      title: "สินค้าหลักของรอบนี้",
+      value: topProduct
+        ? `${topProduct.item_name.slice(0, 42)}${topProduct.item_name.length > 42 ? "..." : ""}`
+        : "ยังไม่มีสินค้าเด่น",
+      detail: topProduct
+        ? `${formatMoney(topProduct.sum_amount)} บาท · ${formatPercent(topProductShare)} ของยอดขาย`
+        : "ยังไม่พบรายการสินค้าในช่วงวันที่นี้",
+      owner: "จัดซื้อ / ฝ่ายขาย",
+      tone: topProductShare >= 35 ? "warning" : "success",
     },
   ] satisfies Array<{
     title: string;
     value: string;
     detail: string;
+    owner: string;
     tone: "success" | "warning";
   }>;
+  const watchCount = items.filter((item) => item.tone === "warning").length;
 
   return (
-    <ComponentCard
-      title="สิ่งที่ต้องดูวันนี้"
-      desc="สรุปประเด็นจากรายงานล่าสุดสำหรับเจ้าของกิจการและผู้จัดการ"
-      action={<Badge color="primary">Executive checklist</Badge>}
-    >
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {items.map((item) => (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="rounded-2xl border border-gray-900 bg-[#101828] p-6 text-white shadow-theme-md">
+        <Badge color={watchCount ? "warning" : "success"}>
+          {watchCount ? `${watchCount} เรื่องควรดู` : "พร้อมนำเสนอ"}
+        </Badge>
+        <p className="mt-5 text-sm font-medium text-gray-300">
+          Executive decision
+        </p>
+        <h3 className="mt-2 text-2xl font-semibold text-white">
+          {watchCount
+            ? "มีประเด็นที่ควรเคลียร์ก่อนส่งต่อ"
+            : "รายงานพร้อมใช้คุยธุรกิจวันนี้"}
+        </h3>
+        <p className="mt-3 text-sm leading-6 text-gray-300">
+          ระบบอ่านข้อมูลจาก SML แล้วแปลงเป็นรายการตัดสินใจสั้น ๆ เพื่อให้เจ้าของกิจการไม่ต้องไล่ดูตารางเอง
+        </p>
+        <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.06] p-4">
+          <p className="text-xs font-medium uppercase text-gray-400">
+            Next best action
+          </p>
+          <p className="mt-2 text-sm font-semibold text-white">
+            {watchCount
+              ? "เริ่มจากการตรวจ no_branch และความถูกต้องยอดขาย"
+              : "ใช้ dashboard นี้เป็น morning brief สำหรับทีมขายได้เลย"}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {items.map((item, index) => (
           <div
             key={item.title}
-            className={`rounded-xl border p-4 ${
+            className={`rounded-2xl border bg-white p-5 shadow-theme-xs dark:bg-white/[0.03] ${
               item.tone === "success"
-                ? "border-success-200 bg-success-50/70 dark:border-success-500/20 dark:bg-success-500/10"
-                : "border-warning-200 bg-warning-50/70 dark:border-warning-500/20 dark:bg-warning-500/10"
+                ? "border-success-100 dark:border-success-500/20"
+                : "border-warning-200 dark:border-warning-500/20"
             }`}
           >
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                {item.title}
-              </p>
-              <Badge color={item.tone}>{item.tone === "success" ? "ปกติ" : "ดูต่อ"}</Badge>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-semibold ${
+                    item.tone === "success"
+                      ? "bg-success-50 text-success-600 dark:bg-success-500/15"
+                      : "bg-warning-50 text-warning-600 dark:bg-warning-500/15"
+                  }`}
+                >
+                  {index + 1}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white/90">
+                    {item.title}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Owner: {item.owner}
+                  </p>
+                </div>
+              </div>
+              <Badge color={item.tone}>
+                {item.tone === "success" ? "ปกติ" : "ควรดู"}
+              </Badge>
             </div>
-            <p className="text-base font-semibold text-gray-800 dark:text-white/90">
+            <p className="mt-4 text-base font-semibold text-gray-800 dark:text-white/90">
               {item.value}
             </p>
-            <p className="mt-2 text-sm leading-5 text-gray-600 dark:text-gray-300">
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
               {item.detail}
             </p>
           </div>
         ))}
       </div>
-    </ComponentCard>
+    </div>
   );
 }
 
@@ -899,18 +1123,21 @@ function OperationsReadinessPanel({
       title="สถานะระบบพร้อมใช้งาน"
       desc="ตรวจว่า API, งานส่งรายงานเช้า, ฐานข้อมูลของบริษัท และ LINE OA พร้อมใช้งานหรือไม่"
       action={
-        <div className="flex flex-wrap gap-2">
-          <Badge color={status.api.system_store === "postgres" ? "success" : "warning"}>
-            {status.api.system_store === "postgres" ? "ฐานระบบพร้อม" : "โหมดไฟล์ทดลอง"}
-          </Badge>
-          <Badge color={workerTone}>งานเบื้องหลัง {formatWorkerStatus(status.worker.status)}</Badge>
-          <Badge color={status.scheduler.enabled ? "success" : "warning"}>
-            ส่งอัตโนมัติ {status.scheduler.enabled ? "เปิดอยู่" : "ปิดอยู่"}
-          </Badge>
-        </div>
+        <Badge color={status.api.ok && status.scheduler.enabled ? "success" : "warning"}>
+          {status.api.ok && status.scheduler.enabled ? "พร้อมใช้งาน" : "ต้องตรวจ"}
+        </Badge>
       }
     >
-      <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-6">
+      <div className="flex flex-wrap gap-2">
+        <Badge color={status.api.system_store === "postgres" ? "success" : "warning"}>
+          {status.api.system_store === "postgres" ? "ฐานระบบพร้อม" : "โหมดไฟล์ทดลอง"}
+        </Badge>
+        <Badge color={workerTone}>งานเบื้องหลัง {formatWorkerStatus(status.worker.status)}</Badge>
+        <Badge color={status.scheduler.enabled ? "success" : "warning"}>
+          ส่งอัตโนมัติ {status.scheduler.enabled ? "เปิดอยู่" : "ปิดอยู่"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
         <SummaryBlock
           label="API"
           value={status.api.ok ? "พร้อมใช้งาน" : "ต้องตรวจสอบ"}
@@ -946,66 +1173,6 @@ function OperationsReadinessPanel({
         />
       </div>
     </ComponentCard>
-  );
-}
-
-function MetricCard(props: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-  valueTone?: "default" | "compact";
-  tone?: "sales" | "volume" | "activity" | "product";
-}) {
-  const tone = props.tone ?? "activity";
-  const toneClasses = {
-    sales: {
-      accent: "bg-success-500",
-      icon: "bg-success-50 dark:bg-success-500/15",
-      ring: "border-success-100 dark:border-success-500/20",
-    },
-    volume: {
-      accent: "bg-brand-500",
-      icon: "bg-brand-50 dark:bg-brand-500/15",
-      ring: "border-brand-100 dark:border-brand-500/20",
-    },
-    activity: {
-      accent: "bg-blue-light-500",
-      icon: "bg-blue-light-50 dark:bg-blue-light-500/15",
-      ring: "border-blue-light-100 dark:border-blue-light-500/20",
-    },
-    product: {
-      accent: "bg-warning-500",
-      icon: "bg-warning-50 dark:bg-warning-500/15",
-      ring: "border-warning-100 dark:border-warning-500/20",
-    },
-  }[tone];
-
-  return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border bg-white p-5 shadow-theme-xs dark:bg-white/[0.03] md:p-6 ${toneClasses.ring}`}
-    >
-      <div className={`absolute inset-x-0 top-0 h-1 ${toneClasses.accent}`} />
-      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${toneClasses.icon}`}>
-        {props.icon}
-      </div>
-      <div className="mt-5">
-        <span className="text-sm text-gray-500 dark:text-gray-400">
-          {props.label}
-        </span>
-        <h4
-          className={`mt-2 line-clamp-3 font-bold text-gray-800 dark:text-white/90 ${
-            props.valueTone === "compact" ? "text-lg leading-snug" : "text-title-sm"
-          }`}
-          title={props.value}
-        >
-          {props.value}
-        </h4>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {props.detail}
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -1535,6 +1702,38 @@ function AuditTrail({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
         </div>
       )}
     </ComponentCard>
+  );
+}
+
+function CollapsibleDataSection({
+  snapshot,
+}: {
+  snapshot: SalesGoodsServicesSnapshot;
+}) {
+  return (
+    <details className="group rounded-2xl border border-gray-200 bg-white shadow-theme-xs dark:border-gray-800 dark:bg-white/[0.03]">
+      <summary className="flex cursor-pointer list-none flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-base font-medium text-gray-800 dark:text-white/90">
+            ตารางข้อมูลต้นทาง
+          </p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            เปิดเฉพาะตอนต้องตรวจเลขบิลหรือรายการสินค้า ลด noise สำหรับหน้า executive view
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge color="light">{snapshot.documents.length} บิล</Badge>
+          <Badge color="light">{snapshot.lines.length} รายการ</Badge>
+          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 transition group-open:bg-brand-50 group-open:text-brand-500 dark:bg-white/5 dark:text-gray-300">
+            เปิดดูตาราง
+          </span>
+        </div>
+      </summary>
+      <div className="space-y-4 border-t border-gray-100 p-4 dark:border-gray-800 sm:p-6">
+        <DocumentsTable snapshot={snapshot} />
+        <LinesTable snapshot={snapshot} />
+      </div>
+    </details>
   );
 }
 
