@@ -84,6 +84,7 @@ branch_sales = ยอดขายรวมตาม branch_code
 รายงานกลางที่เพิ่มขึ้นเรื่อย ๆ:
 
 ```text
+sales_goods_services
 sales_by_branch
 sales_by_product
 top_products
@@ -95,16 +96,16 @@ so_backlog
 inventory_risk
 ```
 
-Phase 1 เริ่มที่ `sales_by_branch`
+Phase 1 implementation เริ่มจริงที่ `sales_goods_services` เพราะ query แรกจาก SML เป็นรายงานขายสินค้าและบริการที่ให้ทั้งหัวบิล, รายการสินค้า, สาขา, สินค้าขายดี และใช้ต่อยอดเป็น sales summary ได้
 
 ### 5. Chatbot Intent Model
 
 อนาคต chatbot map คำถามเป็น intent:
 
 ```text
-ถามยอดขายเมื่อวาน -> sales_summary -> sales_by_branch
-ถามสินค้าขายดี -> top_products -> sales_by_branch/sales_by_product
-ถามสาขาไหนขายดีที่สุด -> branch_sales -> sales_by_branch
+ถามยอดขายเมื่อวาน -> sales_summary -> sales_goods_services
+ถามสินค้าขายดี -> top_products -> sales_goods_services/sales_by_product
+ถามสาขาไหนขายดีที่สุด -> branch_sales -> sales_goods_services/sales_by_branch
 ```
 
 ## Branch Handling
@@ -165,4 +166,3 @@ flowchart TD
 - SML schema baseline เหมือนกันมากพอที่จะใช้ report library กลางได้
 - ถ้ามี tenant ที่ schema ต่าง ค่อยเพิ่ม tenant-specific override ภายหลัง
 - chatbot ต้องอ้างอิง report library ไม่ใช่เรียนรู้จาก raw DB schema โดยตรง
-

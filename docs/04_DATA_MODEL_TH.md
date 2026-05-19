@@ -14,15 +14,18 @@
 
 ## Core Tables
 
-Phase 1B implementation เริ่ม persist ตารางหลักผ่าน `SystemStore` แล้ว:
+Current implementation ผ่าน `SystemStore` persist ตารางหลักใน PostgreSQL system DB แล้ว:
 
 - `tenants`
 - `report_definitions`
 - `report_runs`
 - `report_snapshots`
+- `line_deliveries`
+- `line_webhook_events`
+- `worker_heartbeats`
 - `audit_logs`
 
-ส่วน `datasources`, `line_channels`, `users`, `roles`, `subscriptions` ยังเป็น future expansion หลัง dashboard/report snapshot stable
+ส่วน `datasources`, `line_channels`, `users`, `roles`, `subscriptions` ยังเป็น future expansion หลัง professional pilot stable ตอนนี้ datasource/LINE secrets ยังมาจาก env บน server
 
 ### tenants
 
@@ -197,23 +200,62 @@ updated_at
 
 `target_type`: `user`, `group`, `room`
 
-### message_deliveries
+### line_deliveries
 
-ประวัติการส่ง LINE หรือ channel อื่น
+ประวัติการส่ง LINE
 
 ```text
 id
 tenant_id
-channel_type
-line_channel_id
+report_key
 report_run_id
+delivery_key
+delivery_type
+period_from
+period_to
+target_id_masked
 message_type
-target_id
 status
-payload_json
 provider_response_json
+safe_error_message
 sent_at
-error_message
+created_at
+```
+
+`delivery_type`: `manual_test`, `morning_brief`
+
+`status`: `dry_run`, `success`, `failed`, `skipped`
+
+### line_webhook_events
+
+เก็บ event inbound จาก LINE webhook เพื่อหา target id และเตรียม chatbot ในอนาคต
+
+```text
+id
+event_type
+source_type
+source_id
+source_id_masked
+user_id
+message_text
+raw_event_json
+created_at
+```
+
+default API response ต้องคืน masked ids เท่านั้น
+
+### worker_heartbeats
+
+ใช้ตรวจว่างานเบื้องหลังยังทำงานอยู่
+
+```text
+id
+worker_id
+role
+status
+metadata_json
+checked_at
+created_at
 ```
 
 ### users

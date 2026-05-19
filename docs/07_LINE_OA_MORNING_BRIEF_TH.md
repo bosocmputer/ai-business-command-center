@@ -4,28 +4,34 @@
 
 ออกแบบ LINE OA strategy สำหรับส่ง Morning Brief ทุกเช้า และรองรับอนาคตเป็น LINE chatbot โดยยังรักษา tenant isolation และ auditability
 
-## Phase 1D Implementation Status
+## Current Implementation Status
 
-เริ่มมี LINE preview renderer แล้วสำหรับ report แรก `sales_goods_services`
+สถานะล่าสุดวันที่ `2026-05-20`: LINE Morning Brief สำหรับ report แรก `sales_goods_services` ใช้งานแบบ professional pilot แล้ว
 
 ```text
 GET /api/reports/:tenantId/sales_goods_services/line-preview
+GET /api/reports/:tenantId/sales_goods_services/line-deliveries
+POST /api/reports/:tenantId/sales_goods_services/line-send-test
+POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 ```
 
 หลักการ:
 
-- renderer อ่านจาก `report_snapshots` ล่าสุด
-- preview ยังไม่ส่งข้อความจริง
-- ข้อความต้องระบุ `source` ว่าเป็น `SML PostgreSQL` หรือ sample
+- renderer อ่านจาก `report_snapshots` ล่าสุด หรือ snapshot ที่เพิ่ง run ใน morning brief flow
+- `line-preview` ไม่ส่งข้อความจริง
+- `line-send-test` และ `morning-brief/run-and-send` เป็น mutation endpoint ต้องใช้ `x-ai-bcc-admin-token`
+- ข้อความต้องระบุ source เป็นภาษาผู้ใช้ เช่น `ข้อมูลจากระบบขาย SML`
 - ต้องใส่ `run_id` เพื่อ trace กลับไปหา report run
 - ถ้ามี reconciliation warning ต้องแสดงหมายเหตุใน message
+- dashboard link ใน LINE ต้องเป็น signed report viewer URL ไม่ใช่ admin dashboard
+- signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
 
-ข้อมูลที่ต้องใช้สำหรับขั้นส่งจริง:
+ข้อมูลที่ต้องใช้สำหรับการส่งจริง:
 
 - LINE OA channel access token
 - target recipient เช่น `userId`, `groupId`, หรือ `roomId`
 - tenant/channel mapping ใน `line_channels`
-- send log/retry ใน `message_deliveries`
+- send log/retry ใน `line_deliveries`
 
 ## LINE OA Strategy
 
@@ -68,7 +74,7 @@ flowchart TD
     D --> E[LINE OA Adapter]
     E --> F[LINE API]
     F --> G[User/Group/Room]
-    E --> H[message_deliveries log]
+    E --> H[line_deliveries log]
 ```
 
 ## Schedule
@@ -78,6 +84,27 @@ Default:
 ```text
 08:00 Asia/Bangkok
 ```
+
+Current pilot:
+
+```text
+MORNING_BRIEF_ENABLED=true
+MORNING_BRIEF_TENANT_IDS=tenant_demo_remote
+MORNING_BRIEF_TIME=08:00
+MORNING_BRIEF_TIMEZONE=Asia/Bangkok
+MORNING_BRIEF_MODE=send
+```
+
+Period:
+
+```text
+period = yesterday
+```
+
+ตัวอย่าง:
+
+- ถ้าวันนี้คือ `2026-05-20`
+- report period ที่ส่งคือ `2026-05-19` ถึง `2026-05-19`
 
 ต้อง config ต่อ tenant ได้:
 
@@ -90,22 +117,30 @@ target_id
 
 ## Morning Brief Content
 
-Phase 1 template example:
+Current professional pilot template:
 
 ```text
-สรุปยอดขายประจำวันที่ {{period_date}}
+AI Business Center
+รายงานขายสินค้าและบริการ
 
-ยอดขายรวม: {{total_net_amount}} บาท
-จำนวนสินค้า: {{total_qty}} ชิ้น
+บริษัท: {{tenant_name}}
+วันที่ข้อมูล: {{period_date}}
+อัปเดต: {{generated_at}}
 
-ยอดขายตามสาขา:
-{{branch_summary_top_5}}
+ยอดขายสุทธิ: {{total_sales}} บาท
+บิลขาย: {{document_count}} ใบ
+จำนวนรายการขาย: {{line_count}} รายการ
+จำนวนขายรวม: {{total_qty}}
+
+ยอดขายตามสาขา
+{{branch_summary_top_3}}
 
 สินค้าขายดี:
-{{top_products_top_5}}
+{{top_products_top_3}}
 
-ข้อมูลล่าสุด: {{last_run_at}}
-ดู Dashboard: {{dashboard_url}}
+หมายเหตุ: {{reconciliation_note_if_any}}
+Run ID: {{run_id}}
+เปิดรายงาน: {{signed_report_viewer_url}}
 ```
 
 ถ้า tenant ไม่มีสาขา:
@@ -129,6 +164,9 @@ Phase 1 template example:
 - แสดง `last_run_at`
 - ถ้าไม่มีข้อมูล ให้ส่งข้อความแบบ empty state ไม่ใช่ error ดิบ
 - ถ้า report failed ให้ส่ง alert เฉพาะ admin target หรือบันทึก error ตาม config
+- ใช้คำที่ผู้บริหารอ่านรู้เรื่อง เช่น `จำนวนรายการขาย`, `ข้อมูลจากระบบขาย SML`
+- หลีกเลี่ยงคำ technical เช่น `SML PostgreSQL`, `Dashboard`, `line_count` ในข้อความ LINE
+- link ต้องเปิด `/command-center/brief` ที่ validate signed token ได้
 
 ## Retry Policy
 
@@ -136,7 +174,7 @@ Phase 1 template example:
 
 - retry 3 ครั้ง
 - backoff 1 นาที, 5 นาที, 15 นาที
-- ถ้ายัง fail ให้บันทึก `message_deliveries.status = failed`
+- ถ้ายัง fail ให้บันทึก `line_deliveries.status = failed`
 
 ## Audit
 
@@ -153,7 +191,7 @@ provider_response
 error_message
 ```
 
-## Phase 1E Implementation Status
+## Phase 1E Historical Implementation Status
 
 เพิ่ม safe LINE test sender แล้ว:
 
@@ -219,3 +257,23 @@ LINE webhook
 ```
 
 Phase 1 ยังไม่เปิด inbound chatbot
+
+## Current Safety Rules
+
+- ไม่ส่ง LINE ซ้ำถ้า delivery key เดิมเคย success แล้ว ยกเว้น `force=true`
+- UI ต้อง confirm ก่อนส่ง LINE จริง
+- API ต้อง reject mutation ที่ไม่มี admin token:
+  - ไม่มี token: `401`
+  - token ผิด: `403`
+- response และ audit ห้าม expose token หรือ target id เต็ม
+- signed viewer link TTL default = `72` ชั่วโมง
+
+## Next Check
+
+รอบถัดไปให้ตรวจ Morning Brief จริงตอน `08:00 Asia/Bangkok`:
+
+1. worker run report ของ `tenant_demo_remote`
+2. snapshot period = เมื่อวาน
+3. LINE delivery status = `success` หรือถ้า duplicate ต้องเป็น `skipped`
+4. link จาก LINE เปิด `/command-center/brief` ของ `run_id` รอบนั้น
+5. ไม่มี token เต็มหลุดใน log/audit/browser body

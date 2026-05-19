@@ -13,6 +13,37 @@
 - ทุก customer data ต้องแยกด้วย `tenant_id`
 - ทุก report run ต้องมี audit/run log
 
+## Current MVP Security Baseline
+
+สถานะล่าสุดวันที่ `2026-05-20`:
+
+- System store ใช้ PostgreSQL แล้ว
+- Signed report viewer ใช้ token ผูกกับ `tenant_id + report_key + run_id + expires_at`
+- Signed viewer TTL default = `72` ชั่วโมง
+- Mutation endpoints ใช้ lightweight admin token ผ่าน header `x-ai-bcc-admin-token`
+- UI prompt admin token และเก็บใน `sessionStorage`
+- UI ต้อง confirm ก่อนส่ง LINE จริง
+- API log redact `x-ai-bcc-admin-token`
+- LINE target แสดงแบบ masked เท่านั้น
+- Secret จริงอยู่ใน `.env.server` บน server และห้าม commit
+
+Protected mutation endpoints:
+
+```text
+POST /api/reports/:tenantId/sales_goods_services/run
+POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+POST /api/reports/:tenantId/sales_goods_services/line-send-test
+POST /api/tenants/:tenantId/datasource/test
+```
+
+Response policy:
+
+- no token -> `401`
+- wrong token -> `403`
+- server token not configured -> `503`
+
+ข้อจำกัด: admin token เป็น MVP guard สำหรับ pilot เท่านั้น ไม่ใช่ replacement ของ login/role permission
+
 ## Database Access
 
 ### Recommended Production User
@@ -125,18 +156,20 @@ System DB ต้อง backup:
 
 ก่อนขึ้น production:
 
-- [ ] มี read-only DB user
-- [ ] password encrypted
-- [ ] IP allowlist/VPN พร้อม
-- [ ] query timeout พร้อม
-- [ ] report run history พร้อม
-- [ ] LINE delivery log พร้อม
+- [ ] มี read-only DB user สำหรับ SML customer database
+- [ ] SML password encrypted หรืออยู่ใน secret manager
+- [ ] IP allowlist/VPN/named tunnel พร้อม
+- [x] query ใช้ parameterized SQL
+- [x] report run history พร้อม
+- [x] LINE delivery log พร้อม
+- [x] signed customer report link พร้อม
+- [x] admin mutation token guard สำหรับ MVP พร้อม
 - [ ] error alert พร้อม
-- [ ] backup system DB พร้อม
+- [ ] backup/restore test สำหรับ system DB พร้อม
 - [ ] staging/prod env แยก
-- [ ] dashboard มี auth
-- [ ] ไม่มี credential จริงใน repo/docs
-- [ ] manual run เทียบกับรายงาน SML เดิมแล้ว
+- [ ] dashboard มี login/role permission เต็ม
+- [x] ไม่มี credential จริงใน repo/docs
+- [ ] manual run เทียบกับรายงาน SML เดิมแบบ customer sign-off แล้ว
 
 ## Incident Scenarios
 
@@ -159,4 +192,3 @@ System DB ต้อง backup:
 - compare params/date/filter
 - update report definition version ใหม่
 - keep old run history
-

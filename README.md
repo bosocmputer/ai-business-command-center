@@ -1,13 +1,22 @@
 # AI Business Command Center
 
-Prod-minded MVP สำหรับลูกค้า SML: approved report runner, multi-tenant dashboard, และเตรียมต่อ LINE OA Morning Brief ใน phase ถัดไป
+Professional pilot สำหรับลูกค้า SML: approved report runner, admin control room, signed LINE report viewer, LINE OA Morning Brief, run history และ audit log
 
 ## Current Milestone
 
 - UI: TailAdmin Next.js dashboard ใน `apps/web`
-- API: Fastify report API ใน `apps/api`
+- Viewer: compact signed report viewer ที่ `/command-center/brief`
+- API: Fastify report API + signed viewer API + LINE endpoints ใน `apps/api`
+- Worker: Morning Brief scheduler ใน `apps/worker`
 - Report: `sales_goods_services` ใน `packages/reports`
 - Shared schemas: `packages/shared`
+- Latest deployed commit: `9b7cb23`
+
+อ่านสถานะล่าสุดก่อนเริ่มงานต่อ:
+
+```text
+docs/16_CURRENT_STATUS_2026-05-20_TH.md
+```
 
 ## Quick Start
 
@@ -33,45 +42,59 @@ http://localhost:4000/health
 
 ## Persistence
 
-Phase 1B เก็บ `report_runs`, `report_snapshots`, และ `audit_logs` ผ่าน system store แล้ว
+Phase 1 เก็บ `report_runs`, `report_snapshots`, `line_deliveries`, `line_webhook_events`, `worker_heartbeats` และ `audit_logs` ผ่าน system store แล้ว
 
 - Dev default: local JSON ที่ `.data/system-store.json`
-- Prod/staging: ตั้ง `SYSTEM_DATABASE_URL` เพื่อใช้ PostgreSQL system DB
+- Prod/staging/pilot server: ตั้ง `SYSTEM_DATABASE_URL` เพื่อใช้ PostgreSQL system DB
 
 Local JSON store ถูก ignore จาก git เพื่อไม่ให้ข้อมูลลูกค้าหลุดเข้า repo
 
-## LINE Morning Brief Preview
+## LINE Morning Brief
 
-Phase 1D มี renderer สำหรับ preview ข้อความ LINE จาก snapshot ล่าสุดแล้ว
+Phase 1 professional pilot มี preview, manual test sender และ scheduled sender แล้ว
 
 ```text
 GET /api/reports/:tenantId/sales_goods_services/line-preview
+GET /api/reports/:tenantId/sales_goods_services/line-deliveries
+POST /api/reports/:tenantId/sales_goods_services/line-send-test
+POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 ```
 
-Preview ใช้ตรวจ wording, source, warning, top products, branch sales และ `run_id`
-
-## LINE Test Sender
-
-Phase 1E มี safe test sender แล้ว
+Morning Brief ใช้:
 
 ```text
-GET  /api/reports/:tenantId/sales_goods_services/line-deliveries
+period = yesterday
+timezone = Asia/Bangkok
+schedule = 08:00
+default tenant = tenant_demo_remote
+```
+
+LINE link ที่ส่งให้ผู้ใช้ต้องเป็น signed report viewer URL:
+
+```text
+/command-center/brief?tenant_id=...&run_id=...&token=...
+```
+
+ห้ามบันทึก signed URL เต็มลง docs หรือ log เพราะมี token
+
+## Admin Mutation Auth
+
+Mutation endpoints ต้องมี header:
+
+```text
+x-ai-bcc-admin-token: <server-only-token>
+```
+
+Protected endpoints:
+
+```text
+POST /api/reports/:tenantId/sales_goods_services/run
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
+POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+POST /api/tenants/:tenantId/datasource/test
 ```
 
-Body:
-
-```json
-{ "mode": "dry_run" }
-```
-
-หรือ
-
-```json
-{ "mode": "send" }
-```
-
-ถ้ายังไม่ได้ตั้ง `LINE_*_CHANNEL_ACCESS_TOKEN` และ `LINE_*_TARGET_ID` ระบบจะไม่ส่งออกไป LINE จริง แต่จะบันทึก delivery/audit เป็น `dry_run` หรือ `skipped` เพื่อทดสอบ flow ได้ปลอดภัยก่อน
+UI จะ prompt token และ confirm ก่อนส่ง LINE จริง
 
 Production ควรใช้ tenant-specific env:
 

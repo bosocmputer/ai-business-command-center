@@ -122,7 +122,7 @@ Target:
 192.168.2.109
 ```
 
-Phase 1 deploy ด้วย Docker Compose:
+Phase 1 professional pilot deploy ด้วย Docker Compose:
 
 ```text
 web
@@ -131,6 +131,20 @@ worker
 postgres
 redis optional
 ```
+
+Current deployed snapshot:
+
+```text
+Latest commit: 9b7cb23
+Web LAN: http://192.168.2.109:3055/command-center
+API LAN: http://192.168.2.109:4055
+Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
+Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
+System store: PostgreSQL
+Pilot tenant: tenant_demo_remote
+```
+
+หมายเหตุ: trycloudflare quick tunnel เป็น URL ชั่วคราว ถ้า tunnel restart ต้อง update `APP_BASE_URL` และ `NEXT_PUBLIC_API_BASE_URL` ใน `.env.server` แล้ว rebuild web
 
 ## Docker Compose Shape
 
@@ -163,9 +177,22 @@ SYSTEM_DATABASE_URL=<SYSTEM_DB_URL>
 ENCRYPTION_KEY=<SECRET>
 LINE_DEMO_CHANNEL_ACCESS_TOKEN=<SECRET>
 DEFAULT_TIMEZONE=Asia/Bangkok
+REPORT_VIEWER_SIGNING_SECRET=<32_PLUS_RANDOM_CHARS>
+REPORT_VIEWER_LINK_TTL_HOURS=72
+AI_BCC_ADMIN_TOKEN=<SERVER_ONLY_ADMIN_TOKEN>
 ```
 
 ห้าม commit ค่า secret จริง
+
+Current pilot env ที่สำคัญ:
+
+```text
+MORNING_BRIEF_ENABLED=true
+MORNING_BRIEF_TENANT_IDS=tenant_demo_remote
+MORNING_BRIEF_TIME=08:00
+MORNING_BRIEF_TIMEZONE=Asia/Bangkok
+MORNING_BRIEF_MODE=send
+```
 
 ## Network Model for Pilot
 
@@ -187,6 +214,34 @@ flowchart TD
 6. implement dashboard UI
 7. implement LINE sender
 8. deploy Docker Compose to test machine
+
+## Update Deploy Workflow
+
+บน local:
+
+```bash
+corepack pnpm -r typecheck
+corepack pnpm -r test
+corepack pnpm lint
+corepack pnpm -r build
+git push origin main
+```
+
+บน server:
+
+```bash
+cd /home/bosscatdog/deployments/ai-business-command-center
+bash scripts/deploy-server.sh
+```
+
+Smoke test:
+
+```bash
+curl http://127.0.0.1:4055/health
+docker compose -f infra/docker-compose.yml --env-file .env.server ps
+```
+
+ห้าม print `.env.server` ทั้งไฟล์ เพราะมี LINE token, SML credential, admin token และ signing secret
 
 ## Why Not OpenHuman Desktop in Phase 1
 

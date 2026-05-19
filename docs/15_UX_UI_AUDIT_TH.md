@@ -4,16 +4,23 @@
 
 เอกสารนี้ใช้เป็น checklist สำหรับตรวจว่า **AI Business Command Center** ยังยึด TailAdmin Next.js template มากพอหรือไม่ และระบุจุดที่ควร refactor เพื่อลด custom UI ที่ดูแลยากก่อนขยาย feature ต่อไป
 
-Scope รอบนี้:
+Scope:
 
 - `/command-center`
+- `/command-center/brief`
 - `/command-center/settings`
 - shared shell: sidebar, header, user dropdown
 - TailAdmin sample routes ที่ยังอยู่ใน repo เพื่อใช้เป็น component reference
 
 ## สถานะปัจจุบัน
 
-หน้าหลักและหน้าตั้งค่าพร้อมใช้สำหรับ demo แล้ว ข้อมูลจาก SML, run history, audit log, LINE preview และ readiness status แสดงผลได้ครบ แต่ก่อน audit นี้มีการประกอบ card/layout ด้วย Tailwind class ซ้ำเองหลายจุด เช่น:
+สถานะล่าสุดวันที่ `2026-05-20`: ระบบถูกปรับเป็น professional pilot แล้ว โดยแยก UX เป็น 2 ประเภทชัดเจน
+
+- `/command-center`: admin control room สำหรับทีมดูแล
+- `/command-center/brief`: customer-facing compact report viewer สำหรับคนกดจาก LINE
+- `/command-center/settings`: readiness/control panel สำหรับทดสอบระบบ
+
+ก่อน audit เดิมมีการประกอบ card/layout ด้วย Tailwind class ซ้ำเองหลายจุด เช่น:
 
 ```text
 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]
@@ -21,13 +28,15 @@ rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-whi
 
 รูปแบบนี้ไม่ได้ผิด แต่ถ้าปล่อยต่อไปจะทำให้ UI หลุดจาก template ได้ง่ายเมื่อเพิ่มหน้ารายงานใหม่
 
+รอบ professional pilot ไม่เปลี่ยน TailAdmin ทั้งระบบ เพราะปัญหาหลักไม่ใช่ template แต่เป็นการใช้ admin dashboard layout กับ customer-facing LINE flow จึงสร้าง brief viewer แยกแทน
+
 ## Findings
 
 ### 1. Product Pages
 
 | พื้นที่ | สถานะ | ข้อสังเกต | Action |
 | --- | --- | --- | --- |
-| Dashboard hero/filter | Custom acceptable | เป็น control surface เฉพาะ product มี tenant selector/date/run actions | คงไว้ แต่ใช้ breadcrumb/template controls รอบนอก |
+| Dashboard control bar | Custom acceptable | เป็น admin control surface เฉพาะ product มี tenant selector/date/run actions | คงไว้ แต่ต้อง compact และไม่ใช้ hero ใหญ่ |
 | KPI cards | Custom acceptable | ใกล้ pattern `EcommerceMetrics` ของ TailAdmin | คงไว้เป็น metric card เฉพาะ domain |
 | Operations readiness | ควร align | ก่อนหน้าเป็น custom card + custom header | ใช้ `ComponentCard` พร้อม `action` |
 | Morning Brief control | ควร align | card header/action ทำเอง | ใช้ `ComponentCard` |
@@ -36,6 +45,17 @@ rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-whi
 | Run history / audit log | ควร align | card header ซ้ำเอง | ใช้ `ComponentCard` |
 | Tables | ควร align | ใช้ `Table` แล้ว แต่ pagination ทำเอง | ใช้ `ComponentCard`, `Table`, `Pagination` |
 | Settings readiness/action/info panels | ควร align | card หลายชุดเขียน class ซ้ำ | ใช้ `ComponentCard` |
+| Brief viewer | Custom intentional | ไม่ใช้ admin shell เพราะเป็นหน้า customer-facing จาก LINE | ใช้ compact pro layout, no sidebar, technical details collapsed |
+
+### 1.1 Current UX Direction
+
+แนวทางล่าสุดคือ `Compact Pro`:
+
+- ลูกค้ากดจาก LINE ต้องเห็นยอดขาย วันที่ บริษัท และ insight ทันที
+- ไม่ใช้ card dump ที่ข้อมูลกระจายเต็มหน้า
+- technical detail เช่น `run_id`, reconciliation, source ไปท้ายหน้าแบบ collapsed
+- admin dashboard ใช้เพื่อ control/monitor เท่านั้น ไม่ใช่หน้าที่ลูกค้าควรเห็น
+- copy ต้องเป็นภาษาไทยที่เจ้าของกิจการอ่านรู้เรื่อง ไม่ใช่คำ developer
 
 ### 2. Template Components
 
@@ -58,6 +78,14 @@ rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-whi
 - LINE preview เป็น `pre` ที่ scroll ได้ เหมาะกับข้อความจริงที่ส่ง LINE
 - บน mobile ตอน reload จะเห็น loading/empty wording สั้น ๆ ก่อนข้อมูลมา ควรตรวจอีกครั้งเมื่อเพิ่ม skeleton แบบละเอียด
 
+Latest Browser QA:
+
+- `/command-center` ไม่มี horizontal overflow
+- `/command-center/settings` ไม่มี horizontal overflow
+- `/command-center/brief` signed viewer ไม่มี horizontal overflow
+- `/command-center/brief` first viewport มี KPI, status, CTA และ `วันนี้ควรรู้อะไร`
+- sidebar active state รองรับ hash route แล้ว เช่น `#morning-brief`
+
 ## UX Wording Notes
 
 ควรใช้คำที่ผู้ใช้ทั่วไปเข้าใจ:
@@ -77,6 +105,8 @@ rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-whi
 3. ทำ mobile QA หลังเพิ่มรายงานใหม่ทุกตัว เพราะชื่อสินค้า SML และชื่อสาขาอาจยาวมาก
 4. เพิ่ม empty/error/loading pattern กลางสำหรับ report pages
 5. พิจารณา role-based navigation เมื่อเริ่มทำ subscription tenant จริง
+6. เก็บ feedback จากผู้บริหารจริงหลังเปิด brief viewer จาก LINE
+7. ปรับ empty state วันที่ยอดขาย 0 ให้ชัดว่าเป็นข้อมูลจริง ไม่ใช่ระบบเสีย
 
 ## Production Review Checklist
 
@@ -91,5 +121,5 @@ rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-whi
 ## Assumptions
 
 - Phase 1 ยังเป็น demo/pilot จึงยังคง TailAdmin sample routes ไว้เป็น reference ใน repo ได้
-- Dashboard/Settings เป็นหน้าที่ลูกค้าเห็นจริง จึงต้อง align กับ template ก่อนหน้าอื่น
+- Dashboard/Settings เป็นหน้าผู้ดูแล ส่วน brief viewer เป็นหน้าลูกค้ากดจาก LINE
 - ไม่เปลี่ยน business logic, API contract หรือ report calculation ใน audit รอบนี้

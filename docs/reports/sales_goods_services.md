@@ -141,9 +141,33 @@ order by d.doc_date, d.doc_no, d.item_code;
     "detail_sum_amount": 131760.9,
     "difference_amount": -5612.12,
     "status": "reconciled_with_warning"
+  },
+  "comparison": {
+    "previous_day": {
+      "label": "previous_day",
+      "date_from": "2026-05-18",
+      "date_to": "2026-05-18",
+      "total_sales": 6161.1,
+      "document_count": 4,
+      "difference_amount": -6161.1,
+      "difference_percent": -100,
+      "direction": "down"
+    },
+    "same_weekday_last_week": {
+      "label": "same_weekday_last_week",
+      "date_from": "2026-05-12",
+      "date_to": "2026-05-12",
+      "total_sales": 20754.12,
+      "document_count": 39,
+      "difference_amount": -20754.12,
+      "difference_percent": -100,
+      "direction": "down"
+    }
   }
 }
 ```
+
+Comparison จะถูกสร้างเฉพาะ report ที่เป็นวันเดียว (`date_from === date_to`) เพื่อลดภาระ query และทำให้ Morning Brief ตอบคำถามผู้บริหารได้ทันทีว่าเมื่อวานดีขึ้น/แย่ลงจากฐานเทียบหรือไม่
 
 ## LINE Preview Endpoint
 
@@ -167,6 +191,40 @@ Output เป็น text payload สำหรับ LINE preview:
 
 Preview นี้ใช้ snapshot ล่าสุด ไม่ยิง SML DB สดเอง
 
+## Current Implementation Status
+
+สถานะล่าสุดวันที่ `2026-05-20`:
+
+- report key นี้เป็น report แรกที่ deploy แล้ว
+- API run/report/latest/line-preview/line-delivery พร้อมใช้งาน
+- Dashboard admin ใช้ snapshot ล่าสุด
+- LINE Morning Brief ใช้ `period = yesterday`
+- Customer viewer ใช้ signed URL:
+
+```text
+/command-center/brief?tenant_id=...&run_id=...&token=...
+```
+
+- ห้ามบันทึก signed URL เต็มใน docs เพราะมี token
+
+Latest snapshot ที่ตรวจ:
+
+```text
+tenant_id: tenant_demo_remote
+run_id: run_tenant_demo_remote_1779211410122
+date_from: 2026-05-19
+date_to: 2026-05-19
+total_sales: 0
+document_count: 0
+comparison: true
+```
+
+Interpretation:
+
+- วันที่ `2026-05-19` ของ demo tenant ไม่มียอดขาย
+- empty state เป็น expected output
+- viewer ต้องบอกผู้ใช้ว่าอาจเป็นร้านหยุดขาย, ยังไม่ปิดบิล, หรือช่วงวันที่ต้องตรวจ ไม่ใช่แสดง error ดิบ
+
 ## Production Considerations
 
 - ใช้ parameterized SQL เท่านั้น ห้าม string replace แบบ `@from_date@`
@@ -174,3 +232,5 @@ Preview นี้ใช้ snapshot ล่าสุด ไม่ยิง SML DB
 - Query ต้องมี timeout
 - Dashboard, LINE, chatbot ต้องอ่านจาก snapshot/run ที่ trace ได้
 - ถ้า header total และ detail total ไม่ตรงกัน ให้ใช้ header เป็นยอดเงินจริง และแสดง reconciliation warning
+- Mutation run endpoint ต้องใช้ admin token ใน pilot
+- Signed viewer token TTL default = `72` ชั่วโมง

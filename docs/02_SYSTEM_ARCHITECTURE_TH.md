@@ -13,7 +13,8 @@ flowchart TD
     end
 
     subgraph Platform["SML AI Report Platform"]
-        Web[Dashboard Web]
+        Web[Admin Dashboard Web]
+        Brief[Signed Report Viewer]
         API[Backend API]
         Worker[Scheduler / Report Worker]
         SysDB[(System PostgreSQL)]
@@ -24,6 +25,7 @@ flowchart TD
 
     SML -->|read-only approved SQL| Worker
     Web --> API
+    Brief -->|signed tenant/run token| API
     API --> SysDB
     Worker --> SysDB
     Worker --> Renderer
@@ -38,31 +40,32 @@ flowchart TD
 
 หน้าที่:
 
-- Login และ tenant context
+- Admin tenant context
 - แสดง KPI จาก `report_snapshots`
 - ดูตาราง report result จาก `report_runs`
 - filter date/branch/product
 - ดู run history และ error state
-- ตั้งค่า LINE schedule ใน phase ต่อไป
+- ตั้งค่า LINE schedule/readiness
+- trigger mutation ผ่าน admin token ใน MVP
 
 Phase 1 UI:
 
-- Sales Summary
-- Sales by Branch
-- Top Products
-- Recent Report Runs
-- Data Quality Badge: `synced`, `stale`, `failed`
+- `/command-center`: admin control room
+- `/command-center/settings`: readiness/control panel
+- `/command-center/brief`: customer-facing signed report viewer ไม่มี admin shell
+- Data trust label: `พร้อมใช้`, `ควรตรวจยอด`, `ไม่มีข้อมูล`, `ข้อมูลเก่า`
 
 ### Backend API
 
 หน้าที่:
 
-- Auth/session
+- Auth/session ในอนาคต, ตอนนี้มี MVP admin mutation token
 - Tenant and datasource config
 - Report catalog API
 - Dashboard data API
 - Trigger report run manually
 - Read run history/audit log
+- Validate signed report viewer token
 - Future chatbot API
 
 API ต้องไม่ expose DB credential ออกไป frontend
@@ -171,4 +174,3 @@ SML DB
 - Dashboard และ LINE อ่านจาก snapshot/run ที่ trace ได้
 - ใช้ `tenant_id` ทุก table ที่เกี่ยวกับ customer data
 - `report_definitions` เป็น shared knowledge กลาง
-

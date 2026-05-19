@@ -2,21 +2,31 @@
 
 เอกสารนี้คือแผนลงมือทำหลักของโปรเจกต์ หลังจาก clean workspace แล้ว เหลือ `docs/` เป็น source of truth เดียว
 
+สถานะ operational ล่าสุดให้เริ่มอ่านจาก:
+
+```text
+docs/16_CURRENT_STATUS_2026-05-20_TH.md
+```
+
 ## Current State
 
-Workspace ตอนนี้มี Phase 1 MVP ที่ deploy ได้แล้ว
+Workspace ตอนนี้มี Phase 1 professional pilot ที่ deploy ได้แล้ว
 
 สิ่งที่มี:
 
 - `docs/` ชุด blueprint และ engineering playbook
 - `.codex/skills/ai-business-command-center/SKILL.md` project skill สำหรับให้ AI ยึด workflow เดิม
-- `apps/web` TailAdmin Next.js dashboard
-- `apps/api` Fastify report runner + LINE endpoints
-- `apps/worker` placeholder สำหรับ scheduler/worker phase ถัดไป
+- `apps/web` TailAdmin Next.js admin dashboard + compact signed LINE report viewer
+- `apps/api` Fastify report runner + LINE endpoints + signed viewer API + admin mutation auth
+- `apps/worker` Morning Brief scheduler สำหรับ `08:00 Asia/Bangkok`
 - `packages/shared` shared types/Zod schemas
 - `packages/reports` report contract/renderer สำหรับ `sales_goods_services`
 - Docker Compose deploy บน `192.168.2.109`
 - LINE OA demo flow ส่งเข้ากลุ่มทดสอบได้จริง
+- System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
+- Signed report viewer link TTL default `72` ชั่วโมง
+- Duplicate guard สำหรับ Morning Brief delivery
+- Lightweight admin token guard สำหรับ mutation endpoints
 - Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
 สิ่งที่ไม่มีแล้ว:
@@ -29,9 +39,14 @@ Workspace ตอนนี้มี Phase 1 MVP ที่ deploy ได้แล�
 Current deployed endpoints:
 
 ```text
-Web: http://192.168.2.109:3055/command-center
-API: http://192.168.2.109:4055
+Web LAN: http://192.168.2.109:3055/command-center
+API LAN: http://192.168.2.109:4055
+Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
+Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
+Latest deployed commit: 9b7cb23
 ```
+
+ห้ามบันทึก signed viewer URL เต็มลงเอกสาร เพราะ URL มี `token=...`
 
 ## Product Direction
 
@@ -139,7 +154,7 @@ Implement tables:
 - `report_runs`
 - `report_snapshots`
 - `line_channels`
-- `message_deliveries`
+- `line_deliveries`
 - `audit_logs`
 
 Minimum behavior:
@@ -224,7 +239,7 @@ Implement:
 - LINE adapter
 - manual send endpoint or command for testing
 - scheduled send at tenant-configured time, default `08:00 Asia/Bangkok`
-- `message_deliveries` log
+- `line_deliveries` log
 - retry policy
 
 Message must include:
@@ -242,6 +257,16 @@ Acceptance:
 - can send test LINE brief
 - scheduled send does not duplicate for same tenant/report/period
 - provider failure is logged and retryable
+
+Current status:
+
+- implemented for `tenant_demo_remote`
+- schedule = `08:00 Asia/Bangkok`
+- period = `yesterday`
+- วันที่ `2026-05-20` ใช้ข้อมูล `2026-05-19`
+- LINE link ชี้ signed report viewer `/command-center/brief`
+- UI confirm ก่อนส่ง LINE จริง
+- mutation endpoints ต้องมี `x-ai-bcc-admin-token`
 
 ## Phase 6: Deploy Test Server
 
@@ -265,6 +290,14 @@ Acceptance:
 - API connects to system DB
 - worker can run report
 - LINE manual send works
+
+Current status:
+
+- deployed with Docker Compose
+- services running: `web`, `api`, `worker`, `system-db`
+- API health ok
+- system store = PostgreSQL
+- latest snapshot `tenant_demo_remote` date `2026-05-19` has total_sales `0`, document_count `0`, comparison enabled
 
 ## Phase 7: Production Hardening
 
@@ -332,11 +365,15 @@ LINE/Web question
 
 ## Immediate Next Action
 
-รอ SQL query รายงานแรกจากผู้ใช้
+พรุ่งนี้เริ่มจากการ observe Morning Brief รอบจริง:
 
-เมื่อได้ query:
+1. ตรวจว่า worker ส่ง `tenant_demo_remote` ตอน `08:00 Asia/Bangkok`
+2. ตรวจ duplicate guard ว่าไม่ส่งซ้ำรอบเดียวกัน
+3. กด link จาก LINE แล้ว confirm ว่าเปิด `/command-center/brief` ของ `run_id` รอบนั้น
+4. เก็บ UX feedback ของผู้บริหารจาก brief viewer
+5. ถ้ารอบ 08:00 ผ่าน ค่อยเลือกงานถัดไป:
+   - polish empty state/brief viewer
+   - เพิ่ม report ถัดไปจาก SML query จริง
+   - วาง lightweight login/role แทน shared admin token
 
-1. ใช้ `docs/12_ENGINEERING_PLAYBOOK_TH.md` Prompt 6 เพื่อ challenge assumptions
-2. สร้าง `sales_by_branch` report contract
-3. เริ่ม scaffold project
-4. implement report runner ก่อน dashboard
+ก่อนเริ่มงานให้เปิด [docs/16_CURRENT_STATUS_2026-05-20_TH.md](./docs/16_CURRENT_STATUS_2026-05-20_TH.md)

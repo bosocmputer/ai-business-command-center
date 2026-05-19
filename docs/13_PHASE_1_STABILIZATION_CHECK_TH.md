@@ -2,19 +2,22 @@
 
 ## เป้าหมาย
 
-ล็อกสถานะระบบหลังจาก dashboard + LINE OA demo ส่งสำเร็จจริง ก่อนเดินต่อไปที่ scheduler 08:00 เพื่อกันปัญหาเดิมเกิดซ้ำทุกเช้า
+ล็อกสถานะระบบหลังจาก dashboard + LINE OA demo + scheduler + signed report viewer deploy สำเร็จจริง เพื่อกันปัญหาเดิมเกิดซ้ำทุกเช้าและใช้เป็น checkpoint ก่อนเพิ่ม report ใหม่
 
 ## สถานะล่าสุด
 
-วันที่ตรวจ: 2026-05-19
+วันที่ตรวจล่าสุด: 2026-05-20
 
 ระบบ deploy บนเครื่องทดสอบ:
 
 ```text
-Web:  http://192.168.2.109:3055/command-center
-API:  http://192.168.2.109:4055
+Web LAN: http://192.168.2.109:3055/command-center
+API LAN: http://192.168.2.109:4055
+Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
+Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
 LINE webhook demo tunnel: trycloudflare quick tunnel
-System store: local-json
+System store: PostgreSQL
+Latest deployed commit: 9b7cb23
 ```
 
 ## Checklist
@@ -32,10 +35,16 @@ System store: local-json
 | Audit/logging | Pass | report runs, webhook events, and LINE deliveries are stored |
 | Secret scan in repo | Pass | no real LINE token or DB password found in committed files |
 | Tests | Pass | `corepack pnpm typecheck`, `corepack pnpm test` |
+| System DB migration | Pass | `SYSTEM_DATABASE_URL` ใช้ PostgreSQL system store |
+| Scheduler | Pass | worker running, heartbeat ok, configured `08:00 Asia/Bangkok` |
+| Duplicate guard | Pass | delivery key per tenant/report/type/date |
+| Signed report viewer | Pass | `/command-center/brief` validates signed token by tenant/run |
+| Mutation auth | Pass | no token = `401`, wrong token = `403`, valid token = `200` |
+| Browser QA | Pass | admin/settings/brief load without horizontal overflow |
 
 ## Verified Tenant Snapshots
 
-### `tenant_demo_remote`
+### `tenant_demo_remote` historical full-year run
 
 ```text
 database: demo
@@ -45,6 +54,25 @@ document_count: 95,317
 line_count: 521,141
 quality_status: reconciled_with_warning
 ```
+
+### `tenant_demo_remote` latest professional pilot run
+
+```text
+database: demo
+run_id: run_tenant_demo_remote_1779211410122
+date_from: 2026-05-19
+date_to: 2026-05-19
+total_sales: 0
+document_count: 0
+comparison: true
+quality_status: valid
+```
+
+Interpretation:
+
+- วันที่ `2026-05-19` ใน tenant demo ไม่มียอดขาย
+- brief viewer แสดง empty state เป็น business message
+- comparison ยังทำงานโดยเทียบกับ `2026-05-18` และ `2026-05-12`
 
 ### `tenant_office_sml1_2026`
 
@@ -57,11 +85,11 @@ line_count: 13
 quality_status: reconciled_with_warning
 ```
 
-## Findings Before Scheduler
+## Findings After Professional Pilot Deploy
 
-### P1: Scheduler must prevent duplicate sends
+### Done: Scheduler prevents duplicate sends
 
-ก่อนส่งอัตโนมัติทุก 08:00 ต้องมี idempotency key เช่น:
+ก่อนส่งอัตโนมัติทุก 08:00 ระบบใช้ idempotency key:
 
 ```text
 tenant_id + report_key + period_date + delivery_type
@@ -69,25 +97,26 @@ tenant_id + report_key + period_date + delivery_type
 
 ถ้า key นี้เคย `success` แล้ว ห้ามส่งซ้ำ ยกเว้น manual force send จาก admin
 
-### P1: Mutation endpoints are demo/internal only
+### Done for MVP: Mutation endpoints protected by admin token
 
-ตอนนี้ manual report run และ LINE send endpoint ยังเหมาะกับ demo/internal network:
+Mutation endpoints ต้องใช้:
 
 ```text
-POST /api/reports/:tenantId/sales_goods_services/run
-POST /api/reports/:tenantId/sales_goods_services/line-send-test
+x-ai-bcc-admin-token
 ```
 
-ก่อน production ต้องเพิ่ม admin auth หรือย้ายให้ worker เรียกภายใน network เท่านั้น
+Protected endpoints:
 
-### P1: System store should move to PostgreSQL before paid pilot
+- `POST /api/reports/:tenantId/sales_goods_services/run`
+- `POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send`
+- `POST /api/reports/:tenantId/sales_goods_services/line-send-test`
+- `POST /api/tenants/:tenantId/datasource/test`
 
-`local-json` ใช้ demo ได้ แต่ production/pilot แบบคิดเงินควรใช้ `SYSTEM_DATABASE_URL` เพื่อให้:
+ยังเป็น MVP auth ไม่ใช่ production login/role permission
 
-- backup ง่าย
-- query audit ได้
-- concurrent write ปลอดภัยกว่า
-- migration ชัดเจน
+### Done: System store moved to PostgreSQL
+
+`SYSTEM_DATABASE_URL` ใช้ PostgreSQL system DB บน Docker Compose แล้ว
 
 ### P2: LINE target isolation is currently fallback-based
 
@@ -111,19 +140,19 @@ Quick tunnel ใช้ทดสอบ webhook ได้ แต่ production ต
 
 ## Recommended Next Step
 
-ก่อนทำ chatbot หรือ report ใหม่ ให้ทำ Morning Brief scheduler แบบจำกัด scope:
+ก่อนทำ chatbot หรือ report ใหม่ ให้ observe รอบเช้า `08:00 Asia/Bangkok`:
 
 1. ใช้ `tenant_demo_remote` เป็น default pilot tenant
-2. schedule `08:00 Asia/Bangkok`
-3. period default = เมื่อวาน หรือวันนี้ ต้องเลือกก่อน implement
-4. run report -> save snapshot -> render LINE -> send
-5. มี duplicate guard ต่อ `tenant_id/report_key/period`
-6. บันทึก `report_runs`, `line_deliveries`, `audit_logs`
+2. period default = `yesterday`
+3. run report -> save snapshot -> render LINE -> send
+4. ตรวจว่า LINE link เปิด signed brief viewer ของ run นั้นจริง
+5. ตรวจ duplicate guard ต่อ `tenant_id/report_key/period`
+6. บันทึกผลใน `report_runs`, `line_deliveries`, `audit_logs`
 
 ## Production Blockers
 
 - ยังใช้ DB credential จาก env demo, production ต้องเปลี่ยนเป็น read-only user
-- ยังไม่มี dashboard auth
-- ยังไม่มี system DB backup
-- ยังไม่มี permanent webhook URL
-- ยังไม่มี duplicate guard สำหรับ scheduled delivery
+- ยังไม่มี login/role permission เต็ม ใช้ admin token แบบ MVP
+- ยังไม่มี system DB backup/restore automation
+- ยังไม่มี permanent webhook URL/domain
+- ยังไม่มี tenant-specific LINE OA onboarding flow

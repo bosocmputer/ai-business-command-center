@@ -4,6 +4,8 @@
 
 ย้าย persistence ของ AI Business Command Center จาก local JSON volume ไปเป็น PostgreSQL system DB ที่แยกจาก SML customer database
 
+สถานะล่าสุดวันที่ `2026-05-20`: pilot server ใช้ PostgreSQL system store แล้ว `GET /health` เห็น `system_store = postgres`
+
 ข้อมูลที่ย้าย:
 
 - `report_runs`

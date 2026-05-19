@@ -78,7 +78,7 @@ role/permission before answering future chatbot
 
 ```text
 Report = Skill
-sales_by_branch = first skill
+sales_goods_services = first implemented skill
 morning_brief = scheduled skill
 customer feedback = improve shared SML report library
 ```
@@ -126,4 +126,3 @@ AI Business Command Center for SML
 - OpenHuman ทำให้ product ดูเป็น command center
 - OpenClaw ทำให้ channel/LINE ปลอดภัย
 - Hermes ทำให้ report กลายเป็น skill และ scheduled automation
-

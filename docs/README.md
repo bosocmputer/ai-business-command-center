@@ -6,12 +6,13 @@
 
 ## อ่านจากไฟล์ไหนก่อน
 
-1. [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) - ภาพรวมสินค้า, ลูกค้าเป้าหมาย, subscription model
-2. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ SML DB ถึง Dashboard และ LINE OA
-3. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report หนึ่งตัว ซึ่งเป็นแกนหลักของระบบ
-4. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานแรกที่ใช้ implement จริง
-5. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
-6. [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) - ลำดับ implementation
+1. [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) - สถานะล่าสุดหลัง deploy professional pilot
+2. [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) - ภาพรวมสินค้า, ลูกค้าเป้าหมาย, subscription model
+3. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ SML DB ถึง Dashboard และ LINE OA
+4. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report หนึ่งตัว ซึ่งเป็นแกนหลักของระบบ
+5. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานแรกที่ใช้ implement จริง
+6. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
+7. [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) - ลำดับ implementation
 
 ## เอกสารทั้งหมด
 
@@ -29,9 +30,10 @@
 | [10_INSPIRATION_OPENHUMAN_OPENCLAW_HERMES_TH.md](./10_INSPIRATION_OPENHUMAN_OPENCLAW_HERMES_TH.md) | แนวคิดที่หยิบจาก OpenHuman/OpenClaw/Hermes |
 | [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) | MVP roadmap และ acceptance criteria |
 | [12_ENGINEERING_PLAYBOOK_TH.md](./12_ENGINEERING_PLAYBOOK_TH.md) | Senior engineering prompts/playbook สำหรับ review, refactor, debug, ADR, test, migration |
-| [13_PHASE_1_STABILIZATION_CHECK_TH.md](./13_PHASE_1_STABILIZATION_CHECK_TH.md) | Checkpoint หลัง dashboard + LINE demo ก่อนทำ scheduler |
+| [13_PHASE_1_STABILIZATION_CHECK_TH.md](./13_PHASE_1_STABILIZATION_CHECK_TH.md) | Checkpoint หลัง dashboard + LINE + scheduler + signed viewer |
 | [14_SYSTEM_DB_MIGRATION_TH.md](./14_SYSTEM_DB_MIGRATION_TH.md) | ขั้นตอนย้าย persistence จาก local JSON ไป PostgreSQL system DB |
 | [15_UX_UI_AUDIT_TH.md](./15_UX_UI_AUDIT_TH.md) | UX/UI audit และ TailAdmin alignment checklist |
+| [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) | สถานะล่าสุด, deploy, validation, next steps สำหรับเริ่มงานวันถัดไป |
 | [reports/sales_goods_services.md](./reports/sales_goods_services.md) | Report contract แรก: รายงานขายสินค้าและบริการ |
 
 ## Product Direction
@@ -52,10 +54,29 @@
 | Phase | Status | Goal |
 | --- | --- | --- |
 | Phase 0 | Done | วาง blueprint และ data architecture |
-| Phase 1 | Current | report runner + dashboard สำหรับ `sales_goods_services` ก่อนต่อ LINE morning brief |
+| Phase 1A | Done | report runner + dashboard สำหรับ `sales_goods_services` |
+| Phase 1B | Done | LINE OA demo + webhook + manual send |
+| Phase 1C | Done | scheduler 08:00, system PostgreSQL, signed brief viewer, admin mutation token |
+| Phase 1D | Current | stabilize professional pilot, observe 08:00 run, polish UX from real feedback |
 | Phase 2 | Future | report library เพิ่มเติมและ multi-tenant subscription |
 | Phase 3 | Future | LINE/Web chatbot over approved reports |
 | Phase 4 | Future | AI business copilot, anomaly, recommendation |
+
+## Current Deployment Snapshot
+
+สถานะล่าสุดอยู่ที่ [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md)
+
+```text
+Latest commit: 9b7cb23
+Web LAN: http://192.168.2.109:3055/command-center
+API LAN: http://192.168.2.109:4055
+Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
+Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
+System store: PostgreSQL
+Pilot tenant: tenant_demo_remote
+```
+
+ห้ามบันทึก signed viewer URL แบบเต็มลงเอกสาร เพราะมี `token=...`
 
 ## Non-Negotiable Rules
 

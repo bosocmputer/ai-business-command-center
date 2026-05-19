@@ -14,11 +14,12 @@ sequenceDiagram
     participant Worker as Report Worker
     participant SML as SML PostgreSQL
     participant Web as Dashboard
+    participant Brief as Signed Report Viewer
     participant LINE as LINE OA
 
     Admin->>API: create tenant + datasource
     API->>DB: save encrypted datasource
-    Admin->>API: enable report sales_by_branch
+    Admin->>API: enable report sales_goods_services
     API->>DB: save tenant_report_config
     Worker->>DB: load due jobs
     Worker->>SML: execute approved SQL read-only
@@ -29,8 +30,13 @@ sequenceDiagram
     Web->>API: request dashboard data
     API->>DB: read snapshot/run
     API-->>Web: dashboard JSON
-    Worker->>LINE: send morning brief
+    Worker->>API: request signed viewer URL
+    API-->>Worker: /command-center/brief?...token=...
+    Worker->>LINE: send morning brief with signed link
     Worker->>DB: save send/audit log
+    LINE->>Brief: user opens signed link
+    Brief->>API: read snapshot by tenant/run/token
+    API-->>Brief: report snapshot JSON
 ```
 
 ## Tenant Onboarding Flow
@@ -84,7 +90,7 @@ Manual refresh:
 
 ```text
 Dashboard
-  -> API trigger report run
+  -> API trigger report run with x-ai-bcc-admin-token
   -> Worker run query
   -> save new snapshot
   -> Dashboard reload
@@ -95,11 +101,26 @@ Dashboard
 ```text
 08:00 Asia/Bangkok
   -> scheduler selects active tenant reports
-  -> run or read latest sales snapshot
-  -> render message from summary_json
+  -> derive period = yesterday
+  -> check duplicate delivery key
+  -> run approved report
+  -> save report_run + report_snapshot
+  -> generate signed report viewer URL
+  -> render message from snapshot summary
   -> send LINE OA
-  -> save send result
-  -> alert if failed
+  -> save line_delivery + audit log
+  -> alert/log if failed
+```
+
+Current pilot:
+
+```text
+tenant_id: tenant_demo_remote
+report_key: sales_goods_services
+schedule: 08:00 Asia/Bangkok
+period: yesterday
+viewer: /command-center/brief with signed token
+duplicate key: tenant_id + report_key + morning_brief + date_from + date_to
 ```
 
 ## Feedback Loop
@@ -145,4 +166,3 @@ flowchart TD
 - tenant subscription inactive
 
 ทุกกรณีต้องเขียน `report_runs.status` หรือ audit log เพื่อ debug ได้
-

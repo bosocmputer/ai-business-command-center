@@ -34,6 +34,8 @@ Acceptance:
 
 ## Phase 1: Single-Tenant Pilot
 
+Current status: professional pilot deployed. Historical checklist below remains as implementation reference; latest operational status is in [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md)
+
 ### 1. Project Skeleton
 
 สร้าง web-first app:
@@ -68,7 +70,7 @@ line
 - `report_runs`
 - `report_snapshots`
 - `line_channels`
-- `message_deliveries`
+- `line_deliveries`
 - `audit_logs`
 
 ### 3. Seed Demo Tenant
@@ -83,9 +85,9 @@ plan: trial
 
 Datasource ใช้ placeholder/env ไม่ hardcode credential จริง
 
-### 4. Report Contract: sales_by_branch
+### 4. Report Contract: sales_goods_services
 
-รอ query จริงจากเจ้าของระบบ แล้ว map เป็น:
+รายงานแรกที่ implement จริงคือ `sales_goods_services` จาก query รายงานขายสินค้าและบริการ แล้ว map เป็น:
 
 - params: `date_from`, `date_to`, optional `branch_code`
 - output schema: branch/product/qty/amount
@@ -156,6 +158,17 @@ Acceptance Phase 1:
 - LINE ส่ง morning brief ได้
 - ดู run history และ error ได้
 - ไม่มี secret จริงใน repo
+
+Current acceptance:
+
+- `sales_goods_services` run จาก SML DB ได้
+- dashboard/admin control room ใช้งานได้ที่ `/command-center`
+- customer-facing signed viewer ใช้งานได้ที่ `/command-center/brief`
+- LINE OA demo ส่งเข้ากลุ่มทดสอบได้
+- worker scheduler พร้อมรอบ `08:00 Asia/Bangkok`
+- system store ใช้ PostgreSQL
+- mutation endpoints มี MVP admin token guard
+- latest deployed commit = `9b7cb23`
 
 ## Phase 2: Report Library and Multi-Tenant
 
@@ -238,10 +251,11 @@ Acceptance:
 
 ## Immediate Next Step
 
-รอ SQL query รายงานแรกจากเจ้าของระบบ แล้วทำ:
+พรุ่งนี้ให้เริ่มจาก operational validation ของ Morning Brief:
 
-1. วิเคราะห์ output columns
-2. เขียน `sales_by_branch` report contract
-3. สร้าง project skeleton
-4. implement MVP report runner + dashboard + LINE
-
+1. ตรวจ worker รอบ `08:00 Asia/Bangkok`
+2. ยืนยัน period = เมื่อวาน เช่น `2026-05-20` ต้องส่ง `2026-05-19`
+3. ยืนยัน duplicate guard ไม่ส่งซ้ำ
+4. กด link จาก LINE แล้วตรวจ signed viewer ของ `run_id` รอบนั้น
+5. บันทึก UX feedback จากผู้ใช้จริง
+6. ถ้ารอบนี้ผ่าน ค่อยเพิ่ม report ถัดไปหรือเริ่ม login/role permission
