@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ApexOptions } from "apexcharts";
-import type {
-  LineDeliveryRecord,
-  LineSendMode,
-  LineSendResult,
-  ReportRunRecord,
-  SalesGoodsServicesLinePreview,
-  SalesGoodsServicesSnapshot,
-  Tenant,
-  TenantId,
+import {
+  deriveMorningBriefDateRange,
+  type LineDeliveryRecord,
+  type LineSendMode,
+  type LineSendResult,
+  type ReportRunRecord,
+  type SalesGoodsServicesParams,
+  type SalesGoodsServicesLinePreview,
+  type SalesGoodsServicesSnapshot,
+  type Tenant,
+  type TenantId,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -44,6 +46,25 @@ type AuditLogEntry = {
   metadata_json: Record<string, unknown>;
   created_at: string;
 };
+
+type MorningBriefActionResult =
+  | {
+      delivery: LineDeliveryRecord;
+      preview: SalesGoodsServicesLinePreview;
+      configured: boolean;
+      mode: LineSendMode;
+      force: boolean;
+      delivery_key: string;
+      params: SalesGoodsServicesParams;
+      run: ReportRunRecord;
+    }
+  | {
+      status: "skipped";
+      reason: string;
+      delivery: LineDeliveryRecord;
+      delivery_key: string;
+      params: SalesGoodsServicesParams;
+    };
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
   ssr: false,
@@ -84,6 +105,8 @@ export default function CommandCenterDashboard() {
   const [lineSendResult, setLineSendResult] = useState<LineSendResult | null>(
     null,
   );
+  const [morningBriefResult, setMorningBriefResult] =
+    useState<MorningBriefActionResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +199,21 @@ export default function CommandCenterDashboard() {
     value: tenant.id,
     label: `${tenant.name} (${tenant.databaseName})`,
   }));
+  const morningBriefPeriod = useMemo(
+    () => deriveMorningBriefDateRange({ period: "yesterday" }),
+    [],
+  );
+  const morningBriefSuccessDelivery = useMemo(
+    () =>
+      lineDeliveries.find(
+        (delivery) =>
+          delivery.delivery_type === "morning_brief" &&
+          delivery.period_from === morningBriefPeriod.date_from &&
+          delivery.period_to === morningBriefPeriod.date_to &&
+          delivery.status === "success",
+      ) ?? null,
+    [lineDeliveries, morningBriefPeriod.date_from, morningBriefPeriod.date_to],
+  );
 
   const qualityBadge = useMemo(() => {
     if (!snapshot) {
@@ -238,37 +276,46 @@ export default function CommandCenterDashboard() {
     }
   }
 
-  async function sendLineBrief(mode: LineSendMode) {
+  async function runMorningBrief(mode: LineSendMode, force = false) {
     setLineSending(true);
     setError(null);
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/reports/${tenantId}/sales_goods_services/line-send-test`,
+        `${API_BASE_URL}/api/reports/${tenantId}/sales_goods_services/morning-brief/run-and-send`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ mode }),
+          body: JSON.stringify({ period: "yesterday", mode, force }),
         },
       );
 
       const payload = (await response.json()) as {
-        data?: LineSendResult;
+        data?: MorningBriefActionResult;
         error?: string;
       };
 
       if (!payload.data) {
-        throw new Error(payload.error || "LINE brief request failed.");
+        throw new Error(payload.error || "Morning brief request failed.");
       }
 
-      setLineSendResult(payload.data);
+      setMorningBriefResult(payload.data);
+      if ("preview" in payload.data) {
+        setLinePreview(payload.data.preview);
+        setLineSendResult({
+          delivery: payload.data.delivery,
+          preview: payload.data.preview,
+          configured: payload.data.configured,
+          mode: payload.data.mode,
+        });
+      }
       await loadDashboard(tenantId);
     } catch (unknownError) {
       setError(
         unknownError instanceof Error
           ? unknownError.message
-          : "LINE brief request failed.",
+          : "Morning brief request failed.",
       );
       await loadDashboard(tenantId);
     } finally {
@@ -427,15 +474,24 @@ export default function CommandCenterDashboard() {
               <div className="col-span-12">
                 <SnapshotProvenance snapshot={snapshot} runs={runs} />
               </div>
+              <div className="col-span-12">
+                <MorningBriefControl
+                  tenantName={selectedTenant?.name ?? tenantId}
+                  period={morningBriefPeriod}
+                  sentDelivery={morningBriefSuccessDelivery}
+                  latestResult={morningBriefResult}
+                  running={lineSending}
+                  nextSchedule={formatNextMorningBriefSchedule()}
+                  onDryRun={() => void runMorningBrief("dry_run", true)}
+                  onSend={() => void runMorningBrief("send", false)}
+                />
+              </div>
               {linePreview && (
                 <div className="col-span-12">
                   <MorningBriefPreview
                     preview={linePreview}
                     deliveries={lineDeliveries}
                     latestResult={lineSendResult}
-                    sending={lineSending}
-                    onDryRun={() => void sendLineBrief("dry_run")}
-                    onSend={() => void sendLineBrief("send")}
                   />
                 </div>
               )}
@@ -546,20 +602,138 @@ function SnapshotFact(props: { label: string; value: string }) {
   );
 }
 
+function MorningBriefControl({
+  tenantName,
+  period,
+  sentDelivery,
+  latestResult,
+  running,
+  nextSchedule,
+  onDryRun,
+  onSend,
+}: {
+  tenantName: string;
+  period: SalesGoodsServicesParams;
+  sentDelivery: LineDeliveryRecord | null;
+  latestResult: MorningBriefActionResult | null;
+  running: boolean;
+  nextSchedule: string;
+  onDryRun: () => void;
+  onSend: () => void;
+}) {
+  const skippedDuplicate =
+    latestResult && "status" in latestResult && latestResult.status === "skipped";
+  const statusText = sentDelivery
+    ? "Sent"
+    : skippedDuplicate
+    ? "Duplicate skipped"
+    : "Ready";
+  const statusColor = sentDelivery
+    ? "success"
+    : skippedDuplicate
+    ? "warning"
+    : "light";
+  const resultDelivery = latestResult?.delivery ?? sentDelivery;
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h3 className="mr-auto text-lg font-semibold text-gray-800 dark:text-white/90">
+              Morning Brief Control
+            </h3>
+            <Badge color={statusColor}>{statusText}</Badge>
+            <Badge color="light">08:00 Asia/Bangkok</Badge>
+          </div>
+          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryBlock label="Tenant" value={tenantName} />
+            <SummaryBlock
+              label="Data date"
+              value={formatReportPeriod(period.date_from, period.date_to)}
+            />
+            <SummaryBlock label="Next schedule" value={nextSchedule} />
+            <SummaryBlock
+              label="Guard"
+              value={sentDelivery ? "Success delivery exists" : "No success yet"}
+            />
+          </div>
+        </div>
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-[320px]">
+          <Button
+            className="h-11 px-3"
+            variant="outline"
+            onClick={onDryRun}
+            disabled={running}
+          >
+            {running ? "Running" : "Dry run"}
+          </Button>
+          <Button
+            className="h-11 px-3"
+            onClick={onSend}
+            disabled={running || Boolean(sentDelivery)}
+          >
+            {running ? "Sending" : sentDelivery ? "Sent" : "Send yesterday"}
+          </Button>
+        </div>
+      </div>
+      {resultDelivery && (
+        <div className="mt-5 grid grid-cols-1 gap-3 border-t border-gray-100 pt-4 text-sm dark:border-gray-800 sm:grid-cols-3">
+          <SummaryBlock
+            label="Last delivery"
+            value={resultDelivery.status}
+            tone={lineDeliveryBadgeColor(resultDelivery.status)}
+          />
+          <SummaryBlock
+            label="Target"
+            value={resultDelivery.target_id_masked || "Not configured"}
+          />
+          <SummaryBlock
+            label="Trace"
+            value={resultDelivery.report_run_id}
+          />
+        </div>
+      )}
+      {latestResult && "status" in latestResult && (
+        <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-orange-400">
+          Duplicate guard skipped a repeated send for {formatReportPeriod(period.date_from, period.date_to)}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SummaryBlock(props: {
+  label: string;
+  value: string;
+  tone?: "success" | "warning" | "error" | "light";
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium uppercase text-gray-400">
+        {props.label}
+      </p>
+      <div className="mt-2 min-w-0">
+        {props.tone ? (
+          <Badge color={props.tone}>{props.value}</Badge>
+        ) : (
+          <p className="truncate font-semibold text-gray-800 dark:text-white/90">
+            {props.value}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MorningBriefPreview({
   preview,
   deliveries,
   latestResult,
-  sending,
-  onDryRun,
-  onSend,
 }: {
   preview: SalesGoodsServicesLinePreview;
   deliveries: LineDeliveryRecord[];
   latestResult: LineSendResult | null;
-  sending: boolean;
-  onDryRun: () => void;
-  onSend: () => void;
 }) {
   const latestDelivery = latestResult?.delivery ?? deliveries[0] ?? null;
 
@@ -580,19 +754,6 @@ function MorningBriefPreview({
         </pre>
       </div>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onDryRun}
-            disabled={sending}
-          >
-            Dry run
-          </Button>
-          <Button size="sm" onClick={onSend} disabled={sending}>
-            {sending ? "Sending" : "Send test"}
-          </Button>
-        </div>
         {latestDelivery && (
           <div className="rounded-xl border border-gray-100 p-3 dark:border-gray-800">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -1133,6 +1294,59 @@ function formatDateTime(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Bangkok",
   }).format(new Date(value));
+}
+
+function formatReportPeriod(dateFrom: string, dateTo: string) {
+  if (dateFrom === dateTo) {
+    return formatDateOnly(dateFrom);
+  }
+
+  return `${formatDateOnly(dateFrom)} - ${formatDateOnly(dateTo)}`;
+}
+
+function formatDateOnly(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Bangkok",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function formatNextMorningBriefSchedule(now = new Date()) {
+  const bangkokNow = getBangkokMinute(now);
+  const nextDate =
+    bangkokNow.time >= "08:00"
+      ? addDaysToYmd(bangkokNow.date, 1)
+      : bangkokNow.date;
+
+  return `${formatDateOnly(nextDate)} 08:00`;
+}
+
+function getBangkokMinute(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
+}
+
+function addDaysToYmd(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days))
+    .toISOString()
+    .slice(0, 10);
 }
 
 function formatSource(value: SalesGoodsServicesSnapshot["source"]) {
