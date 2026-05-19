@@ -46,6 +46,15 @@ describe("local JSON system store", () => {
 
     const latest = await firstStore.getLatestSnapshot("tenant_demo_remote");
     expect(latest?.tenant_id).toBe("tenant_demo_remote");
+    await expect(
+      firstStore.getSnapshotByRunId(
+        "tenant_demo_remote",
+        latest?.run_id ?? "missing",
+      ),
+    ).resolves.toMatchObject({
+      tenant_id: "tenant_demo_remote",
+      run_id: latest?.run_id,
+    });
 
     const run: ReportRunRecord = {
       id: "run_persisted",

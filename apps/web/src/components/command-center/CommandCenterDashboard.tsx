@@ -431,85 +431,27 @@ export default function CommandCenterDashboard() {
           {snapshot.summary.document_count === 0 ? (
             <EmptyRangeState />
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-5">
               <BusinessHealthStrip
                 snapshot={snapshot}
                 lineDelivery={morningBriefSuccessDelivery}
                 operationsStatus={operationsStatus}
               />
 
-              <ExecutiveSectionHeader
-                eyebrow="Action Required"
-                title="สิ่งที่ต้องตัดสินใจวันนี้"
-                description="จัดลำดับความสำคัญจากยอดขาย สาขา คุณภาพข้อมูล และสถานะส่ง LINE"
-                badge="สำหรับผู้บริหาร"
-              />
-              <DecisionBriefPanel
-                snapshot={snapshot}
-                lineDelivery={morningBriefSuccessDelivery}
-                operationsStatus={operationsStatus}
-              />
-
-              <ExecutiveSectionHeader
-                eyebrow="Sales Intelligence"
-                title="อ่านยอดขายให้เห็นภาพ"
-                description="ดูว่าสาขาไหนขับเคลื่อนยอดขาย และสินค้าใดสร้างรายได้หลักของรอบนี้"
-                badge="ยอดขายและสินค้า"
-              />
               <div className="grid grid-cols-12 gap-4 md:gap-6">
                 <div className="col-span-12 xl:col-span-7">
-                  <BranchSalesChart snapshot={snapshot} />
-                </div>
-                <div className="col-span-12 xl:col-span-5">
-                  <TopProductsChart snapshot={snapshot} />
-                </div>
-              </div>
-
-              <ExecutiveSectionHeader
-                eyebrow="Morning Brief"
-                title="ส่งข้อมูลที่ตรวจสอบแล้วเข้า LINE"
-                description="ควบคุมข้อความสรุปเช้า กันส่งซ้ำ และตรวจความถูกต้องก่อนลูกค้าได้รับ"
-                badge="08:00 Asia/Bangkok"
-              />
-              <div className="grid grid-cols-12 gap-4 md:gap-6">
-                <div className="col-span-12 xl:col-span-7">
-                  <MorningBriefControl
-                    tenantName={selectedTenant?.name ?? tenantId}
-                    period={morningBriefPeriod}
-                    sentDelivery={morningBriefSuccessDelivery}
-                    latestResult={morningBriefResult}
-                    running={lineSending}
-                    nextSchedule={formatNextMorningBriefSchedule()}
-                    onDryRun={() => void runMorningBrief("dry_run", true)}
-                    onSend={() => void runMorningBrief("send", false)}
-                  />
-                </div>
-                <div className="col-span-12 xl:col-span-5">
-                  <ReconciliationPanel snapshot={snapshot} />
-                </div>
-                {linePreview && (
-                  <div className="col-span-12">
-                    <MorningBriefPreview
-                      preview={linePreview}
-                      deliveries={lineDeliveries}
-                      latestResult={lineSendResult}
+                  <div id="morning-brief">
+                    <MorningBriefControl
+                      tenantName={selectedTenant?.name ?? tenantId}
+                      period={morningBriefPeriod}
+                      sentDelivery={morningBriefSuccessDelivery}
+                      latestResult={morningBriefResult}
+                      running={lineSending}
+                      nextSchedule={formatNextMorningBriefSchedule()}
+                      onDryRun={() => void runMorningBrief("dry_run", true)}
+                      onSend={() => void runMorningBrief("send", false)}
                     />
                   </div>
-                )}
-              </div>
-
-              <ExecutiveSectionHeader
-                eyebrow="Data Trust"
-                title="หลักฐานและรายละเอียดสำหรับตรวจสอบ"
-                description="เก็บประวัติรันรายงาน audit log และตารางต้นทางไว้ด้านล่าง เพื่อไม่รบกวนภาพรวมผู้บริหาร"
-                badge="Traceable"
-              />
-              <div className="grid grid-cols-12 gap-4 md:gap-6">
-                <div className="col-span-12">
-                  <SnapshotProvenance snapshot={snapshot} runs={runs} />
-                </div>
-                <div className="col-span-12 xl:col-span-7">
-                  <RunHistory runs={runs} />
                 </div>
                 <div className="col-span-12 xl:col-span-5">
                   <OperationsReadinessPanel
@@ -518,46 +460,71 @@ export default function CommandCenterDashboard() {
                     snapshot={snapshot}
                   />
                 </div>
-                <div className="col-span-12">
-                  <AuditTrail auditLogs={auditLogs} />
-                </div>
-                <div className="col-span-12">
-                  <CollapsibleDataSection snapshot={snapshot} />
-                </div>
               </div>
+
+              {linePreview && (
+                <CustomerReportLinkPanel
+                  preview={linePreview}
+                  snapshot={snapshot}
+                />
+              )}
+
+              <details className="group rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                <summary className="flex cursor-pointer list-none flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-base font-medium text-gray-800 dark:text-white/90">
+                      เครื่องมือวิเคราะห์เพิ่มเติม
+                    </p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      กราฟ รายละเอียดตาราง ประวัติรัน และ audit log สำหรับทีมดูแลระบบ
+                    </p>
+                  </div>
+                  <Badge color="light">เปิดเมื่อต้องตรวจสอบ</Badge>
+                </summary>
+                <div className="space-y-6 border-t border-gray-100 p-4 dark:border-gray-800 sm:p-6">
+                  <DecisionBriefPanel
+                    snapshot={snapshot}
+                    lineDelivery={morningBriefSuccessDelivery}
+                    operationsStatus={operationsStatus}
+                  />
+                  <div className="grid grid-cols-12 gap-4 md:gap-6">
+                    <div className="col-span-12 xl:col-span-7">
+                      <BranchSalesChart snapshot={snapshot} />
+                    </div>
+                    <div className="col-span-12 xl:col-span-5">
+                      <TopProductsChart snapshot={snapshot} />
+                    </div>
+                    <div className="col-span-12 xl:col-span-5">
+                      <ReconciliationPanel snapshot={snapshot} />
+                    </div>
+                    {linePreview && (
+                      <div className="col-span-12 xl:col-span-7">
+                        <MorningBriefPreview
+                          preview={linePreview}
+                          deliveries={lineDeliveries}
+                          latestResult={lineSendResult}
+                        />
+                      </div>
+                    )}
+                    <div className="col-span-12">
+                      <SnapshotProvenance snapshot={snapshot} runs={runs} />
+                    </div>
+                    <div className="col-span-12 xl:col-span-7">
+                      <RunHistory runs={runs} />
+                    </div>
+                    <div className="col-span-12 xl:col-span-5">
+                      <AuditTrail auditLogs={auditLogs} />
+                    </div>
+                    <div className="col-span-12">
+                      <CollapsibleDataSection snapshot={snapshot} />
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function ExecutiveSectionHeader({
-  eyebrow,
-  title,
-  description,
-  badge,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  badge: string;
-}) {
-  return (
-    <div className="flex flex-col gap-3 border-t border-gray-100 pt-7 dark:border-gray-800 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-          {eyebrow}
-        </p>
-        <h2 className="mt-2 text-xl font-semibold text-gray-900 dark:text-white/90">
-          {title}
-        </h2>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-          {description}
-        </p>
-      </div>
-      <Badge color="light">{badge}</Badge>
     </div>
   );
 }
@@ -674,6 +641,55 @@ function HealthMetricCard({
         {detail}
       </p>
     </div>
+  );
+}
+
+function CustomerReportLinkPanel({
+  preview,
+  snapshot,
+}: {
+  preview: SalesGoodsServicesLinePreview;
+  snapshot: SalesGoodsServicesSnapshot;
+}) {
+  return (
+    <ComponentCard
+      title="ลิงก์รายงานสำหรับลูกค้า"
+      desc="ลิงก์เดียวกับที่แนบใน LINE เปิดหน้า compact report viewer ของรอบรายงานนี้โดยตรง"
+      action={
+        <Badge color={preview.dashboard_url ? "success" : "warning"}>
+          {preview.dashboard_url ? "Signed link พร้อมใช้" : "ยังไม่ตั้งค่า signing"}
+        </Badge>
+      }
+      bodyClassName="!p-4 sm:!p-4"
+    >
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
+        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+          <SummaryBlock
+            label="วันที่ข้อมูล"
+            value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
+          />
+          <SummaryBlock
+            label="ยอดขาย"
+            value={`${formatMoney(snapshot.summary.total_sales)} บาท`}
+          />
+          <SummaryBlock label="เลขอ้างอิง" value={snapshot.run_id} />
+        </div>
+        {preview.dashboard_url ? (
+          <a
+            href={preview.dashboard_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white transition hover:bg-brand-600"
+          >
+            เปิดหน้ารายงาน
+          </a>
+        ) : (
+          <p className="rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
+            ตั้งค่า REPORT_VIEWER_SIGNING_SECRET เพื่อเปิด signed viewer link
+          </p>
+        )}
+      </div>
+    </ComponentCard>
   );
 }
 

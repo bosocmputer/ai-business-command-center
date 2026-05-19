@@ -39,6 +39,10 @@ export type SystemStore = {
   getLatestSnapshot(
     tenantId: TenantId,
   ): Promise<SalesGoodsServicesSnapshot | null>;
+  getSnapshotByRunId(
+    tenantId: TenantId,
+    runId: string,
+  ): Promise<SalesGoodsServicesSnapshot | null>;
   saveSnapshot(snapshot: SalesGoodsServicesSnapshot): Promise<void>;
   listRuns(tenantId: TenantId): Promise<ReportRunRecord[]>;
   upsertRun(run: ReportRunRecord): Promise<void>;
@@ -114,6 +118,18 @@ class LocalJsonSystemStore implements SystemStore {
       data.snapshots
         .filter((snapshot) => snapshot.tenant_id === tenantId)
         .sort((a, b) => b.generated_at.localeCompare(a.generated_at))[0] ?? null
+    );
+  }
+
+  async getSnapshotByRunId(tenantId: TenantId, runId: string) {
+    const data = this.requireData();
+    return (
+      data.snapshots.find(
+        (snapshot) =>
+          snapshot.tenant_id === tenantId &&
+          snapshot.report_key === "sales_goods_services" &&
+          snapshot.run_id === runId,
+      ) ?? null
     );
   }
 
@@ -396,6 +412,25 @@ order by created_at desc
 limit 1
 `,
       [tenantId],
+    );
+
+    return (
+      (result.rows[0]?.snapshot_json as SalesGoodsServicesSnapshot | undefined) ??
+      null
+    );
+  }
+
+  async getSnapshotByRunId(tenantId: TenantId, runId: string) {
+    const result = await this.pool.query(
+      `
+select snapshot_json
+from report_snapshots
+where tenant_id = $1
+  and report_key = 'sales_goods_services'
+  and report_run_id = $2
+limit 1
+`,
+      [tenantId, runId],
     );
 
     return (
@@ -1027,6 +1062,9 @@ create table if not exists report_snapshots (
 
 create index if not exists report_snapshots_latest_idx
 on report_snapshots (tenant_id, report_key, created_at desc);
+
+create index if not exists report_snapshots_run_idx
+on report_snapshots (tenant_id, report_key, report_run_id);
 
 create index if not exists report_runs_latest_idx
 on report_runs (tenant_id, report_key, started_at desc);

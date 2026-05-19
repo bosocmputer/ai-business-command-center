@@ -6,6 +6,7 @@ import {
   lineSendRequestSchema,
   morningBriefRequestSchema,
   type ReportRunRecord,
+  type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
   salesGoodsServicesParamsSchema,
   tenantIdSchema,
@@ -33,6 +34,10 @@ import {
   verifyLineSignature,
 } from "./line-webhook.js";
 import { reportDefinitionSeeds } from "./report-definitions.js";
+import {
+  createReportViewerToken,
+  verifyReportViewerToken,
+} from "./report-viewer-token.js";
 
 const app = Fastify({
   logger: {
@@ -322,6 +327,57 @@ app.get(
 );
 
 app.get(
+  "/api/reports/:tenantId/sales_goods_services/snapshots/:runId",
+  async (request, reply) => {
+    const params = signedSnapshotParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "Invalid report viewer link." });
+    }
+
+    const query = signedSnapshotQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "Invalid report viewer link." });
+    }
+
+    const signingSecret = readReportViewerSigningSecret();
+    if (!signingSecret) {
+      return reply.status(503).send({
+        error: "Report viewer signing is not configured.",
+      });
+    }
+
+    const verification = verifyReportViewerToken({
+      token: query.data.token,
+      secret: signingSecret,
+      tenantId: params.data.tenantId,
+      reportKey: "sales_goods_services",
+      runId: params.data.runId,
+    });
+    if (!verification.ok) {
+      const statusCode =
+        verification.reason === "missing" || verification.reason === "malformed"
+          ? 400
+          : 403;
+      const errorMessage =
+        verification.reason === "expired"
+          ? "Report viewer link has expired."
+          : "Invalid report viewer link.";
+      return reply.status(statusCode).send({ error: errorMessage });
+    }
+
+    const snapshot = await systemStore.getSnapshotByRunId(
+      params.data.tenantId,
+      params.data.runId,
+    );
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+
+    return { data: snapshot };
+  },
+);
+
+app.get(
   "/api/reports/:tenantId/sales_goods_services/runs",
   async (request, reply) => {
     const params = tenantParamsSchema.safeParse(request.params);
@@ -348,7 +404,7 @@ app.get(
     return {
       data: renderSalesGoodsServicesLinePreview({
         snapshot,
-        dashboardUrl: buildDashboardUrl(),
+        dashboardUrl: buildReportViewerUrl(snapshot),
         tenantName: getTenantDefinition(params.data.tenantId)?.name,
       }),
     };
@@ -391,7 +447,7 @@ app.post(
 
     const preview = renderSalesGoodsServicesLinePreview({
       snapshot,
-      dashboardUrl: buildDashboardUrl(),
+      dashboardUrl: buildReportViewerUrl(snapshot),
       tenantName: getTenantDefinition(tenantId)?.name,
     });
     const lineConfig = readLineChannelConfig(tenantId);
@@ -512,7 +568,7 @@ app.post(
 
     const preview = renderSalesGoodsServicesLinePreview({
       snapshot: runResult.snapshot,
-      dashboardUrl: buildDashboardUrl(),
+      dashboardUrl: buildReportViewerUrl(runResult.snapshot),
       tenantName: getTenantDefinition(tenantId)?.name,
     });
     const lineConfig = readLineChannelConfig(tenantId);
@@ -755,6 +811,42 @@ function buildDashboardUrl() {
   return `${baseUrl.replace(/\/$/, "")}/command-center`;
 }
 
+function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
+  const baseUrl = process.env.APP_BASE_URL?.trim();
+  const signingSecret = readReportViewerSigningSecret();
+  if (!baseUrl || !signingSecret) {
+    return null;
+  }
+
+  const token = createReportViewerToken({
+    secret: signingSecret,
+    tenantId: snapshot.tenant_id,
+    reportKey: snapshot.report_key,
+    runId: snapshot.run_id,
+    expiresAt: new Date(Date.now() + readReportViewerLinkTtlSeconds() * 1000),
+  });
+  try {
+    const url = new URL("/command-center/brief", baseUrl.replace(/\/$/, ""));
+    url.searchParams.set("tenant_id", snapshot.tenant_id);
+    url.searchParams.set("run_id", snapshot.run_id);
+    url.searchParams.set("token", token);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function readReportViewerSigningSecret() {
+  const secret = process.env.REPORT_VIEWER_SIGNING_SECRET?.trim();
+  return secret && secret.length >= 32 ? secret : null;
+}
+
+function readReportViewerLinkTtlSeconds() {
+  const rawHours = Number(process.env.REPORT_VIEWER_LINK_TTL_HOURS ?? 720);
+  const hours = Number.isFinite(rawHours) ? rawHours : 720;
+  return Math.max(1, Math.min(hours, 2160)) * 60 * 60;
+}
+
 function buildMorningBriefDeliveryKey(
   tenantId: TenantId,
   params: SalesGoodsServicesParams,
@@ -788,6 +880,15 @@ function maskIdentifier(value: string) {
 
 const tenantParamsSchema = z.object({
   tenantId: tenantIdSchema,
+});
+
+const signedSnapshotParamsSchema = z.object({
+  tenantId: tenantIdSchema,
+  runId: z.string().min(1).max(180),
+});
+
+const signedSnapshotQuerySchema = z.object({
+  token: z.string().min(1).max(4096),
 });
 
 const lineWebhookEventsQuerySchema = z.object({
