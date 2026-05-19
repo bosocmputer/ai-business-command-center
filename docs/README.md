@@ -30,6 +30,7 @@
 | [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) | MVP roadmap และ acceptance criteria |
 | [12_ENGINEERING_PLAYBOOK_TH.md](./12_ENGINEERING_PLAYBOOK_TH.md) | Senior engineering prompts/playbook สำหรับ review, refactor, debug, ADR, test, migration |
 | [13_PHASE_1_STABILIZATION_CHECK_TH.md](./13_PHASE_1_STABILIZATION_CHECK_TH.md) | Checkpoint หลัง dashboard + LINE demo ก่อนทำ scheduler |
+| [14_SYSTEM_DB_MIGRATION_TH.md](./14_SYSTEM_DB_MIGRATION_TH.md) | ขั้นตอนย้าย persistence จาก local JSON ไป PostgreSQL system DB |
 | [reports/sales_goods_services.md](./reports/sales_goods_services.md) | Report contract แรก: รายงานขายสินค้าและบริการ |
 
 ## Product Direction

@@ -1,6 +1,27 @@
 name: ai-business-command-center
 
 services:
+  system-db:
+    container_name: ai-bcc-system-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AI_BCC_SYSTEM_DB_NAME:-ai_business_command_center}
+      POSTGRES_USER: ${AI_BCC_SYSTEM_DB_USER:-ai_bcc}
+      POSTGRES_PASSWORD: ${AI_BCC_SYSTEM_DB_PASSWORD:-change-me-local-only}
+    volumes:
+      - ai_bcc_system_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${AI_BCC_SYSTEM_DB_USER:-ai_bcc} -d ${AI_BCC_SYSTEM_DB_NAME:-ai_business_command_center}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   api:
     container_name: ai-bcc-api
     build:
@@ -17,6 +38,9 @@ services:
       SYSTEM_STORE_FILE: /app/.data/system-store.json
     volumes:
       - ai_bcc_data:/app/.data
+    depends_on:
+      system-db:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -66,5 +90,7 @@ services:
         condition: service_healthy
 
 volumes:
+  ai_bcc_system_pgdata:
+    name: ai_bcc_system_pgdata
   ai_bcc_data:
     name: ai_bcc_data

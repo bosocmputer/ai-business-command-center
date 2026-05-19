@@ -50,6 +50,7 @@ export type SystemStore = {
   saveLineWebhookEvents(events: LineWebhookEventRecord[]): Promise<void>;
   listLineWebhookEvents(limit: number): Promise<LineWebhookEventRecord[]>;
   appendAuditLog(entry: Omit<AuditLogEntry, "created_at">): Promise<void>;
+  importAuditLogs(entries: AuditLogEntry[]): Promise<void>;
   listAuditLogs(limit: number): Promise<AuditLogEntry[]>;
   close(): Promise<void>;
 };
@@ -201,6 +202,28 @@ class LocalJsonSystemStore implements SystemStore {
       created_at: new Date().toISOString(),
     });
     data.auditLogs = data.auditLogs.slice(0, 1000);
+    await this.persist();
+  }
+
+  async importAuditLogs(entries: AuditLogEntry[]) {
+    if (!entries.length) {
+      return;
+    }
+
+    const data = this.requireData();
+    const existingKeys = new Set(
+      data.auditLogs.map((entry) => auditLogImportKey(entry)),
+    );
+    for (const entry of entries) {
+      const key = auditLogImportKey(entry);
+      if (!existingKeys.has(key)) {
+        data.auditLogs.push(entry);
+        existingKeys.add(key);
+      }
+    }
+    data.auditLogs = data.auditLogs
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 1000);
     await this.persist();
   }
 
@@ -466,6 +489,12 @@ insert into line_deliveries (
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $13::jsonb, $14, $15::timestamptz)
 on conflict (id) do update
 set status = excluded.status,
+    delivery_key = excluded.delivery_key,
+    delivery_type = excluded.delivery_type,
+    period_from = excluded.period_from,
+    period_to = excluded.period_to,
+    target_id_masked = excluded.target_id_masked,
+    message_type = excluded.message_type,
     sent_at = excluded.sent_at,
     provider_response_json = excluded.provider_response_json,
     safe_error_message = excluded.safe_error_message
@@ -657,6 +686,81 @@ values ($1, $2, $3, $4, $5, $6::jsonb, now())
     );
   }
 
+  async importAuditLogs(entries: AuditLogEntry[]) {
+    for (const entry of entries) {
+      if (entry.id !== undefined) {
+        await this.pool.query(
+          `
+insert into audit_logs (
+  id,
+  tenant_id,
+  actor_id,
+  action,
+  target_type,
+  target_id,
+  metadata_json,
+  created_at
+)
+values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
+on conflict (id) do update
+set tenant_id = excluded.tenant_id,
+    actor_id = excluded.actor_id,
+    action = excluded.action,
+    target_type = excluded.target_type,
+    target_id = excluded.target_id,
+    metadata_json = excluded.metadata_json,
+    created_at = excluded.created_at
+`,
+          [
+            entry.id,
+            entry.tenant_id,
+            entry.actor_id,
+            entry.action,
+            entry.target_type,
+            entry.target_id,
+            JSON.stringify(entry.metadata_json),
+            entry.created_at,
+          ],
+        );
+        continue;
+      }
+
+      await this.pool.query(
+        `
+insert into audit_logs (
+  tenant_id,
+  actor_id,
+  action,
+  target_type,
+  target_id,
+  metadata_json,
+  created_at
+)
+values ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
+`,
+        [
+          entry.tenant_id,
+          entry.actor_id,
+          entry.action,
+          entry.target_type,
+          entry.target_id,
+          JSON.stringify(entry.metadata_json),
+          entry.created_at,
+        ],
+      );
+    }
+
+    await this.pool.query(
+      `
+select setval(
+  pg_get_serial_sequence('audit_logs', 'id'),
+  greatest(coalesce((select max(id) from audit_logs), 1), 1),
+  true
+)
+`,
+    );
+  }
+
   async listAuditLogs(limit: number) {
     const result = await this.pool.query(
       `
@@ -711,6 +815,17 @@ function snapshotToRunRecord(
 
 function toIsoString(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function auditLogImportKey(entry: AuditLogEntry) {
+  return [
+    entry.id ?? "",
+    entry.tenant_id ?? "",
+    entry.action,
+    entry.target_type,
+    entry.target_id ?? "",
+    entry.created_at,
+  ].join(":");
 }
 
 function toDateOnly(value: unknown) {
