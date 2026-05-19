@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+.next/
+dist/
+coverage/
+.turbo/
+.data/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+apps/**/.next/
+apps/**/dist/
+apps/**/node_modules/
+packages/**/dist/

@@ -1,0 +1,40 @@
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json apps/api/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/reports/package.json packages/reports/package.json
+RUN corepack pnpm install --frozen-lockfile
+
+COPY apps/api apps/api
+COPY packages/shared packages/shared
+COPY packages/reports packages/reports
+
+RUN corepack pnpm --filter @ai-bcc/shared build \
+  && corepack pnpm --filter @ai-bcc/reports build \
+  && corepack pnpm --filter @ai-bcc/api build \
+  && corepack pnpm prune --prod
+
+FROM node:24-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV API_HOST=0.0.0.0
+ENV API_PORT=4000
+
+COPY --from=builder /app/node_modules node_modules
+COPY --from=builder /app/package.json package.json
+COPY --from=builder /app/apps/api/package.json apps/api/package.json
+COPY --from=builder /app/apps/api/dist apps/api/dist
+COPY --from=builder /app/packages/shared/package.json packages/shared/package.json
+COPY --from=builder /app/packages/shared/dist packages/shared/dist
+COPY --from=builder /app/packages/reports/package.json packages/reports/package.json
+COPY --from=builder /app/packages/reports/dist packages/reports/dist
+
+RUN mkdir -p /app/.data
+
+EXPOSE 4000
+CMD ["node", "apps/api/dist/server.js"]

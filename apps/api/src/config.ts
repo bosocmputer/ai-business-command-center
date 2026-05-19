@@ -1,0 +1,117 @@
+import type { Tenant, TenantId } from "@ai-bcc/shared";
+
+type DatasourceConfig = {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+};
+
+type LineChannelConfig = {
+  channelAccessToken: string;
+  targetId: string;
+};
+
+type TenantDefinition = Omit<Tenant, "datasourceConfigured"> & {
+  envPrefix: "SML_DEMO_DB" | "SML_OFFICE_DB";
+  lineEnvPrefix: "LINE_DEMO" | "LINE_OFFICE";
+};
+
+const tenantDefinitions: TenantDefinition[] = [
+  {
+    id: "tenant_demo_remote",
+    name: "Demo Remote",
+    databaseName: readEnv("SML_DEMO_DB_NAME", "demo"),
+    description: "Remote SML demo database for customer-facing preview.",
+    envPrefix: "SML_DEMO_DB",
+    lineEnvPrefix: "LINE_DEMO",
+  },
+  {
+    id: "tenant_office_sml1_2026",
+    name: "Office SML1 2026",
+    databaseName: readEnv("SML_OFFICE_DB_NAME", "sml1_2026"),
+    description: "Office test SML database for local pilot validation.",
+    envPrefix: "SML_OFFICE_DB",
+    lineEnvPrefix: "LINE_OFFICE",
+  },
+];
+
+export function getApiConfig() {
+  return {
+    host: readEnv("API_HOST", "127.0.0.1"),
+    port: Number(readEnv("API_PORT", "4000")),
+  };
+}
+
+export function listTenants(): Tenant[] {
+  return tenantDefinitions.map((tenant) => ({
+    id: tenant.id,
+    name: tenant.name,
+    databaseName: tenant.databaseName,
+    description: tenant.description,
+    datasourceConfigured: Boolean(readDatasourceConfig(tenant.id)),
+  }));
+}
+
+export function getTenantDefinition(tenantId: TenantId) {
+  return tenantDefinitions.find((tenant) => tenant.id === tenantId) ?? null;
+}
+
+export function readDatasourceConfig(
+  tenantId: TenantId,
+): DatasourceConfig | null {
+  const tenant = getTenantDefinition(tenantId);
+  if (!tenant) {
+    return null;
+  }
+
+  const host = process.env[`${tenant.envPrefix}_HOST`];
+  const port = process.env[`${tenant.envPrefix}_PORT`];
+  const database = process.env[`${tenant.envPrefix}_NAME`];
+  const user = process.env[`${tenant.envPrefix}_USER`];
+  const password = process.env[`${tenant.envPrefix}_PASSWORD`];
+
+  if (!host || !port || !database || !user || !password) {
+    return null;
+  }
+
+  return {
+    host,
+    port: Number(port),
+    database,
+    user,
+    password,
+  };
+}
+
+export function readLineChannelConfig(
+  tenantId: TenantId,
+): LineChannelConfig | null {
+  const tenant = getTenantDefinition(tenantId);
+  if (!tenant) {
+    return null;
+  }
+
+  const channelAccessToken =
+    process.env[`${tenant.lineEnvPrefix}_CHANNEL_ACCESS_TOKEN`] ||
+    process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const targetId =
+    process.env[`${tenant.lineEnvPrefix}_TARGET_ID`] ||
+    process.env.LINE_TARGET_ID;
+
+  if (!channelAccessToken || !targetId) {
+    return null;
+  }
+
+  return {
+    channelAccessToken,
+    targetId,
+  };
+}
+
+function readEnv(name: string, fallback: string) {
+  return process.env[name] || fallback;
+}
+
+export type { DatasourceConfig, LineChannelConfig };

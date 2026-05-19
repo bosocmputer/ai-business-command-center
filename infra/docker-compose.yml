@@ -1,0 +1,50 @@
+name: ai-business-command-center
+
+services:
+  api:
+    container_name: ai-bcc-api
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "${AI_BCC_API_PORT:-4055}:4000"
+    env_file:
+      - ${AI_BCC_ENV_FILE:-../.env.server}
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      SYSTEM_STORE_FILE: /app/.data/system-store.json
+    volumes:
+      - ai_bcc_data:/app/.data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  web:
+    container_name: ai-bcc-web
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://192.168.2.109:4055}
+    restart: unless-stopped
+    ports:
+      - "${AI_BCC_WEB_PORT:-3055}:3000"
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  ai_bcc_data:
+    name: ai_bcc_data

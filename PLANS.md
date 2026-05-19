@@ -1,0 +1,327 @@
+# AI Business Command Center: Implementation Plans
+
+เอกสารนี้คือแผนลงมือทำหลักของโปรเจกต์ หลังจาก clean workspace แล้ว เหลือ `docs/` เป็น source of truth เดียว
+
+## Current State
+
+Workspace ตอนนี้ตั้งใจให้เริ่มระบบใหม่แบบ web-first จากศูนย์
+
+สิ่งที่มี:
+
+- `docs/` ชุด blueprint และ engineering playbook
+- `.codex/skills/ai-business-command-center/SKILL.md` project skill สำหรับให้ AI ยึด workflow เดิม
+
+สิ่งที่ไม่มีแล้ว:
+
+- OpenHuman repo
+- proposal เก่า
+- Python generator scripts
+- dependency/cache/build artifacts
+
+## Product Direction
+
+สร้าง **AI Business Command Center for SML** เป็น subscription/hybrid SaaS:
+
+- 1 บริษัท = 1 SML PostgreSQL database
+- shared report knowledge ใช้ร่วมกันทุก tenant
+- customer data, DB credential, report results, LINE targets แยกด้วย `tenant_id`
+- Phase 1 ทำ dashboard + LINE Morning Brief จาก approved SQL
+- Future chatbot ตอบจาก approved reports ไม่ใช่ SQL generator อิสระ
+
+## Non-Negotiable Engineering Rules
+
+- ห้าม hardcode credential จริงลง repo
+- production ห้ามใช้ DB superuser เช่น `postgres`
+- ทุก report ต้องมาจาก `report_contract`
+- SQL ต้อง approved และ parameterized
+- ทุก customer data ต้องมี `tenant_id`
+- ทุก report run และ LINE delivery ต้อง trace/audit ได้
+- chatbot ในอนาคตต้อง route ไปหา report ที่ approved แล้ว
+- งานสำคัญต้องใช้ engineering playbook ใน `docs/12_ENGINEERING_PLAYBOOK_TH.md`
+
+## Phase 0: Lock Report Contract From First Query
+
+Trigger: ผู้ใช้ส่ง SQL query รายงานแรก "รายงานขายสินค้าและบริการ"
+
+Tasks:
+
+1. อ่าน SQL และตัวอย่าง output 5-10 rows
+2. ระบุ params ที่ query ต้องใช้ เช่น `date_from`, `date_to`
+3. ระบุ output columns และ type
+4. สร้าง report contract สำหรับ `sales_goods_services`
+5. นิยาม summary rules สำหรับ dashboard/LINE จาก header truth และ detail analytics
+6. นิยาม edge cases:
+   - ไม่มี `branch_code` โดย fallback `detail.branch_code -> header.branch_code -> no_branch`
+   - ไม่มีข้อมูลในช่วงวันที่
+   - ยอดติดลบจาก return/credit note
+   - date/timezone ไม่ตรง SML report เดิม
+
+Deliverable:
+
+- `docs/reports/sales_goods_services.md` หรือไฟล์ contract เทียบเท่า
+
+Acceptance:
+
+- contract บอกได้ว่า query รับอะไร คืนอะไร สรุปอย่างไร และใช้กับ LINE/dashboard อย่างไร
+
+## Phase 1: Project Skeleton
+
+Goal: สร้างระบบ web-first MVP ที่ deploy ได้บนเครื่องทดสอบ
+
+Recommended structure:
+
+```text
+apps/
+  web/
+  api/
+  worker/
+packages/
+  shared/
+  reports/
+infra/
+  docker-compose.yml
+docs/
+```
+
+Alternative acceptable for speed:
+
+```text
+src/
+  web/
+  api/
+  worker/
+  db/
+  reports/
+  line/
+```
+
+Default decision: ใช้ monorepo style `apps/` + `packages/` ถ้าไม่ติดข้อจำกัด toolchain
+
+Tech stack:
+
+- Next.js + React + Tailwind for dashboard
+- Node.js + TypeScript + Fastify for API
+- PostgreSQL for system DB
+- Drizzle ORM for schema/migrations
+- Node worker + cron first, BullMQ/Redis when queue complexity appears
+- node-postgres for SML PostgreSQL
+- Docker Compose for test deployment
+
+Acceptance:
+
+- app boot ได้ local
+- system DB migration/seed ได้
+- health endpoint พร้อม
+
+## Phase 2: System DB and Tenant Foundation
+
+Implement tables:
+
+- `tenants`
+- `datasources`
+- `report_definitions`
+- `tenant_report_configs`
+- `report_runs`
+- `report_snapshots`
+- `line_channels`
+- `message_deliveries`
+- `audit_logs`
+
+Minimum behavior:
+
+- seed demo tenant
+- seed `sales_goods_services` definition after contract ready
+- datasource secret stored encrypted or placeholder/env-only in dev
+- every customer-facing table has `tenant_id`
+
+Acceptance:
+
+- can create tenant
+- can store datasource without plaintext secret exposure
+- can enable report per tenant
+
+## Phase 3: Report Runner MVP
+
+Implement:
+
+- load report definition
+- validate params with Zod
+- render approved SQL with parameter binding
+- connect to SML PostgreSQL
+- execute with timeout
+- validate output schema
+- save `report_runs`
+- derive `report_snapshots`
+- write audit log
+
+Failure handling:
+
+- connection failed
+- query timeout
+- invalid params
+- invalid output schema
+- empty result
+
+Acceptance:
+
+- manual run creates `report_run`
+- success run creates latest snapshot
+- failed run preserves error state
+- no SQL mutation statements allowed
+
+## Phase 4: Dashboard MVP
+
+Implement dashboard page:
+
+- date range filter
+- optional branch filter
+- KPI cards:
+  - total net sales
+  - total quantity
+  - last run time
+  - data quality status
+- chart sales by branch when branch data exists
+- top products table
+- raw report table or summarized detail table
+- manual refresh button
+- run history/error panel
+
+API endpoints:
+
+```text
+GET /api/dashboard/summary
+GET /api/reports/:report_key/latest
+GET /api/reports/:report_key/runs
+POST /api/reports/:report_key/run
+```
+
+Acceptance:
+
+- dashboard reads snapshots, not SML DB directly
+- empty data shows useful empty state
+- failed report shows failure state and last successful snapshot if available
+
+## Phase 5: LINE Morning Brief MVP
+
+Implement:
+
+- message renderer from `summary_json`
+- LINE adapter
+- manual send endpoint or command for testing
+- scheduled send at tenant-configured time, default `08:00 Asia/Bangkok`
+- `message_deliveries` log
+- retry policy
+
+Message must include:
+
+- report period
+- total sales
+- total quantity
+- branch summary if branch exists
+- top products
+- last run timestamp
+- dashboard link when available
+
+Acceptance:
+
+- can send test LINE brief
+- scheduled send does not duplicate for same tenant/report/period
+- provider failure is logged and retryable
+
+## Phase 6: Deploy Test Server
+
+Target:
+
+```text
+192.168.2.109
+```
+
+Deploy with Docker Compose:
+
+- web
+- api
+- worker
+- postgres
+- redis optional
+
+Acceptance:
+
+- dashboard accessible on LAN
+- API connects to system DB
+- worker can run report
+- LINE manual send works
+
+## Phase 7: Production Hardening
+
+Add before real paid customer:
+
+- auth/login
+- read-only SML DB user guide
+- secret encryption key management
+- tenant isolation tests
+- backup/restore test
+- HTTPS/nginx
+- error alerting
+- report validation against SML reference output
+- staging/prod env separation
+
+Acceptance:
+
+- no plaintext secrets
+- tenant isolation tested
+- production checklist in `docs/08_SECURITY_AND_PRODUCTION_TH.md` passes
+
+## Phase 8: Multi-Report and Subscription
+
+Add:
+
+- report catalog admin
+- enable/disable report per plan
+- subscription status check
+- report versioning
+- reports:
+  - `sales_by_product`
+  - `top_products`
+  - `sales_daily_trend`
+  - `sales_by_customer`
+
+Acceptance:
+
+- adding a report does not require dashboard rewrite
+- tenant can enable shared report definitions
+
+## Phase 9: Future Chatbot
+
+Only start after report platform is stable
+
+Rules:
+
+- chatbot is report router
+- no arbitrary SQL generation
+- answer must include date period and source
+- unsupported questions must say no approved report exists
+
+Flow:
+
+```text
+LINE/Web question
+  -> tenant/user resolution
+  -> permission check
+  -> intent routing
+  -> approved report selection
+  -> params extraction
+  -> run/read report
+  -> summarize answer
+  -> cite report_run_id
+```
+
+## Immediate Next Action
+
+รอ SQL query รายงานแรกจากผู้ใช้
+
+เมื่อได้ query:
+
+1. ใช้ `docs/12_ENGINEERING_PLAYBOOK_TH.md` Prompt 6 เพื่อ challenge assumptions
+2. สร้าง `sales_by_branch` report contract
+3. เริ่ม scaffold project
+4. implement report runner ก่อน dashboard
