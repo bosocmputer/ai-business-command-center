@@ -305,7 +305,7 @@ export function renderSalesGoodsServicesLinePreview(input: {
     return `${index + 1}. ${product.item_name}: ${formatMoney(product.sum_amount)} บาท`;
   });
   const dashboardLine = input.dashboardUrl
-    ? [`Dashboard: ${input.dashboardUrl}`]
+    ? [`เปิดรายงาน: ${input.dashboardUrl}`]
     : [];
   const tenantName = input.tenantName?.trim() || snapshot.tenant_id;
   const generatedAt = formatThaiDateTime(snapshot.generated_at);
@@ -320,8 +320,8 @@ export function renderSalesGoodsServicesLinePreview(input: {
     "",
     `ยอดขายสุทธิ: ${formatMoney(snapshot.summary.total_sales)} บาท`,
     `บิลขาย: ${snapshot.summary.document_count.toLocaleString("th-TH")} ใบ`,
-    `รายการสินค้า/บริการ: ${snapshot.summary.line_count.toLocaleString("th-TH")} แถว`,
-    `จำนวนรวม: ${snapshot.summary.total_qty.toLocaleString("th-TH", {
+    `จำนวนรายการขาย: ${snapshot.summary.line_count.toLocaleString("th-TH")} รายการ`,
+    `จำนวนขายรวม: ${snapshot.summary.total_qty.toLocaleString("th-TH", {
       maximumFractionDigits: 3,
     })}`,
     "",

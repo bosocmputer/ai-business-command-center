@@ -16,6 +16,7 @@ export type MorningBriefWorkerConfig = {
   force: boolean;
   workerId: string;
   heartbeatToken: string | null;
+  adminToken: string | null;
 };
 
 export function readMorningBriefWorkerConfig(
@@ -34,6 +35,7 @@ export function readMorningBriefWorkerConfig(
     force: readBoolean(env.MORNING_BRIEF_FORCE, false),
     workerId: env.WORKER_ID || "worker_morning_brief_1",
     heartbeatToken: env.WORKER_HEARTBEAT_TOKEN?.trim() || null,
+    adminToken: env.AI_BCC_ADMIN_TOKEN?.trim() || null,
   };
 }
 
@@ -71,7 +73,12 @@ export async function callMorningBriefEndpoint(input: {
     `${input.config.apiBaseUrl}/api/reports/${input.tenantId}/sales_goods_services/morning-brief/run-and-send`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(input.config.adminToken
+          ? { "x-ai-bcc-admin-token": input.config.adminToken }
+          : {}),
+      },
       body: JSON.stringify({
         period: "yesterday",
         mode: input.config.mode,

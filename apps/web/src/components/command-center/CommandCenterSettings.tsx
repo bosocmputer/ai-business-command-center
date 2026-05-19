@@ -18,6 +18,7 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import Select from "@/components/form/Select";
 import Label from "@/components/form/Label";
+import { buildAdminJsonHeaders, forgetAdminToken } from "./adminAuth";
 
 type OperationsStatus = {
   api: {
@@ -309,6 +310,19 @@ export default function CommandCenterSettings() {
 
   async function sendMorningBrief() {
     await runAction("send", async () => {
+      if (
+        !window.confirm(
+          [
+            "ยืนยันส่ง LINE Morning Brief จริง?",
+            `บริษัท: ${selectedTenant?.name ?? tenantId}`,
+            `วันที่ข้อมูล: ${formatReportPeriod(yesterday.date_from, yesterday.date_to)}`,
+            `ปลายทาง: ${tenantStatus?.line_target_masked ?? "ยังไม่ตั้งค่า"}`,
+          ].join("\n"),
+        )
+      ) {
+        return;
+      }
+
       const payload = await postJson<{
         data?: {
           status?: "skipped";
@@ -728,9 +742,14 @@ function SettingsLoadingState() {
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const headers = buildAdminJsonHeaders();
+  if (!headers) {
+    throw new Error("ต้องกรอก Admin token ก่อนทำรายการ");
+  }
+
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const payload = (await response.json().catch(() => ({}))) as T & {
@@ -738,6 +757,9 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   };
 
   if (!response.ok && !("data" in (payload as Record<string, unknown>))) {
+    if (response.status === 401 || response.status === 403) {
+      forgetAdminToken();
+    }
     throw new Error(payload.error || "ทำรายการไม่สำเร็จ");
   }
 

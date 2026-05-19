@@ -40,6 +40,7 @@ import {
   GroupIcon,
   TableIcon,
 } from "@/icons";
+import { buildAdminJsonHeaders, forgetAdminToken } from "./adminAuth";
 
 type AuditLogEntry = {
   id?: number;
@@ -298,13 +299,16 @@ export default function CommandCenterDashboard() {
     setRunning(true);
     setError(null);
     try {
+      const headers = buildAdminJsonHeaders();
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
+      }
+
       const response = await fetch(
         `${API_BASE_URL}/api/reports/${tenantId}/sales_goods_services/run`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers,
           body: JSON.stringify({
             date_from: dateFrom,
             date_to: dateTo,
@@ -318,6 +322,9 @@ export default function CommandCenterDashboard() {
       };
 
       if (!response.ok || !payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
         throw new Error(payload.error || "Report run failed.");
       }
 
@@ -339,13 +346,30 @@ export default function CommandCenterDashboard() {
     setLineSending(true);
     setError(null);
     try {
+      if (
+        mode === "send" &&
+        !window.confirm(
+          [
+            "ยืนยันส่ง LINE Morning Brief จริง?",
+            `บริษัท: ${selectedTenant?.name ?? tenantId}`,
+            `วันที่ข้อมูล: ${formatReportPeriod(morningBriefPeriod.date_from, morningBriefPeriod.date_to)}`,
+            `ปลายทาง: ${getTenantLineTarget(operationsStatus, tenantId)}`,
+          ].join("\n"),
+        )
+      ) {
+        return;
+      }
+
+      const headers = buildAdminJsonHeaders();
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนส่งหรือทดสอบ LINE");
+      }
+
       const response = await fetch(
         `${API_BASE_URL}/api/reports/${tenantId}/sales_goods_services/morning-brief/run-and-send`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers,
           body: JSON.stringify({ period: "yesterday", mode, force }),
         },
       );
@@ -356,6 +380,9 @@ export default function CommandCenterDashboard() {
       };
 
       if (!payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
         throw new Error(payload.error || "Morning brief request failed.");
       }
 
@@ -390,18 +417,6 @@ export default function CommandCenterDashboard() {
         homeHref="/command-center"
       />
 
-      {snapshot && (
-        <ExecutiveBriefPanel
-          snapshot={snapshot}
-          tenantName={selectedTenant?.name ?? tenantId}
-          qualityText={qualityBadge.text}
-          qualityColor={qualityBadge.color}
-          datasourceReady={Boolean(selectedTenant?.datasourceConfigured)}
-          lineDelivery={morningBriefSuccessDelivery}
-          operationsStatus={operationsStatus}
-        />
-      )}
-
       <ReportControlBar
         tenantId={tenantId}
         tenantOptions={tenantOptions.length ? tenantOptions : fallbackTenantOptions}
@@ -432,11 +447,13 @@ export default function CommandCenterDashboard() {
             <EmptyRangeState />
           ) : (
             <div className="space-y-5">
-              <BusinessHealthStrip
-                snapshot={snapshot}
-                lineDelivery={morningBriefSuccessDelivery}
-                operationsStatus={operationsStatus}
-              />
+              {linePreview && (
+                <CustomerReportLinkPanel
+                  preview={linePreview}
+                  snapshot={snapshot}
+                  lineDelivery={morningBriefSuccessDelivery}
+                />
+              )}
 
               <div className="grid grid-cols-12 gap-4 md:gap-6">
                 <div className="col-span-12 xl:col-span-7">
@@ -462,13 +479,6 @@ export default function CommandCenterDashboard() {
                 </div>
               </div>
 
-              {linePreview && (
-                <CustomerReportLinkPanel
-                  preview={linePreview}
-                  snapshot={snapshot}
-                />
-              )}
-
               <details className="group rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
                 <summary className="flex cursor-pointer list-none flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -482,6 +492,20 @@ export default function CommandCenterDashboard() {
                   <Badge color="light">เปิดเมื่อต้องตรวจสอบ</Badge>
                 </summary>
                 <div className="space-y-6 border-t border-gray-100 p-4 dark:border-gray-800 sm:p-6">
+                  <ExecutiveBriefPanel
+                    snapshot={snapshot}
+                    tenantName={selectedTenant?.name ?? tenantId}
+                    qualityText={qualityBadge.text}
+                    qualityColor={qualityBadge.color}
+                    datasourceReady={Boolean(selectedTenant?.datasourceConfigured)}
+                    lineDelivery={morningBriefSuccessDelivery}
+                    operationsStatus={operationsStatus}
+                  />
+                  <BusinessHealthStrip
+                    snapshot={snapshot}
+                    lineDelivery={morningBriefSuccessDelivery}
+                    operationsStatus={operationsStatus}
+                  />
                   <DecisionBriefPanel
                     snapshot={snapshot}
                     lineDelivery={morningBriefSuccessDelivery}
@@ -565,19 +589,19 @@ function BusinessHealthStrip({
         value={`${formatMoney(totalSales)} บาท`}
         detail={`${formatInteger(documentCount)} บิล · บิลเฉลี่ย ${formatMoney(averageBill)} บาท`}
         tone="success"
-        badge="Revenue"
+        badge="ยอดขาย"
       />
       <HealthMetricCard
         icon={<GroupIcon className="size-6 text-brand-600 dark:text-brand-400" />}
         label="ความเข้มข้นของสาขา"
-        value={topBranch ? `${topBranch.branch_code} · ${formatPercent(topBranchShare)}` : "-"}
+        value={topBranch ? `${formatBranchLabel(topBranch.branch_code)} · ${formatPercent(topBranchShare)}` : "-"}
         detail={
           topBranchShare >= 90
-            ? "ยอดขายพึ่งสาขาเดียวสูง ควรตรวจ branch mapping"
+            ? "ยอดขายอยู่ที่สาขาเดียวสูง อาจเป็นร้านสาขาเดียวหรือยังไม่ได้ map สาขา"
             : `${snapshot.branch_sales.length} สาขามีข้อมูลในรอบนี้`
         }
         tone={topBranchShare >= 90 ? "warning" : "primary"}
-        badge="Branch"
+        badge="สาขา"
       />
       <HealthMetricCard
         icon={<BoxIconLine className="text-warning-600 dark:text-warning-400" />}
@@ -585,7 +609,7 @@ function BusinessHealthStrip({
         value={topProduct ? `${formatPercent(topProductShare)} ของยอดขาย` : "ยังไม่มีข้อมูล"}
         detail={topProduct?.item_name ?? "ยังไม่พบสินค้าขายดีในช่วงนี้"}
         tone={topProductShare >= 35 ? "warning" : "light"}
-        badge="Product"
+        badge="สินค้า"
       />
       <HealthMetricCard
         icon={<TableIcon className="text-blue-light-600 dark:text-blue-light-400" />}
@@ -595,7 +619,7 @@ function BusinessHealthStrip({
           lineSent ? "LINE ส่งแล้ว" : "LINE ยังไม่ส่ง"
         }`}
         tone={operationalReady ? "success" : "warning"}
-        badge="Trust"
+        badge="ความพร้อม"
       />
     </div>
   );
@@ -647,12 +671,15 @@ function HealthMetricCard({
 function CustomerReportLinkPanel({
   preview,
   snapshot,
+  lineDelivery,
 }: {
   preview: SalesGoodsServicesLinePreview;
   snapshot: SalesGoodsServicesSnapshot;
+  lineDelivery: LineDeliveryRecord | null;
 }) {
   return (
     <ComponentCard
+      id="sales-report"
       title="ลิงก์รายงานสำหรับลูกค้า"
       desc="ลิงก์เดียวกับที่แนบใน LINE เปิดหน้า compact report viewer ของรอบรายงานนี้โดยตรง"
       action={
@@ -663,7 +690,7 @@ function CustomerReportLinkPanel({
       bodyClassName="!p-4 sm:!p-4"
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
-        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-4">
           <SummaryBlock
             label="วันที่ข้อมูล"
             value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
@@ -673,6 +700,11 @@ function CustomerReportLinkPanel({
             value={`${formatMoney(snapshot.summary.total_sales)} บาท`}
           />
           <SummaryBlock label="เลขอ้างอิง" value={snapshot.run_id} />
+          <SummaryBlock
+            label="สถานะ LINE"
+            value={lineDelivery?.status === "success" ? "ส่งแล้ว" : "รอส่ง"}
+            tone={lineDelivery?.status === "success" ? "success" : "warning"}
+          />
         </div>
         {preview.dashboard_url ? (
           <a
@@ -1914,6 +1946,13 @@ function formatWorkerStatus(status: OperationsStatus["worker"]["status"]) {
   return "ยังไม่พบสัญญาณ";
 }
 
+function getTenantLineTarget(status: OperationsStatus | null, tenantId: TenantId) {
+  return (
+    status?.tenants.find((tenant) => tenant.id === tenantId)?.line_target_masked ??
+    "ยังไม่ตั้งค่า"
+  );
+}
+
 function formatDeliveryStatus(status: LineDeliveryRecord["status"]) {
   if (status === "success") {
     return "ส่งสำเร็จ";
@@ -1996,5 +2035,12 @@ function addDaysToYmd(value: string, days: number) {
 }
 
 function formatSource(value: SalesGoodsServicesSnapshot["source"]) {
-  return value === "sml_postgres" ? "SML PostgreSQL" : "ข้อมูลตัวอย่าง";
+  return value === "sml_postgres" ? "ข้อมูลจากระบบขาย SML" : "ข้อมูลตัวอย่าง";
+}
+
+function formatBranchLabel(branchCode: string) {
+  if (branchCode === "no_branch") {
+    return "ไม่ระบุสาขา";
+  }
+  return `สาขา ${branchCode}`;
 }

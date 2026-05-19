@@ -114,6 +114,17 @@ export type ReconciliationSummary = {
   note: string;
 };
 
+export type SalesComparisonPoint = {
+  label: "previous_day" | "same_weekday_last_week";
+  date_from: string;
+  date_to: string;
+  total_sales: number;
+  document_count: number;
+  difference_amount: number;
+  difference_percent: number | null;
+  direction: "up" | "down" | "flat" | "no_reference";
+};
+
 export type SalesGoodsServicesSnapshot = {
   tenant_id: TenantId;
   report_key: ReportKey;
@@ -134,6 +145,10 @@ export type SalesGoodsServicesSnapshot = {
   documents: SalesHeaderRow[];
   lines: SalesDetailRow[];
   reconciliation: ReconciliationSummary;
+  comparison?: {
+    previous_day: SalesComparisonPoint | null;
+    same_weekday_last_week: SalesComparisonPoint | null;
+  };
   line_template: {
     title: string;
     body: string[];

@@ -33,6 +33,17 @@ describe("morning brief worker scheduler", () => {
       force: false,
       workerId: "worker_morning_brief_1",
       heartbeatToken: null,
+      adminToken: null,
+    });
+  });
+
+  it("reads the shared admin token for protected mutation endpoints", () => {
+    expect(
+      readMorningBriefWorkerConfig({
+        AI_BCC_ADMIN_TOKEN: "worker-admin-token",
+      }),
+    ).toMatchObject({
+      adminToken: "worker-admin-token",
     });
   });
 });

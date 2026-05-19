@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState,useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "../context/SidebarContext";
@@ -21,39 +21,28 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     icon: <GridIcon />,
-    name: "แดชบอร์ดหลัก",
+    name: "ภาพรวม",
     path: "/command-center",
   },
   {
     icon: <TableIcon />,
-    name: "รายงาน",
-    subItems: [
-      {
-        name: "ขายสินค้าและบริการ",
-        path: "/command-center#sales-report",
-        pro: false,
-      },
-    ],
+    name: "รายงานขาย",
+    path: "/command-center#sales-report",
   },
   {
     icon: <CalenderIcon />,
-    name: "สรุปตอนเช้า",
-    subItems: [
-      {
-        name: "ตัวอย่าง LINE",
-        path: "/command-center#morning-brief",
-        pro: false,
-      },
-    ],
+    name: "Morning Brief",
+    path: "/command-center#morning-brief",
   },
   {
     icon: <TableIcon />,
-    name: "การทำงานระบบ",
-    subItems: [
-      { name: "ตั้งค่าระบบ", path: "/command-center/settings", pro: false },
-      { name: "ประวัติรันรายงาน", path: "/command-center#run-history", pro: false },
-      { name: "บันทึกกิจกรรม", path: "/command-center#audit-trail", pro: false },
-    ],
+    name: "ตั้งค่า",
+    path: "/command-center/settings",
+  },
+  {
+    icon: <TableIcon />,
+    name: "ประวัติระบบ",
+    path: "/command-center#run-history",
   },
 ];
 
@@ -196,8 +185,10 @@ const AppSidebar: React.FC = () => {
   );
   const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // const isActive = (path: string) => path === pathname;
-   const isActive = useCallback((path: string) => path === pathname, [pathname]);
+  const isActive = useCallback(
+    (path: string) => path.split("#")[0] === pathname,
+    [pathname],
+  );
 
   useEffect(() => {
     // Check if the current path matches any submenu item
@@ -223,7 +214,7 @@ const AppSidebar: React.FC = () => {
     if (!submenuMatched) {
       setOpenSubmenu(null);
     }
-  }, [pathname,isActive]);
+  }, [pathname, isActive]);
 
   useEffect(() => {
     // Set the height of the submenu items when the submenu is opened

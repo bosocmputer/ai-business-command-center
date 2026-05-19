@@ -38,11 +38,16 @@ import {
   createReportViewerToken,
   verifyReportViewerToken,
 } from "./report-viewer-token.js";
+import { verifyAdminToken } from "./admin-auth.js";
 
 const app = Fastify({
   logger: {
     level: "info",
-    redact: ["req.headers.authorization", "*.password"],
+    redact: [
+      "req.headers.authorization",
+      "req.headers.x-ai-bcc-admin-token",
+      "*.password",
+    ],
   },
 });
 
@@ -84,6 +89,11 @@ app.get("/api/tenants", async () => ({
 }));
 
 app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
   const routeParams = tenantParamsSchema.safeParse(request.params);
   if (!routeParams.success) {
     return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -426,6 +436,11 @@ app.get(
 app.post(
   "/api/reports/:tenantId/sales_goods_services/line-send-test",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -501,6 +516,11 @@ app.post(
 app.post(
   "/api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
     const routeParams = tenantParamsSchema.safeParse(request.params);
     if (!routeParams.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -634,6 +654,11 @@ app.post(
 app.post(
   "/api/reports/:tenantId/sales_goods_services/run",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
     const routeParams = tenantParamsSchema.safeParse(request.params);
     if (!routeParams.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -679,7 +704,7 @@ async function runAndPersistSalesGoodsServicesReport(input: {
 }): Promise<
   | {
       ok: true;
-      snapshot: Awaited<ReturnType<typeof runSalesGoodsServicesReport>>;
+      snapshot: SalesGoodsServicesSnapshot;
       runRecord: ReportRunRecord;
     }
   | {
@@ -736,6 +761,13 @@ async function runAndPersistSalesGoodsServicesReport(input: {
       params: input.params,
       datasource,
     });
+    snapshot.comparison = await buildSalesComparison({
+      tenantId: input.tenantId,
+      runId: runRecord.id,
+      params: input.params,
+      datasource,
+      currentTotalSales: snapshot.summary.total_sales,
+    });
     runRecord.status = "success";
     runRecord.finished_at = new Date().toISOString();
     runRecord.row_count =
@@ -779,6 +811,91 @@ async function runAndPersistSalesGoodsServicesReport(input: {
       runRecord,
     };
   }
+}
+
+async function buildSalesComparison(input: {
+  tenantId: TenantId;
+  runId: string;
+  params: SalesGoodsServicesParams;
+  datasource: NonNullable<ReturnType<typeof readDatasourceConfig>>;
+  currentTotalSales: number;
+}): Promise<SalesGoodsServicesSnapshot["comparison"]> {
+  if (input.params.date_from !== input.params.date_to) {
+    return undefined;
+  }
+
+  const previousDay = addDays(input.params.date_from, -1);
+  const sameWeekdayLastWeek = addDays(input.params.date_from, -7);
+  const [previousDaySnapshot, sameWeekdaySnapshot] = await Promise.allSettled([
+    runSalesGoodsServicesReport({
+      tenant_id: input.tenantId,
+      run_id: `${input.runId}_compare_previous_day`,
+      params: { date_from: previousDay, date_to: previousDay },
+      datasource: input.datasource,
+    }),
+    runSalesGoodsServicesReport({
+      tenant_id: input.tenantId,
+      run_id: `${input.runId}_compare_same_weekday_last_week`,
+      params: {
+        date_from: sameWeekdayLastWeek,
+        date_to: sameWeekdayLastWeek,
+      },
+      datasource: input.datasource,
+    }),
+  ]);
+
+  return {
+    previous_day:
+      previousDaySnapshot.status === "fulfilled"
+        ? toComparisonPoint({
+            label: "previous_day",
+            snapshot: previousDaySnapshot.value,
+            currentTotalSales: input.currentTotalSales,
+          })
+        : null,
+    same_weekday_last_week:
+      sameWeekdaySnapshot.status === "fulfilled"
+        ? toComparisonPoint({
+            label: "same_weekday_last_week",
+            snapshot: sameWeekdaySnapshot.value,
+            currentTotalSales: input.currentTotalSales,
+          })
+        : null,
+  };
+}
+
+function toComparisonPoint(input: {
+  label: "previous_day" | "same_weekday_last_week";
+  snapshot: SalesGoodsServicesSnapshot;
+  currentTotalSales: number;
+}) {
+  const referenceTotal = input.snapshot.summary.total_sales;
+  const differenceAmount = roundMoney(input.currentTotalSales - referenceTotal);
+  const differencePercent =
+    referenceTotal === 0 ? null : roundPercent((differenceAmount / referenceTotal) * 100);
+
+  return {
+    label: input.label,
+    date_from: input.snapshot.params.date_from,
+    date_to: input.snapshot.params.date_to,
+    total_sales: referenceTotal,
+    document_count: input.snapshot.summary.document_count,
+    difference_amount: differenceAmount,
+    difference_percent: differencePercent,
+    direction: resolveComparisonDirection(differenceAmount, referenceTotal),
+  } satisfies NonNullable<SalesGoodsServicesSnapshot["comparison"]>["previous_day"];
+}
+
+function resolveComparisonDirection(differenceAmount: number, referenceTotal: number) {
+  if (referenceTotal === 0) {
+    return "no_reference" as const;
+  }
+
+  if (Math.abs(differenceAmount) < 0.01) {
+    return "flat" as const;
+  }
+
+  return differenceAmount > 0 ? ("up" as const) : ("down" as const);
 }
 
 app.get("/api/audit-logs", async () => ({
@@ -836,14 +953,23 @@ function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
   }
 }
 
+function requireAdminMutation(request: {
+  headers: Record<string, string | string[] | undefined>;
+}) {
+  return verifyAdminToken({
+    expectedToken: process.env.AI_BCC_ADMIN_TOKEN,
+    headerValue: request.headers["x-ai-bcc-admin-token"],
+  });
+}
+
 function readReportViewerSigningSecret() {
   const secret = process.env.REPORT_VIEWER_SIGNING_SECRET?.trim();
   return secret && secret.length >= 32 ? secret : null;
 }
 
 function readReportViewerLinkTtlSeconds() {
-  const rawHours = Number(process.env.REPORT_VIEWER_LINK_TTL_HOURS ?? 720);
-  const hours = Number.isFinite(rawHours) ? rawHours : 720;
+  const rawHours = Number(process.env.REPORT_VIEWER_LINK_TTL_HOURS ?? 72);
+  const hours = Number.isFinite(rawHours) ? rawHours : 72;
   return Math.max(1, Math.min(hours, 2160)) * 60 * 60;
 }
 
@@ -868,6 +994,20 @@ function readBoolean(value: string | undefined, fallback: boolean) {
   }
 
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function addDays(ymd: string, days: number): string {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function roundPercent(value: number) {
+  return Math.round((value + Number.EPSILON) * 10) / 10;
 }
 
 function maskIdentifier(value: string) {

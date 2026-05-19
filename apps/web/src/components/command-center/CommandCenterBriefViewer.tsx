@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import type {
   BranchSales,
+  SalesComparisonPoint,
   SalesDetailRow,
   SalesGoodsServicesSnapshot,
   SalesHeaderRow,
@@ -133,7 +134,7 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <StatusPill tone={hasWarning ? "warning" : "success"}>
-              {hasWarning ? "ควรตรวจยอด" : "พร้อมอ่าน"}
+              {formatTrustStatus(snapshot)}
             </StatusPill>
             <StatusPill tone={snapshot.source === "sml_postgres" ? "success" : "warning"}>
               {formatSource(snapshot.source)}
@@ -141,6 +142,12 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
             <StatusPill tone="neutral">
               อัปเดต {formatDateTime(snapshot.generated_at)}
             </StatusPill>
+            <a
+              href="#sales-details"
+              className="rounded-full bg-brand-500 px-3 py-1 font-medium text-white transition hover:bg-brand-600"
+            >
+              ดูรายละเอียดบิล/สินค้า
+            </a>
           </div>
         </div>
       </div>
@@ -157,19 +164,19 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
             value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
           />
           <KpiBlock
-            label="รายการสินค้า/บริการ"
-            value={`${formatInteger(snapshot.summary.line_count)} แถว`}
+            label="จำนวนรายการขาย"
+            value={`${formatInteger(snapshot.summary.line_count)} รายการ`}
           />
           <KpiBlock
-            label="จำนวนรวม"
+            label="จำนวนขายรวม"
             value={formatQty(snapshot.summary.total_qty)}
           />
         </section>
 
         <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
           <SectionTitle
-            title="ประเด็นที่ควรดู"
-            caption="สรุปจากยอดขาย สาขา สินค้าขายดี และคุณภาพข้อมูล"
+            title="วันนี้ควรรู้อะไร"
+            caption="แปลยอดขายเมื่อวานเป็นภาษาธุรกิจสำหรับตัดสินใจเร็ว"
           />
           <div className="mt-3 grid gap-2 lg:grid-cols-3">
             {insights.map((insight, index) => (
@@ -178,11 +185,24 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
           </div>
         </section>
 
+        {snapshot.comparison && (
+          <section className="grid gap-3 md:grid-cols-2">
+            <ComparisonCard
+              title="เทียบกับวันก่อนหน้า"
+              point={snapshot.comparison.previous_day}
+            />
+            <ComparisonCard
+              title="เทียบกับวันเดียวกันสัปดาห์ก่อน"
+              point={snapshot.comparison.same_weekday_last_week}
+            />
+          </section>
+        )}
+
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
           <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
             <SectionTitle
               title="ยอดขายตามสาขา"
-              caption="เรียงจากยอดขายสูงสุด ใช้ยอดจากหัวบิลเป็นตัวเลขหลัก"
+              caption="เรียงจากยอดขายสูงสุด ถ้าขึ้นสาขาเดียวทั้งหมดอาจเป็นร้านสาขาเดียวหรือยังไม่ได้ตั้งค่า branch"
             />
             <div className="mt-4 space-y-3">
               {snapshot.branch_sales.slice(0, 6).map((branch) => (
@@ -201,7 +221,7 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
           <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
             <SectionTitle
               title="สินค้าขายดี"
-              caption="Top products จากรายการสินค้าในบิล"
+              caption="สินค้าที่สร้างยอดขายมากสุดจากรายการขาย"
             />
             <div className="mt-4 space-y-3">
               {snapshot.top_products.slice(0, 6).map((product) => (
@@ -218,17 +238,14 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
           </section>
         </div>
 
-        <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+        <section
+          id="sales-details"
+          className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
+        >
           <SectionTitle
-            title="รายละเอียด/ที่มา"
-            caption="เก็บข้อมูลเทคนิคไว้ท้ายหน้าเพื่อ trace ได้ แต่ไม่รบกวนการอ่านรายงาน"
+            title="รายละเอียดบิล/สินค้า"
+            caption="เปิดดูเมื่ออยากไล่รายการขายที่เป็นที่มาของตัวเลข"
           />
-          <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
-            <Fact label="เลขอ้างอิง" value={snapshot.run_id} />
-            <Fact label="ช่วงวันที่" value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)} />
-            <Fact label="ยอดหัวบิล" value={`${formatMoney(snapshot.reconciliation.header_total_amount)} บาท`} />
-            <Fact label="ส่วนต่าง" value={`${formatMoney(snapshot.reconciliation.difference_amount)} บาท`} />
-          </div>
           {hasWarning && (
             <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
               หมายเหตุ: ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount
@@ -247,6 +264,18 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
                 headers={["วันที่", "เลขที่บิล", "สินค้า/บริการ", "สาขา", "จำนวน", "ยอดขาย"]}
                 rows={snapshot.lines.slice(0, 20).map(mapLineRow)}
               />
+            </BriefDetails>
+            <BriefDetails
+              title="ข้อมูลเทคนิค/ที่มา"
+              count={4}
+              caption="เปิดเฉพาะเมื่อต้อง trace รอบรันหรือเช็คความถูกต้องของยอด"
+            >
+              <div className="grid gap-3 text-sm md:grid-cols-4">
+                <Fact label="เลขอ้างอิง" value={snapshot.run_id} />
+                <Fact label="ช่วงวันที่" value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)} />
+                <Fact label="ยอดหัวบิล" value={`${formatMoney(snapshot.reconciliation.header_total_amount)} บาท`} />
+                <Fact label="ส่วนต่าง" value={`${formatMoney(snapshot.reconciliation.difference_amount)} บาท`} />
+              </div>
             </BriefDetails>
           </div>
         </section>
@@ -353,6 +382,60 @@ function InsightItem({
   );
 }
 
+function ComparisonCard({
+  title,
+  point,
+}: {
+  title: string;
+  point: SalesComparisonPoint | null;
+}) {
+  if (!point) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          {title}
+        </p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          ยังไม่มีข้อมูลอ้างอิงสำหรับเทียบยอด
+        </p>
+      </div>
+    );
+  }
+
+  const tone =
+    point.direction === "up"
+      ? "success"
+      : point.direction === "down"
+      ? "warning"
+      : "neutral";
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            {title}
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            เทียบกับ {formatReportPeriod(point.date_from, point.date_to)}
+          </p>
+        </div>
+        <StatusPill tone={tone}>{formatComparisonDirection(point.direction)}</StatusPill>
+      </div>
+      <p className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
+        {formatSignedMoney(point.difference_amount)} บาท
+        {point.difference_percent !== null
+          ? ` (${formatSignedPercent(point.difference_percent)})`
+          : ""}
+      </p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        ยอดอ้างอิง {formatMoney(point.total_sales)} บาท จาก{" "}
+        {formatInteger(point.document_count)} บิล
+      </p>
+    </div>
+  );
+}
+
 function BranchRow({
   branch,
   maxTotal,
@@ -366,7 +449,7 @@ function BranchRow({
       <div className="flex items-center justify-between gap-3 text-sm">
         <div className="min-w-0">
           <p className="font-semibold text-gray-900 dark:text-white">
-            {branch.branch_code}
+            {formatBranchLabel(branch.branch_code)}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {formatInteger(branch.document_count)} บิล · {formatInteger(branch.line_count)} รายการ
@@ -433,10 +516,12 @@ function Fact({ label, value }: { label: string; value: string }) {
 function BriefDetails({
   title,
   count,
+  caption,
   children,
 }: {
   title: string;
   count: number;
+  caption?: string;
   children: ReactNode;
 }) {
   return (
@@ -447,7 +532,8 @@ function BriefDetails({
             {title}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            แสดงตัวอย่าง 20 แถวแรกจาก {formatInteger(count)} แถวที่เก็บใน snapshot
+            {caption ??
+              `แสดงตัวอย่าง 20 แถวแรกจาก ${formatInteger(count)} แถวที่เก็บในรายงาน`}
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 group-open:bg-brand-50 group-open:text-brand-600 dark:bg-white/10 dark:text-gray-300">
@@ -550,7 +636,7 @@ function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
   if (snapshot.summary.document_count === 0) {
     insights.push({
       title: "ไม่พบยอดขายในช่วงวันที่นี้",
-      body: "เหมาะกับการตรวจว่าวันนั้นร้านหยุดขาย หรือช่วงวันที่ที่เลือกถูกต้องหรือไม่",
+      body: "ควรตรวจว่าวันนั้นร้านหยุดขาย ระบบยังไม่ปิดบิล หรือช่วงวันที่ที่ส่งรายงานถูกต้องหรือไม่",
       tone: "warning",
     });
   } else if (topBranch) {
@@ -558,8 +644,11 @@ function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
       ? (topBranch.total_amount / snapshot.summary.total_sales) * 100
       : 0;
     insights.push({
-      title: `สาขาหลักคือ ${topBranch.branch_code}`,
-      body: `ทำยอด ${formatMoney(topBranch.total_amount)} บาท คิดเป็นประมาณ ${share.toFixed(1)}% ของยอดขายรวม`,
+      title: `ยอดหลักอยู่ที่ ${formatBranchLabel(topBranch.branch_code)}`,
+      body:
+        share >= 99
+          ? `ยอดขายอยู่ที่สาขานี้เกือบทั้งหมด อาจเป็นร้านสาขาเดียว หรือยังไม่ได้ map สาขาใน SML`
+          : `ทำยอด ${formatMoney(topBranch.total_amount)} บาท คิดเป็นประมาณ ${share.toFixed(1)}% ของยอดขายรวม`,
       tone: share >= 85 ? "warning" : "success",
     });
   }
@@ -574,8 +663,8 @@ function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
 
   if (noBranch && noBranch.total_amount > 0) {
     insights.push({
-      title: "มีรายการไม่ระบุสาขา",
-      body: `พบยอด no_branch ${formatMoney(noBranch.total_amount)} บาท ควรตรวจ branch_code ใน SML`,
+      title: "มีรายการขายที่ไม่ระบุสาขา",
+      body: `พบยอด ${formatMoney(noBranch.total_amount)} บาทที่ยังไม่รู้สาขา ควรตรวจการตั้งค่า branch_code ใน SML`,
       tone: "warning",
     });
   }
@@ -631,7 +720,30 @@ function formatTenantName(tenantId: string) {
 }
 
 function formatSource(source: SalesGoodsServicesSnapshot["source"]) {
-  return source === "sml_postgres" ? "SML PostgreSQL" : "ข้อมูลตัวอย่าง";
+  return source === "sml_postgres" ? "ข้อมูลจากระบบขาย SML" : "ข้อมูลตัวอย่าง";
+}
+
+function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
+  if (snapshot.summary.document_count === 0) {
+    return "ไม่มีข้อมูล";
+  }
+  if (snapshot.quality_status === "stale" || snapshot.source === "sample_snapshot") {
+    return "ข้อมูลเก่า";
+  }
+  if (
+    snapshot.quality_status === "reconciled_with_warning" ||
+    Math.abs(snapshot.reconciliation.difference_amount) > 0.01
+  ) {
+    return "ควรตรวจยอด";
+  }
+  return "พร้อมใช้";
+}
+
+function formatBranchLabel(branchCode: string) {
+  if (branchCode === "no_branch") {
+    return "รายการไม่ระบุสาขา";
+  }
+  return `สาขา ${branchCode}`;
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {
@@ -668,6 +780,31 @@ function formatMoney(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatSignedMoney(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatMoney(value)}`;
+}
+
+function formatSignedPercent(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toLocaleString("th-TH", {
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
+function formatComparisonDirection(direction: SalesComparisonPoint["direction"]) {
+  if (direction === "up") {
+    return "เพิ่มขึ้น";
+  }
+  if (direction === "down") {
+    return "ลดลง";
+  }
+  if (direction === "flat") {
+    return "ทรงตัว";
+  }
+  return "ยังไม่มีฐานเทียบ";
 }
 
 function formatInteger(value: number) {
