@@ -50,6 +50,7 @@ const navItems: NavItem[] = [
     icon: <TableIcon />,
     name: "การทำงานระบบ",
     subItems: [
+      { name: "ตั้งค่าระบบ", path: "/command-center/settings", pro: false },
       { name: "ประวัติรันรายงาน", path: "/command-center#run-history", pro: false },
       { name: "บันทึกกิจกรรม", path: "/command-center#audit-trail", pro: false },
     ],

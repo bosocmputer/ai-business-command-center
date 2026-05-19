@@ -14,6 +14,20 @@ import {
 } from "@ai-bcc/shared";
 import type { DatasourceConfig } from "./config.js";
 
+export type DatasourceConnectionTestResult = {
+  ok: boolean;
+  checked_at: string;
+  latency_ms: number;
+  database_name: string;
+  user_name_masked: string | null;
+  required_tables: {
+    ic_trans: boolean;
+    ic_trans_detail: boolean;
+    ar_customer: boolean;
+  };
+  safe_error_message: string | null;
+};
+
 export async function runSalesGoodsServicesReport(input: {
   tenant_id: TenantId;
   run_id: string;
@@ -62,6 +76,86 @@ export async function runSalesGoodsServicesReport(input: {
   }
 }
 
+export async function testDatasourceConnection(
+  datasource: DatasourceConfig,
+): Promise<DatasourceConnectionTestResult> {
+  const checkedAt = new Date().toISOString();
+  const startedAt = Date.now();
+  const pool = new Pool({
+    host: datasource.host,
+    port: datasource.port,
+    database: datasource.database,
+    user: datasource.user,
+    password: datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 5000,
+    query_timeout: 8000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 5000");
+      const result = await client.query<{
+        database_name: string;
+        user_name: string;
+        has_ic_trans: boolean;
+        has_ic_trans_detail: boolean;
+        has_ar_customer: boolean;
+      }>(`
+select
+  current_database() as database_name,
+  current_user as user_name,
+  to_regclass('public.ic_trans') is not null as has_ic_trans,
+  to_regclass('public.ic_trans_detail') is not null as has_ic_trans_detail,
+  to_regclass('public.ar_customer') is not null as has_ar_customer
+`);
+      const row = result.rows[0];
+
+      return {
+        ok: Boolean(
+          row?.has_ic_trans &&
+            row.has_ic_trans_detail &&
+            row.has_ar_customer,
+        ),
+        checked_at: checkedAt,
+        latency_ms: Date.now() - startedAt,
+        database_name: row?.database_name ?? datasource.database,
+        user_name_masked: row?.user_name ? maskIdentifier(row.user_name) : null,
+        required_tables: {
+          ic_trans: Boolean(row?.has_ic_trans),
+          ic_trans_detail: Boolean(row?.has_ic_trans_detail),
+          ar_customer: Boolean(row?.has_ar_customer),
+        },
+        safe_error_message:
+          row?.has_ic_trans && row.has_ic_trans_detail && row.has_ar_customer
+            ? null
+            : "Datasource connected, but required SML tables are missing.",
+      };
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      checked_at: checkedAt,
+      latency_ms: Date.now() - startedAt,
+      database_name: datasource.database,
+      user_name_masked: null,
+      required_tables: {
+        ic_trans: false,
+        ic_trans_detail: false,
+        ar_customer: false,
+      },
+      safe_error_message: toSafeDatasourceErrorMessage(error),
+    };
+  } finally {
+    await pool.end();
+  }
+}
+
 export function toSafeErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     if (/password|credential|secret/i.test(error.message)) {
@@ -75,6 +169,30 @@ export function toSafeErrorMessage(error: unknown): string {
     }
   }
   return "Report run failed. Check server logs for the internal diagnostic details.";
+}
+
+function toSafeDatasourceErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    if (/password|credential|secret|authentication|28P01/i.test(error.message)) {
+      return "Datasource authentication failed.";
+    }
+    if (/timeout|canceling statement/i.test(error.message)) {
+      return "Datasource connection timed out.";
+    }
+    if (/connect|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(error.message)) {
+      return "Datasource is unreachable.";
+    }
+  }
+
+  return "Datasource test failed. Check server logs for diagnostics.";
+}
+
+function maskIdentifier(value: string) {
+  if (value.length <= 4) {
+    return "****";
+  }
+
+  return `${value.slice(0, 2)}...${value.slice(-2)}`;
 }
 
 function mapHeaderRow(row: Record<string, unknown>): SalesHeaderRow {

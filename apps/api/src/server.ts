@@ -21,6 +21,7 @@ import {
 } from "./config.js";
 import {
   runSalesGoodsServicesReport,
+  testDatasourceConnection,
   toSafeErrorMessage,
 } from "./report-runner.js";
 import { renderSalesGoodsServicesLinePreview } from "@ai-bcc/reports";
@@ -76,6 +77,71 @@ app.get("/health", async () => ({
 app.get("/api/tenants", async () => ({
   data: listTenants(),
 }));
+
+app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
+  const routeParams = tenantParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid tenant_id" });
+  }
+
+  const tenantId = routeParams.data.tenantId;
+  const datasource = readDatasourceConfig(tenantId);
+  if (!datasource) {
+    const checkedAt = new Date().toISOString();
+    await systemStore.appendAuditLog({
+      tenant_id: tenantId,
+      actor_id: null,
+      action: "datasource_test_failed",
+      target_type: "datasource",
+      target_id: tenantId,
+      metadata_json: {
+        configured: false,
+        checked_at: checkedAt,
+        safe_error_message: "Datasource is not configured.",
+      },
+    });
+
+    return reply.status(424).send({
+      data: {
+        ok: false,
+        checked_at: checkedAt,
+        latency_ms: 0,
+        database_name: getTenantDefinition(tenantId)?.databaseName ?? null,
+        user_name_masked: null,
+        required_tables: {
+          ic_trans: false,
+          ic_trans_detail: false,
+          ar_customer: false,
+        },
+        safe_error_message: "Datasource is not configured.",
+      },
+    });
+  }
+
+  const result = await testDatasourceConnection(datasource);
+  await systemStore.appendAuditLog({
+    tenant_id: tenantId,
+    actor_id: null,
+    action: result.ok ? "datasource_test_succeeded" : "datasource_test_failed",
+    target_type: "datasource",
+    target_id: tenantId,
+    metadata_json: {
+      configured: true,
+      checked_at: result.checked_at,
+      latency_ms: result.latency_ms,
+      database_name: result.database_name,
+      required_tables: result.required_tables,
+      safe_error_message: result.safe_error_message,
+    },
+  });
+
+  const response = { data: result };
+  if (!result.ok) {
+    return reply.status(502).send(response);
+  }
+
+  return response;
+});
 
 app.get("/api/operations/status", async () => {
   const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
