@@ -14,6 +14,7 @@ import {
   type SalesGoodsServicesSnapshot,
   type Tenant,
   type TenantId,
+  type WorkerHeartbeatRecord,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -66,6 +67,42 @@ type MorningBriefActionResult =
       params: SalesGoodsServicesParams;
     };
 
+type OperationsStatus = {
+  api: {
+    ok: boolean;
+    service: string;
+    system_store: "postgres" | "local-json";
+    time: string;
+  };
+  dashboard: {
+    app_base_url_configured: boolean;
+    dashboard_url: string | null;
+    public_api_base_url_configured: boolean;
+  };
+  scheduler: {
+    enabled: boolean;
+    tenant_ids: string[];
+    time: string;
+    timezone: string;
+    mode: LineSendMode;
+    force: boolean;
+  };
+  worker: {
+    heartbeat_configured: boolean;
+    latest_heartbeat: WorkerHeartbeatRecord | null;
+    age_seconds: number | null;
+    status: WorkerHeartbeatRecord["status"] | "stale" | "missing";
+  };
+  tenants: Array<{
+    id: TenantId;
+    name: string;
+    database_name: string;
+    datasource_configured: boolean;
+    line_configured: boolean;
+    line_target_masked: string | null;
+  }>;
+};
+
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
   ssr: false,
 });
@@ -101,6 +138,8 @@ export default function CommandCenterDashboard() {
   );
   const [linePreview, setLinePreview] =
     useState<SalesGoodsServicesLinePreview | null>(null);
+  const [operationsStatus, setOperationsStatus] =
+    useState<OperationsStatus | null>(null);
   const [lineSending, setLineSending] = useState(false);
   const [lineSendResult, setLineSendResult] = useState<LineSendResult | null>(
     null,
@@ -122,6 +161,7 @@ export default function CommandCenterDashboard() {
         auditResponse,
         linePreviewResponse,
         lineDeliveriesResponse,
+        operationsResponse,
       ] = await Promise.all([
         fetch(`${API_BASE_URL}/api/tenants`),
         fetch(
@@ -137,6 +177,7 @@ export default function CommandCenterDashboard() {
         fetch(
           `${API_BASE_URL}/api/reports/${nextTenantId}/sales_goods_services/line-deliveries`,
         ),
+        fetch(`${API_BASE_URL}/api/operations/status`),
       ]);
 
       if (
@@ -145,7 +186,8 @@ export default function CommandCenterDashboard() {
         !runsResponse.ok ||
         !auditResponse.ok ||
         !linePreviewResponse.ok ||
-        !lineDeliveriesResponse.ok
+        !lineDeliveriesResponse.ok ||
+        !operationsResponse.ok
       ) {
         throw new Error("Dashboard API is not ready.");
       }
@@ -168,12 +210,16 @@ export default function CommandCenterDashboard() {
       const lineDeliveriesPayload = (await lineDeliveriesResponse.json()) as {
         data: LineDeliveryRecord[];
       };
+      const operationsPayload = (await operationsResponse.json()) as {
+        data: OperationsStatus;
+      };
 
       setTenants(tenantsPayload.data);
       setSnapshot(snapshotPayload.data);
       setRuns(runsPayload.data);
       setLinePreview(linePreviewPayload.data);
       setLineDeliveries(lineDeliveriesPayload.data);
+      setOperationsStatus(operationsPayload.data);
       setAuditLogs(
         auditPayload.data.filter((entry) => entry.tenant_id === nextTenantId),
       );
@@ -439,6 +485,12 @@ export default function CommandCenterDashboard() {
 
       {!loading && snapshot && (
         <>
+          <OperationsReadinessPanel
+            status={operationsStatus}
+            tenantId={tenantId}
+            snapshot={snapshot}
+          />
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon={<DollarLineIcon className="text-gray-800 dark:text-white/90" />}
@@ -520,6 +572,87 @@ export default function CommandCenterDashboard() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function OperationsReadinessPanel({
+  status,
+  tenantId,
+  snapshot,
+}: {
+  status: OperationsStatus | null;
+  tenantId: TenantId;
+  snapshot: SalesGoodsServicesSnapshot;
+}) {
+  if (!status) {
+    return null;
+  }
+
+  const tenantStatus = status.tenants.find((tenant) => tenant.id === tenantId);
+  const workerTone = operationsBadgeColor(status.worker.status);
+  const workerAge =
+    status.worker.age_seconds === null
+      ? "No heartbeat"
+      : formatDuration(status.worker.age_seconds);
+
+  return (
+    <div id="operations-readiness" className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            Operations Readiness
+          </h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Runtime health for this demo: API, worker, scheduler, tenant datasource, and LINE channel.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge color={status.api.system_store === "postgres" ? "success" : "warning"}>
+            {status.api.system_store === "postgres" ? "System DB" : "Local JSON"}
+          </Badge>
+          <Badge color={workerTone}>Worker {status.worker.status}</Badge>
+          <Badge color={status.scheduler.enabled ? "success" : "warning"}>
+            Scheduler {status.scheduler.enabled ? "on" : "off"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-6">
+        <SummaryBlock
+          label="API"
+          value={status.api.ok ? "Healthy" : "Check needed"}
+          tone={status.api.ok ? "success" : "error"}
+        />
+        <SummaryBlock
+          label="Worker heartbeat"
+          value={`${status.worker.status} · ${workerAge}`}
+          tone={workerTone}
+        />
+        <SummaryBlock
+          label="Schedule"
+          value={`${status.scheduler.time} ${status.scheduler.timezone}`}
+        />
+        <SummaryBlock
+          label="Datasource"
+          value={tenantStatus?.datasource_configured ? "Configured" : "Missing env"}
+          tone={tenantStatus?.datasource_configured ? "success" : "warning"}
+        />
+        <SummaryBlock
+          label="LINE target"
+          value={tenantStatus?.line_configured ? tenantStatus.line_target_masked ?? "Configured" : "Missing"}
+          tone={tenantStatus?.line_configured ? "success" : "warning"}
+        />
+        <SummaryBlock
+          label="Snapshot"
+          value={formatDuration(
+            Math.max(
+              0,
+              Math.floor((Date.now() - new Date(snapshot.generated_at).getTime()) / 1000),
+            ),
+          )}
+        />
+      </div>
     </div>
   );
 }
@@ -815,6 +948,20 @@ function lineDeliveryBadgeColor(status: LineDeliveryRecord["status"]) {
   }
 
   if (status === "failed") {
+    return "error" as const;
+  }
+
+  return "warning" as const;
+}
+
+function operationsBadgeColor(
+  status: OperationsStatus["worker"]["status"],
+) {
+  if (status === "ok") {
+    return "success" as const;
+  }
+
+  if (status === "error") {
     return "error" as const;
   }
 
@@ -1294,6 +1441,24 @@ function formatDateTime(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Bangkok",
   }).format(new Date(value));
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {

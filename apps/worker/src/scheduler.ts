@@ -3,6 +3,7 @@ import {
   tenantIdSchema,
   type LineSendMode,
   type TenantId,
+  type WorkerHeartbeatStatus,
 } from "@ai-bcc/shared";
 
 export type MorningBriefWorkerConfig = {
@@ -13,6 +14,8 @@ export type MorningBriefWorkerConfig = {
   runAt: string;
   mode: LineSendMode;
   force: boolean;
+  workerId: string;
+  heartbeatToken: string | null;
 };
 
 export function readMorningBriefWorkerConfig(
@@ -29,6 +32,8 @@ export function readMorningBriefWorkerConfig(
     runAt: env.MORNING_BRIEF_TIME || "08:00",
     mode: env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send",
     force: readBoolean(env.MORNING_BRIEF_FORCE, false),
+    workerId: env.WORKER_ID || "worker_morning_brief_1",
+    heartbeatToken: env.WORKER_HEARTBEAT_TOKEN?.trim() || null,
   };
 }
 
@@ -82,6 +87,49 @@ export async function callMorningBriefEndpoint(input: {
   if (!response.ok) {
     throw new Error(
       `Morning brief API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
+    );
+  }
+
+  return payload;
+}
+
+export async function callWorkerHeartbeat(input: {
+  config: MorningBriefWorkerConfig;
+  status?: WorkerHeartbeatStatus;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.config.heartbeatToken) {
+    return {
+      skipped: true,
+      reason: "worker_heartbeat_token_missing",
+    };
+  }
+
+  const response = await fetch(
+    `${input.config.apiBaseUrl}/api/worker/heartbeat`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-ai-bcc-worker-token": input.config.heartbeatToken,
+      },
+      body: JSON.stringify({
+        worker_id: input.config.workerId,
+        role: "morning_brief_scheduler",
+        status: input.status ?? "ok",
+        metadata_json: input.metadata ?? {},
+        checked_at: new Date().toISOString(),
+      }),
+    },
+  );
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+
+  if (!response.ok) {
+    throw new Error(
+      `Worker heartbeat API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
     );
   }
 

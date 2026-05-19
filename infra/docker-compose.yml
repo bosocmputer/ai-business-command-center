@@ -85,6 +85,8 @@ services:
       MORNING_BRIEF_TIME: ${MORNING_BRIEF_TIME:-08:00}
       MORNING_BRIEF_MODE: ${MORNING_BRIEF_MODE:-send}
       MORNING_BRIEF_FORCE: ${MORNING_BRIEF_FORCE:-false}
+      WORKER_ID: ${WORKER_ID:-worker_morning_brief_1}
+      WORKER_HEARTBEAT_TOKEN: ${WORKER_HEARTBEAT_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy

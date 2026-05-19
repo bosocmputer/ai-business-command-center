@@ -1,5 +1,6 @@
 import {
   callMorningBriefEndpoint,
+  callWorkerHeartbeat,
   getZonedMinute,
   readMorningBriefWorkerConfig,
   shouldRunMorningBrief,
@@ -18,8 +19,47 @@ console.log(
     runAt: config.runAt,
     mode: config.mode,
     force: config.force,
+    workerId: config.workerId,
+    heartbeatConfigured: Boolean(config.heartbeatToken),
   }),
 );
+
+function workerMetadata() {
+  return {
+    enabled: config.enabled,
+    tenantIds: config.tenantIds,
+    timeZone: config.timeZone,
+    runAt: config.runAt,
+    mode: config.mode,
+    force: config.force,
+  };
+}
+
+async function sendHeartbeat() {
+  try {
+    const result = await callWorkerHeartbeat({
+      config,
+      status: config.enabled ? "ok" : "warning",
+      metadata: workerMetadata(),
+    });
+    if ("skipped" in result) {
+      console.warn(
+        JSON.stringify({
+          event: "worker_heartbeat_skipped",
+          reason: result.reason,
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "worker_heartbeat_failed",
+        safeError:
+          error instanceof Error ? error.message : "Unknown heartbeat error",
+      }),
+    );
+  }
+}
 
 async function tick(now = new Date()) {
   if (!config.enabled) {
@@ -72,7 +112,11 @@ async function tick(now = new Date()) {
   }
 }
 
+await sendHeartbeat();
 await tick();
 setInterval(() => {
   void tick();
 }, 30_000);
+setInterval(() => {
+  void sendHeartbeat();
+}, 60_000);

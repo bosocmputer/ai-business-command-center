@@ -31,6 +31,8 @@ describe("morning brief worker scheduler", () => {
       runAt: "08:00",
       mode: "send",
       force: false,
+      workerId: "worker_morning_brief_1",
+      heartbeatToken: null,
     });
   });
 });

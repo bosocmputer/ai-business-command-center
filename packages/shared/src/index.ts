@@ -255,6 +255,18 @@ export type LineWebhookEventRecord = {
   created_at: string;
 };
 
+export type WorkerHeartbeatStatus = "ok" | "warning" | "error";
+
+export type WorkerHeartbeatRecord = {
+  id: string;
+  worker_id: string;
+  role: string;
+  status: WorkerHeartbeatStatus;
+  metadata_json: Record<string, unknown>;
+  checked_at: string;
+  created_at: string;
+};
+
 export type ReportRunRecord = {
   id: string;
   tenant_id: TenantId;

@@ -79,6 +79,13 @@ describe("local JSON system store", () => {
       created_at: "2026-05-19T01:00:02.000Z",
     };
     await firstStore.saveLineDelivery(delivery);
+    await firstStore.saveWorkerHeartbeat({
+      worker_id: "worker_morning_brief_1",
+      role: "morning_brief_scheduler",
+      status: "ok",
+      metadata_json: { enabled: true, runAt: "08:00" },
+      checked_at: "2026-05-19T01:00:03.000Z",
+    });
     await firstStore.appendAuditLog({
       tenant_id: "tenant_demo_remote",
       actor_id: null,
@@ -119,6 +126,14 @@ describe("local JSON system store", () => {
       id: "line_persisted",
       delivery_type: "morning_brief",
       period_from: "2026-05-10",
+    });
+    await expect(
+      secondStore.getLatestWorkerHeartbeat("morning_brief_scheduler"),
+    ).resolves.toMatchObject({
+      worker_id: "worker_morning_brief_1",
+      role: "morning_brief_scheduler",
+      status: "ok",
+      checked_at: "2026-05-19T01:00:03.000Z",
     });
     await secondStore.close();
   });

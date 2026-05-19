@@ -8,6 +8,7 @@ import {
   type SalesGoodsServicesSnapshot,
   type Tenant,
   type TenantId,
+  type WorkerHeartbeatRecord,
 } from "@ai-bcc/shared";
 import { createSampleSnapshot } from "./sample-data.js";
 
@@ -49,6 +50,10 @@ export type SystemStore = {
   listLineDeliveries(tenantId: TenantId): Promise<LineDeliveryRecord[]>;
   saveLineWebhookEvents(events: LineWebhookEventRecord[]): Promise<void>;
   listLineWebhookEvents(limit: number): Promise<LineWebhookEventRecord[]>;
+  saveWorkerHeartbeat(
+    heartbeat: Omit<WorkerHeartbeatRecord, "id" | "created_at">,
+  ): Promise<WorkerHeartbeatRecord>;
+  getLatestWorkerHeartbeat(role?: string): Promise<WorkerHeartbeatRecord | null>;
   appendAuditLog(entry: Omit<AuditLogEntry, "created_at">): Promise<void>;
   importAuditLogs(entries: AuditLogEntry[]): Promise<void>;
   listAuditLogs(limit: number): Promise<AuditLogEntry[]>;
@@ -62,6 +67,7 @@ type StoreFile = {
   snapshots: SalesGoodsServicesSnapshot[];
   lineDeliveries: LineDeliveryRecord[];
   lineWebhookEvents: LineWebhookEventRecord[];
+  workerHeartbeats: WorkerHeartbeatRecord[];
   auditLogs: AuditLogEntry[];
 };
 
@@ -194,6 +200,32 @@ class LocalJsonSystemStore implements SystemStore {
       .slice(0, limit);
   }
 
+  async saveWorkerHeartbeat(
+    heartbeat: Omit<WorkerHeartbeatRecord, "id" | "created_at">,
+  ) {
+    const data = this.requireData();
+    const record: WorkerHeartbeatRecord = {
+      ...heartbeat,
+      id: `heartbeat_${heartbeat.worker_id}_${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+    data.workerHeartbeats = [
+      record,
+      ...data.workerHeartbeats.filter((existing) => existing.id !== record.id),
+    ].slice(0, 200);
+    await this.persist();
+    return record;
+  }
+
+  async getLatestWorkerHeartbeat(role?: string) {
+    const data = this.requireData();
+    return (
+      data.workerHeartbeats
+        .filter((heartbeat) => !role || heartbeat.role === role)
+        .sort((a, b) => b.checked_at.localeCompare(a.checked_at))[0] ?? null
+    );
+  }
+
   async appendAuditLog(entry: Omit<AuditLogEntry, "created_at">) {
     const data = this.requireData();
     data.auditLogs.unshift({
@@ -246,6 +278,7 @@ class LocalJsonSystemStore implements SystemStore {
         snapshots: parsed.snapshots ?? [],
         lineDeliveries: parsed.lineDeliveries ?? [],
         lineWebhookEvents: parsed.lineWebhookEvents ?? [],
+        workerHeartbeats: parsed.workerHeartbeats ?? [],
         auditLogs: parsed.auditLogs ?? [],
       };
     } catch {
@@ -256,6 +289,7 @@ class LocalJsonSystemStore implements SystemStore {
         snapshots: [],
         lineDeliveries: [],
         lineWebhookEvents: [],
+        workerHeartbeats: [],
         auditLogs: [],
       };
     }
@@ -661,6 +695,68 @@ limit $1
     })) as LineWebhookEventRecord[];
   }
 
+  async saveWorkerHeartbeat(
+    heartbeat: Omit<WorkerHeartbeatRecord, "id" | "created_at">,
+  ) {
+    const id = `heartbeat_${heartbeat.worker_id}_${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    const result = await this.pool.query(
+      `
+insert into worker_heartbeats (
+  id,
+  worker_id,
+  role,
+  status,
+  metadata_json,
+  checked_at,
+  created_at
+)
+values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, $7::timestamptz)
+returning
+  id,
+  worker_id,
+  role,
+  status,
+  metadata_json,
+  checked_at,
+  created_at
+`,
+      [
+        id,
+        heartbeat.worker_id,
+        heartbeat.role,
+        heartbeat.status,
+        JSON.stringify(heartbeat.metadata_json),
+        heartbeat.checked_at,
+        createdAt,
+      ],
+    );
+
+    return mapWorkerHeartbeatRow(result.rows[0]);
+  }
+
+  async getLatestWorkerHeartbeat(role?: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  worker_id,
+  role,
+  status,
+  metadata_json,
+  checked_at,
+  created_at
+from worker_heartbeats
+where ($1::text is null or role = $1)
+order by checked_at desc
+limit 1
+`,
+      [role ?? null],
+    );
+
+    return result.rows[0] ? mapWorkerHeartbeatRow(result.rows[0]) : null;
+  }
+
   async appendAuditLog(entry: Omit<AuditLogEntry, "created_at">) {
     await this.pool.query(
       `
@@ -866,6 +962,24 @@ function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
   };
 }
 
+function mapWorkerHeartbeatRow(
+  row: Record<string, unknown>,
+): WorkerHeartbeatRecord {
+  const status =
+    row.status === "warning" || row.status === "error" ? row.status : "ok";
+
+  return {
+    id: String(row.id),
+    worker_id: String(row.worker_id),
+    role: String(row.role),
+    status,
+    metadata_json:
+      (row.metadata_json as Record<string, unknown> | null) ?? {},
+    checked_at: toIsoString(row.checked_at as string | Date),
+    created_at: toIsoString(row.created_at as string | Date),
+  };
+}
+
 function isNoSpaceError(error: unknown) {
   return (
     error instanceof Error &&
@@ -973,4 +1087,17 @@ create table if not exists audit_logs (
   metadata_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+create table if not exists worker_heartbeats (
+  id text primary key,
+  worker_id text not null,
+  role text not null,
+  status text not null,
+  metadata_json jsonb not null default '{}'::jsonb,
+  checked_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists worker_heartbeats_latest_idx
+on worker_heartbeats (role, checked_at desc);
 `;

@@ -77,6 +77,96 @@ app.get("/api/tenants", async () => ({
   data: listTenants(),
 }));
 
+app.get("/api/operations/status", async () => {
+  const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
+    "morning_brief_scheduler",
+  );
+  const heartbeatAgeSeconds = latestHeartbeat
+    ? Math.floor((Date.now() - new Date(latestHeartbeat.checked_at).getTime()) / 1000)
+    : null;
+  const heartbeatFresh =
+    heartbeatAgeSeconds !== null &&
+    heartbeatAgeSeconds >= 0 &&
+    heartbeatAgeSeconds <= 120;
+
+  return {
+    data: {
+      api: {
+        ok: true,
+        service: "ai-business-command-center-api",
+        system_store: systemStore.kind,
+        time: new Date().toISOString(),
+      },
+      dashboard: {
+        app_base_url_configured: Boolean(process.env.APP_BASE_URL?.trim()),
+        dashboard_url: buildDashboardUrl(),
+        public_api_base_url_configured: Boolean(
+          process.env.NEXT_PUBLIC_API_BASE_URL?.trim(),
+        ),
+      },
+      scheduler: {
+        enabled: readBoolean(process.env.MORNING_BRIEF_ENABLED, true),
+        tenant_ids: readSchedulerTenantIds(),
+        time: process.env.MORNING_BRIEF_TIME || "08:00",
+        timezone: process.env.MORNING_BRIEF_TIMEZONE || "Asia/Bangkok",
+        mode: process.env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send",
+        force: readBoolean(process.env.MORNING_BRIEF_FORCE, false),
+      },
+      worker: {
+        heartbeat_configured: Boolean(process.env.WORKER_HEARTBEAT_TOKEN?.trim()),
+        latest_heartbeat: latestHeartbeat,
+        age_seconds: heartbeatAgeSeconds,
+        status: latestHeartbeat ? (heartbeatFresh ? latestHeartbeat.status : "stale") : "missing",
+      },
+      tenants: listTenants().map((tenant) => {
+        const lineConfig = readLineChannelConfig(tenant.id);
+        return {
+          id: tenant.id,
+          name: tenant.name,
+          database_name: tenant.databaseName,
+          datasource_configured: tenant.datasourceConfigured,
+          line_configured: Boolean(lineConfig),
+          line_target_masked: lineConfig ? maskIdentifier(lineConfig.targetId) : null,
+        };
+      }),
+    },
+  };
+});
+
+app.post("/api/worker/heartbeat", async (request, reply) => {
+  const expectedToken = process.env.WORKER_HEARTBEAT_TOKEN?.trim();
+  if (!expectedToken) {
+    return reply.status(503).send({
+      error: "Worker heartbeat token is not configured.",
+    });
+  }
+
+  const headerToken = request.headers["x-ai-bcc-worker-token"];
+  const token = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  if (token !== expectedToken) {
+    request.log.warn("worker heartbeat rejected because token is invalid");
+    return reply.status(401).send({ error: "Invalid worker token." });
+  }
+
+  const body = workerHeartbeatSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid worker heartbeat",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const heartbeat = await systemStore.saveWorkerHeartbeat({
+    worker_id: body.data.worker_id,
+    role: body.data.role,
+    status: body.data.status,
+    metadata_json: body.data.metadata_json,
+    checked_at: body.data.checked_at ?? new Date().toISOString(),
+  });
+
+  return { data: heartbeat };
+});
+
 app.post("/api/line/webhook", async (request, reply) => {
   const webhookConfig = readLineWebhookConfig();
   if (!webhookConfig) {
@@ -606,6 +696,30 @@ function buildMorningBriefDeliveryKey(
   return `${tenantId}:sales_goods_services:morning_brief:${params.date_from}:${params.date_to}`;
 }
 
+function readSchedulerTenantIds() {
+  const raw = process.env.MORNING_BRIEF_TENANT_IDS?.trim() || "tenant_demo_remote";
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function readBoolean(value: string | undefined, fallback: boolean) {
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function maskIdentifier(value: string) {
+  if (value.length <= 8) {
+    return "********";
+  }
+
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
 const tenantParamsSchema = z.object({
   tenantId: tenantIdSchema,
 });
@@ -613,6 +727,14 @@ const tenantParamsSchema = z.object({
 const lineWebhookEventsQuerySchema = z.object({
   reveal: z.enum(["0", "1"]).optional().default("0"),
   limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+});
+
+const workerHeartbeatSchema = z.object({
+  worker_id: z.string().min(1).max(80),
+  role: z.string().min(1).max(80),
+  status: z.enum(["ok", "warning", "error"]).default("ok"),
+  metadata_json: z.record(z.string(), z.unknown()).optional().default({}),
+  checked_at: z.string().datetime().optional(),
 });
 
 type FastifyRequestWithRawBody = {
