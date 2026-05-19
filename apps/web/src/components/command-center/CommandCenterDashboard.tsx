@@ -107,6 +107,15 @@ type OperationsStatus = {
   }>;
 };
 
+type BadgeTone =
+  | "primary"
+  | "success"
+  | "error"
+  | "warning"
+  | "info"
+  | "light"
+  | "dark";
+
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
   ssr: false,
 });
@@ -267,22 +276,22 @@ export default function CommandCenterDashboard() {
 
   const qualityBadge = useMemo(() => {
     if (!snapshot) {
-      return { color: "light" as const, text: "Loading" };
+      return { color: "light" as BadgeTone, text: "กำลังโหลด" };
     }
 
     if (snapshot.quality_status === "valid") {
-      return { color: "success" as const, text: "ข้อมูลพร้อมใช้" };
+      return { color: "success" as BadgeTone, text: "ข้อมูลพร้อมใช้" };
     }
 
     if (snapshot.quality_status === "stale") {
-      return { color: "warning" as const, text: "ข้อมูลตัวอย่าง" };
+      return { color: "warning" as BadgeTone, text: "ข้อมูลตัวอย่าง" };
     }
 
     if (snapshot.quality_status === "failed") {
-      return { color: "error" as const, text: "รันรายงานไม่สำเร็จ" };
+      return { color: "error" as BadgeTone, text: "รันรายงานไม่สำเร็จ" };
     }
 
-    return { color: "warning" as const, text: "ยอดขายต้องตรวจสอบ" };
+    return { color: "warning" as BadgeTone, text: "ยอดขายต้องตรวจสอบ" };
   }, [snapshot]);
 
   async function runReport() {
@@ -381,108 +390,31 @@ export default function CommandCenterDashboard() {
         homeHref="/command-center"
       />
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6 xl:flex-row xl:items-end xl:justify-between">
-        <div className="max-w-3xl">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Badge color={qualityBadge.color}>{qualityBadge.text}</Badge>
-            <Badge color={selectedTenant?.datasourceConfigured ? "success" : "warning"}>
-              {selectedTenant?.datasourceConfigured
-                ? "เชื่อมฐานข้อมูลแล้ว"
-                : "ยังไม่ตั้งค่าฐานข้อมูล"}
-            </Badge>
-          </div>
-          <h1 className="text-2xl font-semibold text-gray-800 dark:text-white/90">
-            แดชบอร์ดยอดขาย SML
-          </h1>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            ดูยอดขายสินค้าและบริการจาก SML แยกตามบริษัท สาขา และสินค้า
-            พร้อมส่งสรุปเข้า LINE OA ทุกเช้า
-          </p>
-          {snapshot && (
-            <div className="mt-4 grid grid-cols-1 gap-3 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-2 xl:grid-cols-4">
-              <span>
-                อัปเดตล่าสุด:{" "}
-                <strong className="font-medium text-gray-700 dark:text-gray-200">
-                  {formatDateTime(snapshot.generated_at)}
-                </strong>
-              </span>
-              <span>
-                แหล่งข้อมูล:{" "}
-                <strong className="font-medium text-gray-700 dark:text-gray-200">
-                  {formatSource(snapshot.source)}
-                </strong>
-              </span>
-              <span>
-                ช่วงวันที่:{" "}
-                <strong className="font-medium text-gray-700 dark:text-gray-200">
-                  {formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
-                </strong>
-              </span>
-              <span className="truncate">
-                เลขอ้างอิง:{" "}
-                <strong className="font-medium text-gray-700 dark:text-gray-200">
-                  {snapshot.run_id}
-                </strong>
-              </span>
-            </div>
-          )}
-        </div>
+      {snapshot && (
+        <ExecutiveBriefPanel
+          snapshot={snapshot}
+          tenantName={selectedTenant?.name ?? tenantId}
+          qualityText={qualityBadge.text}
+          qualityColor={qualityBadge.color}
+          datasourceReady={Boolean(selectedTenant?.datasourceConfigured)}
+          lineDelivery={morningBriefSuccessDelivery}
+          operationsStatus={operationsStatus}
+        />
+      )}
 
-        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-[minmax(280px,1.6fr)_160px_160px_170px]">
-          <div>
-            <Label>บริษัท / ฐานข้อมูล</Label>
-            <Select
-              key={tenantId}
-              className="truncate"
-              options={
-                tenantOptions.length
-                  ? tenantOptions
-                  : fallbackTenantOptions
-              }
-              defaultValue={tenantId}
-              onChange={(value) => setTenantId(value as TenantId)}
-            />
-          </div>
-          <div>
-            <Label>วันที่เริ่มต้น</Label>
-            <Input
-              key={`${tenantId}-from`}
-              type="date"
-              defaultValue={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-            />
-          </div>
-          <div>
-            <Label>วันที่สิ้นสุด</Label>
-            <Input
-              key={`${tenantId}-to`}
-              type="date"
-              defaultValue={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-            />
-          </div>
-          <div className="flex items-end">
-            <div className="grid w-full grid-cols-2 gap-2">
-              <Button
-                className="h-11 w-full px-3"
-                variant="outline"
-                onClick={() => void loadDashboard(tenantId)}
-                disabled={running || loading}
-              >
-                โหลดใหม่
-              </Button>
-              <Button
-                className="h-11 w-full px-3"
-                onClick={() => void runReport()}
-                disabled={running || loading}
-                startIcon={<ArrowUpIcon />}
-              >
-                {running ? "กำลังรัน" : "รันรายงาน"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ReportControlBar
+        tenantId={tenantId}
+        tenantOptions={tenantOptions.length ? tenantOptions : fallbackTenantOptions}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        running={running}
+        loading={loading}
+        onTenantChange={(value) => setTenantId(value)}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onReload={() => void loadDashboard(tenantId)}
+        onRun={() => void runReport()}
+      />
 
       {error && (
         <Alert
@@ -496,30 +428,27 @@ export default function CommandCenterDashboard() {
 
       {!loading && snapshot && (
         <>
-          <OperationsReadinessPanel
-            status={operationsStatus}
-            tenantId={tenantId}
-            snapshot={snapshot}
-          />
-
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               icon={<DollarLineIcon className="text-gray-800 dark:text-white/90" />}
               label="ยอดขายสุทธิ"
               value={formatMoney(snapshot.summary.total_sales)}
               detail="ยอดขายจากหัวบิล SML"
+              tone="sales"
             />
             <MetricCard
               icon={<GroupIcon className="text-gray-800 size-6 dark:text-white/90" />}
               label="จำนวนบิลขาย"
               value={formatInteger(snapshot.summary.document_count)}
               detail="เอกสารขายทั้งหมด"
+              tone="volume"
             />
             <MetricCard
               icon={<TableIcon className="text-gray-800 dark:text-white/90" />}
               label="รายการสินค้า/บริการ"
               value={formatInteger(snapshot.summary.line_count)}
               detail={`จำนวนรวม ${formatQty(snapshot.summary.total_qty)}`}
+              tone="activity"
             />
             <MetricCard
               icon={<BoxIconLine className="text-gray-800 dark:text-white/90" />}
@@ -527,6 +456,7 @@ export default function CommandCenterDashboard() {
               value={snapshot.summary.top_product_name || "ยังไม่มีข้อมูล"}
               detail="เรียงตามยอดขายสินค้า"
               valueTone="compact"
+              tone="product"
             />
           </div>
 
@@ -536,6 +466,19 @@ export default function CommandCenterDashboard() {
             <div className="grid grid-cols-12 gap-4 md:gap-6">
               <div className="col-span-12">
                 <SnapshotProvenance snapshot={snapshot} runs={runs} />
+              </div>
+              <div className="col-span-12">
+                <DecisionBriefPanel
+                  snapshot={snapshot}
+                  lineDelivery={morningBriefSuccessDelivery}
+                  operationsStatus={operationsStatus}
+                />
+              </div>
+              <div className="col-span-12 xl:col-span-7">
+                <BranchSalesChart snapshot={snapshot} />
+              </div>
+              <div className="col-span-12 xl:col-span-5">
+                <TopProductsChart snapshot={snapshot} />
               </div>
               <div className="col-span-12">
                 <MorningBriefControl
@@ -558,17 +501,18 @@ export default function CommandCenterDashboard() {
                   />
                 </div>
               )}
-              <div className="col-span-12 xl:col-span-7">
-                <BranchSalesChart snapshot={snapshot} />
-              </div>
-              <div className="col-span-12 xl:col-span-5">
-                <TopProductsChart snapshot={snapshot} />
-              </div>
               <div className="col-span-12 xl:col-span-5">
                 <ReconciliationPanel snapshot={snapshot} />
               </div>
               <div className="col-span-12 xl:col-span-7">
                 <RunHistory runs={runs} />
+              </div>
+              <div className="col-span-12">
+                <OperationsReadinessPanel
+                  status={operationsStatus}
+                  tenantId={tenantId}
+                  snapshot={snapshot}
+                />
               </div>
               <div className="col-span-12">
                 <AuditTrail auditLogs={auditLogs} />
@@ -584,6 +528,348 @@ export default function CommandCenterDashboard() {
         </>
       )}
     </div>
+  );
+}
+
+function ExecutiveBriefPanel({
+  snapshot,
+  tenantName,
+  qualityText,
+  qualityColor,
+  datasourceReady,
+  lineDelivery,
+  operationsStatus,
+}: {
+  snapshot: SalesGoodsServicesSnapshot;
+  tenantName: string;
+  qualityText: string;
+  qualityColor: BadgeTone;
+  datasourceReady: boolean;
+  lineDelivery: LineDeliveryRecord | null;
+  operationsStatus: OperationsStatus | null;
+}) {
+  const topBranch = snapshot.branch_sales[0] ?? null;
+  const topProduct = snapshot.top_products[0] ?? null;
+  const branchShare = topBranch
+    ? (topBranch.total_amount / Math.max(snapshot.summary.total_sales, 1)) * 100
+    : 0;
+  const reconciliationOk =
+    Math.abs(snapshot.reconciliation.difference_amount) <= 0.01;
+  const workerOk = operationsStatus?.worker.status === "ok";
+  const lineSent = lineDelivery?.status === "success";
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-900 bg-[#101828] shadow-theme-md dark:border-gray-800">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
+        <div className="p-6 text-white md:p-8">
+          <div className="mb-5 flex flex-wrap items-center gap-2">
+            <Badge color={qualityColor}>{qualityText}</Badge>
+            <Badge color={datasourceReady ? "success" : "warning"}>
+              {datasourceReady ? "เชื่อม SML แล้ว" : "รอเชื่อม SML"}
+            </Badge>
+            <Badge color={lineSent ? "success" : "warning"}>
+              LINE {lineSent ? "ส่งแล้ว" : "ยังไม่ส่ง"}
+            </Badge>
+            <Badge color={workerOk ? "success" : "warning"}>
+              งานเบื้องหลัง {workerOk ? "ปกติ" : "ต้องตรวจ"}
+            </Badge>
+          </div>
+
+          <p className="text-sm font-medium text-gray-300">
+            Executive Morning Brief
+          </p>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold text-white md:text-4xl">
+                {tenantName}
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-300">
+                เมื่อวานมียอดขาย {formatMoney(snapshot.summary.total_sales)} บาท จาก{" "}
+                {formatInteger(snapshot.summary.document_count)} บิล
+                {topBranch
+                  ? ` สาขาที่นำคือ ${topBranch.branch_code} (${formatPercent(branchShare)})`
+                  : ""}
+                {topProduct ? ` สินค้าหลักคือ ${topProduct.item_name}` : ""}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4">
+              <p className="text-xs font-medium uppercase text-gray-400">
+                ยอดขายเมื่อวาน
+              </p>
+              <p className="mt-2 text-4xl font-semibold text-white">
+                {formatMoney(snapshot.summary.total_sales)}
+              </p>
+              <p className="mt-1 text-sm text-gray-300">บาท</p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <ExecutivePulse
+              label="ความถูกต้องข้อมูล"
+              value={reconciliationOk ? "ยอดตรงกัน" : "มีส่วนต่าง"}
+              tone={reconciliationOk ? "success" : "warning"}
+            />
+            <ExecutivePulse
+              label="ช่วงวันที่"
+              value={formatReportPeriod(
+                snapshot.params.date_from,
+                snapshot.params.date_to,
+              )}
+              tone="info"
+            />
+            <ExecutivePulse
+              label="อัปเดตล่าสุด"
+              value={formatDateTime(snapshot.generated_at)}
+              tone="light"
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-white/10 bg-white/[0.04] p-6 md:p-8 xl:border-l xl:border-t-0">
+          <div className="grid grid-cols-2 gap-3">
+            <ExecutiveStat
+              label="บิลขาย"
+              value={formatInteger(snapshot.summary.document_count)}
+              detail="ใบ"
+              tone="primary"
+            />
+            <ExecutiveStat
+              label="รายการ"
+              value={formatInteger(snapshot.summary.line_count)}
+              detail={`จำนวนรวม ${formatQty(snapshot.summary.total_qty)}`}
+              tone="info"
+            />
+            <ExecutiveStat
+              label="สาขานำ"
+              value={topBranch?.branch_code ?? "-"}
+              detail={topBranch ? `${formatMoney(topBranch.total_amount)} บาท` : "ยังไม่มีข้อมูล"}
+              tone="success"
+            />
+            <ExecutiveStat
+              label="LINE"
+              value={lineSent ? "ส่งแล้ว" : "รอส่ง"}
+              detail={lineDelivery ? formatDateTime(lineDelivery.created_at) : "ยังไม่พบการส่งสำเร็จ"}
+              tone={lineSent ? "success" : "warning"}
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExecutivePulse({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: BadgeTone;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4">
+      <p className="text-xs font-medium uppercase text-gray-400">{label}</p>
+      <div className="mt-2">
+        <Badge color={tone}>{value}</Badge>
+      </div>
+    </div>
+  );
+}
+
+function ExecutiveStat({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: BadgeTone;
+}) {
+  return (
+    <div className="min-h-[132px] rounded-2xl border border-white/10 bg-white/[0.07] p-4">
+      <Badge color={tone}>{label}</Badge>
+      <p className="mt-4 line-clamp-2 text-2xl font-semibold text-white">
+        {value}
+      </p>
+      <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-300">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function ReportControlBar({
+  tenantId,
+  tenantOptions,
+  dateFrom,
+  dateTo,
+  running,
+  loading,
+  onTenantChange,
+  onDateFromChange,
+  onDateToChange,
+  onReload,
+  onRun,
+}: {
+  tenantId: TenantId;
+  tenantOptions: Array<{ value: string; label: string }>;
+  dateFrom: string;
+  dateTo: string;
+  running: boolean;
+  loading: boolean;
+  onTenantChange: (value: TenantId) => void;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onReload: () => void;
+  onRun: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-theme-xs dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,1fr)_160px_160px_240px]">
+        <div>
+          <Label>บริษัท / ฐานข้อมูล</Label>
+          <Select
+            key={tenantId}
+            className="truncate"
+            options={tenantOptions}
+            defaultValue={tenantId}
+            onChange={(value) => onTenantChange(value as TenantId)}
+          />
+        </div>
+        <div>
+          <Label>วันที่เริ่มต้น</Label>
+          <Input
+            key={`${tenantId}-from`}
+            type="date"
+            defaultValue={dateFrom}
+            onChange={(event) => onDateFromChange(event.target.value)}
+          />
+        </div>
+        <div>
+          <Label>วันที่สิ้นสุด</Label>
+          <Input
+            key={`${tenantId}-to`}
+            type="date"
+            defaultValue={dateTo}
+            onChange={(event) => onDateToChange(event.target.value)}
+          />
+        </div>
+        <div className="flex items-end">
+          <div className="grid w-full grid-cols-2 gap-2">
+            <Button
+              className="h-11 w-full whitespace-nowrap px-3"
+              variant="outline"
+              onClick={onReload}
+              disabled={running || loading}
+            >
+              รีเฟรช
+            </Button>
+            <Button
+              className="h-11 w-full whitespace-nowrap px-3"
+              onClick={onRun}
+              disabled={running || loading}
+              startIcon={<ArrowUpIcon />}
+            >
+              {running ? "กำลังรัน" : "รันรายงาน"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionBriefPanel({
+  snapshot,
+  lineDelivery,
+  operationsStatus,
+}: {
+  snapshot: SalesGoodsServicesSnapshot;
+  lineDelivery: LineDeliveryRecord | null;
+  operationsStatus: OperationsStatus | null;
+}) {
+  const noBranch = snapshot.branch_sales.find(
+    (branch) => branch.branch_code === "no_branch",
+  );
+  const reconciliationOk =
+    Math.abs(snapshot.reconciliation.difference_amount) <= 0.01;
+  const workerOk = operationsStatus?.worker.status === "ok";
+  const lineSent = lineDelivery?.status === "success";
+  const items = [
+    {
+      title: "สาขาที่ต้องดู",
+      value: noBranch ? "มีรายการไม่ระบุสาขา" : "ข้อมูลสาขาชัดเจน",
+      detail: noBranch
+        ? `${formatMoney(noBranch.total_amount)} บาทอยู่ใน no_branch`
+        : `${snapshot.branch_sales[0]?.branch_code ?? "-"} เป็นสาขาหลักของรอบนี้`,
+      tone: noBranch ? "warning" : "success",
+    },
+    {
+      title: "คุณภาพยอดขาย",
+      value: reconciliationOk ? "ยอดหัวบิลตรงกับรายการ" : "ยอดมีส่วนต่าง",
+      detail: reconciliationOk
+        ? "ใช้ตัวเลขนี้คุยต่อได้"
+        : `ส่วนต่าง ${formatMoney(snapshot.reconciliation.difference_amount)} บาท`,
+      tone: reconciliationOk ? "success" : "warning",
+    },
+    {
+      title: "การส่งสรุปเช้า",
+      value: lineSent ? "ส่ง LINE แล้ว" : "ยังไม่พบการส่งสำเร็จ",
+      detail: lineDelivery
+        ? formatDateTime(lineDelivery.created_at)
+        : "ควรทดสอบก่อน demo ลูกค้า",
+      tone: lineSent ? "success" : "warning",
+    },
+    {
+      title: "ระบบเบื้องหลัง",
+      value: workerOk ? "ทำงานปกติ" : "ควรตรวจ worker",
+      detail: operationsStatus?.worker.age_seconds
+        ? formatDuration(operationsStatus.worker.age_seconds)
+        : "ยังไม่มี heartbeat",
+      tone: workerOk ? "success" : "warning",
+    },
+  ] satisfies Array<{
+    title: string;
+    value: string;
+    detail: string;
+    tone: "success" | "warning";
+  }>;
+
+  return (
+    <ComponentCard
+      title="สิ่งที่ต้องดูวันนี้"
+      desc="สรุปประเด็นจากรายงานล่าสุดสำหรับเจ้าของกิจการและผู้จัดการ"
+      action={<Badge color="primary">Executive checklist</Badge>}
+    >
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {items.map((item) => (
+          <div
+            key={item.title}
+            className={`rounded-xl border p-4 ${
+              item.tone === "success"
+                ? "border-success-200 bg-success-50/70 dark:border-success-500/20 dark:bg-success-500/10"
+                : "border-warning-200 bg-warning-50/70 dark:border-warning-500/20 dark:bg-warning-500/10"
+            }`}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                {item.title}
+              </p>
+              <Badge color={item.tone}>{item.tone === "success" ? "ปกติ" : "ดูต่อ"}</Badge>
+            </div>
+            <p className="text-base font-semibold text-gray-800 dark:text-white/90">
+              {item.value}
+            </p>
+            <p className="mt-2 text-sm leading-5 text-gray-600 dark:text-gray-300">
+              {item.detail}
+            </p>
+          </div>
+        ))}
+      </div>
+    </ComponentCard>
   );
 }
 
@@ -669,10 +955,38 @@ function MetricCard(props: {
   value: string;
   detail: string;
   valueTone?: "default" | "compact";
+  tone?: "sales" | "volume" | "activity" | "product";
 }) {
+  const tone = props.tone ?? "activity";
+  const toneClasses = {
+    sales: {
+      accent: "bg-success-500",
+      icon: "bg-success-50 dark:bg-success-500/15",
+      ring: "border-success-100 dark:border-success-500/20",
+    },
+    volume: {
+      accent: "bg-brand-500",
+      icon: "bg-brand-50 dark:bg-brand-500/15",
+      ring: "border-brand-100 dark:border-brand-500/20",
+    },
+    activity: {
+      accent: "bg-blue-light-500",
+      icon: "bg-blue-light-50 dark:bg-blue-light-500/15",
+      ring: "border-blue-light-100 dark:border-blue-light-500/20",
+    },
+    product: {
+      accent: "bg-warning-500",
+      icon: "bg-warning-50 dark:bg-warning-500/15",
+      ring: "border-warning-100 dark:border-warning-500/20",
+    },
+  }[tone];
+
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
+    <div
+      className={`relative overflow-hidden rounded-2xl border bg-white p-5 shadow-theme-xs dark:bg-white/[0.03] md:p-6 ${toneClasses.ring}`}
+    >
+      <div className={`absolute inset-x-0 top-0 h-1 ${toneClasses.accent}`} />
+      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${toneClasses.icon}`}>
         {props.icon}
       </div>
       <div className="mt-5">
@@ -1403,6 +1717,12 @@ function formatMoney(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatPercent(value: number) {
+  return `${value.toLocaleString("th-TH", {
+    maximumFractionDigits: 1,
+  })}%`;
 }
 
 function formatInteger(value: number) {
