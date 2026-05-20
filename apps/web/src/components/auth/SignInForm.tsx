@@ -83,9 +83,13 @@ export default function SignInForm() {
             </p>
           </div>
 
-          <div className="mb-5 rounded-2xl border border-brand-100 bg-brand-50 p-4 text-sm text-brand-800 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200">
-            <p className="font-semibold">บัญชีเริ่มต้นสำหรับ pilot</p>
-            <p className="mt-1 font-mono">superadmin / superadmin</p>
+          <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-gray-300">
+            <p className="font-semibold text-gray-800 dark:text-white/90">
+              สำหรับผู้ดูแลระบบเท่านั้น
+            </p>
+            <p className="mt-1 leading-6">
+              กรอกบัญชีผู้ดูแลที่ได้รับจากเจ้าของระบบเพื่อจัดการร้านค้า รายงาน และ LINE OA
+            </p>
           </div>
 
           <form onSubmit={submitLogin}>
@@ -99,7 +103,7 @@ export default function SignInForm() {
                   id="owner-username"
                   name="username"
                   onChange={(event) => setUsername(event.target.value)}
-                  placeholder="กรอก superadmin"
+                  placeholder="กรอกชื่อผู้ใช้"
                   type="text"
                 />
               </div>
@@ -113,7 +117,7 @@ export default function SignInForm() {
                     id="owner-password"
                     name="password"
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="กรอก superadmin"
+                    placeholder="กรอกรหัสผ่าน"
                     type={showPassword ? "text" : "password"}
                   />
                   <button
