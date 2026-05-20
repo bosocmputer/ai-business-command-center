@@ -11,7 +11,7 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed commit: see latest `main` commit after SaaS portal deploy
+Latest deployed code commit: aed0eab
 SaaS pilot owner/customer portals: ready
 GitHub branch: main
 Deploy target: 192.168.2.109
@@ -201,7 +201,7 @@ comparison: true
 
 ## Validation ล่าสุด
 
-Local validation หลังเพิ่ม Flex Message 2.0:
+Local validation หลังปรับ SaaS portal routing:
 
 ```text
 corepack pnpm -r typecheck  -> pass
@@ -215,9 +215,12 @@ Server:
 
 ```text
 GET /health                         -> 200
+GET /api/app/demo-shop/session      -> 200 (DEMO SHOP)
+GET /api/app/248-shop/session       -> 200 (248 SHOP)
+GET /api/app/unknown-shop/session   -> 404
+GET /api/app/session                -> 400 (slug required)
 POST /run without admin token       -> 401
 POST /run with wrong admin token    -> 403
-POST /run with server admin token   -> 200
 docker compose ps                   -> api/web/worker/system-db running
 api health                          -> healthy
 system_store                        -> postgres

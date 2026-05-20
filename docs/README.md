@@ -68,7 +68,7 @@
 สถานะล่าสุดอยู่ที่ [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md)
 
 ```text
-Latest commit: see latest `main` commit after SaaS portal deploy
+Latest deployed code commit: aed0eab
 Web Owner LAN: http://192.168.2.109:3055/owner
 Web Customer DEMO SHOP LAN: http://192.168.2.109:3055/app/demo-shop
 Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
