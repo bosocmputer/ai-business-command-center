@@ -49,6 +49,29 @@ on report_runs (tenant_id, report_key, started_at desc);
 create index if not exists report_snapshots_latest_idx
 on report_snapshots (tenant_id, report_key, created_at desc);
 
+create table if not exists line_targets (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  display_name text not null,
+  target_type text not null,
+  target_id text not null,
+  target_id_masked text not null,
+  target_id_hash text not null,
+  access_profile_key text not null,
+  allowed_report_keys jsonb not null default '[]'::jsonb,
+  allowed_actions jsonb not null default '[]'::jsonb,
+  enabled boolean not null default false,
+  approved boolean not null default false,
+  source text not null default 'manual',
+  last_delivery_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, target_id_hash)
+);
+
+create index if not exists line_targets_tenant_idx
+on line_targets (tenant_id, updated_at desc);
+
 create table if not exists audit_logs (
   id bigserial primary key,
   tenant_id text,

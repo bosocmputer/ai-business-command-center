@@ -2,11 +2,13 @@ import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type {
   LineDeliveryRecord,
+  LineTargetRecord,
   LineWebhookEventRecord,
   ReportRunRecord,
   SalesGoodsServicesSnapshot,
   Tenant,
 } from "@ai-bcc/shared";
+import type { StoredLineTargetRecord } from "./line-targets.js";
 import { listTenants } from "./config.js";
 import {
   createSystemStore,
@@ -21,6 +23,7 @@ type StoreFile = {
   runs?: ReportRunRecord[];
   snapshots?: SalesGoodsServicesSnapshot[];
   lineDeliveries?: Partial<LineDeliveryRecord>[];
+  lineTargets?: Array<StoredLineTargetRecord | (LineTargetRecord & { target_id?: string })>;
   lineWebhookEvents?: LineWebhookEventRecord[];
   auditLogs?: AuditLogEntry[];
 };
@@ -75,6 +78,20 @@ for (const delivery of lineDeliveries) {
   await store.saveLineDelivery(delivery);
 }
 
+const lineTargets = (source.lineTargets ?? []).filter(
+  (target): target is StoredLineTargetRecord =>
+    Boolean(
+      target.id &&
+        target.tenant_id &&
+        target.target_id &&
+        target.target_id_hash &&
+        target.target_id_masked,
+    ),
+);
+for (const target of lineTargets) {
+  await store.upsertLineTarget(target);
+}
+
 const webhookEvents = source.lineWebhookEvents ?? [];
 await store.saveLineWebhookEvents(webhookEvents);
 
@@ -92,6 +109,7 @@ console.log(
         runs: runs.length,
         snapshots: snapshots.length,
         lineDeliveries: lineDeliveries.length,
+        lineTargets: lineTargets.length,
         lineWebhookEvents: webhookEvents.length,
         auditLogs: auditLogs.length,
       },

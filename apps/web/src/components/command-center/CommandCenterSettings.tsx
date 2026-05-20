@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deriveMorningBriefDateRange,
+  type LineAccessProfileKey,
   type LineDeliveryRecord,
   type LineSendMode,
+  type LineTargetRecord,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type Tenant,
@@ -90,6 +92,7 @@ export default function CommandCenterSettings() {
   );
   const [runs, setRuns] = useState<ReportRunRecord[]>([]);
   const [deliveries, setDeliveries] = useState<LineDeliveryRecord[]>([]);
+  const [lineTargets, setLineTargets] = useState<LineTargetRecord[]>([]);
   const [datasourceTest, setDatasourceTest] =
     useState<DatasourceTestResult | null>(null);
   const [actionResult, setActionResult] = useState<ActionResult | null>(null);
@@ -112,6 +115,7 @@ export default function CommandCenterSettings() {
         snapshotResponse,
         runsResponse,
         deliveriesResponse,
+        lineTargetsResponse,
       ] = await Promise.all([
         fetch(`${API_BASE_URL}/api/tenants`),
         fetch(`${API_BASE_URL}/api/operations/status`),
@@ -124,6 +128,7 @@ export default function CommandCenterSettings() {
         fetch(
           `${API_BASE_URL}/api/reports/${nextTenantId}/sales_goods_services/line-deliveries`,
         ),
+        fetch(`${API_BASE_URL}/api/line-targets?tenant_id=${nextTenantId}`),
       ]);
 
       if (!tenantsResponse.ok || !operationsResponse.ok || !runsResponse.ok) {
@@ -142,6 +147,9 @@ export default function CommandCenterSettings() {
       const deliveriesPayload = deliveriesResponse.ok
         ? ((await deliveriesResponse.json()) as { data: LineDeliveryRecord[] })
         : { data: [] };
+      const lineTargetsPayload = lineTargetsResponse.ok
+        ? ((await lineTargetsResponse.json()) as { data: LineTargetRecord[] })
+        : { data: [] };
       const snapshotPayload = snapshotResponse.ok
         ? ((await snapshotResponse.json()) as {
             data: SalesGoodsServicesSnapshot;
@@ -153,6 +161,7 @@ export default function CommandCenterSettings() {
       setSnapshot(snapshotPayload.data);
       setRuns(runsPayload.data);
       setDeliveries(deliveriesPayload.data);
+      setLineTargets(lineTargetsPayload.data);
     } catch (unknownError) {
       setError(
         unknownError instanceof Error
@@ -180,6 +189,13 @@ export default function CommandCenterSettings() {
   }));
   const latestRun = runs[0] ?? null;
   const latestDelivery = deliveries[0] ?? null;
+  const enabledLineTargetCount = lineTargets.filter(
+    (target) =>
+      target.enabled &&
+      target.approved &&
+      target.allowed_actions.includes("receive_morning_brief") &&
+      target.allowed_report_keys.includes("sales_goods_services"),
+  ).length;
   const yesterdaySuccessDelivery =
     deliveries.find(
       (delivery) =>
@@ -209,7 +225,9 @@ export default function CommandCenterSettings() {
     {
       label: "LINE OA พร้อมส่ง",
       description: tenantStatus?.line_configured
-        ? `ปลายทาง ${tenantStatus.line_target_masked}`
+        ? enabledLineTargetCount
+          ? `ส่งได้ ${enabledLineTargetCount} กลุ่ม/ปลายทาง`
+          : `ปลายทาง ${tenantStatus.line_target_masked}`
         : "ยังไม่ตั้งค่า LINE OA",
       ok: Boolean(tenantStatus?.line_configured),
     },
@@ -316,7 +334,7 @@ export default function CommandCenterSettings() {
             "ยืนยันส่ง LINE Morning Brief จริง?",
             `บริษัท: ${selectedTenant?.name ?? tenantId}`,
             `วันที่ข้อมูล: ${formatReportPeriod(yesterday.date_from, yesterday.date_to)}`,
-            `ปลายทาง: ${tenantStatus?.line_target_masked ?? "ยังไม่ตั้งค่า"}`,
+            `ปลายทางที่มีสิทธิ์: ${enabledLineTargetCount || 0} กลุ่ม/ปลายทาง`,
           ].join("\n"),
         )
       ) {
@@ -325,9 +343,10 @@ export default function CommandCenterSettings() {
 
       const payload = await postJson<{
         data?: {
-          status?: "skipped";
+          status?: "skipped" | "sent" | "processed";
           reason?: string;
           delivery?: LineDeliveryRecord;
+          deliveries?: LineDeliveryRecord[];
         };
         error?: string;
       }>(
@@ -340,14 +359,27 @@ export default function CommandCenterSettings() {
       }
 
       const skipped = payload.data.status === "skipped";
-      const delivery = payload.data.delivery;
+      const deliveries = payload.data.deliveries ?? [];
+      const delivery = payload.data.delivery ?? deliveries[0];
+      const successCount = deliveries.filter(
+        (item) => item.status === "success",
+      ).length;
+      const skippedCount = deliveries.filter(
+        (item) => item.status === "skipped",
+      ).length;
       setActionResult({
         title: "ส่งสรุปเข้า LINE",
-        status: skipped ? "warning" : delivery?.status === "success" ? "success" : "error",
-        message: skipped
-          ? "ระบบกันส่งซ้ำทำงานแล้ว จึงไม่ส่งข้อความซ้ำ"
+        status: skipped
+          ? "warning"
+          : successCount > 0
+          ? "success"
           : delivery?.status === "success"
-          ? "ส่งข้อความเข้า LINE สำเร็จ"
+          ? "success"
+          : "error",
+        message: skipped
+          ? "ไม่มีปลายทางที่ต้องส่ง หรือระบบกันส่งซ้ำทำงานแล้ว"
+          : successCount > 0
+          ? `ส่ง LINE สำเร็จ ${successCount} ปลายทาง${skippedCount ? ` · ข้าม ${skippedCount}` : ""}`
           : delivery?.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ",
         details: delivery?.report_run_id,
       });
@@ -372,6 +404,111 @@ export default function CommandCenterSettings() {
     } finally {
       setBusyAction(null);
     }
+  }
+
+  async function approveLineTarget(
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) {
+    await runAction(`approve-${target.id}`, async () => {
+      const payload = await postJson<{ data?: LineTargetRecord; error?: string }>(
+        `${API_BASE_URL}/api/line-targets/${target.id}/approve`,
+        {
+          access_profile_key: profileKey,
+          enabled: true,
+        },
+      );
+      if (!payload.data) {
+        throw new Error(payload.error || "อนุมัติ LINE target ไม่สำเร็จ");
+      }
+      setActionResult({
+        title: "อนุมัติ LINE target",
+        status: "success",
+        message: `เปิดใช้งาน ${payload.data.display_name} แล้ว`,
+      });
+      await loadSettings(tenantId);
+    });
+  }
+
+  async function updateLineTargetProfile(
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) {
+    await runAction(`profile-${target.id}-${profileKey}`, async () => {
+      const payload = await patchJson<{ data?: LineTargetRecord; error?: string }>(
+        `${API_BASE_URL}/api/line-targets/${target.id}`,
+        {
+          access_profile_key: profileKey,
+        },
+      );
+      if (!payload.data) {
+        throw new Error(payload.error || "เปลี่ยนสิทธิ์ LINE target ไม่สำเร็จ");
+      }
+      setActionResult({
+        title: "เปลี่ยนสิทธิ์ LINE target",
+        status: "success",
+        message: `${payload.data.display_name}: ${formatAccessProfile(payload.data.access_profile_key)}`,
+      });
+      await loadSettings(tenantId);
+    });
+  }
+
+  async function toggleLineTarget(target: LineTargetRecord) {
+    await runAction(`toggle-${target.id}`, async () => {
+      const payload = await patchJson<{ data?: LineTargetRecord; error?: string }>(
+        `${API_BASE_URL}/api/line-targets/${target.id}`,
+        {
+          enabled: !target.enabled,
+        },
+      );
+      if (!payload.data) {
+        throw new Error(payload.error || "เปลี่ยนสถานะ LINE target ไม่สำเร็จ");
+      }
+      setActionResult({
+        title: "เปลี่ยนสถานะ LINE target",
+        status: "success",
+        message: payload.data.enabled
+          ? "เปิดรับ Morning Brief แล้ว"
+          : "ปิดรับ Morning Brief แล้ว",
+      });
+      await loadSettings(tenantId);
+    });
+  }
+
+  async function testLineTarget(target: LineTargetRecord) {
+    await runAction(`target-test-${target.id}`, async () => {
+      if (
+        !window.confirm(
+          [
+            "ยืนยันส่ง LINE test จริงไปยังปลายทางนี้?",
+            `ปลายทาง: ${target.display_name}`,
+            `Target: ${target.target_id_masked}`,
+            `สิทธิ์: ${formatAccessProfile(target.access_profile_key)}`,
+          ].join("\n"),
+        )
+      ) {
+        return;
+      }
+
+      const payload = await postJson<{
+        data?: { delivery?: LineDeliveryRecord };
+        error?: string;
+      }>(`${API_BASE_URL}/api/line-targets/${target.id}/test-send`, {
+        mode: "send",
+      });
+      if (!payload.data?.delivery) {
+        throw new Error(payload.error || "ส่ง LINE test ไม่สำเร็จ");
+      }
+      setActionResult({
+        title: "ส่ง LINE target test",
+        status: payload.data.delivery.status === "success" ? "success" : "error",
+        message:
+          payload.data.delivery.status === "success"
+            ? "ส่งทดสอบสำเร็จ"
+            : payload.data.delivery.safe_error_message ?? "ส่งทดสอบไม่สำเร็จ",
+      });
+      await loadSettings(tenantId);
+    });
   }
 
   return (
@@ -484,10 +621,24 @@ export default function CommandCenterSettings() {
             <LatestRunCard run={latestRun} />
             <LatestLineDeliveryCard delivery={latestDelivery} />
           </div>
+
+          <LineTargetsCard
+            targets={lineTargets}
+            busyAction={busyAction}
+            onApprove={(target, profileKey) =>
+              void approveLineTarget(target, profileKey)
+            }
+            onSetProfile={(target, profileKey) =>
+              void updateLineTargetProfile(target, profileKey)
+            }
+            onToggleEnabled={(target) => void toggleLineTarget(target)}
+            onTestSend={(target) => void testLineTarget(target)}
+          />
         </>
       )}
     </div>
   );
+
 }
 
 function ReadinessChecklist({
@@ -529,6 +680,126 @@ function ReadinessChecklist({
           </div>
         ))}
       </div>
+    </ComponentCard>
+  );
+}
+
+function LineTargetsCard({
+  targets,
+  busyAction,
+  onApprove,
+  onSetProfile,
+  onToggleEnabled,
+  onTestSend,
+}: {
+  targets: LineTargetRecord[];
+  busyAction: string | null;
+  onApprove: (target: LineTargetRecord, profileKey: LineAccessProfileKey) => void;
+  onSetProfile: (target: LineTargetRecord, profileKey: LineAccessProfileKey) => void;
+  onToggleEnabled: (target: LineTargetRecord) => void;
+  onTestSend: (target: LineTargetRecord) => void;
+}) {
+  return (
+    <ComponentCard
+      title="LINE Groups & Permissions"
+      desc="กำหนดว่ากลุ่ม LINE ใดรับ Morning Brief หรือดูรายงานขายได้ ก่อนต่อ chatbot ในอนาคต"
+      action={<Badge color="light">{targets.length} targets</Badge>}
+    >
+      {targets.length === 0 ? (
+        <div className="rounded-xl border border-gray-100 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+          ยังไม่พบกลุ่ม LINE ใหม่ หากเพิ่ม OA เข้ากลุ่มหรือมีคนพิมพ์ ระบบจะบันทึกเป็น pending target ให้อนุมัติ
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {targets.map((target) => {
+            const isEnvFallback = target.source === "env_fallback";
+            const canReceiveSales =
+              target.approved &&
+              target.enabled &&
+              target.allowed_actions.includes("receive_morning_brief") &&
+              target.allowed_report_keys.includes("sales_goods_services");
+            return (
+              <div
+                key={target.id}
+                className="rounded-xl border border-gray-100 p-4 dark:border-gray-800"
+              >
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">
+                        {target.display_name}
+                      </p>
+                      <Badge color={canReceiveSales ? "success" : "warning"}>
+                        {canReceiveSales ? "รับรายงานขายได้" : "ยังไม่พร้อมรับ"}
+                      </Badge>
+                      <Badge color={isEnvFallback ? "light" : "info"}>
+                        {formatLineTargetSource(target.source)}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 text-xs text-gray-500 dark:text-gray-400 md:grid-cols-2 xl:grid-cols-4">
+                      <span>ประเภท: {formatLineTargetType(target.target_type)}</span>
+                      <span>Target: {target.target_id_masked}</span>
+                      <span>Profile: {formatAccessProfile(target.access_profile_key)}</span>
+                      <span>
+                        ล่าสุด: {target.last_delivery_at ? formatDateTime(target.last_delivery_at) : "-"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      Reports: {target.allowed_report_keys.length ? target.allowed_report_keys.join(", ") : "ไม่มี"} · Actions:{" "}
+                      {target.allowed_actions.length ? target.allowed_actions.join(", ") : "ไม่มี"}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 xl:justify-end">
+                    {!target.approved && !isEnvFallback && (
+                      <Button
+                        size="sm"
+                        className="px-3 py-2"
+                        disabled={Boolean(busyAction)}
+                        onClick={() => onApprove(target, "executive")}
+                      >
+                        อนุมัติผู้บริหาร
+                      </Button>
+                    )}
+                    {(["executive", "sales_manager", "operations", "staff"] as LineAccessProfileKey[]).map(
+                      (profileKey) => (
+                        <Button
+                          key={profileKey}
+                          size="sm"
+                          variant={target.access_profile_key === profileKey ? "primary" : "outline"}
+                          className="px-3 py-2"
+                          disabled={Boolean(busyAction) || isEnvFallback}
+                          onClick={() => onSetProfile(target, profileKey)}
+                        >
+                          {formatAccessProfileShort(profileKey)}
+                        </Button>
+                      ),
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="px-3 py-2"
+                      disabled={Boolean(busyAction) || isEnvFallback}
+                      onClick={() => onToggleEnabled(target)}
+                    >
+                      {target.enabled ? "ปิดรับ" : "เปิดรับ"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="px-3 py-2"
+                      disabled={Boolean(busyAction)}
+                      onClick={() => onTestSend(target)}
+                    >
+                      ส่งทดสอบ
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </ComponentCard>
   );
 }
@@ -743,13 +1014,25 @@ function SettingsLoadingState() {
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
+  return mutateJson<T>("POST", url, body);
+}
+
+async function patchJson<T>(url: string, body: unknown): Promise<T> {
+  return mutateJson<T>("PATCH", url, body);
+}
+
+async function mutateJson<T>(
+  method: "PATCH" | "POST",
+  url: string,
+  body: unknown,
+): Promise<T> {
   const headers = buildAdminJsonHeaders();
   if (!headers) {
     throw new Error("ต้องกรอก Admin token ก่อนทำรายการ");
   }
 
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers,
     body: JSON.stringify(body),
   });
@@ -835,6 +1118,52 @@ function formatLineMessageType(messageType: LineDeliveryRecord["message_type"]) 
   }
 
   return "ข้อความธรรมดา";
+}
+
+function formatAccessProfile(profileKey: LineAccessProfileKey) {
+  if (profileKey === "executive") {
+    return "ผู้บริหาร";
+  }
+  if (profileKey === "sales_manager") {
+    return "ผู้จัดการฝ่ายขาย";
+  }
+  if (profileKey === "operations") {
+    return "ปฏิบัติการ/คลังสินค้า";
+  }
+  return "พนักงานทั่วไป";
+}
+
+function formatAccessProfileShort(profileKey: LineAccessProfileKey) {
+  if (profileKey === "executive") {
+    return "ผู้บริหาร";
+  }
+  if (profileKey === "sales_manager") {
+    return "ฝ่ายขาย";
+  }
+  if (profileKey === "operations") {
+    return "ปฏิบัติการ";
+  }
+  return "พนักงาน";
+}
+
+function formatLineTargetType(targetType: LineTargetRecord["target_type"]) {
+  if (targetType === "group") {
+    return "กลุ่ม";
+  }
+  if (targetType === "room") {
+    return "ห้องแชท";
+  }
+  return "รายคน";
+}
+
+function formatLineTargetSource(source: LineTargetRecord["source"]) {
+  if (source === "env_fallback") {
+    return "pilot env";
+  }
+  if (source === "webhook") {
+    return "รออนุมัติ";
+  }
+  return "manual";
 }
 
 function formatRunStatus(status: ReportRunRecord["status"]) {

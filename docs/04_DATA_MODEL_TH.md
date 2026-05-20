@@ -20,12 +20,13 @@ Current implementation ผ่าน `SystemStore` persist ตารางหล�
 - `report_definitions`
 - `report_runs`
 - `report_snapshots`
+- `line_targets`
 - `line_deliveries`
 - `line_webhook_events`
 - `worker_heartbeats`
 - `audit_logs`
 
-ส่วน `datasources`, `line_channels`, `users`, `roles`, `subscriptions` ยังเป็น future expansion หลัง professional pilot stable ตอนนี้ datasource/LINE secrets ยังมาจาก env บน server
+ส่วน `datasources`, `line_channels`, `users`, `roles`, `subscriptions` ยังเป็น future expansion หลัง professional pilot stable ตอนนี้ datasource/LINE channel token ยังมาจาก env บน server แต่ปลายทาง LINE เริ่มมี `line_targets` สำหรับ group-level permission แล้ว
 
 ### tenants
 
@@ -181,7 +182,7 @@ created_at
 
 ### line_channels
 
-LINE OA หรือ target config ต่อ tenant
+LINE OA/channel config ต่อ tenant ใน production
 
 ```text
 id
@@ -189,16 +190,56 @@ tenant_id
 name
 line_channel_id
 encrypted_channel_access_token
-target_type
-target_id
-send_time
-timezone
 enabled
 created_at
 updated_at
 ```
 
+Phase ปัจจุบัน channel token ยังอยู่ใน env (`LINE_CHANNEL_ACCESS_TOKEN` หรือ tenant-specific env) และไม่บันทึก token ลง system DB
+
+### line_targets
+
+ปลายทาง LINE ต่อ tenant เช่น `groupId`, `roomId`, หรือ `userId` พร้อม permission profile ระดับกลุ่ม
+
+```text
+id
+tenant_id
+display_name
+target_type
+target_id
+target_id_masked
+target_id_hash
+access_profile_key
+allowed_report_keys
+allowed_actions
+enabled
+approved
+source
+last_delivery_at
+created_at
+updated_at
+```
+
 `target_type`: `user`, `group`, `room`
+
+`access_profile_key`:
+
+- `executive`: รับ Morning Brief/ถาม chatbot ได้ทุก approved report ที่เปิดให้ tenant
+- `sales_manager`: ดูรายงานขายได้ แต่อนาคตต้องแยก margin/profit ถ้ามี
+- `operations`: เตรียมไว้สำหรับ stock/SO/backlog; ไม่เห็นรายงานขายถ้าไม่ได้เปิดสิทธิ์
+- `staff`: ไม่เห็นยอดขายรวม และ chatbot ต้องตอบว่าไม่มีสิทธิ์เมื่อถาม report ที่ถูก deny
+
+`allowed_actions`:
+
+- `receive_morning_brief`
+- `ask_report`
+- `open_signed_viewer`
+
+กติกา:
+
+- target ใหม่จาก webhook ต้อง `approved=false`, `enabled=false` เสมอ
+- API response และ audit ใช้ `target_id_masked`/`target_id_hash` ห้ามโชว์ `target_id` เต็ม
+- env fallback เดิมยังใช้ได้สำหรับ pilot โดยถือเป็น `executive` แต่ production ต้องย้ายไป target registry และ channel config ที่จัดการโดยระบบ
 
 ### line_deliveries
 

@@ -25,8 +25,9 @@ Workspace ตอนนี้มี Phase 1 professional pilot ที่ deploy �
 - LINE OA demo flow ส่งเข้ากลุ่มทดสอบได้จริง
 - LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
+- LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
 - Signed report viewer link TTL default `72` ชั่วโมง
-- Duplicate guard สำหรับ Morning Brief delivery
+- Duplicate guard สำหรับ Morning Brief delivery ต่อ target
 - Lightweight admin token guard สำหรับ mutation endpoints
 - Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
@@ -268,6 +269,7 @@ Current status:
 - LINE link ชี้ signed report viewer `/command-center/brief`
 - UI confirm ก่อนส่ง LINE จริง
 - mutation endpoints ต้องมี `x-ai-bcc-admin-token`
+- scheduler ส่ง Morning Brief เฉพาะ `line_targets` ที่ผ่าน permission check; env fallback เดิมเป็น `executive` สำหรับ pilot
 
 ## Phase 6: Deploy Test Server
 
@@ -305,6 +307,7 @@ Current status:
 Add before real paid customer:
 
 - auth/login
+- customer-specific LINE channel onboarding และ role/permission UI เต็ม
 - read-only SML DB user guide
 - secret encryption key management
 - tenant isolation tests

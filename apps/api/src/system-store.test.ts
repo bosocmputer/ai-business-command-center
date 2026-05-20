@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LineDeliveryRecord, ReportRunRecord, Tenant } from "@ai-bcc/shared";
 import { createSystemStore } from "./system-store.js";
+import { buildEnvFallbackLineTarget } from "./line-targets.js";
 
 const tempDirs: string[] = [];
 
@@ -88,6 +89,20 @@ describe("local JSON system store", () => {
       created_at: "2026-05-19T01:00:02.000Z",
     };
     await firstStore.saveLineDelivery(delivery);
+    const lineTarget = buildEnvFallbackLineTarget({
+      tenantId: "tenant_demo_remote",
+      config: {
+        channelAccessToken: "line-token",
+        targetId: "C1234567890abcdef1234567890abcdef",
+        targetType: "group",
+      },
+    });
+    await firstStore.upsertLineTarget({
+      ...lineTarget,
+      id: "line_target_persisted",
+      source: "manual",
+      display_name: "Executive Group",
+    });
     await firstStore.saveWorkerHeartbeat({
       worker_id: "worker_morning_brief_1",
       role: "morning_brief_scheduler",
@@ -134,8 +149,18 @@ describe("local JSON system store", () => {
     ).resolves.toMatchObject({
       id: "line_persisted",
       delivery_type: "morning_brief",
-      period_from: "2026-05-10",
-    });
+        period_from: "2026-05-10",
+      });
+    await expect(secondStore.listLineTargets("tenant_demo_remote")).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "line_target_persisted",
+          display_name: "Executive Group",
+          target_id_masked: "C1234...bcdef",
+          access_profile_key: "executive",
+        }),
+      ]),
+    );
     await expect(
       secondStore.getLatestWorkerHeartbeat("morning_brief_scheduler"),
     ).resolves.toMatchObject({

@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import {
   type LineDeliveryRecord,
+  type LineTargetRecord,
   type LineWebhookEventRecord,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
@@ -10,6 +11,7 @@ import {
   type TenantId,
   type WorkerHeartbeatRecord,
 } from "@ai-bcc/shared";
+import type { StoredLineTargetRecord } from "./line-targets.js";
 import { createSampleSnapshot } from "./sample-data.js";
 
 export type AuditLogEntry = {
@@ -52,6 +54,15 @@ export type SystemStore = {
     deliveryKey: string;
   }): Promise<LineDeliveryRecord | null>;
   listLineDeliveries(tenantId: TenantId): Promise<LineDeliveryRecord[]>;
+  listLineTargets(tenantId?: TenantId): Promise<StoredLineTargetRecord[]>;
+  getLineTargetById(id: string): Promise<StoredLineTargetRecord | null>;
+  getLineTargetByHash(input: {
+    tenantId: TenantId;
+    targetIdHash: string;
+  }): Promise<StoredLineTargetRecord | null>;
+  upsertLineTarget(
+    target: StoredLineTargetRecord,
+  ): Promise<StoredLineTargetRecord>;
   saveLineWebhookEvents(events: LineWebhookEventRecord[]): Promise<void>;
   listLineWebhookEvents(limit: number): Promise<LineWebhookEventRecord[]>;
   saveWorkerHeartbeat(
@@ -70,6 +81,7 @@ type StoreFile = {
   runs: ReportRunRecord[];
   snapshots: SalesGoodsServicesSnapshot[];
   lineDeliveries: LineDeliveryRecord[];
+  lineTargets: StoredLineTargetRecord[];
   lineWebhookEvents: LineWebhookEventRecord[];
   workerHeartbeats: WorkerHeartbeatRecord[];
   auditLogs: AuditLogEntry[];
@@ -196,6 +208,39 @@ class LocalJsonSystemStore implements SystemStore {
       .slice(0, 50);
   }
 
+  async listLineTargets(tenantId?: TenantId) {
+    return this.requireData().lineTargets
+      .filter((target) => !tenantId || target.tenant_id === tenantId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  async getLineTargetById(id: string) {
+    return this.requireData().lineTargets.find((target) => target.id === id) ?? null;
+  }
+
+  async getLineTargetByHash(input: {
+    tenantId: TenantId;
+    targetIdHash: string;
+  }) {
+    return (
+      this.requireData().lineTargets.find(
+        (target) =>
+          target.tenant_id === input.tenantId &&
+          target.target_id_hash === input.targetIdHash,
+      ) ?? null
+    );
+  }
+
+  async upsertLineTarget(target: StoredLineTargetRecord) {
+    const data = this.requireData();
+    data.lineTargets = [
+      target,
+      ...data.lineTargets.filter((existing) => existing.id !== target.id),
+    ];
+    await this.persist();
+    return target;
+  }
+
   async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
     if (!events.length) {
       return;
@@ -293,6 +338,7 @@ class LocalJsonSystemStore implements SystemStore {
         runs: parsed.runs ?? [],
         snapshots: parsed.snapshots ?? [],
         lineDeliveries: parsed.lineDeliveries ?? [],
+        lineTargets: normalizeLineTargets(parsed.lineTargets),
         lineWebhookEvents: parsed.lineWebhookEvents ?? [],
         workerHeartbeats: parsed.workerHeartbeats ?? [],
         auditLogs: parsed.auditLogs ?? [],
@@ -304,6 +350,7 @@ class LocalJsonSystemStore implements SystemStore {
         runs: [],
         snapshots: [],
         lineDeliveries: [],
+        lineTargets: [],
         lineWebhookEvents: [],
         workerHeartbeats: [],
         auditLogs: [],
@@ -656,6 +703,176 @@ limit 50
     return result.rows.map(mapLineDeliveryRow);
   }
 
+  async listLineTargets(tenantId?: TenantId) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  display_name,
+  target_type,
+  target_id,
+  target_id_masked,
+  target_id_hash,
+  access_profile_key,
+  allowed_report_keys,
+  allowed_actions,
+  enabled,
+  approved,
+  source,
+  last_delivery_at,
+  created_at,
+  updated_at
+from line_targets
+where ($1::text is null or tenant_id = $1)
+order by updated_at desc
+`,
+      [tenantId ?? null],
+    );
+
+    return result.rows.map(mapLineTargetRow);
+  }
+
+  async getLineTargetById(id: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  display_name,
+  target_type,
+  target_id,
+  target_id_masked,
+  target_id_hash,
+  access_profile_key,
+  allowed_report_keys,
+  allowed_actions,
+  enabled,
+  approved,
+  source,
+  last_delivery_at,
+  created_at,
+  updated_at
+from line_targets
+where id = $1
+limit 1
+`,
+      [id],
+    );
+
+    return result.rows[0] ? mapLineTargetRow(result.rows[0]) : null;
+  }
+
+  async getLineTargetByHash(input: {
+    tenantId: TenantId;
+    targetIdHash: string;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  display_name,
+  target_type,
+  target_id,
+  target_id_masked,
+  target_id_hash,
+  access_profile_key,
+  allowed_report_keys,
+  allowed_actions,
+  enabled,
+  approved,
+  source,
+  last_delivery_at,
+  created_at,
+  updated_at
+from line_targets
+where tenant_id = $1 and target_id_hash = $2
+limit 1
+`,
+      [input.tenantId, input.targetIdHash],
+    );
+
+    return result.rows[0] ? mapLineTargetRow(result.rows[0]) : null;
+  }
+
+  async upsertLineTarget(target: StoredLineTargetRecord) {
+    const result = await this.pool.query(
+      `
+insert into line_targets (
+  id,
+  tenant_id,
+  display_name,
+  target_type,
+  target_id,
+  target_id_masked,
+  target_id_hash,
+  access_profile_key,
+  allowed_report_keys,
+  allowed_actions,
+  enabled,
+  approved,
+  source,
+  last_delivery_at,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14::timestamptz, $15::timestamptz, $16::timestamptz)
+on conflict (id) do update
+set display_name = excluded.display_name,
+    target_type = excluded.target_type,
+    target_id = excluded.target_id,
+    target_id_masked = excluded.target_id_masked,
+    target_id_hash = excluded.target_id_hash,
+    access_profile_key = excluded.access_profile_key,
+    allowed_report_keys = excluded.allowed_report_keys,
+    allowed_actions = excluded.allowed_actions,
+    enabled = excluded.enabled,
+    approved = excluded.approved,
+    source = excluded.source,
+    last_delivery_at = excluded.last_delivery_at,
+    updated_at = excluded.updated_at
+returning
+  id,
+  tenant_id,
+  display_name,
+  target_type,
+  target_id,
+  target_id_masked,
+  target_id_hash,
+  access_profile_key,
+  allowed_report_keys,
+  allowed_actions,
+  enabled,
+  approved,
+  source,
+  last_delivery_at,
+  created_at,
+  updated_at
+`,
+      [
+        target.id,
+        target.tenant_id,
+        target.display_name,
+        target.target_type,
+        target.target_id,
+        target.target_id_masked,
+        target.target_id_hash,
+        target.access_profile_key,
+        JSON.stringify(target.allowed_report_keys),
+        JSON.stringify(target.allowed_actions),
+        target.enabled,
+        target.approved,
+        target.source,
+        target.last_delivery_at,
+        target.created_at,
+        target.updated_at,
+      ],
+    );
+
+    return mapLineTargetRow(result.rows[0]);
+  }
+
   async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
     for (const event of events) {
       await this.pool.query(
@@ -997,6 +1214,32 @@ function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
   };
 }
 
+function mapLineTargetRow(row: Record<string, unknown>): StoredLineTargetRecord {
+  return {
+    id: String(row.id),
+    tenant_id: row.tenant_id as TenantId,
+    display_name: String(row.display_name),
+    target_type:
+      row.target_type === "group" || row.target_type === "room"
+        ? row.target_type
+        : "user",
+    target_id: String(row.target_id),
+    target_id_masked: String(row.target_id_masked),
+    target_id_hash: String(row.target_id_hash),
+    access_profile_key: normalizeAccessProfile(row.access_profile_key),
+    allowed_report_keys: normalizeReportKeys(row.allowed_report_keys),
+    allowed_actions: normalizeLineActions(row.allowed_actions),
+    enabled: Boolean(row.enabled),
+    approved: Boolean(row.approved),
+    source: normalizeLineTargetSource(row.source),
+    last_delivery_at: row.last_delivery_at
+      ? toIsoString(row.last_delivery_at as string | Date)
+      : null,
+    created_at: toIsoString(row.created_at as string | Date),
+    updated_at: toIsoString(row.updated_at as string | Date),
+  };
+}
+
 function mapWorkerHeartbeatRow(
   row: Record<string, unknown>,
 ): WorkerHeartbeatRecord {
@@ -1021,6 +1264,101 @@ function isNoSpaceError(error: unknown) {
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "ENOSPC"
   );
+}
+
+function normalizeLineTargets(
+  value: unknown,
+): StoredLineTargetRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((target) => normalizeLineTarget(target))
+    .filter((target): target is StoredLineTargetRecord => Boolean(target));
+}
+
+function normalizeLineTarget(value: unknown): StoredLineTargetRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const target = value as Partial<StoredLineTargetRecord>;
+  if (
+    !target.id ||
+    !target.tenant_id ||
+    !target.target_id ||
+    !target.target_id_hash ||
+    !target.target_id_masked
+  ) {
+    return null;
+  }
+
+  return {
+    id: String(target.id),
+    tenant_id: target.tenant_id,
+    display_name: String(target.display_name || "LINE target"),
+    target_type:
+      target.target_type === "group" || target.target_type === "room"
+        ? target.target_type
+        : "user",
+    target_id: String(target.target_id),
+    target_id_masked: String(target.target_id_masked),
+    target_id_hash: String(target.target_id_hash),
+    access_profile_key: normalizeAccessProfile(target.access_profile_key),
+    allowed_report_keys: normalizeReportKeys(target.allowed_report_keys),
+    allowed_actions: normalizeLineActions(target.allowed_actions),
+    enabled: Boolean(target.enabled),
+    approved: Boolean(target.approved),
+    source: normalizeLineTargetSource(target.source),
+    last_delivery_at: target.last_delivery_at ?? null,
+    created_at: target.created_at ?? new Date().toISOString(),
+    updated_at: target.updated_at ?? new Date().toISOString(),
+  };
+}
+
+function normalizeAccessProfile(value: unknown) {
+  if (
+    value === "executive" ||
+    value === "sales_manager" ||
+    value === "operations" ||
+    value === "staff"
+  ) {
+    return value;
+  }
+
+  return "staff";
+}
+
+function normalizeReportKeys(value: unknown): LineTargetRecord["allowed_report_keys"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is "sales_goods_services" => item === "sales_goods_services");
+}
+
+function normalizeLineActions(value: unknown): LineTargetRecord["allowed_actions"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (
+      item,
+    ): item is LineTargetRecord["allowed_actions"][number] =>
+      item === "receive_morning_brief" ||
+      item === "ask_report" ||
+      item === "open_signed_viewer",
+  );
+}
+
+function normalizeLineTargetSource(value: unknown): LineTargetRecord["source"] {
+  if (value === "env_fallback" || value === "webhook" || value === "manual") {
+    return value;
+  }
+
+  return "manual";
 }
 
 const systemSchemaSql = `
@@ -1099,6 +1437,29 @@ on line_deliveries (tenant_id, report_key, created_at desc);
 create index if not exists line_deliveries_delivery_key_idx
 on line_deliveries (tenant_id, report_key, delivery_key, status)
 where delivery_key is not null;
+
+create table if not exists line_targets (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  display_name text not null,
+  target_type text not null,
+  target_id text not null,
+  target_id_masked text not null,
+  target_id_hash text not null,
+  access_profile_key text not null,
+  allowed_report_keys jsonb not null default '[]'::jsonb,
+  allowed_actions jsonb not null default '[]'::jsonb,
+  enabled boolean not null default false,
+  approved boolean not null default false,
+  source text not null default 'manual',
+  last_delivery_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, target_id_hash)
+);
+
+create index if not exists line_targets_tenant_idx
+on line_targets (tenant_id, updated_at desc);
 
 create table if not exists line_webhook_events (
   id text primary key,

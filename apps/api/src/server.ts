@@ -3,8 +3,12 @@ import Fastify from "fastify";
 import { z } from "zod";
 import {
   deriveMorningBriefDateRange,
+  allowedLineActionSchema,
   lineSendRequestSchema,
+  lineAccessProfileKeySchema,
+  type LineDeliveryRecord,
   morningBriefRequestSchema,
+  reportKeySchema,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
@@ -39,6 +43,15 @@ import {
   verifyReportViewerToken,
 } from "./report-viewer-token.js";
 import { verifyAdminToken } from "./admin-auth.js";
+import {
+  applyLineAccessProfileDefaults,
+  buildEnvFallbackLineTarget,
+  buildPendingWebhookLineTarget,
+  canAccessLineReport,
+  lineAccessProfileDefaults,
+  toSafeLineTargetRecord,
+  type StoredLineTargetRecord,
+} from "./line-targets.js";
 
 const app = Fastify({
   logger: {
@@ -274,6 +287,7 @@ app.post("/api/line/webhook", async (request, reply) => {
 
   const events = normalizeLineWebhookEvents(request.body as { events?: unknown[] });
   await systemStore.saveLineWebhookEvents(events);
+  const discoveredTargets = await registerWebhookLineTargets(events);
 
   for (const event of events) {
     await systemStore.appendAuditLog({
@@ -291,7 +305,11 @@ app.post("/api/line/webhook", async (request, reply) => {
     });
   }
 
-  return { ok: true, event_count: events.length };
+  return {
+    ok: true,
+    event_count: events.length,
+    discovered_target_count: discoveredTargets.length,
+  };
 });
 
 app.get("/api/line/webhook-events/latest", async (request, reply) => {
@@ -317,6 +335,256 @@ app.get("/api/line/webhook-events/latest", async (request, reply) => {
     reveal,
     debug_token_configured: Boolean(webhookConfig?.debugToken),
   };
+});
+
+app.get("/api/line-targets", async (request, reply) => {
+  const query = lineTargetsQuerySchema.safeParse(request.query);
+  if (!query.success) {
+    return reply.status(400).send({ error: "Invalid query" });
+  }
+
+  const targets = await listEffectiveLineTargets(query.data.tenant_id);
+
+  return {
+    data: targets.map(toSafeLineTargetRecord),
+    profiles: lineAccessProfileDefaults,
+  };
+});
+
+app.post("/api/line-targets/:id/approve", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = lineTargetParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid LINE target id" });
+  }
+
+  const body = lineTargetApproveSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid LINE target approve request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const target = await getMutableLineTarget(routeParams.data.id);
+  if (!target) {
+    return reply.status(404).send({ error: "LINE target not found" });
+  }
+
+  const profileKey = body.data.access_profile_key ?? target.access_profile_key;
+  const updated = await systemStore.upsertLineTarget({
+    ...applyLineAccessProfileDefaults(target, profileKey),
+    display_name: body.data.display_name?.trim() || target.display_name,
+    approved: true,
+    enabled: body.data.enabled ?? true,
+    updated_at: new Date().toISOString(),
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: updated.tenant_id,
+    actor_id: null,
+    action: "line_target_approved",
+    target_type: "line_target",
+    target_id: updated.id,
+    metadata_json: {
+      target_id_masked: updated.target_id_masked,
+      target_id_hash: updated.target_id_hash,
+      access_profile_key: updated.access_profile_key,
+      enabled: updated.enabled,
+    },
+  });
+
+  return { data: toSafeLineTargetRecord(updated) };
+});
+
+app.patch("/api/line-targets/:id", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = lineTargetParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid LINE target id" });
+  }
+
+  const body = lineTargetPatchSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid LINE target update request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const target = await getMutableLineTarget(routeParams.data.id);
+  if (!target) {
+    return reply.status(404).send({ error: "LINE target not found" });
+  }
+
+  let updated: StoredLineTargetRecord = {
+    ...target,
+    display_name: body.data.display_name?.trim() || target.display_name,
+    enabled: body.data.enabled ?? target.enabled,
+    approved: body.data.approved ?? target.approved,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (body.data.access_profile_key) {
+    updated = applyLineAccessProfileDefaults(
+      updated,
+      body.data.access_profile_key,
+    );
+  }
+
+  if (body.data.allowed_report_keys) {
+    updated.allowed_report_keys = body.data.allowed_report_keys;
+  }
+  if (body.data.allowed_actions) {
+    updated.allowed_actions = body.data.allowed_actions;
+  }
+
+  updated = await systemStore.upsertLineTarget({
+    ...updated,
+    updated_at: new Date().toISOString(),
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: updated.tenant_id,
+    actor_id: null,
+    action: "line_target_updated",
+    target_type: "line_target",
+    target_id: updated.id,
+    metadata_json: {
+      target_id_masked: updated.target_id_masked,
+      target_id_hash: updated.target_id_hash,
+      access_profile_key: updated.access_profile_key,
+      enabled: updated.enabled,
+      approved: updated.approved,
+      allowed_report_keys: updated.allowed_report_keys,
+      allowed_actions: updated.allowed_actions,
+    },
+  });
+
+  return { data: toSafeLineTargetRecord(updated) };
+});
+
+app.post("/api/line-targets/:id/test-send", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = lineTargetParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid LINE target id" });
+  }
+
+  const body = lineSendRequestSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid LINE send request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const target = await getEffectiveLineTargetById(routeParams.data.id);
+  if (!target) {
+    return reply.status(404).send({ error: "LINE target not found" });
+  }
+
+  const permission = canAccessLineReport({
+    tenantId: target.tenant_id,
+    target,
+    reportKey: "sales_goods_services",
+    action: "receive_morning_brief",
+  });
+  if (!permission.allowed) {
+    await systemStore.appendAuditLog({
+      tenant_id: target.tenant_id,
+      actor_id: null,
+      action: "line_target_test_denied",
+      target_type: "line_target",
+      target_id: target.id,
+      metadata_json: {
+        report_key: "sales_goods_services",
+        reason: permission.reason,
+        target_id_masked: target.target_id_masked,
+      },
+    });
+    return reply.status(403).send({
+      error: permission.message,
+      reason: permission.reason,
+    });
+  }
+
+  const snapshot = await systemStore.getLatestSnapshot(target.tenant_id);
+  if (!snapshot) {
+    return reply.status(404).send({ error: "Snapshot not found" });
+  }
+
+  const openViewerPermission = canAccessLineReport({
+    tenantId: target.tenant_id,
+    target,
+    reportKey: "sales_goods_services",
+    action: "open_signed_viewer",
+  });
+  const preview = renderSalesGoodsServicesLinePreview({
+    snapshot,
+    dashboardUrl: openViewerPermission.allowed
+      ? buildReportViewerUrl(snapshot)
+      : null,
+    tenantName: getTenantDefinition(target.tenant_id)?.name,
+  });
+  const lineConfig = buildLineChannelConfigForTarget(target);
+  const delivery = await sendLineBrief({
+    tenantId: target.tenant_id,
+    mode: body.data.mode,
+    preview,
+    config: lineConfig,
+  });
+
+  await systemStore.saveLineDelivery(delivery);
+  if (delivery.sent_at) {
+    await markLineTargetDelivered(target, delivery.sent_at);
+  }
+  await systemStore.appendAuditLog({
+    tenant_id: target.tenant_id,
+    actor_id: null,
+    action:
+      delivery.status === "success"
+        ? "line_target_test_sent"
+        : delivery.status === "dry_run"
+        ? "line_target_test_dry_run"
+        : "line_target_test_failed",
+    target_type: "line_target",
+    target_id: target.id,
+    metadata_json: {
+      report_key: "sales_goods_services",
+      report_run_id: snapshot.run_id,
+      status: delivery.status,
+      target_id_masked: delivery.target_id_masked,
+      safe_error_message: delivery.safe_error_message,
+    },
+  });
+
+  const response = {
+    data: {
+      target: toSafeLineTargetRecord(target),
+      delivery,
+      preview,
+      mode: body.data.mode,
+    },
+  };
+
+  if (delivery.status === "failed") {
+    return reply.status(502).send(response);
+  }
+
+  return response;
 });
 
 app.get(
@@ -539,39 +807,7 @@ app.post(
       period: body.data.period,
       timeZone: "Asia/Bangkok",
     });
-    const deliveryKey = buildMorningBriefDeliveryKey(tenantId, reportParams);
-
-    if (body.data.mode === "send" && !body.data.force) {
-      const existingDelivery =
-        await systemStore.findSuccessfulLineDeliveryByKey({
-          tenantId,
-          deliveryKey,
-        });
-      if (existingDelivery) {
-        await systemStore.appendAuditLog({
-          tenant_id: tenantId,
-          actor_id: null,
-          action: "morning_brief_skipped_duplicate",
-          target_type: "line_delivery",
-          target_id: existingDelivery.id,
-          metadata_json: {
-            report_key: "sales_goods_services",
-            delivery_key: deliveryKey,
-            period: reportParams,
-            force: body.data.force,
-          },
-        });
-        return {
-          data: {
-            status: "skipped",
-            reason: "duplicate_success_delivery",
-            delivery: existingDelivery,
-            delivery_key: deliveryKey,
-            params: reportParams,
-          },
-        };
-      }
-    }
+    const targets = await listEffectiveLineTargets(tenantId);
 
     const runResult = await runAndPersistSalesGoodsServicesReport({
       tenantId,
@@ -586,64 +822,182 @@ app.post(
       });
     }
 
-    const preview = renderSalesGoodsServicesLinePreview({
+    const deliveries = [];
+    let preview = renderSalesGoodsServicesLinePreview({
       snapshot: runResult.snapshot,
-      dashboardUrl: buildReportViewerUrl(runResult.snapshot),
+      dashboardUrl: null,
       tenantName: getTenantDefinition(tenantId)?.name,
     });
-    const lineConfig = readLineChannelConfig(tenantId);
-    const delivery = await sendLineBrief({
-      tenantId,
-      mode: body.data.mode,
-      preview,
-      config: lineConfig,
-      deliveryKey,
-      deliveryType: "morning_brief",
-      periodFrom: reportParams.date_from,
-      periodTo: reportParams.date_to,
-    });
 
-    await systemStore.saveLineDelivery(delivery);
-    await systemStore.appendAuditLog({
-      tenant_id: tenantId,
-      actor_id: null,
-      action:
-        delivery.status === "success"
-          ? "morning_brief_sent"
-          : delivery.status === "dry_run"
-          ? "morning_brief_dry_run"
-          : delivery.status === "skipped"
-          ? "morning_brief_skipped_unconfigured"
-          : "morning_brief_send_failed",
-      target_type: "line_delivery",
-      target_id: delivery.id,
-      metadata_json: {
-        report_key: "sales_goods_services",
-        report_run_id: runResult.snapshot.run_id,
-        delivery_key: deliveryKey,
-        period: reportParams,
+    for (const target of targets) {
+      const deliveryKey = buildMorningBriefDeliveryKey(
+        tenantId,
+        reportParams,
+        target.target_id_hash,
+      );
+
+      if (body.data.mode === "send" && !body.data.force) {
+        const existingDelivery =
+          await systemStore.findSuccessfulLineDeliveryByKey({
+            tenantId,
+            deliveryKey,
+          });
+        if (existingDelivery) {
+          deliveries.push(existingDelivery);
+          await systemStore.appendAuditLog({
+            tenant_id: tenantId,
+            actor_id: null,
+            action: "morning_brief_skipped_duplicate",
+            target_type: "line_delivery",
+            target_id: existingDelivery.id,
+            metadata_json: {
+              report_key: "sales_goods_services",
+              delivery_key: deliveryKey,
+              period: reportParams,
+              force: body.data.force,
+              target_id_masked: target.target_id_masked,
+              target_id_hash: target.target_id_hash,
+            },
+          });
+          continue;
+        }
+      }
+
+      const receivePermission = canAccessLineReport({
+        tenantId,
+        target,
+        reportKey: "sales_goods_services",
+        action: "receive_morning_brief",
+      });
+      if (!receivePermission.allowed) {
+        const skippedDelivery = createSkippedLineDelivery({
+          tenantId,
+          snapshot: runResult.snapshot,
+          target,
+          deliveryKey,
+          reportParams,
+          safeErrorMessage: receivePermission.message,
+        });
+        deliveries.push(skippedDelivery);
+        await systemStore.saveLineDelivery(skippedDelivery);
+        await systemStore.appendAuditLog({
+          tenant_id: tenantId,
+          actor_id: null,
+          action: "morning_brief_skipped_permission",
+          target_type: "line_target",
+          target_id: target.id,
+          metadata_json: {
+            report_key: "sales_goods_services",
+            delivery_key: deliveryKey,
+            reason: receivePermission.reason,
+            period: reportParams,
+            target_id_masked: target.target_id_masked,
+            target_id_hash: target.target_id_hash,
+          },
+        });
+        continue;
+      }
+
+      const openViewerPermission = canAccessLineReport({
+        tenantId,
+        target,
+        reportKey: "sales_goods_services",
+        action: "open_signed_viewer",
+      });
+      preview = renderSalesGoodsServicesLinePreview({
+        snapshot: runResult.snapshot,
+        dashboardUrl: openViewerPermission.allowed
+          ? buildReportViewerUrl(runResult.snapshot)
+          : null,
+        tenantName: getTenantDefinition(tenantId)?.name,
+      });
+      const delivery = await sendLineBrief({
+        tenantId,
         mode: body.data.mode,
-        force: body.data.force,
-        configured: Boolean(lineConfig),
-        target_id_masked: delivery.target_id_masked,
-        safe_error_message: delivery.safe_error_message,
-      },
-    });
+        preview,
+        config: buildLineChannelConfigForTarget(target),
+        deliveryKey,
+        deliveryType: "morning_brief",
+        periodFrom: reportParams.date_from,
+        periodTo: reportParams.date_to,
+      });
+
+      deliveries.push(delivery);
+      await systemStore.saveLineDelivery(delivery);
+      if (delivery.sent_at) {
+        await markLineTargetDelivered(target, delivery.sent_at);
+      }
+      await systemStore.appendAuditLog({
+        tenant_id: tenantId,
+        actor_id: null,
+        action:
+          delivery.status === "success"
+            ? "morning_brief_sent"
+            : delivery.status === "dry_run"
+            ? "morning_brief_dry_run"
+            : delivery.status === "skipped"
+            ? "morning_brief_skipped_unconfigured"
+            : "morning_brief_send_failed",
+        target_type: "line_delivery",
+        target_id: delivery.id,
+        metadata_json: {
+          report_key: "sales_goods_services",
+          report_run_id: runResult.snapshot.run_id,
+          delivery_key: deliveryKey,
+          period: reportParams,
+          mode: body.data.mode,
+          force: body.data.force,
+          target_id_masked: delivery.target_id_masked,
+          target_id_hash: target.target_id_hash,
+          safe_error_message: delivery.safe_error_message,
+        },
+      });
+    }
+
+    if (!targets.length) {
+      await systemStore.appendAuditLog({
+        tenant_id: tenantId,
+        actor_id: null,
+        action: "morning_brief_skipped_no_line_targets",
+        target_type: "tenant",
+        target_id: tenantId,
+        metadata_json: {
+          report_key: "sales_goods_services",
+          period: reportParams,
+        },
+      });
+    }
+
+    const failedDelivery = deliveries.find(
+      (delivery) => delivery.status === "failed",
+    );
+    const successfulDelivery = deliveries.find(
+      (delivery) => delivery.status === "success",
+    );
+    const firstDelivery = deliveries[0] ?? null;
 
     const response = {
       data: {
-        delivery,
+        status:
+          deliveries.length === 0
+            ? "skipped"
+            : successfulDelivery
+            ? "sent"
+            : "processed",
+        reason: deliveries.length === 0 ? "no_line_targets" : null,
+        delivery: firstDelivery,
+        deliveries,
         preview,
-        configured: Boolean(lineConfig),
+        configured: targets.length > 0,
         mode: body.data.mode,
         force: body.data.force,
-        delivery_key: deliveryKey,
+        delivery_key: firstDelivery?.delivery_key ?? null,
         params: reportParams,
         run: runResult.runRecord,
       },
     };
 
-    if (delivery.status === "failed") {
+    if (failedDelivery) {
       return reply.status(502).send(response);
     }
 
@@ -953,6 +1307,164 @@ function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
   }
 }
 
+async function listEffectiveLineTargets(tenantId?: TenantId) {
+  const storedTargets = await systemStore.listLineTargets(tenantId);
+  const tenantIds = tenantId
+    ? [tenantId]
+    : listTenants().map((tenant) => tenant.id);
+  const envFallbackTargets = tenantIds
+    .map((id) => {
+      const lineConfig = readLineChannelConfig(id);
+      return lineConfig
+        ? buildEnvFallbackLineTarget({ tenantId: id, config: lineConfig })
+        : null;
+    })
+    .filter((target): target is StoredLineTargetRecord => Boolean(target));
+
+  const effectiveTargets = [...storedTargets];
+  for (const envTarget of envFallbackTargets) {
+    const storedDuplicate = storedTargets.find(
+      (target) =>
+        target.tenant_id === envTarget.tenant_id &&
+        target.target_id_hash === envTarget.target_id_hash,
+    );
+    if (!storedDuplicate || !storedDuplicate.approved) {
+      effectiveTargets.unshift(envTarget);
+    }
+  }
+
+  return effectiveTargets;
+}
+
+async function getEffectiveLineTargetById(id: string) {
+  if (id.startsWith("line_target_env_")) {
+    const tenantId = id.replace("line_target_env_", "");
+    const parsed = tenantIdSchema.safeParse(tenantId);
+    if (!parsed.success) {
+      return null;
+    }
+
+    const lineConfig = readLineChannelConfig(parsed.data);
+    return lineConfig
+      ? buildEnvFallbackLineTarget({
+          tenantId: parsed.data,
+          config: lineConfig,
+        })
+      : null;
+  }
+
+  return systemStore.getLineTargetById(id);
+}
+
+async function getMutableLineTarget(id: string) {
+  if (id.startsWith("line_target_env_")) {
+    return null;
+  }
+
+  return systemStore.getLineTargetById(id);
+}
+
+async function registerWebhookLineTargets(events: ReturnType<typeof normalizeLineWebhookEvents>) {
+  const tenantId = readWebhookDiscoveryTenantId();
+  const discovered: StoredLineTargetRecord[] = [];
+  const seenHashes = new Set<string>();
+
+  for (const event of events) {
+    const pendingTarget = buildPendingWebhookLineTarget({ tenantId, event });
+    if (!pendingTarget || seenHashes.has(pendingTarget.target_id_hash)) {
+      continue;
+    }
+    seenHashes.add(pendingTarget.target_id_hash);
+
+    const existing = await systemStore.getLineTargetByHash({
+      tenantId,
+      targetIdHash: pendingTarget.target_id_hash,
+    });
+    if (existing) {
+      continue;
+    }
+
+    const saved = await systemStore.upsertLineTarget(pendingTarget);
+    discovered.push(saved);
+    await systemStore.appendAuditLog({
+      tenant_id: tenantId,
+      actor_id: event.user_id ? maskIdentifier(event.user_id) : null,
+      action: "line_target_discovered",
+      target_type: "line_target",
+      target_id: saved.id,
+      metadata_json: {
+        event_type: event.event_type,
+        source_type: event.source_type,
+        target_id_masked: saved.target_id_masked,
+        target_id_hash: saved.target_id_hash,
+        approved: saved.approved,
+        enabled: saved.enabled,
+      },
+    });
+  }
+
+  return discovered;
+}
+
+function buildLineChannelConfigForTarget(target: StoredLineTargetRecord) {
+  const lineConfig = readLineChannelConfig(target.tenant_id);
+  if (!lineConfig) {
+    return null;
+  }
+
+  return {
+    ...lineConfig,
+    targetId: target.target_id,
+    targetType: target.target_type,
+  };
+}
+
+async function markLineTargetDelivered(
+  target: StoredLineTargetRecord,
+  sentAt: string,
+) {
+  if (target.source === "env_fallback") {
+    return;
+  }
+
+  await systemStore.upsertLineTarget({
+    ...target,
+    last_delivery_at: sentAt,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+function createSkippedLineDelivery(input: {
+  tenantId: TenantId;
+  snapshot: SalesGoodsServicesSnapshot;
+  target: StoredLineTargetRecord;
+  deliveryKey: string;
+  reportParams: SalesGoodsServicesParams;
+  safeErrorMessage: string;
+}): LineDeliveryRecord {
+  const now = new Date().toISOString();
+  return {
+    id: `line_${input.tenantId}_${Date.now()}_${input.target.target_id_hash.slice(
+      0,
+      8,
+    )}`,
+    tenant_id: input.tenantId,
+    report_key: input.snapshot.report_key,
+    report_run_id: input.snapshot.run_id,
+    delivery_key: input.deliveryKey,
+    delivery_type: "morning_brief",
+    period_from: input.reportParams.date_from,
+    period_to: input.reportParams.date_to,
+    target_id_masked: input.target.target_id_masked,
+    message_type: "text",
+    status: "skipped",
+    sent_at: null,
+    provider_response_json: null,
+    safe_error_message: input.safeErrorMessage,
+    created_at: now,
+  };
+}
+
 function requireAdminMutation(request: {
   headers: Record<string, string | string[] | undefined>;
 }) {
@@ -976,8 +1488,15 @@ function readReportViewerLinkTtlSeconds() {
 function buildMorningBriefDeliveryKey(
   tenantId: TenantId,
   params: SalesGoodsServicesParams,
+  targetIdHash?: string,
 ) {
-  return `${tenantId}:sales_goods_services:morning_brief:${params.date_from}:${params.date_to}`;
+  const base = `${tenantId}:sales_goods_services:morning_brief:${params.date_from}:${params.date_to}`;
+  return targetIdHash ? `${base}:${targetIdHash.slice(0, 16)}` : base;
+}
+
+function readWebhookDiscoveryTenantId() {
+  const parsed = tenantIdSchema.safeParse(process.env.LINE_DEFAULT_WEBHOOK_TENANT_ID);
+  return parsed.success ? parsed.data : "tenant_demo_remote";
 }
 
 function readSchedulerTenantIds() {
@@ -1034,6 +1553,29 @@ const signedSnapshotQuerySchema = z.object({
 const lineWebhookEventsQuerySchema = z.object({
   reveal: z.enum(["0", "1"]).optional().default("0"),
   limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+});
+
+const lineTargetsQuerySchema = z.object({
+  tenant_id: tenantIdSchema.optional(),
+});
+
+const lineTargetParamsSchema = z.object({
+  id: z.string().min(1).max(160),
+});
+
+const lineTargetApproveSchema = z.object({
+  access_profile_key: lineAccessProfileKeySchema.optional(),
+  display_name: z.string().trim().min(1).max(120).optional(),
+  enabled: z.boolean().optional(),
+});
+
+const lineTargetPatchSchema = z.object({
+  display_name: z.string().trim().min(1).max(120).optional(),
+  access_profile_key: lineAccessProfileKeySchema.optional(),
+  enabled: z.boolean().optional(),
+  approved: z.boolean().optional(),
+  allowed_report_keys: z.array(reportKeySchema).optional(),
+  allowed_actions: z.array(allowedLineActionSchema).optional(),
 });
 
 const workerHeartbeatSchema = z.object({

@@ -25,6 +25,7 @@
 - UI ต้อง confirm ก่อนส่ง LINE จริง
 - API log redact `x-ai-bcc-admin-token`
 - LINE target แสดงแบบ masked เท่านั้น
+- LINE target registry รองรับ group-level permission profile และ target ใหม่จาก webhook จะไม่ถูกเปิดใช้งานอัตโนมัติ
 - Secret จริงอยู่ใน `.env.server` บน server และห้าม commit
 
 Protected mutation endpoints:
@@ -34,6 +35,9 @@ POST /api/reports/:tenantId/sales_goods_services/run
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/tenants/:tenantId/datasource/test
+POST /api/line-targets/:id/approve
+PATCH /api/line-targets/:id
+POST /api/line-targets/:id/test-send
 ```
 
 Response policy:
@@ -123,8 +127,26 @@ copy
 - worker job ทุกตัวมี `tenant_id`
 - report result ทุก record มี `tenant_id`
 - LINE channel/target ผูกกับ `tenant_id`
+- LINE permission check ต้องตรวจ `tenant_id`, target approval, enabled status, `allowed_actions`, และ `allowed_report_keys`
 - future chatbot session ผูกกับ `tenant_id`
 - cache key ต้อง prefix ด้วย `tenant_id`
+
+## LINE Permission Safety
+
+Baseline สำหรับ pilot:
+
+- target จาก env เดิมเป็น fallback `executive` เฉพาะ demo/pilot
+- target ที่เจอจาก webhook ถูกบันทึกเป็น pending และ `staff`/ไม่มีสิทธิ์โดย default
+- admin ต้อง approve และเลือก profile ก่อนเปิดรับ Morning Brief
+- scheduler ส่งเฉพาะ target ที่ผ่าน permission check
+- target ที่ถูก deny ต้องถูก skip พร้อม audit ที่ใช้ masked/hash id เท่านั้น
+
+Production ก่อนใช้กับลูกค้าจริง:
+
+- ย้าย LINE channel token ไป secret/encrypted store
+- resolve tenant จาก channel/OA mapping ไม่ใช้ default webhook tenant
+- ทำ full login/role สำหรับ admin UI แทน shared admin token
+- เพิ่ม policy สำหรับราย user ถ้าลูกค้าต้องการให้คนในกลุ่มเดียวกันเห็นข้อมูลไม่เท่ากัน
 
 ## Audit Requirements
 
@@ -133,6 +155,7 @@ copy
 - datasource created/updated/tested
 - report run started/succeeded/failed
 - LINE message sent/failed
+- LINE target discovered/approved/updated/permission skipped
 - user login
 - manual refresh
 - future chatbot question/answer source

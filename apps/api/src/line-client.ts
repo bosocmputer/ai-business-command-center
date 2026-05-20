@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   LineDeliveryRecord,
   LineMessageType,
@@ -107,7 +108,7 @@ export async function sendLineBrief(
 }
 
 function createLineDeliveryId(tenantId: TenantId) {
-  return `line_${tenantId}_${Date.now()}`;
+  return `line_${tenantId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
 }
 
 function maskTargetId(value: string) {

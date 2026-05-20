@@ -1,4 +1,4 @@
-import type { Tenant, TenantId } from "@ai-bcc/shared";
+import type { LineTargetType, Tenant, TenantId } from "@ai-bcc/shared";
 
 type DatasourceConfig = {
   host: string;
@@ -11,6 +11,7 @@ type DatasourceConfig = {
 type LineChannelConfig = {
   channelAccessToken: string;
   targetId: string;
+  targetType?: LineTargetType | null;
 };
 
 type LineWebhookConfig = {
@@ -104,6 +105,10 @@ export function readLineChannelConfig(
   const targetId =
     process.env[`${tenant.lineEnvPrefix}_TARGET_ID`] ||
     process.env.LINE_TARGET_ID;
+  const targetType = normalizeLineTargetType(
+    process.env[`${tenant.lineEnvPrefix}_TARGET_TYPE`] ||
+      process.env.LINE_TARGET_TYPE,
+  );
 
   if (!channelAccessToken || !targetId) {
     return null;
@@ -112,6 +117,7 @@ export function readLineChannelConfig(
   return {
     channelAccessToken,
     targetId,
+    targetType,
   };
 }
 
@@ -129,6 +135,14 @@ export function readLineWebhookConfig(): LineWebhookConfig | null {
 
 function readEnv(name: string, fallback: string) {
   return process.env[name] || fallback;
+}
+
+function normalizeLineTargetType(value: string | undefined) {
+  if (value === "user" || value === "group" || value === "room") {
+    return value;
+  }
+
+  return null;
 }
 
 export type { DatasourceConfig, LineChannelConfig, LineWebhookConfig };

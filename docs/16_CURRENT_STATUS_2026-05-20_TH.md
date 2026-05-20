@@ -11,8 +11,8 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed commit before Flex Message 2.0: 9b7cb23
-Flex Message 2.0 change: included in current main commit
+Latest deployed commit before LINE permissions: 781ff5e
+LINE group permission profile change: implemented in current working tree
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
@@ -101,14 +101,23 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Scheduler จำกัด tenant เริ่มต้นเป็น `tenant_demo_remote`
 - Morning Brief ใช้ period `yesterday`
   - วันที่ `2026-05-20` จะส่งข้อมูล `2026-05-19`
-- Duplicate guard ใช้ key:
+- Duplicate guard ใช้ key ต่อ target เพื่อรองรับหลายกลุ่ม:
 
 ```text
-tenant_id + sales_goods_services + morning_brief + date_from + date_to
+tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_id_hash
 ```
 
 - LINE message link ชี้ไป report viewer signed URL ไม่ใช่ admin dashboard
 - `line_deliveries.message_type` เก็บ `flex` หรือ `text` เพื่อ audit รูปแบบข้อความ
+- เพิ่ม `line_targets` สำหรับแยกสิทธิ์ระดับกลุ่ม/room/user:
+  - `executive`
+  - `sales_manager`
+  - `operations`
+  - `staff`
+- Scheduler ส่งไปทุก target ที่ `approved=true`, `enabled=true` และผ่าน permission check ของ report นั้น
+- Target ใหม่จาก webhook จะถูกบันทึกเป็น pending ไม่ auto-enable
+- Env fallback target เดิมยังทำงานเป็น `executive` สำหรับ pilot
+- `/command-center/settings` มี section `LINE Groups & Permissions` สำหรับดู masked target, profile, approve/change profile/enable-disable/test send
 
 ### Security / Safety
 
@@ -123,9 +132,13 @@ x-ai-bcc-admin-token: <server-only-token>
   - `POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send`
   - `POST /api/reports/:tenantId/sales_goods_services/line-send-test`
   - `POST /api/tenants/:tenantId/datasource/test`
+  - `POST /api/line-targets/:id/approve`
+  - `PATCH /api/line-targets/:id`
+  - `POST /api/line-targets/:id/test-send`
 - UI จะ prompt admin token ฝั่ง browser และเก็บใน `sessionStorage`
 - UI มี confirmation ก่อนส่ง LINE จริง
 - API log redact `x-ai-bcc-admin-token`
+- LINE target API response/audit ใช้ masked/hash id ไม่ expose target id เต็ม
 - Secret จริงอยู่ใน `.env.server` บน server เท่านั้น ไม่ commit
 
 ## สถานะข้อมูลล่าสุด
@@ -187,7 +200,8 @@ Browser QA:
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
 - LINE OA ยังเป็น OA กลางสำหรับ demo/subscription เริ่มต้น
-- ยังไม่มี customer-specific LINE OA onboarding flow
+- customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี pending target discovery และ permission profile แล้ว
+- ยังไม่แยกสิทธิ์ราย user ใน LINE group เดียวกัน
 - ยังไม่มี backup/restore automation สำหรับ system PostgreSQL
 - ยังไม่ได้ทำ CI/CD pipeline
 - ยังไม่ได้เพิ่ม report อื่นนอกจาก `sales_goods_services`
@@ -196,10 +210,11 @@ Browser QA:
 
 Priority 1:
 
-1. Deploy Flex Message 2.0 แล้วตรวจ `line-preview` ว่าได้ `line_message_type = flex`
-2. ถ้า LINE ส่งสำเร็จ ให้กด link จาก LINE แล้วตรวจว่าพาเข้า `/command-center/brief` ของ `run_id` รอบนั้น
-3. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งจาก `tenant_demo_remote` จริงและไม่ส่งซ้ำ
-4. เก็บ screenshot และ feedback UX จากผู้บริหาร/ผู้ใช้จริง
+1. Deploy LINE group permission profile แล้วตรวจ `GET /api/line-targets?tenant_id=tenant_demo_remote`
+2. ตรวจว่า env fallback target แสดงเป็น `executive` และยังส่ง Morning Brief ได้
+3. เพิ่ม OA เข้ากลุ่มใหม่หรือพิมพ์ในกลุ่ม แล้วตรวจ webhook discovery ว่า target ใหม่เป็น pending ไม่ auto-enable
+4. ทดสอบ approve/change profile/test send จาก `/command-center/settings`
+5. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งเฉพาะ target ที่ผ่าน permission และไม่ส่งซ้ำข้าม target
 
 Priority 2:
 

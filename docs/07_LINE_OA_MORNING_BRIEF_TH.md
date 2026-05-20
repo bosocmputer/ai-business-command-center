@@ -13,6 +13,10 @@ GET /api/reports/:tenantId/sales_goods_services/line-preview
 GET /api/reports/:tenantId/sales_goods_services/line-deliveries
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+GET /api/line-targets?tenant_id=...
+POST /api/line-targets/:id/approve
+PATCH /api/line-targets/:id
+POST /api/line-targets/:id/test-send
 ```
 
 หลักการ:
@@ -20,6 +24,7 @@ POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 - renderer อ่านจาก `report_snapshots` ล่าสุด หรือ snapshot ที่เพิ่ง run ใน morning brief flow
 - `line-preview` ไม่ส่งข้อความจริง
 - `line-send-test` และ `morning-brief/run-and-send` เป็น mutation endpoint ต้องใช้ `x-ai-bcc-admin-token`
+- `line_targets` แยกสิทธิ์ระดับกลุ่ม/room/user ต่อ tenant แล้ว โดยเริ่มจาก profile `executive`, `sales_manager`, `operations`, `staff`
 - live send ใช้ LINE Flex Message เป็น default และเก็บ text summary เป็น fallback/preview
 - ข้อความต้องระบุ source เป็นภาษาผู้ใช้ เช่น `ข้อมูลจากระบบขาย SML`
 - `run_id` ต้อง trace ได้ผ่าน viewer/details และ `line_deliveries` แต่ไม่ต้องโชว์ในข้อความ LINE ส่วนหลัก
@@ -27,6 +32,8 @@ POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 - dashboard link ใน LINE ต้องเป็น signed report viewer URL ไม่ใช่ admin dashboard
 - signed URL ต้องอยู่หลังปุ่ม `เปิดรายงาน` ไม่แสดง URL ยาวใน body หลัก
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
+- target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดกลุ่ม
+- env fallback target เดิมยังใช้ได้สำหรับ pilot และถือเป็น `executive` จนกว่าจะย้ายไป target registry เต็ม
 
 ข้อมูลที่ต้องใช้สำหรับการส่งจริง:
 
@@ -72,11 +79,14 @@ POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 flowchart TD
     A[Scheduled Report Run] --> B[Report Snapshot]
     B --> C[Summary JSON]
-    C --> D[Message Renderer]
-    D --> E[LINE OA Adapter]
-    E --> F[LINE API]
-    F --> G[User/Group/Room]
-    E --> H[line_deliveries log]
+    C --> D[Resolve line_targets]
+    D --> E[Permission Check]
+    E -->|allowed| F[Message Renderer]
+    F --> G[LINE OA Adapter]
+    G --> H[LINE API]
+    H --> I[User/Group/Room]
+    G --> J[line_deliveries log]
+    E -->|denied| K[skip + audit]
 ```
 
 ## Schedule
@@ -116,6 +126,16 @@ timezone
 enabled_reports
 target_id
 ```
+
+ปัจจุบัน scheduler จะส่งไปทุก `line_targets` ที่:
+
+- `tenant_id` ตรงกับ report
+- `approved=true`
+- `enabled=true`
+- มี `receive_morning_brief` ใน `allowed_actions`
+- มี `sales_goods_services` ใน `allowed_report_keys`
+
+ถ้า target ไม่มีสิทธิ์ ระบบต้อง skip และบันทึก audit โดยไม่ส่งข้อมูลธุรกิจ
 
 ## Morning Brief Content
 
@@ -264,9 +284,41 @@ LINE_TARGET_ID=
 ## Tenant Isolation
 
 - `line_channels` ต้องผูกกับ `tenant_id`
+- `line_targets` ต้องผูกกับ `tenant_id`
 - access token ต้อง encrypted
 - ห้ามใช้ target/group ข้าม tenant
 - future webhook inbound ต้อง resolve tenant จาก channel id หรือ mapping ที่ชัดเจน
+
+## LINE Group Permission Profiles
+
+Phase ปัจจุบันรองรับ group-level permission ก่อน ยังไม่แยกสิทธิ์ราย user ในกลุ่มเดียวกัน
+
+```text
+executive
+  reports: sales_goods_services
+  actions: receive_morning_brief, ask_report, open_signed_viewer
+
+sales_manager
+  reports: sales_goods_services
+  actions: receive_morning_brief, ask_report, open_signed_viewer
+
+operations
+  reports: none for sales in current phase
+  future: inventory_risk, so_backlog, stock reports
+
+staff
+  reports: none
+  behavior: deny business report access with safe message
+```
+
+Permission check function ต้องใช้ร่วมกันทั้ง:
+
+- Morning Brief scheduler
+- target-specific test send
+- signed viewer link generation
+- future chatbot intent routing
+
+Future chatbot rule: ทุกคำถามต้อง resolve `tenant_id + line_target + report_key + action` ก่อนเลือก report ถ้า deny ให้ตอบว่า `กลุ่มนี้ไม่มีสิทธิ์ดูรายงานนี้` และห้ามรัน/สรุปข้อมูล
 
 ## Future Chatbot
 

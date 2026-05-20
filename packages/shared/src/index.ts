@@ -163,6 +163,64 @@ export type LineFlexMessage = {
 
 export type LineMessageType = "text" | "flex";
 
+export const lineAccessProfileKeySchema = z.enum([
+  "executive",
+  "sales_manager",
+  "operations",
+  "staff",
+]);
+
+export const allowedLineActionSchema = z.enum([
+  "receive_morning_brief",
+  "ask_report",
+  "open_signed_viewer",
+]);
+
+export type LineAccessProfileKey = z.infer<
+  typeof lineAccessProfileKeySchema
+>;
+export type AllowedLineAction = z.infer<typeof allowedLineActionSchema>;
+export type LineTargetType = "user" | "group" | "room";
+export type LineTargetSource = "env_fallback" | "webhook" | "manual";
+
+export type LineTargetRecord = {
+  id: string;
+  tenant_id: TenantId;
+  display_name: string;
+  target_type: LineTargetType;
+  target_id_masked: string;
+  target_id_hash: string;
+  access_profile_key: LineAccessProfileKey;
+  allowed_report_keys: ReportKey[];
+  allowed_actions: AllowedLineAction[];
+  enabled: boolean;
+  approved: boolean;
+  source: LineTargetSource;
+  last_delivery_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LinePermissionDenyReason =
+  | "target_not_found"
+  | "tenant_mismatch"
+  | "target_not_approved"
+  | "target_disabled"
+  | "action_not_allowed"
+  | "report_not_allowed";
+
+export type LinePermissionDecision =
+  | {
+      allowed: true;
+      reason: "allowed";
+      message: string;
+    }
+  | {
+      allowed: false;
+      reason: LinePermissionDenyReason;
+      message: string;
+    };
+
 export type SalesGoodsServicesLinePreview = {
   tenant_id: TenantId;
   report_key: ReportKey;
