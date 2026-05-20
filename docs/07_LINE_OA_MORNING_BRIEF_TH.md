@@ -33,7 +33,7 @@ POST /api/line-targets/:id/test-send
 - signed URL ต้องอยู่หลังปุ่ม `เปิดรายงาน` ไม่แสดง URL ยาวใน body หลัก
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
 - target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดกลุ่ม
-- env fallback target เดิมยังใช้ได้สำหรับ pilot และถือเป็น `executive` จนกว่าจะย้ายไป target registry เต็ม
+- LINE target ต้องมาจาก target registry/webhook ที่ admin อนุมัติแล้ว; env fallback target ปิดเป็นค่า default เพื่อกันกลุ่มเก่าถูกสร้างกลับมาทุก restart
 - web public URL ใช้ same-origin `/api` rewrite ไปยัง API ภายใน Docker เพื่อลดการพึ่งพา API quick tunnel แยกอีกตัว
 - ระบบพยายามดึงชื่อกลุ่มจาก LINE group summary API เพื่อให้ admin เห็นชื่อกลุ่มแทน masked group id ถ้า LINE API ให้สิทธิ์และ OA ยังอยู่ในกลุ่มนั้น
 
@@ -280,19 +280,16 @@ env:
 
 ```text
 LINE_DEMO_CHANNEL_ACCESS_TOKEN=
-LINE_DEMO_TARGET_ID=
 LINE_OFFICE_CHANNEL_ACCESS_TOKEN=
-LINE_OFFICE_TARGET_ID=
 ```
 
-สำหรับ demo สามารถใช้ fallback กลางได้:
+สำหรับ demo/pilot สามารถใช้ channel token กลางได้:
 
 ```text
 LINE_CHANNEL_ACCESS_TOKEN=
-LINE_TARGET_ID=
 ```
 
-แต่ production ควรใช้ tenant-specific config เพื่อรักษา tenant/channel isolation
+ค่า `LINE_TARGET_ID` / `LINE_DEMO_TARGET_ID` เป็น legacy fallback ไม่ควรใช้กับระบบ target registry แล้ว ถ้าจำเป็นต้องเปิด fallback ชั่วคราวต้องตั้ง `LINE_TARGET_ENV_FALLBACK_ENABLED=true` แบบตั้งใจเท่านั้น
 
 ## Tenant Isolation
 

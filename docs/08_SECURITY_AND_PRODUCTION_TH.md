@@ -135,7 +135,7 @@ copy
 
 Baseline สำหรับ pilot:
 
-- target จาก env เดิมเป็น fallback `executive` เฉพาะ demo/pilot
+- env fallback target ปิดเป็นค่า default; target ที่รับข้อมูลธุรกิจต้องอยู่ใน registry และผ่าน admin approval
 - target ที่เจอจาก webhook ถูกบันทึกเป็น pending และ `staff`/ไม่มีสิทธิ์โดย default
 - admin ต้อง approve และเลือก profile ก่อนเปิดรับ Morning Brief
 - scheduler ส่งเฉพาะ target ที่ผ่าน permission check

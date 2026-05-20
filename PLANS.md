@@ -269,7 +269,7 @@ Current status:
 - LINE link ชี้ signed report viewer `/command-center/brief`
 - UI confirm ก่อนส่ง LINE จริง
 - mutation endpoints ต้องมี `x-ai-bcc-admin-token`
-- scheduler ส่ง Morning Brief เฉพาะ `line_targets` ที่ผ่าน permission check; env fallback เดิมเป็น `executive` สำหรับ pilot
+- scheduler ส่ง Morning Brief เฉพาะ `line_targets` ที่ผ่าน permission check; env fallback target ปิดเป็นค่า default
 
 ## Phase 6: Deploy Test Server
 

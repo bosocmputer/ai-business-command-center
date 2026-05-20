@@ -118,15 +118,13 @@ Protected endpoints:
 
 `SYSTEM_DATABASE_URL` ใช้ PostgreSQL system DB บน Docker Compose แล้ว
 
-### P2: LINE target isolation is currently fallback-based
+### Updated: LINE target isolation uses registry targets
 
-ตอนนี้ใช้ OA กลางและ target กลุ่มเดียวเป็น demo ได้ แต่ production ต้องใช้ tenant-specific config:
+ตอนนี้ target กลุ่ม LINE ต้องมาจาก webhook/registry และผ่าน admin approval ก่อนรับข้อมูลธุรกิจ ค่า env ใช้เก็บ channel token ได้ แต่ไม่ควรใช้ `*_TARGET_ID` เป็น target หลักอีกแล้ว:
 
 ```text
 LINE_DEMO_CHANNEL_ACCESS_TOKEN
-LINE_DEMO_TARGET_ID
 LINE_OFFICE_CHANNEL_ACCESS_TOKEN
-LINE_OFFICE_TARGET_ID
 ```
 
 หรือย้ายไป `line_channels` table พร้อม encrypted secrets

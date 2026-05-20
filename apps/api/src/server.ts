@@ -21,6 +21,7 @@ import {
   getTenantDefinition,
   listTenants,
   readDatasourceConfig,
+  readLineChannelCredentials,
   readLineChannelConfig,
   readLineWebhookConfig,
 } from "./config.js";
@@ -213,13 +214,14 @@ app.get("/api/operations/status", async () => {
         status: latestHeartbeat ? (heartbeatFresh ? latestHeartbeat.status : "stale") : "missing",
       },
       tenants: listTenants().map((tenant) => {
+        const lineCredentials = readLineChannelCredentials(tenant.id);
         const lineConfig = readLineChannelConfig(tenant.id);
         return {
           id: tenant.id,
           name: tenant.name,
           database_name: tenant.databaseName,
           datasource_configured: tenant.datasourceConfigured,
-          line_configured: Boolean(lineConfig),
+          line_configured: Boolean(lineCredentials),
           line_target_masked: lineConfig ? maskIdentifier(lineConfig.targetId) : null,
         };
       }),
@@ -1314,14 +1316,16 @@ async function listEffectiveLineTargets(tenantId?: TenantId) {
   const tenantIds = tenantId
     ? [tenantId]
     : listTenants().map((tenant) => tenant.id);
-  const envFallbackTargets = tenantIds
-    .map((id) => {
-      const lineConfig = readLineChannelConfig(id);
-      return lineConfig
-        ? buildEnvFallbackLineTarget({ tenantId: id, config: lineConfig })
-        : null;
-    })
-    .filter((target): target is StoredLineTargetRecord => Boolean(target));
+  const envFallbackTargets = isLineTargetEnvFallbackEnabled()
+    ? tenantIds
+        .map((id) => {
+          const lineConfig = readLineChannelConfig(id);
+          return lineConfig
+            ? buildEnvFallbackLineTarget({ tenantId: id, config: lineConfig })
+            : null;
+        })
+        .filter((target): target is StoredLineTargetRecord => Boolean(target))
+    : [];
 
   const effectiveTargets = [...storedTargets];
   for (const envTarget of envFallbackTargets) {
@@ -1371,6 +1375,10 @@ async function enrichLineTargetDisplayNames(
 
 async function getEffectiveLineTargetById(id: string) {
   if (id.startsWith("line_target_env_")) {
+    if (!isLineTargetEnvFallbackEnabled()) {
+      return null;
+    }
+
     const tenantId = id.replace("line_target_env_", "");
     const parsed = tenantIdSchema.safeParse(tenantId);
     if (!parsed.success) {
@@ -1451,13 +1459,13 @@ async function registerWebhookLineTargets(events: ReturnType<typeof normalizeLin
 }
 
 function buildLineChannelConfigForTarget(target: StoredLineTargetRecord) {
-  const lineConfig = readLineChannelConfig(target.tenant_id);
-  if (!lineConfig) {
+  const lineCredentials = readLineChannelCredentials(target.tenant_id);
+  if (!lineCredentials) {
     return null;
   }
 
   return {
-    ...lineConfig,
+    ...lineCredentials,
     targetId: target.target_id,
     targetType: target.target_type,
   };
@@ -1541,6 +1549,10 @@ function buildMorningBriefDeliveryKey(
 function readWebhookDiscoveryTenantId() {
   const parsed = tenantIdSchema.safeParse(process.env.LINE_DEFAULT_WEBHOOK_TENANT_ID);
   return parsed.success ? parsed.data : "tenant_demo_remote";
+}
+
+function isLineTargetEnvFallbackEnabled() {
+  return readBoolean(process.env.LINE_TARGET_ENV_FALLBACK_ENABLED, false);
 }
 
 function readSchedulerTenantIds() {

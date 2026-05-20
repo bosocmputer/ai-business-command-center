@@ -8,8 +8,11 @@ type DatasourceConfig = {
   password: string;
 };
 
-type LineChannelConfig = {
+export type LineChannelCredentialConfig = {
   channelAccessToken: string;
+};
+
+export type LineChannelConfig = LineChannelCredentialConfig & {
   targetId: string;
   targetType?: LineTargetType | null;
 };
@@ -94,14 +97,16 @@ export function readDatasourceConfig(
 export function readLineChannelConfig(
   tenantId: TenantId,
 ): LineChannelConfig | null {
+  const credentials = readLineChannelCredentials(tenantId);
+  if (!credentials) {
+    return null;
+  }
+
   const tenant = getTenantDefinition(tenantId);
   if (!tenant) {
     return null;
   }
 
-  const channelAccessToken =
-    process.env[`${tenant.lineEnvPrefix}_CHANNEL_ACCESS_TOKEN`] ||
-    process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const targetId =
     process.env[`${tenant.lineEnvPrefix}_TARGET_ID`] ||
     process.env.LINE_TARGET_ID;
@@ -110,14 +115,35 @@ export function readLineChannelConfig(
       process.env.LINE_TARGET_TYPE,
   );
 
-  if (!channelAccessToken || !targetId) {
+  if (!targetId) {
+    return null;
+  }
+
+  return {
+    channelAccessToken: credentials.channelAccessToken,
+    targetId,
+    targetType,
+  };
+}
+
+export function readLineChannelCredentials(
+  tenantId: TenantId,
+): LineChannelCredentialConfig | null {
+  const tenant = getTenantDefinition(tenantId);
+  if (!tenant) {
+    return null;
+  }
+
+  const channelAccessToken =
+    process.env[`${tenant.lineEnvPrefix}_CHANNEL_ACCESS_TOKEN`] ||
+    process.env.LINE_CHANNEL_ACCESS_TOKEN;
+
+  if (!channelAccessToken) {
     return null;
   }
 
   return {
     channelAccessToken,
-    targetId,
-    targetType,
   };
 }
 
@@ -145,4 +171,4 @@ function normalizeLineTargetType(value: string | undefined) {
   return null;
 }
 
-export type { DatasourceConfig, LineChannelConfig, LineWebhookConfig };
+export type { DatasourceConfig, LineWebhookConfig };

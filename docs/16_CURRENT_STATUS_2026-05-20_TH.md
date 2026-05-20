@@ -117,7 +117,7 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
   - `staff`
 - Scheduler ส่งไปทุก target ที่ `approved=true`, `enabled=true` และผ่าน permission check ของ report นั้น
 - Target ใหม่จาก webhook จะถูกบันทึกเป็น pending ไม่ auto-enable
-- Env fallback target เดิมยังทำงานเป็น `executive` สำหรับ pilot
+- Env fallback target ถูกปิดเป็นค่า default เพื่อไม่ให้กลุ่มเก่าจาก `.env.server` ถูกสร้างกลับมาทุก restart
 - `/command-center/settings` มี section `LINE Groups & Permissions` สำหรับดู masked target, profile, approve/change profile/enable-disable/test send
 - หน้า web/admin/brief สามารถเรียก API ผ่าน same-origin `/api` ได้ ไม่จำเป็นต้อง expose API tunnel แยกใน browser
 - Settings มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
@@ -214,11 +214,10 @@ Browser QA:
 
 Priority 1:
 
-1. Deploy LINE group permission profile แล้วตรวจ `GET /api/line-targets?tenant_id=tenant_demo_remote`
-2. ตรวจว่า env fallback target แสดงเป็น `executive` และยังส่ง Morning Brief ได้
-3. เพิ่ม OA เข้ากลุ่มใหม่หรือพิมพ์ในกลุ่ม แล้วตรวจ webhook discovery ว่า target ใหม่เป็น pending ไม่ auto-enable
-4. ทดสอบ approve/change profile/test send จาก `/command-center/settings`
-5. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งเฉพาะ target ที่ผ่าน permission และไม่ส่งซ้ำข้าม target
+1. ตรวจ `GET /api/line-targets?tenant_id=tenant_demo_remote` ว่าเหลือเฉพาะ target registry/webhook ที่อนุมัติแล้ว
+2. เพิ่ม OA เข้ากลุ่มใหม่หรือพิมพ์ในกลุ่ม แล้วตรวจ webhook discovery ว่า target ใหม่เป็น pending ไม่ auto-enable
+3. ทดสอบ approve/change profile/test send จาก `/command-center/settings`
+4. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งเฉพาะ target ที่ผ่าน permission และไม่ส่งซ้ำข้าม target
 
 Priority 2:
 

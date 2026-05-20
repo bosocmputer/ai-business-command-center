@@ -239,7 +239,7 @@ updated_at
 
 - target ใหม่จาก webhook ต้อง `approved=false`, `enabled=false` เสมอ
 - API response และ audit ใช้ `target_id_masked`/`target_id_hash` ห้ามโชว์ `target_id` เต็ม
-- env fallback เดิมยังใช้ได้สำหรับ pilot โดยถือเป็น `executive` แต่ production ต้องย้ายไป target registry และ channel config ที่จัดการโดยระบบ
+- env fallback target ปิดเป็นค่า default; pilot/production ต้องใช้ target registry ที่ผูก `tenant_id` และผ่านการอนุมัติเท่านั้น
 
 ### line_deliveries
 
