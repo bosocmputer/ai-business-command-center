@@ -1016,6 +1016,8 @@ function getTenantReadiness(
   item: TenantSummary,
   datasourceTest?: DatasourceTestResult,
 ) {
+  const hasLineRoute =
+    item.health.line_channels > 0 && item.health.line_targets_enabled > 0;
   const checks: ReadinessCheck[] = [
     {
       ok: item.access.enabled,
@@ -1055,9 +1057,11 @@ function getTenantReadiness(
       detail: `${item.health.line_targets_enabled}/${item.health.line_targets_total} target เปิดรับ Morning Brief`,
     },
     {
-      ok: item.health.latest_line_delivery_status === "success",
+      ok: hasLineRoute && item.health.latest_line_delivery_status === "success",
       label: "ส่ง LINE ทดสอบสำเร็จ",
-      detail: item.health.latest_line_delivery_at
+      detail: !hasLineRoute
+        ? "ต้องตั้ง LINE OA และอนุมัติกลุ่มก่อน จึงค่อยนับผลส่งทดสอบ"
+        : item.health.latest_line_delivery_at
         ? `${formatLineDeliveryStatus(item.health.latest_line_delivery_status)} · ${formatDateTime(item.health.latest_line_delivery_at)}`
         : "ยังไม่มี delivery log สำเร็จ",
     },
