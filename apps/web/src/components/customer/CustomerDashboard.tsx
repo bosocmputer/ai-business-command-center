@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type {
   SalesComparisonPoint,
   SalesDetailRow,
@@ -456,13 +456,17 @@ function CustomerDetailDrilldown({
   tenantSlug: string;
 }) {
   const documents = snapshot.documents.slice(0, 10);
-  const [detailState, setDetailState] = useState<DocumentDetailState>({
-    status: "idle",
-  });
+  const [expandedDocNo, setExpandedDocNo] = useState<string | null>(null);
+  const [detailsByDoc, setDetailsByDoc] = useState<
+    Record<string, DocumentDetailState>
+  >({});
 
   const loadDocumentDetail = useCallback(
     async (docNo: string) => {
-      setDetailState({ status: "loading", docNo });
+      setDetailsByDoc((current) => ({
+        ...current,
+        [docNo]: { status: "loading", docNo },
+      }));
       try {
         const response = await fetch(
           `${API_BASE_URL}/api/app/${encodeURIComponent(
@@ -477,13 +481,16 @@ function CustomerDetailDrilldown({
         };
 
         if (response.status === 404) {
-          setDetailState({
-            status: "empty",
-            docNo,
-            message:
-              payload.error ||
-              "ไม่พบบิลนี้ในช่วงวันที่ของรายงานล่าสุด อาจมีการรันรายงานใหม่แล้ว",
-          });
+          setDetailsByDoc((current) => ({
+            ...current,
+            [docNo]: {
+              status: "empty",
+              docNo,
+              message:
+                payload.error ||
+                "ไม่พบบิลนี้ในช่วงวันที่ของรายงานล่าสุด อาจมีการรันรายงานใหม่แล้ว",
+            },
+          }));
           return;
         }
 
@@ -491,118 +498,170 @@ function CustomerDetailDrilldown({
           throw new Error(payload.error || "โหลดรายละเอียดบิลไม่สำเร็จ");
         }
 
-        setDetailState({ status: "ready", data: payload.data });
+        const detailData = payload.data;
+        setDetailsByDoc((current) => ({
+          ...current,
+          [docNo]: { status: "ready", data: detailData },
+        }));
       } catch (error) {
-        setDetailState({
-          status: "error",
-          docNo,
-          message:
-            error instanceof Error
-              ? error.message
-              : "โหลดรายละเอียดบิลไม่สำเร็จ",
-        });
+        setDetailsByDoc((current) => ({
+          ...current,
+          [docNo]: {
+            status: "error",
+            docNo,
+            message:
+              error instanceof Error
+                ? error.message
+                : "โหลดรายละเอียดบิลไม่สำเร็จ",
+          },
+        }));
       }
     },
     [tenantSlug],
   );
 
-  return (
-    <details className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
-      <summary className="cursor-pointer select-none">
-        <div className="inline-flex w-full flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">
-              ดูรายละเอียดบิล/สินค้า
-            </h2>
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              เปิดเมื่อต้องการตรวจบิลและรายการขายจาก snapshot รอบนี้
-            </p>
-          </div>
-          <span className="text-xs font-medium text-gray-500">
-            {formatNumber(snapshot.documents.length)} บิล ·{" "}
-            {formatNumber(snapshot.lines.length)} รายการใน snapshot
-          </span>
-        </div>
-      </summary>
+  const toggleDocument = useCallback(
+    (docNo: string) => {
+      if (expandedDocNo === docNo) {
+        setExpandedDocNo(null);
+        return;
+      }
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <DetailTablePanel
-          emptyLabel="ไม่มีบิลขายในช่วงวันที่นี้"
-          title="เลือกบิลขาย"
-        >
-          {documents.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-[700px] text-left text-sm">
-                <thead className="border-b border-gray-100 text-xs text-gray-500">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">วันที่</th>
-                    <th className="py-2 pr-4 font-medium">เลขที่บิล</th>
-                    <th className="py-2 pr-4 font-medium">ลูกค้า</th>
-                    <th className="py-2 text-right font-medium">ยอดขาย</th>
-                    <th className="py-2 text-right font-medium">รายละเอียด</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {documents.map((document) => (
+      setExpandedDocNo(docNo);
+      if (!detailsByDoc[docNo]) {
+        void loadDocumentDetail(docNo);
+      }
+    },
+    [detailsByDoc, expandedDocNo, loadDocumentDetail],
+  );
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">
+            รายละเอียดบิล/สินค้า
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            เลือกบิลเพื่อเปิดรายการสินค้าใต้บิลนั้น ข้อมูล detail จะโหลดจาก SML
+            เฉพาะตอนกดดู
+          </p>
+        </div>
+        <Badge color="light">
+          {formatNumber(snapshot.documents.length)} บิล ·{" "}
+          {formatNumber(snapshot.lines.length)} รายการใน snapshot
+        </Badge>
+      </div>
+
+      <div className="max-w-full overflow-x-auto">
+        {documents.length ? (
+          <table className="min-w-[920px] text-left">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500">
+                <th className="px-5 py-3 font-medium">บิลขาย</th>
+                <th className="px-5 py-3 font-medium">ลูกค้า</th>
+                <th className="px-5 py-3 text-right font-medium">ยอดหัวบิล</th>
+                <th className="px-5 py-3 text-right font-medium">รายการใน snapshot</th>
+                <th className="px-5 py-3 text-right font-medium">เปิดดู</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {documents.map((document) => {
+                const isExpanded = expandedDocNo === document.doc_no;
+                const detailState = detailsByDoc[document.doc_no] ?? {
+                  status: "idle" as const,
+                };
+                const cachedLineCount =
+                  detailState.status === "ready"
+                    ? detailState.data.lines.length
+                    : snapshot.lines.filter(
+                        (line) => line.doc_no === document.doc_no,
+                      ).length;
+
+                return (
+                  <Fragment key={`${document.doc_date}-${document.doc_no}`}>
                     <tr
                       className={
-                        detailState.status !== "idle" &&
-                        "docNo" in detailState &&
-                        detailState.docNo === document.doc_no
-                          ? "bg-brand-50/50"
-                          : ""
+                        isExpanded
+                          ? "bg-brand-50/40"
+                          : "bg-white hover:bg-gray-50"
                       }
-                      key={`${document.doc_date}-${document.doc_no}`}
                     >
-                      <td className="py-2 pr-4 text-gray-600">
-                        {formatThaiDate(document.doc_date)}
+                      <td className="px-5 py-4">
+                        <button
+                          aria-expanded={isExpanded}
+                          className="flex min-w-0 items-start gap-3 text-left"
+                          onClick={() => toggleDocument(document.doc_no)}
+                          type="button"
+                        >
+                          <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-xs font-semibold text-gray-500">
+                            {isExpanded ? "⌃" : "⌄"}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block font-semibold text-gray-900">
+                              {document.doc_no}
+                            </span>
+                            <span className="mt-1 block text-xs text-gray-500">
+                              {formatThaiDate(document.doc_date)}
+                              {document.doc_time ? ` · ${document.doc_time}` : ""}
+                            </span>
+                          </span>
+                        </button>
                       </td>
-                      <td className="py-2 pr-4 font-semibold text-gray-900">
-                        {document.doc_no}
-                      </td>
-                      <td className="max-w-[220px] truncate py-2 pr-4 text-gray-600">
+                      <td className="max-w-[260px] truncate px-5 py-4 text-sm text-gray-600">
                         {document.cust_name || document.cust_code || "-"}
                       </td>
-                      <td className="py-2 text-right font-semibold text-gray-900">
+                      <td className="px-5 py-4 text-right text-sm font-semibold text-gray-900">
                         {formatCurrency(document.total_amount)} บาท
                       </td>
-                      <td className="py-2 text-right">
+                      <td className="px-5 py-4 text-right">
+                        <Badge color={cachedLineCount ? "success" : "light"} size="sm">
+                          {formatNumber(cachedLineCount)} รายการ
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-4 text-right">
                         <button
-                          className="inline-flex h-8 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                           disabled={
                             detailState.status === "loading" &&
                             detailState.docNo === document.doc_no
                           }
-                          onClick={() => void loadDocumentDetail(document.doc_no)}
+                          onClick={() => toggleDocument(document.doc_no)}
                           type="button"
                         >
                           {detailState.status === "loading" &&
                           detailState.docNo === document.doc_no
                             ? "กำลังโหลด"
-                            : "ดูรายการ"}
+                            : isExpanded
+                              ? "ซ่อน"
+                              : "ดูรายการ"}
                         </button>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </DetailTablePanel>
-
-        <DetailTablePanel
-          emptyLabel="เลือกบิลด้านซ้ายเพื่อดูรายการสินค้าในบิลนั้น"
-          title="รายการสินค้าในบิล"
-        >
-          <DocumentDetailResult state={detailState} />
-        </DetailTablePanel>
+                    {isExpanded ? (
+                      <tr className="bg-gray-50">
+                        <td className="px-5 py-4" colSpan={5}>
+                          <DocumentDetailResult state={detailState} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div className="px-5 py-8 text-center text-sm text-gray-500">
+            ไม่มีบิลขายในช่วงวันที่นี้
+          </div>
+        )}
       </div>
 
-      <p className="mt-3 text-xs leading-5 text-gray-500">
+      <p className="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-gray-500">
         ตารางบิลอ่านจาก snapshot ล่าสุด ส่วนรายการสินค้าในบิลดึงจาก SML แบบ
         read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
       </p>
-    </details>
+    </section>
   );
 }
 
@@ -616,20 +675,24 @@ type DocumentDetailState =
 function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
   if (state.status === "idle") {
     return (
-      <p className="text-sm leading-6 text-gray-500">
-        เลือกบิลจากตารางด้านซ้าย ระบบจะโหลดรายการสินค้า/บริการของบิลนั้นจาก
-        SML โดยตรงในขอบเขตร้านนี้เท่านั้น
+      <p className="rounded-lg border border-gray-100 bg-white p-3 text-sm leading-6 text-gray-500">
+        ระบบพร้อมโหลดรายการสินค้า/บริการจาก SML เมื่อเปิดบิลนี้
       </p>
     );
   }
 
   if (state.status === "loading") {
     return (
-      <div>
-        <Badge color="light">กำลังโหลด</Badge>
-        <p className="mt-2 text-sm text-gray-500">
-          กำลังดึงรายการสินค้าในบิล {state.docNo}
-        </p>
+      <div className="rounded-lg border border-gray-100 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <Badge color="light">กำลังโหลด</Badge>
+          <p className="text-xs text-gray-500">บิล {state.docNo}</p>
+        </div>
+        <div className="mt-4 space-y-2">
+          <div className="h-4 w-2/3 rounded bg-gray-100" />
+          <div className="h-4 w-full rounded bg-gray-100" />
+          <div className="h-4 w-5/6 rounded bg-gray-100" />
+        </div>
       </div>
     );
   }
@@ -650,20 +713,20 @@ function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
   const { document, lines } = state.data;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-3">
       <DocumentSummaryCard document={document} lines={lines} />
       {lines.length ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-[860px] text-left text-sm">
-            <thead className="border-b border-gray-100 text-xs text-gray-500">
-              <tr>
-                <th className="py-2 pr-4 font-medium">สินค้า/บริการ</th>
-                <th className="py-2 pr-4 font-medium">Barcode</th>
-                <th className="py-2 pr-4 font-medium">หน่วย</th>
-                <th className="py-2 text-right font-medium">จำนวน</th>
-                <th className="py-2 text-right font-medium">ราคา</th>
-                <th className="py-2 text-right font-medium">ส่วนลด</th>
-                <th className="py-2 text-right font-medium">ยอดขาย</th>
+        <div className="max-w-full overflow-x-auto">
+          <table className="min-w-[780px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-xs text-gray-500">
+                <th className="px-3 py-2 font-medium">สินค้า/บริการ</th>
+                <th className="px-3 py-2 font-medium">Barcode</th>
+                <th className="px-3 py-2 font-medium">หน่วย</th>
+                <th className="px-3 py-2 text-right font-medium">จำนวน</th>
+                <th className="px-3 py-2 text-right font-medium">ราคา</th>
+                <th className="px-3 py-2 text-right font-medium">ส่วนลด</th>
+                <th className="px-3 py-2 text-right font-medium">ยอดขาย</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -695,7 +758,7 @@ function DocumentSummaryCard({
   const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
 
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+    <div className="rounded-lg bg-gray-50 p-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">
@@ -725,7 +788,7 @@ function DocumentLineRow({ line }: { line: SalesDetailRow }) {
 
   return (
     <tr>
-      <td className="max-w-[300px] py-2 pr-4">
+      <td className="max-w-[300px] px-3 py-3">
         <p className="truncate font-semibold text-gray-900">
           {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
         </p>
@@ -733,44 +796,25 @@ function DocumentLineRow({ line }: { line: SalesDetailRow }) {
           {line.item_code || "-"} · {formatBranchLabel(line.branch_code)}
         </p>
       </td>
-      <td className="py-2 pr-4 text-gray-600">{line.barcode || "-"}</td>
-      <td className="py-2 pr-4 text-gray-600">{unitLabel}</td>
-      <td className="py-2 text-right text-gray-600">
+      <td className="px-3 py-3 text-gray-600">{line.barcode || "-"}</td>
+      <td className="px-3 py-3 text-gray-600">{unitLabel}</td>
+      <td className="px-3 py-3 text-right text-gray-600">
         {formatNumber(line.qty)}
       </td>
-      <td className="py-2 text-right text-gray-600">
+      <td className="px-3 py-3 text-right text-gray-600">
         {formatCurrency(line.price)}
       </td>
-      <td className="py-2 text-right text-gray-600">
+      <td className="px-3 py-3 text-right text-gray-600">
         {line.discount || line.discount_amount
           ? `${line.discount || ""}${line.discount ? " · " : ""}${formatCurrency(
               line.discount_amount,
             )}`
           : "-"}
       </td>
-      <td className="py-2 text-right font-semibold text-gray-900">
+      <td className="px-3 py-3 text-right font-semibold text-gray-900">
         {formatCurrency(line.sum_amount)} บาท
       </td>
     </tr>
-  );
-}
-
-function DetailTablePanel({
-  children,
-  emptyLabel,
-  title,
-}: {
-  children: React.ReactNode;
-  emptyLabel: string;
-  title: string;
-}) {
-  return (
-    <section className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-      <div className="mt-3 rounded-lg border border-gray-100 bg-white p-3">
-        {children ? children : <p className="text-sm text-gray-500">{emptyLabel}</p>}
-      </div>
-    </section>
   );
 }
 
