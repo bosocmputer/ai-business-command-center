@@ -437,9 +437,9 @@ export default function OwnerPortal() {
         className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]"
         id="tenants"
       >
-        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
+            <div className="p-5 pb-0">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white">
                 ร้านค้าและสิทธิ์การใช้งาน
               </h2>
@@ -449,7 +449,7 @@ export default function OwnerPortal() {
               </p>
             </div>
             <select
-              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              className="mx-5 mt-5 h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white md:mx-5 md:mt-5"
               onChange={(event) => setSelectedTenantId(event.target.value)}
               value={selectedTenantId}
             >
@@ -461,9 +461,9 @@ export default function OwnerPortal() {
             </select>
           </div>
 
-          <div className="mt-4 grid gap-4">
+          <div className="mt-4 divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
             {loading ? (
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.02]">
+              <div className="p-5 text-sm text-gray-500 dark:text-gray-400">
                 กำลังโหลดข้อมูลร้านค้า...
               </div>
             ) : (
@@ -782,16 +782,16 @@ function TenantCard({
   const readiness = getTenantReadiness(item, datasourceTest);
   return (
     <div
-      className={`rounded-xl border bg-white p-5 dark:bg-white/[0.03] ${
+      className={`bg-white p-4 transition-colors dark:bg-white/[0.02] ${
         selected
-          ? "border-brand-200 ring-1 ring-brand-100 dark:border-brand-500/40 dark:ring-brand-500/20"
-          : "border-gray-200 dark:border-gray-800"
+          ? "bg-brand-50/40 dark:bg-brand-500/[0.08]"
+          : "hover:bg-gray-50 dark:hover:bg-white/[0.04]"
       }`}
     >
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+        <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               {tenant.name}
             </h3>
             <Badge color={tenantStatusTone(tenant.status)}>
@@ -799,24 +799,52 @@ function TenantCard({
             </Badge>
             <Badge color="light">{tenant.planCode}</Badge>
             <Badge color={readiness.tone}>
-              Pilot {readiness.readyCount}/{readiness.items.length}
+              {readiness.label}
             </Badge>
           </div>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {tenant.id} · ฐานข้อมูล {tenant.databaseName || "ยังไม่ตั้งค่า"}
           </p>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             {item.access.message}
           </p>
+
+          <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2 2xl:grid-cols-4">
+            <CompactFact
+              label="SML"
+              value={
+                datasourceTest
+                  ? datasourceTest.ok
+                    ? "ทดสอบผ่าน"
+                    : "ต้องตรวจ"
+                  : item.health.datasource_configured
+                    ? "พร้อม"
+                    : "ยังไม่พร้อม"
+              }
+            />
+            <CompactFact
+              label="LINE"
+              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} กลุ่ม`}
+            />
+            <CompactFact
+              label="รายงานล่าสุด"
+              value={
+                item.health.latest_snapshot_at
+                  ? formatDateTime(item.health.latest_snapshot_at)
+                  : "ยังไม่มี"
+              }
+            />
+            <CompactFact label="Dashboard" value={item.customer_dashboard_path ?? "-"} />
+          </dl>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 xl:max-w-[260px] xl:justify-end">
           <Button
             disabled={selected}
             size="sm"
             variant="outline"
             onClick={() => onSelectTenant(tenant.id)}
           >
-            {selected ? "กำลังจัดการ" : "จัดการร้านนี้"}
+            {selected ? "เลือกอยู่" : "จัดการ"}
           </Button>
           {item.customer_dashboard_path ? (
             <Link
@@ -825,7 +853,7 @@ function TenantCard({
               rel="noreferrer"
               target="_blank"
             >
-              เปิด Dashboard ลูกค้า
+              Dashboard
             </Link>
           ) : null}
           <Button
@@ -834,7 +862,7 @@ function TenantCard({
             variant="outline"
             onClick={() => void onUpdateStatus(tenant, "active")}
           >
-            เปิดใช้งาน
+            เปิด
           </Button>
           <Button
             disabled={busy === `${tenant.id}-suspended`}
@@ -845,41 +873,6 @@ function TenantCard({
             ระงับ
           </Button>
         </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-5">
-        <HealthFact
-          label="Pilot readiness"
-          value={readiness.label}
-        />
-        <HealthFact
-          label="Datasource"
-          value={
-            datasourceTest
-              ? datasourceTest.ok
-                ? "ทดสอบผ่าน"
-                : "ต้องตรวจ"
-              : item.health.datasource_configured
-                ? "พร้อม"
-                : "ยังไม่พร้อม"
-          }
-        />
-        <HealthFact
-          label="LINE OA"
-          value={`${item.health.line_channels} ช่องทาง`}
-        />
-        <HealthFact
-          label="กลุ่ม LINE"
-          value={`${item.health.line_targets_enabled}/${item.health.line_targets_total} เปิดรับ`}
-        />
-        <HealthFact
-          label="รายงานล่าสุด"
-          value={
-            item.health.latest_snapshot_at
-              ? formatDateTime(item.health.latest_snapshot_at)
-              : "ยังไม่มี"
-          }
-        />
       </div>
     </div>
   );
@@ -909,7 +902,7 @@ function TenantDetailPanel({
   const readiness = getTenantReadiness(item, datasourceTest);
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-gray-400">
@@ -927,24 +920,24 @@ function TenantDetailPanel({
         </Badge>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <HealthFact label="แพ็กเกจ" value={tenant.planCode} />
-        <HealthFact
+      <dl className="mt-4 divide-y divide-gray-100 rounded-lg border border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+        <DetailRow label="แพ็กเกจ" value={tenant.planCode} />
+        <DetailRow
           label="Dashboard ลูกค้า"
           value={item.customer_dashboard_path ?? "ยังไม่มี slug"}
         />
-        <HealthFact
+        <DetailRow
           label="ฐานข้อมูล SML"
           value={tenant.databaseName || "ยังไม่ระบุ"}
         />
-        <HealthFact
+        <DetailRow
           label="สถานะบริการ"
           value={item.access.enabled ? "เปิดใช้งาน" : "ถูกบล็อก"}
         />
-      </div>
+      </dl>
 
-      <div className="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
-        <details className="mb-5 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+      <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <details className="mb-4 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
           <summary className="cursor-pointer list-none">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -958,7 +951,7 @@ function TenantDetailPanel({
               <Badge color={readiness.tone}>{readiness.label}</Badge>
             </div>
           </summary>
-          <div className="mt-4 grid gap-2">
+          <div className="mt-3 grid gap-2">
             {readiness.items.map((check) => (
               <ReadinessRow key={check.label} item={check} />
             ))}
@@ -1127,6 +1120,28 @@ function HealthFact({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
         {value}
       </p>
+    </div>
+  );
+}
+
+function CompactFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="mt-0.5 truncate font-semibold text-gray-900 dark:text-white">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 px-3 py-2.5 text-sm">
+      <dt className="text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="min-w-0 truncate font-semibold text-gray-900 dark:text-white">
+        {value}
+      </dd>
     </div>
   );
 }
