@@ -7,6 +7,7 @@ interface InputProps {
   autoComplete?: string;
   placeholder?: string;
   defaultValue?: string | number;
+  value?: string | number;
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   className?: string;
   min?: string;
@@ -25,6 +26,7 @@ const Input: FC<InputProps> = ({
   autoComplete,
   placeholder,
   defaultValue,
+  value,
   onChange,
   className = "",
   min,
@@ -58,6 +60,7 @@ const Input: FC<InputProps> = ({
         autoComplete={autoComplete}
         placeholder={placeholder}
         defaultValue={defaultValue}
+        value={value}
         onChange={onChange}
         min={min}
         max={max}

@@ -387,8 +387,8 @@ export function summarizeSalesGoodsServices(input: {
       (a, b) => b.total_amount - a.total_amount,
     ),
     top_products: topProducts,
-    documents: input.headers.slice(0, 50),
-    lines: input.details.slice(0, 100),
+    documents: input.headers.slice(0, 500),
+    lines: input.details.slice(0, 1000),
     reconciliation: {
       header_total_amount: headerTotal,
       detail_sum_amount: detailTotal,

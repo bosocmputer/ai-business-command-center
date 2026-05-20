@@ -13,9 +13,13 @@ const Pagination: React.FC<PaginationProps> = ({
   previousLabel = "Previous",
   nextLabel = "Next",
 }) => {
+  const startPage = Math.min(
+    Math.max(currentPage - 1, 1),
+    Math.max(totalPages - 2, 1),
+  );
   const pagesAroundCurrent = Array.from(
-    { length: Math.min(3, totalPages) },
-    (_, i) => i + Math.max(currentPage - 1, 1)
+    { length: Math.min(3, totalPages - startPage + 1) },
+    (_, i) => i + startPage,
   );
 
   return (

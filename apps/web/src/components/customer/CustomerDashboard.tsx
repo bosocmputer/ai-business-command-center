@@ -6,10 +6,15 @@ import type {
   SalesDetailRow,
   SalesDocumentDetail,
   SalesGoodsServicesSnapshot,
+  SalesGoodsServicesParams,
   SalesHeaderRow,
   Tenant,
 } from "@ai-bcc/shared";
+import Button from "@/components/ui/button/Button";
 import Badge from "@/components/ui/badge/Badge";
+import Input from "@/components/form/input/InputField";
+import Label from "@/components/form/Label";
+import Pagination from "@/components/tables/Pagination";
 import {
   Table,
   TableBody,
@@ -52,8 +57,10 @@ type ExecutiveNoteModel = {
 
 export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps) {
   const [state, setState] = useState<DashboardState>({ status: "loading" });
+  const [activeRange, setActiveRange] =
+    useState<SalesGoodsServicesParams | null>(null);
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (range: SalesGoodsServicesParams | null = null) => {
     if (!tenantSlug) {
       return;
     }
@@ -91,9 +98,12 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
         return;
       }
 
-      const reportResponse = await fetch(
-        `${API_BASE_URL}/api/app/${safeTenantSlug}/reports/sales_goods_services/latest`,
-      );
+      const reportUrl = range
+        ? `${API_BASE_URL}/api/app/${safeTenantSlug}/reports/sales_goods_services?${new URLSearchParams(
+            range,
+          ).toString()}`
+        : `${API_BASE_URL}/api/app/${safeTenantSlug}/reports/sales_goods_services/latest`;
+      const reportResponse = await fetch(reportUrl);
       if (reportResponse.status === 403) {
         const payload = (await reportResponse.json().catch(() => ({}))) as {
           error?: string;
@@ -138,6 +148,23 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
       });
     }
   }, [tenantSlug]);
+
+  const refreshDashboard = useCallback(() => {
+    void loadDashboard(activeRange);
+  }, [activeRange, loadDashboard]);
+
+  const applyDateRange = useCallback(
+    (range: SalesGoodsServicesParams) => {
+      setActiveRange(range);
+      void loadDashboard(range);
+    },
+    [loadDashboard],
+  );
+
+  const useLatestSnapshot = useCallback(() => {
+    setActiveRange(null);
+    void loadDashboard(null);
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -244,22 +271,31 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   }
 
   return (
-    <CustomerDashboardContent
+      <CustomerDashboardContent
+      activeRange={activeRange}
+      onApplyRange={applyDateRange}
       session={state.session}
       snapshot={state.snapshot}
-      onRefresh={loadDashboard}
+      onRefresh={refreshDashboard}
+      onUseLatest={useLatestSnapshot}
     />
   );
 }
 
 function CustomerDashboardContent({
+  activeRange,
+  onApplyRange,
   session,
   snapshot,
   onRefresh,
+  onUseLatest,
 }: {
+  activeRange: SalesGoodsServicesParams | null;
+  onApplyRange: (range: SalesGoodsServicesParams) => void;
   session: CustomerSession;
   snapshot: SalesGoodsServicesSnapshot;
   onRefresh: () => void;
+  onUseLatest: () => void;
 }) {
   const topBranch = snapshot.branch_sales[0] ?? null;
   const topProduct = snapshot.top_products[0] ?? null;
@@ -379,8 +415,16 @@ function CustomerDashboardContent({
         </div>
       </section>
 
+      <CustomerReportToolbar
+        activeRange={activeRange}
+        onApplyRange={onApplyRange}
+        onUseLatest={onUseLatest}
+        snapshot={snapshot}
+      />
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <CustomerDetailDrilldown
+          params={snapshot.params}
           snapshot={snapshot}
           tenantSlug={session.tenant_slug}
         />
@@ -441,7 +485,7 @@ function CustomerDashboardContent({
           <DetailItem label="รอบประมวลผล" value={snapshot.run_id} />
         </div>
         <p className="mt-3">
-          หน้านี้เป็น read-only และอ่านเฉพาะ snapshot ล่าสุดของร้านนี้เท่านั้น
+          หน้านี้เป็น read-only และอ่านเฉพาะช่วงรายงานของร้านนี้เท่านั้น
           ลูกค้าไม่สามารถแก้ config, datasource, LINE OA หรือสิทธิ์จากหน้านี้ได้
         </p>
       </details>
@@ -449,18 +493,171 @@ function CustomerDashboardContent({
   );
 }
 
+function CustomerReportToolbar({
+  activeRange,
+  onApplyRange,
+  onUseLatest,
+  snapshot,
+}: {
+  activeRange: SalesGoodsServicesParams | null;
+  onApplyRange: (range: SalesGoodsServicesParams) => void;
+  onUseLatest: () => void;
+  snapshot: SalesGoodsServicesSnapshot;
+}) {
+  const [dateFrom, setDateFrom] = useState(snapshot.params.date_from);
+  const [dateTo, setDateTo] = useState(snapshot.params.date_to);
+
+  useEffect(() => {
+    setDateFrom(snapshot.params.date_from);
+    setDateTo(snapshot.params.date_to);
+  }, [snapshot.params.date_from, snapshot.params.date_to]);
+
+  const rangeError = getRangeValidationMessage(dateFrom, dateTo);
+  const quickRanges = useMemo(() => buildQuickRanges(), []);
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+            เลือกช่วงรายงาน
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ลูกค้าดูรายงานได้อย่างเดียว ระบบจะรัน approved SQL ตามช่วงวันที่ที่เลือก
+            และจำกัดไม่เกิน 31 วันต่อครั้งใน pilot
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {quickRanges.map((item) => (
+            <button
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-theme-xs font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              key={item.label}
+              onClick={() => {
+                setDateFrom(item.range.date_from);
+                setDateTo(item.range.date_to);
+                onApplyRange(item.range);
+              }}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+          {activeRange ? (
+            <button
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-theme-xs font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              onClick={onUseLatest}
+              type="button"
+            >
+              รายงานล่าสุด
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,220px)_auto] lg:items-end">
+        <div>
+          <Label htmlFor="sales-date-from">จากวันที่</Label>
+          <Input
+            error={Boolean(rangeError)}
+            id="sales-date-from"
+            onChange={(event) => setDateFrom(event.target.value)}
+            type="date"
+            value={dateFrom}
+          />
+        </div>
+        <div>
+          <Label htmlFor="sales-date-to">ถึงวันที่</Label>
+          <Input
+            error={Boolean(rangeError)}
+            id="sales-date-to"
+            onChange={(event) => setDateTo(event.target.value)}
+            type="date"
+            value={dateTo}
+          />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
+          <Button
+            className="h-11"
+            disabled={Boolean(rangeError)}
+            onClick={() =>
+              onApplyRange({ date_from: dateFrom, date_to: dateTo })
+            }
+            size="sm"
+          >
+            ดูรายงาน
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-col gap-1 text-xs leading-5 text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+        <p>
+          ช่วงที่แสดงอยู่: {formatThaiDate(snapshot.params.date_from)} ถึง{" "}
+          {formatThaiDate(snapshot.params.date_to)}
+        </p>
+        <p className={rangeError ? "font-medium text-error-600" : ""}>
+          {rangeError ?? "เลือกช่วงไม่เกิน 31 วันเพื่อให้รายงานโหลดเร็ว"}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function CustomerDetailDrilldown({
+  params,
   snapshot,
   tenantSlug,
 }: {
+  params: SalesGoodsServicesParams;
   snapshot: SalesGoodsServicesSnapshot;
   tenantSlug: string;
 }) {
-  const documents = snapshot.documents.slice(0, 10);
+  const pageSize = 10;
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [expandedDocNo, setExpandedDocNo] = useState<string | null>(null);
   const [detailsByDoc, setDetailsByDoc] = useState<
     Record<string, DocumentDetailState>
   >({});
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const filteredDocuments = useMemo(() => {
+    if (!normalizedSearch) {
+      return snapshot.documents;
+    }
+
+    return snapshot.documents.filter((document) => {
+      const searchable = [
+        document.doc_no,
+        document.doc_date,
+        document.doc_time,
+        document.cust_code,
+        document.cust_name,
+        document.cashier_code,
+        String(document.total_amount),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(normalizedSearch);
+    });
+  }, [normalizedSearch, snapshot.documents]);
+  const totalPages = Math.max(1, Math.ceil(filteredDocuments.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const documents = filteredDocuments.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+
+  useEffect(() => {
+    setExpandedDocNo(null);
+    setDetailsByDoc({});
+    setSearchTerm("");
+    setCurrentPage(1);
+  }, [snapshot.run_id]);
+
+  useEffect(() => {
+    setExpandedDocNo(null);
+    setCurrentPage(1);
+  }, [normalizedSearch]);
 
   const loadDocumentDetail = useCallback(
     async (docNo: string) => {
@@ -469,12 +666,15 @@ function CustomerDetailDrilldown({
         [docNo]: { status: "loading", docNo },
       }));
       try {
+        const detailParams = new URLSearchParams({
+          doc_no: docNo,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        });
         const response = await fetch(
           `${API_BASE_URL}/api/app/${encodeURIComponent(
             tenantSlug,
-          )}/reports/sales_goods_services/document-detail?doc_no=${encodeURIComponent(
-            docNo,
-          )}`,
+          )}/reports/sales_goods_services/document-detail?${detailParams.toString()}`,
         );
         const payload = (await response.json().catch(() => ({}))) as {
           data?: SalesDocumentDetail;
@@ -518,7 +718,7 @@ function CustomerDetailDrilldown({
         }));
       }
     },
-    [tenantSlug],
+    [params.date_from, params.date_to, tenantSlug],
   );
 
   const toggleDocument = useCallback(
@@ -548,10 +748,32 @@ function CustomerDetailDrilldown({
             เฉพาะตอนกดดู
           </p>
         </div>
-        <Badge color="light">
-          {formatNumber(snapshot.documents.length)} บิล ·{" "}
-          {formatNumber(snapshot.lines.length)} รายการใน snapshot
-        </Badge>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <Badge color="light">
+            {formatNumber(filteredDocuments.length)} จาก{" "}
+            {formatNumber(snapshot.documents.length)} บิลที่โหลด
+          </Badge>
+          {snapshot.summary.document_count > snapshot.documents.length ? (
+            <p className="text-xs text-gray-500">
+              รายงานนี้มีทั้งหมด {formatNumber(snapshot.summary.document_count)} บิล
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6">
+        <div className="max-w-md">
+          <Label htmlFor="sales-document-search" className="mb-2">
+            ค้นหาบิล
+          </Label>
+          <Input
+            id="sales-document-search"
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="เลขบิล, ลูกค้า, วันที่, ยอดขาย"
+            type="text"
+            value={searchTerm}
+          />
+        </div>
       </div>
 
       <div className="border-t border-gray-100 dark:border-gray-800">
@@ -687,13 +909,30 @@ function CustomerDetailDrilldown({
           </div>
         ) : (
           <div className="px-5 py-8 text-center text-sm text-gray-500">
-            ไม่มีบิลขายในช่วงวันที่นี้
+            {searchTerm
+              ? "ไม่พบบิลที่ตรงกับคำค้นหา"
+              : "ไม่มีบิลขายในช่วงวันที่นี้"}
           </div>
         )}
       </div>
 
+      {filteredDocuments.length > pageSize ? (
+        <div className="flex flex-col gap-3 border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-gray-500">
+            หน้า {formatNumber(safeCurrentPage)} จาก {formatNumber(totalPages)}
+          </p>
+          <Pagination
+            currentPage={safeCurrentPage}
+            nextLabel="ถัดไป"
+            onPageChange={setCurrentPage}
+            previousLabel="ก่อนหน้า"
+            totalPages={totalPages}
+          />
+        </div>
+      ) : null}
+
       <p className="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-gray-500 dark:border-gray-800">
-        ตารางบิลอ่านจาก snapshot ล่าสุด ส่วนรายการสินค้าในบิลดึงจาก SML แบบ
+        ตารางบิลอ่านจากรายงานช่วงวันที่ที่เลือก ส่วนรายการสินค้าในบิลดึงจาก SML แบบ
         read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
       </p>
     </section>
@@ -1200,6 +1439,75 @@ function formatThaiDate(value: string) {
     dateStyle: "medium",
     timeZone: "Asia/Bangkok",
   }).format(new Date(`${value}T00:00:00+07:00`));
+}
+
+function buildQuickRanges() {
+  const today = new Date();
+  const yesterday = addDateDays(today, -1);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  return [
+    {
+      label: "วันนี้",
+      range: {
+        date_from: toDateInputValue(today),
+        date_to: toDateInputValue(today),
+      },
+    },
+    {
+      label: "เมื่อวาน",
+      range: {
+        date_from: toDateInputValue(yesterday),
+        date_to: toDateInputValue(yesterday),
+      },
+    },
+    {
+      label: "เดือนนี้",
+      range: {
+        date_from: toDateInputValue(monthStart),
+        date_to: toDateInputValue(today),
+      },
+    },
+  ] satisfies Array<{
+    label: string;
+    range: SalesGoodsServicesParams;
+  }>;
+}
+
+function getRangeValidationMessage(dateFrom: string, dateTo: string) {
+  if (!dateFrom || !dateTo) {
+    return "กรุณาเลือกวันที่เริ่มต้นและวันที่สิ้นสุด";
+  }
+
+  if (dateFrom > dateTo) {
+    return "วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด";
+  }
+
+  const start = Date.parse(`${dateFrom}T00:00:00.000Z`);
+  const end = Date.parse(`${dateTo}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return "รูปแบบวันที่ไม่ถูกต้อง";
+  }
+
+  const inclusiveDays = Math.floor((end - start) / 86_400_000) + 1;
+  if (inclusiveDays > 31) {
+    return "ช่วงรายงานใน pilot จำกัดไม่เกิน 31 วัน";
+  }
+
+  return null;
+}
+
+function addDateDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toDateInputValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateTime(value: string) {

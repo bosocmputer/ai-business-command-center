@@ -14,6 +14,7 @@ import {
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
+  isoDateSchema,
   salesGoodsServicesParamsSchema,
   tenantIdSchema,
   tenantStatusSchema,
@@ -372,6 +373,75 @@ app.get(
 );
 
 app.get(
+  "/api/app/:tenantSlug/reports/sales_goods_services",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const query = customerReportRangeQuerySchema.safeParse(
+      request.query ?? {},
+    );
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid report date range",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const rangeError = validateCustomerReportRange(query.data);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = readDatasourceConfig(session.tenant.id);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const runId = createCustomerPreviewRunId(session.tenant.id);
+      const snapshot = await runSalesGoodsServicesReport({
+        tenant_id: session.tenant.id,
+        run_id: runId,
+        params: query.data,
+        datasource,
+      });
+      snapshot.comparison = await buildSalesComparison({
+        tenantId: session.tenant.id,
+        runId,
+        params: query.data,
+        datasource,
+        currentTotalSales: snapshot.summary.total_sales,
+      });
+
+      return {
+        data: snapshot,
+        tenant: session.tenant,
+        tenant_slug: session.tenantSlug,
+        mode: "ad_hoc",
+      };
+    } catch (error) {
+      request.log.error({ error }, "customer report range fetch failed");
+      return reply.status(500).send({
+        error: toSafeErrorMessage(error),
+      });
+    }
+  },
+);
+
+app.get(
   "/api/app/:tenantSlug/reports/sales_goods_services/document-detail",
   async (request, reply) => {
     const session = await resolveCustomerSessionBySlug(request.params);
@@ -395,10 +465,27 @@ app.get(
       });
     }
 
-    const snapshot = await systemStore.getLatestSnapshot(session.tenant.id);
-    if (!snapshot) {
+    const paramsFromQuery =
+      query.data.date_from && query.data.date_to
+        ? {
+            date_from: query.data.date_from,
+            date_to: query.data.date_to,
+          }
+        : null;
+    const rangeError = paramsFromQuery
+      ? validateCustomerReportRange(paramsFromQuery)
+      : null;
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const snapshot = paramsFromQuery
+      ? null
+      : await systemStore.getLatestSnapshot(session.tenant.id);
+    if (!paramsFromQuery && !snapshot) {
       return reply.status(404).send({ error: "Snapshot not found" });
     }
+    const params = paramsFromQuery ?? snapshot!.params;
 
     const datasource = readDatasourceConfig(session.tenant.id);
     if (!datasource) {
@@ -410,7 +497,7 @@ app.get(
     try {
       const detail = await fetchSalesGoodsServicesDocumentDetail({
         tenant_id: session.tenant.id,
-        params: snapshot.params,
+        params,
         datasource,
         doc_no: query.data.doc_no,
       });
@@ -425,7 +512,7 @@ app.get(
         data: detail,
         tenant: session.tenant,
         tenant_slug: session.tenantSlug,
-        run_id: snapshot.run_id,
+        run_id: snapshot?.run_id ?? null,
       };
     } catch (error) {
       request.log.error({ error }, "customer document detail fetch failed");
@@ -1686,6 +1773,10 @@ function createRunId(tenantId: string) {
   return `run_${tenantId}_${Date.now()}`;
 }
 
+function createCustomerPreviewRunId(tenantId: string) {
+  return `preview_${tenantId}_${Date.now()}`;
+}
+
 function buildDashboardUrl() {
   const baseUrl = process.env.APP_BASE_URL?.trim();
   if (!baseUrl) {
@@ -2152,6 +2243,21 @@ function addDays(ymd: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+function validateCustomerReportRange(params: SalesGoodsServicesParams) {
+  const start = Date.parse(`${params.date_from}T00:00:00.000Z`);
+  const end = Date.parse(`${params.date_to}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return "Invalid report date range.";
+  }
+
+  const inclusiveDays = Math.floor((end - start) / 86_400_000) + 1;
+  if (inclusiveDays > 31) {
+    return "Customer report date range is limited to 31 days for this pilot.";
+  }
+
+  return null;
+}
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -2191,7 +2297,33 @@ const signedSnapshotQuerySchema = z.object({
 
 const documentDetailQuerySchema = z.object({
   doc_no: z.string().trim().min(1).max(120),
+  date_from: isoDateSchema.optional(),
+  date_to: isoDateSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.date_from) !== Boolean(value.date_to)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "date_from and date_to must be provided together",
+      path: value.date_from ? ["date_to"] : ["date_from"],
+    });
+  }
+
+  if (value.date_from && value.date_to) {
+    const parsed = salesGoodsServicesParamsSchema.safeParse({
+      date_from: value.date_from,
+      date_to: value.date_to,
+    });
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid date range",
+        path: ["date_from"],
+      });
+    }
+  }
 });
+
+const customerReportRangeQuerySchema = salesGoodsServicesParamsSchema;
 
 const lineWebhookEventsQuerySchema = z.object({
   reveal: z.enum(["0", "1"]).optional().default("0"),

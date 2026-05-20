@@ -37,7 +37,8 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
 - `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
-- `/app/:tenantSlug` มี drilldown read-only สำหรับบิลขาย โดยตารางบิลมาจาก snapshot และรายการสินค้าในบิลดึงจาก SML แบบ on-demand ด้วย approved SQL เพื่อให้หน้า customer โหลดเร็วแม้ช่วงรายงานใหญ่
+- `/app/:tenantSlug` มี date filter/quick range สำหรับดูรายงานช่วงที่เลือกแบบ read-only โดยจำกัดช่วงไม่เกิน 31 วันใน pilot
+- `/app/:tenantSlug` มี search + pagination ในตารางบิล และ drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ด้วย approved SQL ตามช่วงวันที่ที่กำลังดู
 - API ฝั่ง customer ใช้ `/api/app/:tenantSlug/*` และ derive tenant จาก slug ฝั่ง server เท่านั้น
 - tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send

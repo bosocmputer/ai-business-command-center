@@ -97,8 +97,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
     - KPI รองอยู่ในแถบเดียว: บิลขาย, รายการขาย, จำนวนขายรวม
     - insight `วันนี้ควรรู้อะไร` อยู่คู่กับยอดขายหลัก ไม่แยกเป็น card dump
     - comparison และ data trust ใช้ภาษาธุรกิจ ไม่ใช้ wording แบบ debug
+    - เลือกช่วงรายงานเองได้จาก customer viewer ด้วย date filter/quick range โดยจำกัดไม่เกิน 31 วันต่อครั้งใน pilot
+    - ตารางบิลมี search และ pagination เพื่อค้นหาเลขบิล, ลูกค้า, วันที่ หรือยอดขาย โดยยังเป็น read-only
     - มี drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ใน tenant scope เดิม
-    - ตารางบิลใช้ snapshot preview และรายการ detail ใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/document-detail`
+    - ตารางบิลใช้ snapshot/report preview และรายการ detail ใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/document-detail`
     - รายละเอียด source/run id อยู่ใน collapsed section
     - วันที่บน customer viewer ใช้ปี ค.ศ. เพื่อให้ตรงกับ LINE และข้อมูล SML
   - slug ที่ใช้งานจริงตอนนี้:
@@ -247,6 +249,8 @@ GET /api/app/demo-shop/session      -> 200 (DEMO SHOP)
 GET /api/app/248-shop/session       -> 200 (248 SHOP)
 GET /api/app/unknown-shop/session   -> 404
 GET /api/app/session                -> 400 (slug required)
+GET /api/app/:tenantSlug/reports/sales_goods_services?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+                                    -> read-only approved report run, max 31 days
 POST /run without admin token       -> 401
 POST /run with wrong admin token    -> 403
 docker compose ps                   -> api/web/worker/system-db running
@@ -268,6 +272,7 @@ Browser QA:
 - `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
 - `/app/demo-shop` แสดงข้อมูล DEMO SHOP แบบ read-only
 - `/app/248-shop` แสดงข้อมูล 248 SHOP แบบ read-only
+- `/app/:tenantSlug` เลือกช่วงวันที่ได้, search บิลได้, pagination ทำงาน, กดดูรายการสินค้าในบิลตามช่วงวันที่ที่เลือกได้
 - `/command-center` โหลดได้ ไม่มี horizontal overflow
 - `/command-center/settings` โหลดได้ ไม่มี horizontal overflow
 - `/command-center/brief` signed link โหลดได้ ไม่มี horizontal overflow
@@ -303,6 +308,7 @@ Priority 1:
 2. ทดสอบเปลี่ยน tenant status เป็น `suspended` แล้ว `/app/:tenantSlug` ถูก block และ Morning Brief skip
 3. เพิ่ม LINE OA metadata ใน `/owner` แล้วตรวจว่าไม่ leak token/secret
 4. ออกแบบ login/session จริงแทน slug-only customer pilot
+5. ถ้าลูกค้าจะใช้ช่วงรายงานเกิน 31 วัน ให้เพิ่ม server-side document pagination/search แยกจาก snapshot preview ก่อนเปิด production
 
 Priority 2:
 
