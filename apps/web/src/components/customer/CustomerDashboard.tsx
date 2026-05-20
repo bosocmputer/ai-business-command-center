@@ -10,6 +10,13 @@ import type {
   Tenant,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { getCommandCenterApiBaseUrl } from "@/components/command-center/apiBaseUrl";
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
@@ -372,55 +379,49 @@ function CustomerDashboardContent({
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
-        <InfoPanel
-          subtitle="ดูแนวโน้มเบื้องต้นจาก snapshot ล่าสุด"
-          title="เทียบยอด"
-        >
-          <ComparisonLine
-            currentSales={snapshot.summary.total_sales}
-            label="วันก่อนหน้า"
-            point={snapshot.comparison?.previous_day ?? null}
-          />
-          <ComparisonLine
-            currentSales={snapshot.summary.total_sales}
-            label="สัปดาห์ก่อน"
-            point={snapshot.comparison?.same_weekday_last_week ?? null}
-          />
-        </InfoPanel>
-
-        <InfoPanel
-          subtitle="ตัวเลขนี้ช่วยชี้ว่ารายงานพร้อมใช้หรือควรตรวจยอดก่อนตัดสินใจ"
-          title="ความน่าเชื่อถือของข้อมูล"
-        >
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-            <p className="text-sm font-semibold text-gray-900">
-              {trust.description}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              ใช้ยอดขายหลักจากหัวบิล SML และเก็บรอบประมวลผลไว้สำหรับตรวจย้อนกลับ
-            </p>
-          </div>
-        </InfoPanel>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2">
-        <RankPanel
-          emptyLabel="ไม่มีข้อมูลสาขาในช่วงวันที่นี้"
-          items={branchItems}
-          title="ยอดขายตามสาขา"
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <CustomerDetailDrilldown
+          snapshot={snapshot}
+          tenantSlug={session.tenant_slug}
         />
-        <RankPanel
-          emptyLabel="ไม่มีข้อมูลสินค้าขายในช่วงวันที่นี้"
-          items={productItems}
-          title="สินค้าขายดี"
-        />
-      </section>
 
-      <CustomerDetailDrilldown
-        snapshot={snapshot}
-        tenantSlug={session.tenant_slug}
-      />
+        <aside className="min-w-0 space-y-4">
+          <InfoPanel title="เทียบยอด">
+            <ComparisonLine
+              currentSales={snapshot.summary.total_sales}
+              label="วันก่อนหน้า"
+              point={snapshot.comparison?.previous_day ?? null}
+            />
+            <ComparisonLine
+              currentSales={snapshot.summary.total_sales}
+              label="สัปดาห์ก่อน"
+              point={snapshot.comparison?.same_weekday_last_week ?? null}
+            />
+          </InfoPanel>
+
+          <InfoPanel title="ความน่าเชื่อถือของข้อมูล">
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+              <p className="text-sm font-semibold text-gray-900">
+                {trust.description}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">
+                ใช้ยอดขายหลักจากหัวบิล SML และเก็บรอบประมวลผลไว้สำหรับตรวจย้อนกลับ
+              </p>
+            </div>
+          </InfoPanel>
+
+          <RankPanel
+            emptyLabel="ไม่มีข้อมูลสาขาในช่วงวันที่นี้"
+            items={branchItems}
+            title="ยอดขายตามสาขา"
+          />
+          <RankPanel
+            emptyLabel="ไม่มีข้อมูลสินค้าขายในช่วงวันที่นี้"
+            items={productItems}
+            title="สินค้าขายดี"
+          />
+        </aside>
+      </section>
 
       <details className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs leading-5 text-gray-500">
         <summary className="cursor-pointer select-none font-semibold text-gray-700">
@@ -536,13 +537,13 @@ function CustomerDetailDrilldown({
   );
 
   return (
-    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-2 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div>
-          <h2 className="text-base font-semibold text-gray-900">
+          <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
             รายละเอียดบิล/สินค้า
           </h2>
-          <p className="mt-1 text-xs leading-5 text-gray-500">
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
             เลือกบิลเพื่อเปิดรายการสินค้าใต้บิลนั้น ข้อมูล detail จะโหลดจาก SML
             เฉพาะตอนกดดู
           </p>
@@ -553,103 +554,137 @@ function CustomerDetailDrilldown({
         </Badge>
       </div>
 
-      <div className="max-w-full overflow-x-auto">
+      <div className="border-t border-gray-100 dark:border-gray-800">
         {documents.length ? (
-          <table className="min-w-[920px] text-left">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500">
-                <th className="px-5 py-3 font-medium">บิลขาย</th>
-                <th className="px-5 py-3 font-medium">ลูกค้า</th>
-                <th className="px-5 py-3 text-right font-medium">ยอดหัวบิล</th>
-                <th className="px-5 py-3 text-right font-medium">รายการใน snapshot</th>
-                <th className="px-5 py-3 text-right font-medium">เปิดดู</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {documents.map((document) => {
-                const isExpanded = expandedDocNo === document.doc_no;
-                const detailState = detailsByDoc[document.doc_no] ?? {
-                  status: "idle" as const,
-                };
-                const cachedLineCount =
-                  detailState.status === "ready"
-                    ? detailState.data.lines.length
-                    : snapshot.lines.filter(
-                        (line) => line.doc_no === document.doc_no,
-                      ).length;
-
-                return (
-                  <Fragment key={`${document.doc_date}-${document.doc_no}`}>
-                    <tr
-                      className={
-                        isExpanded
-                          ? "bg-brand-50/40"
-                          : "bg-white hover:bg-gray-50"
-                      }
+          <div className="max-w-full overflow-x-auto">
+            <div className="min-w-[980px]">
+              <Table>
+                <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
+                  <TableRow>
+                    <TableCell
+                      className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                      isHeader
                     >
-                      <td className="px-5 py-4">
-                        <button
-                          aria-expanded={isExpanded}
-                          className="flex min-w-0 items-start gap-3 text-left"
-                          onClick={() => toggleDocument(document.doc_no)}
-                          type="button"
-                        >
-                          <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-xs font-semibold text-gray-500">
-                            {isExpanded ? "⌃" : "⌄"}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block font-semibold text-gray-900">
-                              {document.doc_no}
-                            </span>
-                            <span className="mt-1 block text-xs text-gray-500">
-                              {formatThaiDate(document.doc_date)}
-                              {document.doc_time ? ` · ${document.doc_time}` : ""}
-                            </span>
-                          </span>
-                        </button>
-                      </td>
-                      <td className="max-w-[260px] truncate px-5 py-4 text-sm text-gray-600">
-                        {document.cust_name || document.cust_code || "-"}
-                      </td>
-                      <td className="px-5 py-4 text-right text-sm font-semibold text-gray-900">
-                        {formatCurrency(document.total_amount)} บาท
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <Badge color={cachedLineCount ? "success" : "light"} size="sm">
-                          {formatNumber(cachedLineCount)} รายการ
-                        </Badge>
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          disabled={
-                            detailState.status === "loading" &&
-                            detailState.docNo === document.doc_no
+                      บิลขาย
+                    </TableCell>
+                    <TableCell
+                      className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                      isHeader
+                    >
+                      ลูกค้า
+                    </TableCell>
+                    <TableCell
+                      className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                      isHeader
+                    >
+                      ยอดหัวบิล
+                    </TableCell>
+                    <TableCell
+                      className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                      isHeader
+                    >
+                      รายการ
+                    </TableCell>
+                    <TableCell
+                      className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                      isHeader
+                    >
+                      เปิดดู
+                    </TableCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
+                  {documents.map((document) => {
+                    const isExpanded = expandedDocNo === document.doc_no;
+                    const detailState = detailsByDoc[document.doc_no] ?? {
+                      status: "idle" as const,
+                    };
+                    const cachedLineCount =
+                      detailState.status === "ready"
+                        ? detailState.data.lines.length
+                        : snapshot.lines.filter(
+                            (line) => line.doc_no === document.doc_no,
+                          ).length;
+
+                    return (
+                      <Fragment key={`${document.doc_date}-${document.doc_no}`}>
+                        <TableRow
+                          className={
+                            isExpanded
+                              ? "bg-brand-50/40"
+                              : "bg-white hover:bg-gray-50 dark:bg-transparent dark:hover:bg-white/[0.03]"
                           }
-                          onClick={() => toggleDocument(document.doc_no)}
-                          type="button"
                         >
-                          {detailState.status === "loading" &&
-                          detailState.docNo === document.doc_no
-                            ? "กำลังโหลด"
-                            : isExpanded
-                              ? "ซ่อน"
-                              : "ดูรายการ"}
-                        </button>
-                      </td>
-                    </tr>
-                    {isExpanded ? (
-                      <tr className="bg-gray-50">
-                        <td className="px-5 py-4" colSpan={5}>
-                          <DocumentDetailResult state={detailState} />
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                          <TableCell className="px-5 py-4 text-start sm:px-6">
+                            <button
+                              aria-expanded={isExpanded}
+                              className="flex min-w-0 items-start gap-3 text-left"
+                              onClick={() => toggleDocument(document.doc_no)}
+                              type="button"
+                            >
+                              <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-xs font-semibold text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                                {isExpanded ? "⌃" : "⌄"}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block font-medium text-gray-800 text-theme-sm dark:text-white/90">
+                                  {document.doc_no}
+                                </span>
+                                <span className="mt-1 block text-theme-xs text-gray-500 dark:text-gray-400">
+                                  {formatThaiDate(document.doc_date)}
+                                  {document.doc_time
+                                    ? ` · ${document.doc_time}`
+                                    : ""}
+                                </span>
+                              </span>
+                            </button>
+                          </TableCell>
+                          <TableCell className="max-w-[260px] truncate px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
+                            {document.cust_name || document.cust_code || "-"}
+                          </TableCell>
+                          <TableCell className="px-5 py-4 text-right text-theme-sm font-medium text-gray-800 dark:text-white/90">
+                            {formatCurrency(document.total_amount)} บาท
+                          </TableCell>
+                          <TableCell className="px-5 py-4 text-right">
+                            <Badge
+                              color={cachedLineCount ? "success" : "light"}
+                              size="sm"
+                            >
+                              {formatNumber(cachedLineCount)} รายการ
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="px-5 py-4 text-right">
+                            <button
+                              className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-theme-xs font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+                              disabled={
+                                detailState.status === "loading" &&
+                                detailState.docNo === document.doc_no
+                              }
+                              onClick={() => toggleDocument(document.doc_no)}
+                              type="button"
+                            >
+                              {detailState.status === "loading" &&
+                              detailState.docNo === document.doc_no
+                                ? "กำลังโหลด"
+                                : isExpanded
+                                  ? "ซ่อน"
+                                  : "ดูรายการ"}
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded ? (
+                          <TableRow className="bg-gray-50/80 dark:bg-white/[0.02]">
+                            <TableCell className="px-5 py-4" colSpan={5}>
+                              <DocumentDetailResult state={detailState} />
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
         ) : (
           <div className="px-5 py-8 text-center text-sm text-gray-500">
             ไม่มีบิลขายในช่วงวันที่นี้
@@ -657,7 +692,7 @@ function CustomerDetailDrilldown({
         )}
       </div>
 
-      <p className="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-gray-500">
+      <p className="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-gray-500 dark:border-gray-800">
         ตารางบิลอ่านจาก snapshot ล่าสุด ส่วนรายการสินค้าในบิลดึงจาก SML แบบ
         read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
       </p>
@@ -713,31 +748,45 @@ function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
   const { document, lines } = state.data;
 
   return (
-    <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-3">
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <DocumentSummaryCard document={document} lines={lines} />
       {lines.length ? (
         <div className="max-w-full overflow-x-auto">
-          <table className="min-w-[780px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-xs text-gray-500">
-                <th className="px-3 py-2 font-medium">สินค้า/บริการ</th>
-                <th className="px-3 py-2 font-medium">Barcode</th>
-                <th className="px-3 py-2 font-medium">หน่วย</th>
-                <th className="px-3 py-2 text-right font-medium">จำนวน</th>
-                <th className="px-3 py-2 text-right font-medium">ราคา</th>
-                <th className="px-3 py-2 text-right font-medium">ส่วนลด</th>
-                <th className="px-3 py-2 text-right font-medium">ยอดขาย</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {lines.map((line, index) => (
-                <DocumentLineRow
-                  key={`${line.doc_no}-${line.line_number ?? index}-${line.item_code ?? "item"}`}
-                  line={line}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="min-w-[820px]">
+            <Table>
+              <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
+                <TableRow>
+                  {[
+                    "สินค้า/บริการ",
+                    "Barcode",
+                    "หน่วย",
+                    "จำนวน",
+                    "ราคา",
+                    "ส่วนลด",
+                    "ยอดขาย",
+                  ].map((label, index) => (
+                    <TableCell
+                      className={`px-4 py-3 text-theme-xs font-medium text-gray-500 dark:text-gray-400 ${
+                        index >= 3 ? "text-right" : "text-start"
+                      }`}
+                      isHeader
+                      key={label}
+                    >
+                      {label}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
+                {lines.map((line, index) => (
+                  <DocumentLineRow
+                    key={`${line.doc_no}-${line.line_number ?? index}-${line.item_code ?? "item"}`}
+                    line={line}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       ) : (
         <p className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-500">
@@ -758,7 +807,7 @@ function DocumentSummaryCard({
   const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
 
   return (
-    <div className="rounded-lg bg-gray-50 p-3">
+    <div className="border-b border-gray-100 bg-white px-4 py-3 dark:border-gray-800 dark:bg-transparent">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">
@@ -787,34 +836,38 @@ function DocumentLineRow({ line }: { line: SalesDetailRow }) {
   const unitLabel = line.unit_name || line.unit_code || "-";
 
   return (
-    <tr>
-      <td className="max-w-[300px] px-3 py-3">
-        <p className="truncate font-semibold text-gray-900">
+    <TableRow>
+      <TableCell className="max-w-[320px] px-4 py-3 text-start">
+        <p className="truncate font-medium text-gray-800 dark:text-white/90">
           {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
         </p>
-        <p className="mt-0.5 text-xs text-gray-500">
+        <p className="mt-0.5 text-theme-xs text-gray-500 dark:text-gray-400">
           {line.item_code || "-"} · {formatBranchLabel(line.branch_code)}
         </p>
-      </td>
-      <td className="px-3 py-3 text-gray-600">{line.barcode || "-"}</td>
-      <td className="px-3 py-3 text-gray-600">{unitLabel}</td>
-      <td className="px-3 py-3 text-right text-gray-600">
+      </TableCell>
+      <TableCell className="px-4 py-3 text-theme-sm text-gray-500 dark:text-gray-400">
+        {line.barcode || "-"}
+      </TableCell>
+      <TableCell className="px-4 py-3 text-theme-sm text-gray-500 dark:text-gray-400">
+        {unitLabel}
+      </TableCell>
+      <TableCell className="px-4 py-3 text-right text-theme-sm text-gray-500 dark:text-gray-400">
         {formatNumber(line.qty)}
-      </td>
-      <td className="px-3 py-3 text-right text-gray-600">
+      </TableCell>
+      <TableCell className="px-4 py-3 text-right text-theme-sm text-gray-500 dark:text-gray-400">
         {formatCurrency(line.price)}
-      </td>
-      <td className="px-3 py-3 text-right text-gray-600">
+      </TableCell>
+      <TableCell className="px-4 py-3 text-right text-theme-sm text-gray-500 dark:text-gray-400">
         {line.discount || line.discount_amount
           ? `${line.discount || ""}${line.discount ? " · " : ""}${formatCurrency(
               line.discount_amount,
             )}`
           : "-"}
-      </td>
-      <td className="px-3 py-3 text-right font-semibold text-gray-900">
+      </TableCell>
+      <TableCell className="px-4 py-3 text-right text-theme-sm font-medium text-gray-800 dark:text-white/90">
         {formatCurrency(line.sum_amount)} บาท
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -830,7 +883,7 @@ function CustomerShell({
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">
       <div className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div>
             <p className="text-xs font-semibold text-brand-500">AI Business</p>
             <h1 className="text-lg font-semibold">{title}</h1>
@@ -843,7 +896,7 @@ function CustomerShell({
           ) : null}
         </div>
       </div>
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6">
         {children}
       </div>
     </main>
