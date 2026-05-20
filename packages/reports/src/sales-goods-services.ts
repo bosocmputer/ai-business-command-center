@@ -15,7 +15,7 @@ import {
 export const salesGoodsServicesContract = {
   report_key: "sales_goods_services",
   name: "Sales Goods and Services",
-  version: "0.1.0",
+  version: "0.2.0",
   params_schema: salesGoodsServicesParamsSchema,
   metric_truth: {
     financial_total: "ic_trans.total_amount",
@@ -41,6 +41,7 @@ select
   h.doc_date,
   h.doc_no,
   h.doc_time,
+  h.doc_ref_date,
   h.doc_ref,
   h.cust_code,
   c.name_1 as cust_name,
@@ -58,12 +59,15 @@ select
     when h.vat_type = 3 then '3'
   end as vat_type,
   h.total_amount,
-  h.cashier_code
+  h.cashier_code,
+  cast(h.last_status as varchar) as last_status
 from ic_trans h
 left join ar_customer c on c.code = h.cust_code
-where h.trans_flag = 44
+where h.trans_flag in (44)
   and h.last_status = 0
   and h.doc_date between $1::date and $2::date
+  and (coalesce(h.doc_ref, '') = '' or h.is_pos = 0)
+  and h.is_doc_copy <> 1
 order by h.doc_date, h.doc_no, h.doc_time, h.cust_code
 `,
     values: [params.date_from, params.date_to],
@@ -75,40 +79,170 @@ export function buildSalesDetailQuery(params: SalesGoodsServicesParams) {
 
   return {
     text: `
+with filtered_headers as (
+  select
+    h.doc_no,
+    h.doc_date,
+    h.doc_time,
+    h.cust_code,
+    c.name_1 as cust_name,
+    h.branch_code,
+    h.trans_flag
+  from ic_trans h
+  left join ar_customer c on c.code = h.cust_code
+  where h.trans_flag in (44)
+    and h.last_status = 0
+    and h.doc_date between $1::date and $2::date
+    and (coalesce(h.doc_ref, '') = '' or h.is_pos = 0)
+    and h.is_doc_copy <> 1
+)
 select
+  d.discount,
+  d.discount_amount,
   d.doc_date,
   d.doc_no,
   h.doc_time,
   h.cust_code,
-  c.name_1 as cust_name,
+  h.cust_name,
   coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as branch_code,
   d.item_code,
-  d.item_name,
+  d.barcode,
+  coalesce(i.name_1, d.item_name) as item_name,
   d.wh_code,
   d.shelf_code,
   d.unit_code,
+  coalesce(u.name_1, '') as unit_name,
   d.qty,
+  d.temp_float_1,
+  d.temp_float_2,
   d.price,
-  d.discount,
-  d.discount_amount,
   d.sum_amount,
   case
     when d.vat_type = 0 then 'E'
     when d.vat_type = 1 then 'I'
     when d.vat_type = 2 then 'C'
     when d.vat_type = 3 then '3'
-  end as vat_type
+  end as vat_type,
+  cast(d.tax_type as varchar) as tax_type,
+  d.ref_row,
+  d.line_number
 from ic_trans_detail d
-inner join ic_trans h on h.doc_no = d.doc_no
+inner join filtered_headers h on h.doc_no = d.doc_no
+  and h.doc_date = d.doc_date
   and h.trans_flag = d.trans_flag
-  and h.last_status = 0
-left join ar_customer c on c.code = h.cust_code
-where d.trans_flag = 44
-  and h.trans_flag = 44
+left join ic_inventory i on i.code = d.item_code
+left join ic_unit u on u.code = d.unit_code
+where d.trans_flag in (44)
+  and d.last_status = 0
   and d.doc_date between $1::date and $2::date
-order by d.doc_date, d.doc_no, d.item_code
+order by d.doc_date, d.doc_no, d.line_number
 `,
     values: [params.date_from, params.date_to],
+  };
+}
+
+export function buildSalesDocumentDetailQuery(
+  params: SalesGoodsServicesParams,
+  docNo: string,
+) {
+  validateSalesGoodsServicesParams(params);
+  const normalizedDocNo = docNo.trim();
+  if (!normalizedDocNo) {
+    throw new Error("doc_no is required");
+  }
+
+  return {
+    text: `
+with filtered_headers as (
+  select
+    0 as rownum,
+    h.doc_date,
+    h.doc_no,
+    h.doc_time,
+    h.doc_ref_date,
+    h.doc_ref,
+    h.cust_code,
+    c.name_1 as cust_name,
+    h.branch_code,
+    h.total_value,
+    h.total_discount,
+    (h.total_value - h.total_discount) as total_except_discount,
+    h.total_except_vat,
+    h.vat_rate,
+    h.total_vat_value,
+    case
+      when h.vat_type = 0 then 'E'
+      when h.vat_type = 1 then 'I'
+      when h.vat_type = 2 then 'C'
+      when h.vat_type = 3 then '3'
+    end as vat_type,
+    h.total_amount,
+    h.cashier_code,
+    cast(h.last_status as varchar) as last_status,
+    h.trans_flag
+  from ic_trans h
+  left join ar_customer c on c.code = h.cust_code
+  where h.trans_flag in (44)
+    and h.last_status = 0
+    and h.doc_date between $1::date and $2::date
+    and h.doc_no = $3
+    and (coalesce(h.doc_ref, '') = '' or h.is_pos = 0)
+    and h.is_doc_copy <> 1
+)
+select
+  h.rownum,
+  h.doc_date,
+  h.doc_no,
+  h.doc_time,
+  h.doc_ref_date,
+  h.doc_ref,
+  h.cust_code,
+  h.cust_name,
+  h.branch_code,
+  h.total_value,
+  h.total_discount,
+  h.total_except_discount,
+  h.total_except_vat,
+  h.vat_rate,
+  h.total_vat_value,
+  h.vat_type,
+  h.total_amount,
+  h.cashier_code,
+  h.last_status,
+  d.discount,
+  d.discount_amount,
+  d.item_code,
+  d.barcode,
+  coalesce(i.name_1, d.item_name) as item_name,
+  d.wh_code,
+  d.shelf_code,
+  d.unit_code,
+  coalesce(u.name_1, '') as unit_name,
+  d.qty,
+  d.temp_float_1,
+  d.temp_float_2,
+  case
+    when d.vat_type = 0 then 'E'
+    when d.vat_type = 1 then 'I'
+    when d.vat_type = 2 then 'C'
+    when d.vat_type = 3 then '3'
+  end as detail_vat_type,
+  cast(d.tax_type as varchar) as tax_type,
+  d.ref_row,
+  d.price,
+  d.sum_amount,
+  d.line_number,
+  coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as detail_branch_code
+from filtered_headers h
+left join ic_trans_detail d on d.doc_no = h.doc_no
+  and d.doc_date = h.doc_date
+  and d.trans_flag = h.trans_flag
+  and d.last_status = 0
+left join ic_inventory i on i.code = d.item_code
+left join ic_unit u on u.code = d.unit_code
+order by h.doc_date, h.doc_no, d.line_number
+`,
+    values: [params.date_from, params.date_to, normalizedDocNo],
   };
 }
 
@@ -262,7 +396,7 @@ export function summarizeSalesGoodsServices(input: {
       status: qualityStatus,
       note:
         Math.abs(difference) > 0.01
-          ? "Header total and detail sum differ. Dashboard financial truth uses ic_trans.total_amount."
+          ? "ยอดหัวบิลและยอดรายละเอียดสินค้าไม่เท่ากัน อาจเกิดจาก VAT, discount, rounding หรือโครงสร้าง SML; ระบบใช้ ic_trans.total_amount เป็นยอดขายหลัก."
           : "Header total and detail sum are reconciled.",
     },
     line_template: {

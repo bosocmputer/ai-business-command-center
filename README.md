@@ -8,9 +8,9 @@ Professional pilot สำหรับลูกค้า SML: approved report run
 - Viewer: compact signed report viewer ที่ `/command-center/brief`
 - API: Fastify report API + signed viewer API + LINE endpoints ใน `apps/api`
 - Worker: Morning Brief scheduler ใน `apps/worker`
-- Report: `sales_goods_services` ใน `packages/reports`
+- Report: `sales_goods_services` ใน `packages/reports` พร้อม bill detail drilldown แบบ read-only
 - Shared schemas: `packages/shared`
-- Latest deployed commit: `9b7cb23`
+- Latest deployed commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
 
 อ่านสถานะล่าสุดก่อนเริ่มงานต่อ:
 
@@ -59,6 +59,14 @@ GET /api/reports/:tenantId/sales_goods_services/line-preview
 GET /api/reports/:tenantId/sales_goods_services/line-deliveries
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+```
+
+Customer viewer read-only ใช้ tenant slug และ derive tenant ฝั่ง server:
+
+```text
+GET /api/app/:tenantSlug/session
+GET /api/app/:tenantSlug/reports/sales_goods_services/latest
+GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail?doc_no=...
 ```
 
 Morning Brief ใช้:

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSalesDetailQuery,
+  buildSalesDocumentDetailQuery,
   buildSalesHeaderQuery,
   createEmptySalesGoodsServicesSnapshot,
   normalizeBranchCode,
@@ -35,6 +37,51 @@ describe("sales_goods_services contract", () => {
     expect(query.text).toContain("$1::date");
     expect(query.text).toContain("$2::date");
     expect(query.values).toEqual(["2026-05-10", "2026-05-19"]);
+  });
+
+  it("uses the approved SML header filters for sale documents", () => {
+    const query = buildSalesHeaderQuery({
+      date_from: "2026-05-10",
+      date_to: "2026-05-19",
+    });
+
+    expect(query.text).toContain("h.trans_flag in (44)");
+    expect(query.text).toContain("h.last_status = 0");
+    expect(query.text).toContain("(coalesce(h.doc_ref, '') = '' or h.is_pos = 0)");
+    expect(query.text).toContain("h.is_doc_copy <> 1");
+    expect(query.text).toContain("h.doc_ref_date");
+    expect(query.text).toContain("cast(h.last_status as varchar) as last_status");
+  });
+
+  it("filters detail lines through the approved header set", () => {
+    const query = buildSalesDetailQuery({
+      date_from: "2026-05-10",
+      date_to: "2026-05-19",
+    });
+
+    expect(query.text).toContain("with filtered_headers as");
+    expect(query.text).toContain("inner join filtered_headers h");
+    expect(query.text).toContain("h.doc_date = d.doc_date");
+    expect(query.text).toContain("and d.last_status = 0");
+    expect(query.text).toContain("coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch')");
+    expect(query.text).toContain("left join ic_inventory");
+    expect(query.text).toContain("left join ic_unit");
+  });
+
+  it("builds a parameterized document detail query scoped by date and doc_no", () => {
+    const query = buildSalesDocumentDetailQuery(
+      {
+        date_from: "2026-05-10",
+        date_to: "2026-05-19",
+      },
+      "IV-001",
+    );
+
+    expect(query.text).toContain("$1::date");
+    expect(query.text).toContain("$2::date");
+    expect(query.text).toContain("h.doc_no = $3");
+    expect(query.text).toContain("h.is_doc_copy <> 1");
+    expect(query.values).toEqual(["2026-05-10", "2026-05-19", "IV-001"]);
   });
 
   it("returns valid zero summary for empty results", () => {

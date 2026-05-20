@@ -57,6 +57,9 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Summary ใช้ `ic_trans.total_amount` เป็น financial truth
 - Detail analytics ใช้ `ic_trans_detail.sum_amount`, `qty`, product fields
 - Branch fallback: `detail.branch_code -> header.branch_code -> no_branch`
+- Header query ใช้ SML sales report filter รุ่นใหม่: `trans_flag in (44)`, `last_status = 0`, date range, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
+- Detail query join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag` และ enrich ด้วย `ic_inventory`, `ic_unit`
+- Customer bill drilldown ดึงรายละเอียดสินค้าในบิลแบบ on-demand จาก SML ด้วย approved SQL ไม่ยัด detail ทุกแถวของช่วงใหญ่ลง snapshot
 - Snapshot มี comparison สำหรับ single-day report:
   - เมื่อวานเทียบกับวันก่อนหน้า
   - เมื่อวานเทียบกับวันเดียวกันสัปดาห์ก่อน
@@ -94,8 +97,8 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
     - KPI รองอยู่ในแถบเดียว: บิลขาย, รายการขาย, จำนวนขายรวม
     - insight `วันนี้ควรรู้อะไร` อยู่คู่กับยอดขายหลัก ไม่แยกเป็น card dump
     - comparison และ data trust ใช้ภาษาธุรกิจ ไม่ใช้ wording แบบ debug
-    - มี drilldown read-only สำหรับบิลขายและรายการสินค้า/บริการจาก snapshot
-    - drilldown จำกัดจำนวนแถวที่ render เพื่อกันหน้า customer ช้าเมื่อ report ใหญ่
+    - มี drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ใน tenant scope เดิม
+    - ตารางบิลใช้ snapshot preview และรายการ detail ใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/document-detail`
     - รายละเอียด source/run id อยู่ใน collapsed section
     - วันที่บน customer viewer ใช้ปี ค.ศ. เพื่อให้ตรงกับ LINE และข้อมูล SML
   - slug ที่ใช้งานจริงตอนนี้:

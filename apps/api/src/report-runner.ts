@@ -1,11 +1,13 @@
 import { Pool } from "pg";
 import {
+  buildSalesDocumentDetailQuery,
   buildSalesDetailQuery,
   buildSalesHeaderQuery,
   summarizeSalesGoodsServices,
   validateSalesGoodsServicesParams,
 } from "@ai-bcc/reports";
 import {
+  type SalesDocumentDetail,
   type SalesDetailRow,
   type SalesGoodsServicesParams,
   type SalesGoodsServicesSnapshot,
@@ -68,6 +70,56 @@ export async function runSalesGoodsServicesReport(input: {
         headers: headerResult.rows.map(mapHeaderRow),
         details: detailResult.rows.map(mapDetailRow),
       });
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function fetchSalesGoodsServicesDocumentDetail(input: {
+  tenant_id: TenantId;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+  doc_no: string;
+}): Promise<SalesDocumentDetail | null> {
+  const params = validateSalesGoodsServicesParams(input.params);
+  const query = buildSalesDocumentDetailQuery(params, input.doc_no);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 15000,
+    query_timeout: 20000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 15000");
+      const result = await client.query(query.text, query.values);
+      if (!result.rows[0]) {
+        return null;
+      }
+
+      const document = mapHeaderRow(result.rows[0]);
+      const lines = result.rows
+        .filter((row) => row.line_number != null || row.item_code != null)
+        .map(mapDocumentDetailLineRow);
+
+      return {
+        tenant_id: input.tenant_id,
+        report_key: "sales_goods_services",
+        params,
+        document,
+        lines,
+      };
     } finally {
       client.release();
     }
@@ -201,6 +253,7 @@ function mapHeaderRow(row: Record<string, unknown>): SalesHeaderRow {
     doc_date: toDateString(row.doc_date),
     doc_no: toStringValue(row.doc_no),
     doc_time: toNullableString(row.doc_time),
+    doc_ref_date: toNullableDateString(row.doc_ref_date),
     doc_ref: toNullableString(row.doc_ref),
     cust_code: toNullableString(row.cust_code),
     cust_name: toNullableString(row.cust_name),
@@ -214,6 +267,7 @@ function mapHeaderRow(row: Record<string, unknown>): SalesHeaderRow {
     vat_type: toNullableString(row.vat_type),
     total_amount: toNumber(row.total_amount),
     cashier_code: toNullableString(row.cashier_code),
+    last_status: toNullableString(row.last_status),
   };
 }
 
@@ -226,16 +280,52 @@ function mapDetailRow(row: Record<string, unknown>): SalesDetailRow {
     cust_name: toNullableString(row.cust_name),
     branch_code: toStringValue(row.branch_code),
     item_code: toNullableString(row.item_code),
+    barcode: toNullableString(row.barcode),
     item_name: toNullableString(row.item_name),
     wh_code: toNullableString(row.wh_code),
     shelf_code: toNullableString(row.shelf_code),
     unit_code: toNullableString(row.unit_code),
+    unit_name: toNullableString(row.unit_name),
     qty: toNumber(row.qty),
     price: toNumber(row.price),
     discount: toNullableString(row.discount),
     discount_amount: toNumber(row.discount_amount),
     sum_amount: toNumber(row.sum_amount),
     vat_type: toNullableString(row.vat_type),
+    tax_type: toNullableString(row.tax_type),
+    ref_row: toNullableNumber(row.ref_row),
+    temp_float_1: toNullableNumber(row.temp_float_1),
+    temp_float_2: toNullableNumber(row.temp_float_2),
+    line_number: toNullableNumber(row.line_number),
+  };
+}
+
+function mapDocumentDetailLineRow(row: Record<string, unknown>): SalesDetailRow {
+  return {
+    doc_date: toDateString(row.doc_date),
+    doc_no: toStringValue(row.doc_no),
+    doc_time: toNullableString(row.doc_time),
+    cust_code: toNullableString(row.cust_code),
+    cust_name: toNullableString(row.cust_name),
+    branch_code: toStringValue(row.detail_branch_code),
+    item_code: toNullableString(row.item_code),
+    barcode: toNullableString(row.barcode),
+    item_name: toNullableString(row.item_name),
+    wh_code: toNullableString(row.wh_code),
+    shelf_code: toNullableString(row.shelf_code),
+    unit_code: toNullableString(row.unit_code),
+    unit_name: toNullableString(row.unit_name),
+    qty: toNumber(row.qty),
+    price: toNumber(row.price),
+    discount: toNullableString(row.discount),
+    discount_amount: toNumber(row.discount_amount),
+    sum_amount: toNumber(row.sum_amount),
+    vat_type: toNullableString(row.detail_vat_type),
+    tax_type: toNullableString(row.tax_type),
+    ref_row: toNullableNumber(row.ref_row),
+    temp_float_1: toNullableNumber(row.temp_float_1),
+    temp_float_2: toNullableNumber(row.temp_float_2),
+    line_number: toNullableNumber(row.line_number),
   };
 }
 
@@ -268,9 +358,23 @@ function toNullableString(value: unknown): string | null {
   return text === "" ? null : text;
 }
 
+function toNullableNumber(value: unknown): number | null {
+  if (value == null) {
+    return null;
+  }
+  return toNumber(value);
+}
+
 function toDateString(value: unknown): string {
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);
   }
   return toStringValue(value).slice(0, 10);
+}
+
+function toNullableDateString(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+  return toDateString(value);
 }

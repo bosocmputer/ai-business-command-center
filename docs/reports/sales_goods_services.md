@@ -58,6 +58,7 @@ select
   h.doc_date,
   h.doc_no,
   h.doc_time,
+  h.doc_ref_date,
   h.doc_ref,
   h.cust_code,
   c.name_1 as cust_name,
@@ -75,12 +76,15 @@ select
     when h.vat_type = 3 then '3'
   end as vat_type,
   h.total_amount,
-  h.cashier_code
+  h.cashier_code,
+  cast(h.last_status as varchar) as last_status
 from ic_trans h
 left join ar_customer c on c.code = h.cust_code
-where h.trans_flag = 44
+where h.trans_flag in (44)
   and h.last_status = 0
   and h.doc_date between $1::date and $2::date
+  and (coalesce(h.doc_ref, '') = '' or h.is_pos = 0)
+  and h.is_doc_copy <> 1
 order by h.doc_date, h.doc_no, h.doc_time, h.cust_code;
 ```
 
@@ -89,39 +93,82 @@ order by h.doc_date, h.doc_no, h.doc_time, h.cust_code;
 ใช้กับ top product, quantity, branch detail และตารางสินค้า/บริการ
 
 ```sql
+with filtered_headers as (
+  select
+    h.doc_no,
+    h.doc_date,
+    h.doc_time,
+    h.cust_code,
+    c.name_1 as cust_name,
+    h.branch_code,
+    h.trans_flag
+  from ic_trans h
+  left join ar_customer c on c.code = h.cust_code
+  where h.trans_flag in (44)
+    and h.last_status = 0
+    and h.doc_date between $1::date and $2::date
+    and (coalesce(h.doc_ref, '') = '' or h.is_pos = 0)
+    and h.is_doc_copy <> 1
+)
 select
+  d.discount,
+  d.discount_amount,
   d.doc_date,
   d.doc_no,
   h.doc_time,
   h.cust_code,
-  c.name_1 as cust_name,
+  h.cust_name,
   coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as branch_code,
   d.item_code,
-  d.item_name,
+  d.barcode,
+  coalesce(i.name_1, d.item_name) as item_name,
   d.wh_code,
   d.shelf_code,
   d.unit_code,
+  coalesce(u.name_1, '') as unit_name,
   d.qty,
+  d.temp_float_1,
+  d.temp_float_2,
   d.price,
-  d.discount,
-  d.discount_amount,
   d.sum_amount,
   case
     when d.vat_type = 0 then 'E'
     when d.vat_type = 1 then 'I'
     when d.vat_type = 2 then 'C'
     when d.vat_type = 3 then '3'
-  end as vat_type
+  end as vat_type,
+  cast(d.tax_type as varchar) as tax_type,
+  d.ref_row,
+  d.line_number
 from ic_trans_detail d
-inner join ic_trans h on h.doc_no = d.doc_no
+inner join filtered_headers h on h.doc_no = d.doc_no
+  and h.doc_date = d.doc_date
   and h.trans_flag = d.trans_flag
-  and h.last_status = 0
-left join ar_customer c on c.code = h.cust_code
-where d.trans_flag = 44
-  and h.trans_flag = 44
+left join ic_inventory i on i.code = d.item_code
+left join ic_unit u on u.code = d.unit_code
+where d.trans_flag in (44)
+  and d.last_status = 0
   and d.doc_date between $1::date and $2::date
-order by d.doc_date, d.doc_no, d.item_code;
+order by d.doc_date, d.doc_no, d.line_number;
 ```
+
+Detail query ต้อง join ผ่าน `filtered_headers` เสมอ เพื่อไม่ดึงรายการสินค้าที่หัวบิลถูกกรองออก เช่นบิล copy, บิลที่มี `doc_ref` จาก POS บางรูปแบบ หรือหัวบิลที่ไม่ใช่สถานะใช้งาน
+
+## Document Detail Drilldown
+
+หน้า customer dashboard ใช้ snapshot สำหรับ summary และรายการบิล preview แต่เมื่อผู้ใช้เลือกบิล ระบบจะดึงรายละเอียดบิลแบบ read-only จาก SML ด้วย approved SQL แยก:
+
+```text
+GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail?doc_no=...
+```
+
+Rules:
+
+- API derive `tenant_id` จาก `tenantSlug` ฝั่ง server เท่านั้น
+- ใช้ช่วงวันที่จาก latest snapshot ไม่รับช่วงวันที่จาก customer query
+- bind `doc_no` เป็น `$3` ห้าม concat เข้า SQL
+- คืน header + detail lines เฉพาะบิลนั้น
+- ไม่ store detail ทุกแถวของช่วงใหญ่ลง snapshot เพื่อกัน payload ใหญ่เกินจำเป็น
 
 ## Snapshot Shape
 

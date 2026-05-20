@@ -31,6 +31,7 @@ import {
   resolveTenantIdFromSlug,
 } from "./config.js";
 import {
+  fetchSalesGoodsServicesDocumentDetail,
   runSalesGoodsServicesReport,
   testDatasourceConnection,
   toSafeErrorMessage,
@@ -367,6 +368,71 @@ app.get(
       tenant: session.tenant,
       tenant_slug: session.tenantSlug,
     };
+  },
+);
+
+app.get(
+  "/api/app/:tenantSlug/reports/sales_goods_services/document-detail",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const query = documentDetailQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid document detail request",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const snapshot = await systemStore.getLatestSnapshot(session.tenant.id);
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+
+    const datasource = readDatasourceConfig(session.tenant.id);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const detail = await fetchSalesGoodsServicesDocumentDetail({
+        tenant_id: session.tenant.id,
+        params: snapshot.params,
+        datasource,
+        doc_no: query.data.doc_no,
+      });
+
+      if (!detail) {
+        return reply.status(404).send({
+          error: "Document not found in the latest report period.",
+        });
+      }
+
+      return {
+        data: detail,
+        tenant: session.tenant,
+        tenant_slug: session.tenantSlug,
+        run_id: snapshot.run_id,
+      };
+    } catch (error) {
+      request.log.error({ error }, "customer document detail fetch failed");
+      return reply.status(500).send({
+        error: toSafeErrorMessage(error),
+      });
+    }
   },
 );
 
@@ -2121,6 +2187,10 @@ const signedSnapshotParamsSchema = z.object({
 
 const signedSnapshotQuerySchema = z.object({
   token: z.string().min(1).max(4096),
+});
+
+const documentDetailQuerySchema = z.object({
+  doc_no: z.string().trim().min(1).max(120),
 });
 
 const lineWebhookEventsQuerySchema = z.object({

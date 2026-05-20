@@ -37,7 +37,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
 - `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
-- `/app/:tenantSlug` มี drilldown read-only สำหรับบิลขายและรายการสินค้า/บริการ โดยจำกัดจำนวนแถวที่ render เพื่อให้หน้า customer โหลดเร็ว
+- `/app/:tenantSlug` มี drilldown read-only สำหรับบิลขาย โดยตารางบิลมาจาก snapshot และรายการสินค้าในบิลดึงจาก SML แบบ on-demand ด้วย approved SQL เพื่อให้หน้า customer โหลดเร็วแม้ช่วงรายงานใหญ่
 - API ฝั่ง customer ใช้ `/api/app/:tenantSlug/*` และ derive tenant จาก slug ฝั่ง server เท่านั้น
 - tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send
@@ -104,6 +104,8 @@ Tasks:
 5. นิยาม summary rules สำหรับ dashboard/LINE จาก header truth และ detail analytics
 6. นิยาม edge cases:
    - ไม่มี `branch_code` โดย fallback `detail.branch_code -> header.branch_code -> no_branch`
+   - หัวบิลต้องผ่าน filter SML sales report: `trans_flag in (44)`, `last_status = 0`, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
+   - detail ต้อง join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag`
    - ไม่มีข้อมูลในช่วงวันที่
    - ยอดติดลบจาก return/credit note
    - date/timezone ไม่ตรง SML report เดิม

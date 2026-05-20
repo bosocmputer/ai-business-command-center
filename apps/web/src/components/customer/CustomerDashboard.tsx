@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   SalesComparisonPoint,
+  SalesDetailRow,
+  SalesDocumentDetail,
   SalesGoodsServicesSnapshot,
+  SalesHeaderRow,
   Tenant,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
@@ -414,7 +417,10 @@ function CustomerDashboardContent({
         />
       </section>
 
-      <CustomerDetailDrilldown snapshot={snapshot} />
+      <CustomerDetailDrilldown
+        snapshot={snapshot}
+        tenantSlug={session.tenant_slug}
+      />
 
       <details className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs leading-5 text-gray-500">
         <summary className="cursor-pointer select-none font-semibold text-gray-700">
@@ -444,11 +450,61 @@ function CustomerDashboardContent({
 
 function CustomerDetailDrilldown({
   snapshot,
+  tenantSlug,
 }: {
   snapshot: SalesGoodsServicesSnapshot;
+  tenantSlug: string;
 }) {
   const documents = snapshot.documents.slice(0, 10);
-  const lines = snapshot.lines.slice(0, 15);
+  const [detailState, setDetailState] = useState<DocumentDetailState>({
+    status: "idle",
+  });
+
+  const loadDocumentDetail = useCallback(
+    async (docNo: string) => {
+      setDetailState({ status: "loading", docNo });
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/app/${encodeURIComponent(
+            tenantSlug,
+          )}/reports/sales_goods_services/document-detail?doc_no=${encodeURIComponent(
+            docNo,
+          )}`,
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: SalesDocumentDetail;
+          error?: string;
+        };
+
+        if (response.status === 404) {
+          setDetailState({
+            status: "empty",
+            docNo,
+            message:
+              payload.error ||
+              "ไม่พบบิลนี้ในช่วงวันที่ของรายงานล่าสุด อาจมีการรันรายงานใหม่แล้ว",
+          });
+          return;
+        }
+
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "โหลดรายละเอียดบิลไม่สำเร็จ");
+        }
+
+        setDetailState({ status: "ready", data: payload.data });
+      } catch (error) {
+        setDetailState({
+          status: "error",
+          docNo,
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดรายละเอียดบิลไม่สำเร็จ",
+        });
+      }
+    },
+    [tenantSlug],
+  );
 
   return (
     <details className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
@@ -464,7 +520,7 @@ function CustomerDetailDrilldown({
           </div>
           <span className="text-xs font-medium text-gray-500">
             {formatNumber(snapshot.documents.length)} บิล ·{" "}
-            {formatNumber(snapshot.lines.length)} รายการ
+            {formatNumber(snapshot.lines.length)} รายการใน snapshot
           </span>
         </div>
       </summary>
@@ -472,22 +528,32 @@ function CustomerDetailDrilldown({
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <DetailTablePanel
           emptyLabel="ไม่มีบิลขายในช่วงวันที่นี้"
-          title="บิลขายล่าสุด"
+          title="เลือกบิลขาย"
         >
           {documents.length ? (
             <div className="overflow-x-auto">
-              <table className="min-w-[620px] text-left text-sm">
+              <table className="min-w-[700px] text-left text-sm">
                 <thead className="border-b border-gray-100 text-xs text-gray-500">
                   <tr>
                     <th className="py-2 pr-4 font-medium">วันที่</th>
                     <th className="py-2 pr-4 font-medium">เลขที่บิล</th>
                     <th className="py-2 pr-4 font-medium">ลูกค้า</th>
                     <th className="py-2 text-right font-medium">ยอดขาย</th>
+                    <th className="py-2 text-right font-medium">รายละเอียด</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {documents.map((document) => (
-                    <tr key={`${document.doc_date}-${document.doc_no}`}>
+                    <tr
+                      className={
+                        detailState.status !== "idle" &&
+                        "docNo" in detailState &&
+                        detailState.docNo === document.doc_no
+                          ? "bg-brand-50/50"
+                          : ""
+                      }
+                      key={`${document.doc_date}-${document.doc_no}`}
+                    >
                       <td className="py-2 pr-4 text-gray-600">
                         {formatThaiDate(document.doc_date)}
                       </td>
@@ -500,6 +566,22 @@ function CustomerDetailDrilldown({
                       <td className="py-2 text-right font-semibold text-gray-900">
                         {formatCurrency(document.total_amount)} บาท
                       </td>
+                      <td className="py-2 text-right">
+                        <button
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={
+                            detailState.status === "loading" &&
+                            detailState.docNo === document.doc_no
+                          }
+                          onClick={() => void loadDocumentDetail(document.doc_no)}
+                          type="button"
+                        >
+                          {detailState.status === "loading" &&
+                          detailState.docNo === document.doc_no
+                            ? "กำลังโหลด"
+                            : "ดูรายการ"}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -509,49 +591,167 @@ function CustomerDetailDrilldown({
         </DetailTablePanel>
 
         <DetailTablePanel
-          emptyLabel="ไม่มีรายการสินค้าในช่วงวันที่นี้"
-          title="รายการสินค้า/บริการ"
+          emptyLabel="เลือกบิลด้านซ้ายเพื่อดูรายการสินค้าในบิลนั้น"
+          title="รายการสินค้าในบิล"
         >
-          {lines.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-[760px] text-left text-sm">
-                <thead className="border-b border-gray-100 text-xs text-gray-500">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">สินค้า/บริการ</th>
-                    <th className="py-2 pr-4 font-medium">บิล</th>
-                    <th className="py-2 text-right font-medium">จำนวน</th>
-                    <th className="py-2 text-right font-medium">ยอดขาย</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {lines.map((line, index) => (
-                    <tr key={`${line.doc_no}-${line.item_code}-${index}`}>
-                      <td className="max-w-[320px] truncate py-2 pr-4 font-semibold text-gray-900">
-                        {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
-                      </td>
-                      <td className="py-2 pr-4 text-gray-600">
-                        {line.doc_no}
-                      </td>
-                      <td className="py-2 text-right text-gray-600">
-                        {formatNumber(line.qty)}
-                      </td>
-                      <td className="py-2 text-right font-semibold text-gray-900">
-                        {formatCurrency(line.sum_amount)} บาท
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          <DocumentDetailResult state={detailState} />
         </DetailTablePanel>
       </div>
 
       <p className="mt-3 text-xs leading-5 text-gray-500">
-        แสดงเฉพาะรายการแรกเพื่อให้หน้าโหลดเร็ว หากต้องการตรวจครบทุกแถวให้ใช้
-        owner report runner หรือ export ในรอบถัดไป
+        ตารางบิลอ่านจาก snapshot ล่าสุด ส่วนรายการสินค้าในบิลดึงจาก SML แบบ
+        read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
       </p>
     </details>
+  );
+}
+
+type DocumentDetailState =
+  | { status: "idle" }
+  | { status: "loading"; docNo: string }
+  | { status: "ready"; data: SalesDocumentDetail }
+  | { status: "empty"; docNo: string; message: string }
+  | { status: "error"; docNo: string; message: string };
+
+function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
+  if (state.status === "idle") {
+    return (
+      <p className="text-sm leading-6 text-gray-500">
+        เลือกบิลจากตารางด้านซ้าย ระบบจะโหลดรายการสินค้า/บริการของบิลนั้นจาก
+        SML โดยตรงในขอบเขตร้านนี้เท่านั้น
+      </p>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div>
+        <Badge color="light">กำลังโหลด</Badge>
+        <p className="mt-2 text-sm text-gray-500">
+          กำลังดึงรายการสินค้าในบิล {state.docNo}
+        </p>
+      </div>
+    );
+  }
+
+  if (state.status === "empty" || state.status === "error") {
+    return (
+      <div className="rounded-lg border border-warning-100 bg-warning-50 p-3">
+        <p className="text-sm font-semibold text-gray-900">
+          เปิดรายละเอียดบิล {state.docNo} ไม่สำเร็จ
+        </p>
+        <p className="mt-1 text-xs leading-5 text-gray-600">
+          {state.message}
+        </p>
+      </div>
+    );
+  }
+
+  const { document, lines } = state.data;
+
+  return (
+    <div className="space-y-3">
+      <DocumentSummaryCard document={document} lines={lines} />
+      {lines.length ? (
+        <div className="overflow-x-auto">
+          <table className="min-w-[860px] text-left text-sm">
+            <thead className="border-b border-gray-100 text-xs text-gray-500">
+              <tr>
+                <th className="py-2 pr-4 font-medium">สินค้า/บริการ</th>
+                <th className="py-2 pr-4 font-medium">Barcode</th>
+                <th className="py-2 pr-4 font-medium">หน่วย</th>
+                <th className="py-2 text-right font-medium">จำนวน</th>
+                <th className="py-2 text-right font-medium">ราคา</th>
+                <th className="py-2 text-right font-medium">ส่วนลด</th>
+                <th className="py-2 text-right font-medium">ยอดขาย</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {lines.map((line, index) => (
+                <DocumentLineRow
+                  key={`${line.doc_no}-${line.line_number ?? index}-${line.item_code ?? "item"}`}
+                  line={line}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-500">
+          บิลนี้ไม่มีรายการสินค้าในช่วงข้อมูลล่าสุด
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DocumentSummaryCard({
+  document,
+  lines,
+}: {
+  document: SalesHeaderRow;
+  lines: SalesDetailRow[];
+}) {
+  const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900">
+            บิล {document.doc_no}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-500">
+            {formatThaiDate(document.doc_date)} ·{" "}
+            {document.cust_name || document.cust_code || "ไม่ระบุลูกค้า"}
+          </p>
+        </div>
+        <div className="text-left sm:text-right">
+          <p className="text-sm font-semibold text-gray-900">
+            {formatCurrency(document.total_amount)} บาท
+          </p>
+          <p className="text-xs text-gray-500">
+            {formatNumber(lines.length)} รายการ · รายละเอียดยอด{" "}
+            {formatCurrency(detailTotal)} บาท
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentLineRow({ line }: { line: SalesDetailRow }) {
+  const unitLabel = line.unit_name || line.unit_code || "-";
+
+  return (
+    <tr>
+      <td className="max-w-[300px] py-2 pr-4">
+        <p className="truncate font-semibold text-gray-900">
+          {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
+        </p>
+        <p className="mt-0.5 text-xs text-gray-500">
+          {line.item_code || "-"} · {formatBranchLabel(line.branch_code)}
+        </p>
+      </td>
+      <td className="py-2 pr-4 text-gray-600">{line.barcode || "-"}</td>
+      <td className="py-2 pr-4 text-gray-600">{unitLabel}</td>
+      <td className="py-2 text-right text-gray-600">
+        {formatNumber(line.qty)}
+      </td>
+      <td className="py-2 text-right text-gray-600">
+        {formatCurrency(line.price)}
+      </td>
+      <td className="py-2 text-right text-gray-600">
+        {line.discount || line.discount_amount
+          ? `${line.discount || ""}${line.discount ? " · " : ""}${formatCurrency(
+              line.discount_amount,
+            )}`
+          : "-"}
+      </td>
+      <td className="py-2 text-right font-semibold text-gray-900">
+        {formatCurrency(line.sum_amount)} บาท
+      </td>
+    </tr>
   );
 }
 

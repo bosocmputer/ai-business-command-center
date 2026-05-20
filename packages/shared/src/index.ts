@@ -100,6 +100,7 @@ export type SalesHeaderRow = {
   doc_date: string;
   doc_no: string;
   doc_time: string | null;
+  doc_ref_date?: string | null;
   doc_ref: string | null;
   cust_code: string | null;
   cust_name: string | null;
@@ -113,6 +114,7 @@ export type SalesHeaderRow = {
   vat_type: string | null;
   total_amount: number;
   cashier_code: string | null;
+  last_status?: string | null;
 };
 
 export type SalesDetailRow = {
@@ -123,16 +125,31 @@ export type SalesDetailRow = {
   cust_name: string | null;
   branch_code: string;
   item_code: string | null;
+  barcode?: string | null;
   item_name: string | null;
   wh_code: string | null;
   shelf_code: string | null;
   unit_code: string | null;
+  unit_name?: string | null;
   qty: number;
   price: number;
   discount: string | null;
   discount_amount: number;
   sum_amount: number;
   vat_type: string | null;
+  tax_type?: string | null;
+  ref_row?: number | null;
+  temp_float_1?: number | null;
+  temp_float_2?: number | null;
+  line_number?: number | null;
+};
+
+export type SalesDocumentDetail = {
+  tenant_id: TenantId;
+  report_key: ReportKey;
+  params: SalesGoodsServicesParams;
+  document: SalesHeaderRow;
+  lines: SalesDetailRow[];
 };
 
 export type BranchSales = {
