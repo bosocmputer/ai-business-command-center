@@ -273,6 +273,49 @@ describe("sales_goods_services contract", () => {
     expect(longUrlPreview.flex_message).toBeUndefined();
   });
 
+  it("renders a compact executive Flex empty state without noisy empty sections", () => {
+    const snapshot = createEmptySalesGoodsServicesSnapshot({
+      tenant_id: "tenant_demo_remote",
+      run_id: "empty_line_preview",
+      params: { date_from: "2026-05-19", date_to: "2026-05-19" },
+      generated_at: "2026-05-20T01:45:00.000Z",
+    });
+    snapshot.comparison = {
+      previous_day: {
+        label: "previous_day",
+        date_from: "2026-05-18",
+        date_to: "2026-05-18",
+        total_sales: 6161.1,
+        document_count: 4,
+        difference_amount: -6161.1,
+        difference_percent: -100,
+        direction: "down",
+      },
+      same_weekday_last_week: null,
+    };
+
+    const preview = renderSalesGoodsServicesLinePreview({
+      snapshot,
+      dashboardUrl:
+        "https://example.test/command-center/brief?tenant_id=tenant_demo_remote&run_id=empty_line_preview&token=signed-token",
+      tenantName: "Demo Remote",
+    });
+    const flexJson = JSON.stringify(preview.flex_message);
+
+    expect(preview.line_message_type).toBe("flex");
+    expect(preview.flex_message?.altText).toContain("ไม่พบยอดขาย");
+    expect(flexJson).toContain("สิ่งที่ควรตรวจ");
+    expect(flexJson).toContain("วันก่อนหน้ามียอดขาย 6,161.10 บาท จาก 4 บิล");
+    expect(flexJson).not.toContain("-100%");
+    expect(flexJson).not.toContain("ยอดหลัก");
+    expect(flexJson).not.toContain("สินค้าขายดี");
+    expect(flexJson).not.toContain("ยังไม่มีข้อมูลสาขา");
+    expect(flexJson).not.toContain("ยังไม่มีสินค้า");
+    expect(preview.text).not.toContain("ยอดขายตามสาขา");
+    expect(preview.text).not.toContain("สินค้าขายดี");
+    expect(preview.text).not.toContain("token=signed-token");
+  });
+
   it("labels sample snapshot safely in LINE preview", () => {
     const snapshot = createEmptySalesGoodsServicesSnapshot({
       tenant_id: "tenant_demo_remote",

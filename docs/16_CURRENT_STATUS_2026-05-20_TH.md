@@ -92,6 +92,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - ไม่มีชื่อ `AI Business Center` ซ้ำในข้อความ เพราะ LINE แสดงชื่อ OA อยู่แล้ว
   - มี `altText` สั้นสำหรับ notification/talk list
   - ถ้า signed URL ไม่พร้อมหรือยาวเกิน guard จะ fallback เป็น text message
+- Empty-state Flex bubble ถูกปรับเป็น executive alert:
+  - สั้นลงและลดคำซ้ำ
+  - ซ่อนหมวดสาขา/สินค้าเมื่อไม่มีข้อมูล
+  - ใช้ข้อมูลอ้างอิงแบบนุ่มแทน wording `-100%`
 - Scheduler รันที่ `08:00 Asia/Bangkok`
 - Scheduler จำกัด tenant เริ่มต้นเป็น `tenant_demo_remote`
 - Morning Brief ใช้ period `yesterday`

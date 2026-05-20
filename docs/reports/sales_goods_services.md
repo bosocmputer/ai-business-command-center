@@ -200,6 +200,13 @@ Preview นี้ใช้ snapshot ล่าสุด ไม่ยิง SML DB
 
 Live LINE send ใช้ `flex_message` เมื่อ signed viewer URL พร้อมและผ่าน guard ของ LINE URI action. ถ้า URL ไม่พร้อมหรือยาวเกิน guard จะ fallback เป็น text message โดยไม่แสดง signed URL เต็มใน body
 
+กรณี empty state เช่นยอดขาย `0` และไม่มีบิล:
+
+- Flex bubble ต้องเป็น executive alert แบบ compact
+- แสดง `สิ่งที่ควรตรวจ` แทนการ dump หมวดว่าง
+- ซ่อน `ยอดขายตามสาขา` และ `สินค้าขายดี` ใน bubble ถ้าไม่มีข้อมูลจริง
+- comparison แสดงเป็นข้อมูลอ้างอิง เช่น `วันก่อนหน้ามียอดขาย ...` ไม่ใช้ `-100%` ใน bubble
+
 ## Current Implementation Status
 
 สถานะล่าสุดวันที่ `2026-05-20`:
