@@ -10,7 +10,7 @@ docs/16_CURRENT_STATUS_2026-05-20_TH.md
 
 ## Current State
 
-Workspace ตอนนี้มี Phase 1 professional pilot และกำลังยกระดับเป็น SaaS pilot ที่แยก Owner Admin กับ Customer Viewer แล้ว
+Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner Admin กับ Customer Viewer ชัดเจนแล้ว
 
 สิ่งที่มี:
 
@@ -26,8 +26,11 @@ Workspace ตอนนี้มี Phase 1 professional pilot และกำล
 - LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
 - LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
-- `/owner` Owner Admin portal สำหรับคุณ/ทีม ใช้ดูทุกร้าน, เพิ่มร้าน, คุม subscription status และ LINE OA metadata
-- `/app` Customer Viewer portal สำหรับร้านค้าแบบ read-only เห็นเฉพาะ tenant ของตัวเองผ่าน session shim
+- `/owner` Owner Admin portal สำหรับคุณ/ทีม ใช้ดูทุกร้าน, เพิ่มร้าน, คุม subscription status, LINE OA metadata และเปิดลิงก์ Dashboard ลูกค้า
+- `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ
+- `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
+- `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
+- API ฝั่ง customer ใช้ `/api/app/:tenantSlug/*` และ derive tenant จาก slug ฝั่ง server เท่านั้น
 - tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send
 - Signed report viewer link TTL default `72` ชั่วโมง
@@ -45,7 +48,9 @@ Workspace ตอนนี้มี Phase 1 professional pilot และกำล
 Current deployed endpoints:
 
 ```text
-Web LAN: http://192.168.2.109:3055/command-center
+Web Owner LAN: http://192.168.2.109:3055/owner
+Web Customer DEMO SHOP LAN: http://192.168.2.109:3055/app/demo-shop
+Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
 API LAN: http://192.168.2.109:4055
 Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
@@ -168,7 +173,8 @@ Minimum behavior:
 - seed demo tenant และ office tenant โดยไม่ overwrite status ที่ owner เปลี่ยนใน system store
 - owner เพิ่ม tenant ใหม่ได้จาก `/owner`
 - owner เปลี่ยน subscription status ได้
-- customer viewer อ่านรายงานอย่างเดียวที่ `/app`
+- `/app` ไม่ default ไป tenant ใด ต้องใช้ลิงก์ร้านที่ owner ส่งให้
+- customer viewer อ่านรายงานอย่างเดียวที่ `/app/:tenantSlug`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ LINE scheduler
 - LINE OA หลายตัวต่อ tenant มี registry metadata แล้ว
 - seed `sales_goods_services` definition after contract ready
@@ -179,7 +185,7 @@ Acceptance:
 
 - can create tenant
 - can block tenant by subscription status
-- customer cannot access admin/config controls from `/app`
+- customer cannot access admin/config controls from `/app/:tenantSlug`
 - can register multiple LINE OA metadata per tenant
 - can enable report per tenant (next increment: `tenant_report_configs`)
 

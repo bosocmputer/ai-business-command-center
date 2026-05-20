@@ -21,32 +21,22 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     icon: <GridIcon />,
-    name: "Owner Admin",
+    name: "ภาพรวมเจ้าของ",
     path: "/owner",
   },
   {
     icon: <GridIcon />,
-    name: "Admin Overview",
-    path: "/command-center",
+    name: "ร้านค้า",
+    path: "/owner#tenants",
   },
   {
     icon: <TableIcon />,
-    name: "ร้านค้า Viewer",
-    path: "/app",
-  },
-  {
-    icon: <TableIcon />,
-    name: "รายงานขาย",
+    name: "รายงาน",
     path: "/command-center#sales-report",
   },
   {
     icon: <CalenderIcon />,
-    name: "Morning Brief",
-    path: "/command-center#morning-brief",
-  },
-  {
-    icon: <TableIcon />,
-    name: "ตั้งค่า",
+    name: "LINE OA",
     path: "/command-center/settings",
   },
   {

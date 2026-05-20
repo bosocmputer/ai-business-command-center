@@ -552,6 +552,26 @@ export default function CommandCenterSettings() {
         homeHref="/command-center"
       />
 
+      <div className="rounded-2xl border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-200">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="font-semibold">
+              หน้านี้ยังเป็น legacy/admin settings ระหว่างย้ายไปโครง SaaS Owner
+            </p>
+            <p className="mt-1">
+              การเพิ่มร้านค้าและดู Dashboard ลูกค้าให้เริ่มจาก `/owner`
+              ส่วนสิทธิ์กลุ่ม LINE ในหน้านี้ยังใช้ต่อชั่วคราว
+            </p>
+          </div>
+          <a
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-warning-300 bg-white px-4 text-sm font-semibold text-warning-800 hover:bg-warning-100 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-100"
+            href="/owner"
+          >
+            ไปหน้า Owner Admin
+          </a>
+        </div>
+      </div>
+
       <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">

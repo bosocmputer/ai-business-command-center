@@ -711,10 +711,10 @@ function mapLineRow(line: SalesDetailRow) {
 
 function formatTenantName(tenantId: string) {
   if (tenantId === "tenant_demo_remote") {
-    return "Demo Remote";
+    return "DEMO SHOP";
   }
   if (tenantId === "tenant_office_sml1_2026") {
-    return "Office SML1 2026";
+    return "248 SHOP";
   }
   return tenantId;
 }

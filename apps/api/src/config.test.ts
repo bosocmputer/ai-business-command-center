@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { readLineChannelConfig, readLineChannelCredentials } from "./config.js";
+import {
+  getTenantSlug,
+  readLineChannelConfig,
+  readLineChannelCredentials,
+  resolveTenantIdFromSlug,
+} from "./config.js";
 
 const lineEnvKeys = [
   "LINE_CHANNEL_ACCESS_TOKEN",
@@ -60,5 +65,21 @@ describe("LINE channel configuration", () => {
 
     expect(readLineChannelCredentials("tenant_office_sml1_2026")).toBeNull();
     expect(readLineChannelConfig("tenant_office_sml1_2026")).toBeNull();
+  });
+});
+
+describe("customer dashboard tenant slugs", () => {
+  it("maps public customer slugs to internal tenant ids", () => {
+    expect(resolveTenantIdFromSlug("demo-shop")).toBe("tenant_demo_remote");
+    expect(resolveTenantIdFromSlug("248-shop")).toBe(
+      "tenant_office_sml1_2026",
+    );
+    expect(resolveTenantIdFromSlug("unknown-shop")).toBeNull();
+  });
+
+  it("does not expose a dashboard path for arbitrary tenant ids", () => {
+    expect(getTenantSlug("tenant_demo_remote")).toBe("demo-shop");
+    expect(getTenantSlug("tenant_office_sml1_2026")).toBe("248-shop");
+    expect(getTenantSlug("tenant_unknown")).toBeNull();
   });
 });

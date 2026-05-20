@@ -26,6 +26,7 @@ type TenantDefinition = Pick<
   Tenant,
   "id" | "name" | "databaseName" | "description"
 > & {
+  customerSlug: string;
   envPrefix: "SML_DEMO_DB" | "SML_OFFICE_DB";
   lineEnvPrefix: "LINE_DEMO" | "LINE_OFFICE";
 };
@@ -33,17 +34,19 @@ type TenantDefinition = Pick<
 const tenantDefinitions: TenantDefinition[] = [
   {
     id: "tenant_demo_remote",
-    name: "Demo Remote",
+    name: "DEMO SHOP",
+    customerSlug: "demo-shop",
     databaseName: readEnv("SML_DEMO_DB_NAME", "demo"),
-    description: "Remote SML demo database for customer-facing preview.",
+    description: "Remote SML demo shop for customer-facing preview.",
     envPrefix: "SML_DEMO_DB",
     lineEnvPrefix: "LINE_DEMO",
   },
   {
     id: "tenant_office_sml1_2026",
-    name: "Office SML1 2026",
+    name: "248 SHOP",
+    customerSlug: "248-shop",
     databaseName: readEnv("SML_OFFICE_DB_NAME", "sml1_2026"),
-    description: "Office test SML database for local pilot validation.",
+    description: "Office SML shop for local pilot validation.",
     envPrefix: "SML_OFFICE_DB",
     lineEnvPrefix: "LINE_OFFICE",
   },
@@ -72,6 +75,16 @@ export function listTenants(): Tenant[] {
 
 export function getTenantDefinition(tenantId: TenantId) {
   return tenantDefinitions.find((tenant) => tenant.id === tenantId) ?? null;
+}
+
+export function resolveTenantIdFromSlug(slug: string): TenantId | null {
+  return (
+    tenantDefinitions.find((tenant) => tenant.customerSlug === slug)?.id ?? null
+  );
+}
+
+export function getTenantSlug(tenantId: TenantId) {
+  return getTenantDefinition(tenantId)?.customerSlug ?? null;
 }
 
 export function readDatasourceConfig(

@@ -1,4 +1,4 @@
-# Current Status: Professional Pilot
+# Current Status: SaaS Pilot Portal
 
 ## เป้าหมายของเอกสาร
 
@@ -11,13 +11,13 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed commit: see latest `main` commit after SaaS pilot deploy
-SaaS pilot owner/customer portals: ready for deploy
+Latest deployed commit: see latest `main` commit after SaaS portal deploy
+SaaS pilot owner/customer portals: ready
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
 System store: PostgreSQL
-Pilot tenant: tenant_demo_remote
+Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
 Current report: sales_goods_services
 ```
 
@@ -26,14 +26,18 @@ Current report: sales_goods_services
 LAN:
 
 ```text
-Web: http://192.168.2.109:3055/command-center
+Web Owner: http://192.168.2.109:3055/owner
+Web Customer DEMO SHOP: http://192.168.2.109:3055/app/demo-shop
+Web Customer 248 SHOP: http://192.168.2.109:3055/app/248-shop
 API: http://192.168.2.109:4055
 ```
 
 Public demo ผ่าน trycloudflare:
 
 ```text
-Web: https://relationship-code-others-challenging.trycloudflare.com
+Web Owner: https://relationship-code-others-challenging.trycloudflare.com/owner
+Web Customer DEMO SHOP: https://relationship-code-others-challenging.trycloudflare.com/app/demo-shop
+Web Customer 248 SHOP: https://relationship-code-others-challenging.trycloudflare.com/app/248-shop
 API: https://bibliography-numbers-lite-motion.trycloudflare.com
 ```
 
@@ -57,7 +61,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - เมื่อวานเทียบกับวันก่อนหน้า
   - เมื่อวานเทียบกับวันเดียวกันสัปดาห์ก่อน
 
-### Dashboard / Admin
+### SaaS Portal / Dashboard
 
 - `/owner` เป็น Owner Admin portal สำหรับทีมเรา:
   - เห็นทุกร้าน
@@ -65,19 +69,26 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - เปลี่ยน subscription status เช่น `active`, `suspended`
   - ดู tenant health เช่น datasource, LINE OA, LINE targets, users, latest run/delivery
   - เพิ่ม LINE OA metadata ต่อร้าน
-- `/app` เป็น Customer Viewer portal:
+- Owner card มีปุ่ม `เปิด Dashboard ลูกค้า` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
+- `/app` เป็น neutral state:
+  - ไม่โชว์ข้อมูลร้านใดอัตโนมัติ
+  - บอกให้ใช้ลิงก์ร้านค้าที่ได้รับจากผู้ดูแล
+- `/app/:tenantSlug` เป็น Customer Viewer portal:
   - read-only
   - ไม่มี config/admin token/manual mutation
-  - ใช้ tenant session shim ใน MVP และต้องเปลี่ยนเป็น login/session จริงก่อน production
+  - derive tenant จาก slug ฝั่ง server เท่านั้น ไม่ใช้ `tenant_id` จาก query/header
+  - slug ที่ใช้งานจริงตอนนี้:
+    - `demo-shop` -> DEMO SHOP
+    - `248-shop` -> 248 SHOP
   - tenant `suspended`/`cancelled` ถูก block ด้วยข้อความติดต่อผู้ดูแล
-- `/command-center` เป็น admin control room สำหรับทีมดูแล ไม่ใช่หน้าลูกค้ากดจาก LINE
+- `/command-center` และ `/command-center/settings` ยังอยู่ชั่วคราวเป็น legacy/admin report surface พร้อม notice ให้ย้ายไป `/owner`
 - First viewport เหลือ tenant selector, date range, run action, และ empty/latest state
 - Advanced section เก็บ charts, run history, audit, reconciliation, preview และตาราง
-- Sidebar เหลือ navigation จริง:
-  - ภาพรวม
-  - รายงานขาย
-  - Morning Brief
-  - ตั้งค่า
+- Sidebar ฝั่ง admin เปลี่ยนเป็น SaaS owner navigation:
+  - ภาพรวมเจ้าของ
+  - ร้านค้า
+  - รายงาน
+  - LINE OA
   - ประวัติระบบ
 - แก้ sidebar active state ให้รองรับ hash route เช่น `#morning-brief`
 
@@ -157,6 +168,10 @@ x-ai-bcc-admin-token: <server-only-token>
   - `PATCH /api/owner/tenants/:tenantId`
   - `GET /api/owner/line-channels`
   - `POST /api/owner/line-channels`
+- Customer read-only endpoints:
+  - `GET /api/app/:tenantSlug/session`
+  - `GET /api/app/:tenantSlug/reports/sales_goods_services/latest`
+- Legacy customer endpoints ที่ไม่มี slug (`/api/app/session`, `/api/app/reports/...`) จะตอบ safe error และไม่ default ไป DEMO SHOP อีกแล้ว
 - UI ใช้ TailAdmin-style dialog สำหรับกรอก admin token และเก็บใน `sessionStorage`
 - UI ใช้ TailAdmin-style confirmation dialog ก่อนส่ง LINE จริง / ส่ง test จริง
 - API log redact `x-ai-bcc-admin-token`
@@ -210,6 +225,11 @@ system_store                        -> postgres
 
 Browser QA:
 
+- `/` redirect ไป `/owner`
+- `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP
+- `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
+- `/app/demo-shop` แสดงข้อมูล DEMO SHOP แบบ read-only
+- `/app/248-shop` แสดงข้อมูล 248 SHOP แบบ read-only
 - `/command-center` โหลดได้ ไม่มี horizontal overflow
 - `/command-center/settings` โหลดได้ ไม่มี horizontal overflow
 - `/command-center/brief` signed link โหลดได้ ไม่มี horizontal overflow
@@ -223,7 +243,8 @@ Browser QA:
 - SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
 - LINE OA token/secret ยังอยู่ใน env หรือ metadata registry ไม่ใช่ encrypted secret table
 - customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี `line_channels` registry, pending target discovery และ permission profile แล้ว
-- `/app` customer session ยังเป็น MVP shim ไม่ใช่ login/role จริง
+- `/app/:tenantSlug` ยังเป็น pilot link-based viewer ไม่ใช่ login/role จริง
+- หลังมี login จริง customer tenant ต้อง derive จาก session/role ไม่ใช่ slug เพียงอย่างเดียว
 - `subscriptions` ยังไม่แยก table ใช้ `tenants.status` เป็น gate จริงชั่วคราว
 - `tenant_report_configs` ยังไม่เปิดใช้จริง รายงานแรกยังเป็น `sales_goods_services`
 - ยังไม่แยกสิทธิ์ราย user ใน LINE group เดียวกัน
@@ -235,14 +256,14 @@ Browser QA:
 
 Priority 1:
 
-1. Browser QA `/owner`, `/app`, `/command-center/settings`, `/command-center/brief`
-2. ทดสอบเปลี่ยน tenant status เป็น `suspended` แล้ว `/app` ถูก block และ Morning Brief skip
+1. Browser QA `/`, `/owner`, `/app`, `/app/demo-shop`, `/app/248-shop`, `/command-center/settings`, `/command-center/brief`
+2. ทดสอบเปลี่ยน tenant status เป็น `suspended` แล้ว `/app/:tenantSlug` ถูก block และ Morning Brief skip
 3. เพิ่ม LINE OA metadata ใน `/owner` แล้วตรวจว่าไม่ leak token/secret
-4. ออกแบบ login/session จริงแทน customer session shim
+4. ออกแบบ login/session จริงแทน slug-only customer pilot
 
 Priority 2:
 
-1. ทำ login/session จริงสำหรับ owner/customer แทน admin token/session shim
+1. ทำ login/session จริงสำหรับ owner/customer แทน admin token/slug-only viewer
 2. ทำ encrypted datasource secret store และ owner datasource config
 3. ทำ encrypted LINE channel token/secret store สำหรับหลาย LINE OA จริง
 4. เพิ่ม `subscriptions` และ `tenant_report_configs` เป็น table/workflow แยก

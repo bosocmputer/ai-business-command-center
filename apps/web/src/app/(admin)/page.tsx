@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import React from "react";
-import CommandCenterDashboard from "@/components/command-center/CommandCenterDashboard";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
-  title: "แดชบอร์ดยอดขาย SML | AI Business Command Center",
-  description: "แดชบอร์ดยอดขายสินค้าและบริการสำหรับลูกค้า SML",
+  title: "Owner Admin | AI Business",
+  description: "ระบบเจ้าของสำหรับจัดการร้านค้าและ subscription",
 };
 
 export default function DashboardHome() {
-  return <CommandCenterDashboard />;
+  redirect("/owner");
 }

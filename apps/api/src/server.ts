@@ -22,11 +22,13 @@ import {
 import {
   getApiConfig,
   getTenantDefinition,
+  getTenantSlug,
   listTenants,
   readDatasourceConfig,
   readLineChannelCredentials,
   readLineChannelConfig,
   readLineWebhookConfig,
+  resolveTenantIdFromSlug,
 } from "./config.js";
 import {
   runSalesGoodsServicesReport,
@@ -311,8 +313,8 @@ app.post("/api/owner/line-channels", async (request, reply) => {
   return { data: saved };
 });
 
-app.get("/api/app/session", async (request, reply) => {
-  const session = await resolveCustomerSession(request);
+app.get("/api/app/:tenantSlug/session", async (request, reply) => {
+  const session = await resolveCustomerSessionBySlug(request.params);
   if (!session.ok) {
     return reply.status(session.statusCode).send({ error: session.error });
   }
@@ -320,33 +322,55 @@ app.get("/api/app/session", async (request, reply) => {
   return {
     data: {
       role: "tenant_viewer",
+      tenant_slug: session.tenantSlug,
       tenant: session.tenant,
       access: tenantAccessStatus(session.tenant),
     },
   };
 });
 
-app.get("/api/app/reports/sales_goods_services/latest", async (request, reply) => {
-  const session = await resolveCustomerSession(request);
-  if (!session.ok) {
-    return reply.status(session.statusCode).send({ error: session.error });
-  }
+app.get("/api/app/session", async (_request, reply) =>
+  reply.status(400).send({
+    error:
+      "Customer dashboard requires a shop link. Use /app/{tenant-slug} instead.",
+  }),
+);
 
-  const access = tenantAccessStatus(session.tenant);
-  if (!access.enabled) {
-    return reply.status(403).send({
-      error: access.message,
-      tenant_status: session.tenant.status,
-    });
-  }
+app.get(
+  "/api/app/:tenantSlug/reports/sales_goods_services/latest",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
 
-  const snapshot = await systemStore.getLatestSnapshot(session.tenant.id);
-  if (!snapshot) {
-    return reply.status(404).send({ error: "Snapshot not found" });
-  }
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
 
-  return { data: snapshot, tenant: session.tenant };
-});
+    const snapshot = await systemStore.getLatestSnapshot(session.tenant.id);
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+
+    return {
+      data: snapshot,
+      tenant: session.tenant,
+      tenant_slug: session.tenantSlug,
+    };
+  },
+);
+
+app.get("/api/app/reports/sales_goods_services/latest", async (_request, reply) =>
+  reply.status(400).send({
+    error:
+      "Customer reports require a shop link. Use /api/app/{tenant-slug}/reports/sales_goods_services/latest.",
+  }),
+);
 
 app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
@@ -1643,9 +1667,13 @@ async function buildOwnerTenantSummary(tenantId: TenantId) {
       target.allowed_actions.includes("receive_morning_brief"),
   );
   const access = tenantAccessStatus(tenant);
+  const customerDashboardSlug = getTenantSlug(tenant.id);
 
   return {
     tenant,
+    customer_dashboard_path: customerDashboardSlug
+      ? `/app/${customerDashboardSlug}`
+      : null,
     access,
     health: {
       datasource_configured: tenant.datasourceConfigured,
@@ -1745,27 +1773,26 @@ async function getTenantOrNull(tenantId: TenantId) {
   );
 }
 
-async function resolveCustomerSession(request: {
-  headers: Record<string, string | string[] | undefined>;
-}) {
-  const headerTenantId = request.headers["x-ai-bcc-tenant-id"];
-  const rawTenantId = Array.isArray(headerTenantId)
-    ? headerTenantId[0]
-    : headerTenantId;
-  const tenantId =
-    tenantIdSchema.safeParse(rawTenantId).success && rawTenantId
-      ? rawTenantId
-      : process.env.CUSTOMER_DEMO_TENANT_ID || "tenant_demo_remote";
-  const parsed = tenantIdSchema.safeParse(tenantId);
+async function resolveCustomerSessionBySlug(params: unknown) {
+  const parsed = tenantSlugParamsSchema.safeParse(params);
   if (!parsed.success) {
     return {
       ok: false as const,
-      statusCode: 400,
-      error: "Invalid customer tenant session.",
+      statusCode: 404,
+      error: "Customer dashboard link not found.",
     };
   }
 
-  const tenant = await getTenantOrNull(parsed.data);
+  const tenantId = resolveTenantIdFromSlug(parsed.data.tenantSlug);
+  if (!tenantId) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "Customer dashboard link not found.",
+    };
+  }
+
+  const tenant = await getTenantOrNull(tenantId);
   if (!tenant) {
     return {
       ok: false as const,
@@ -1777,6 +1804,7 @@ async function resolveCustomerSession(request: {
   return {
     ok: true as const,
     tenant,
+    tenantSlug: parsed.data.tenantSlug,
   };
 }
 
@@ -2064,6 +2092,14 @@ function maskIdentifier(value: string) {
 
 const tenantParamsSchema = z.object({
   tenantId: tenantIdSchema,
+});
+
+const tenantSlugParamsSchema = z.object({
+  tenantSlug: z
+    .string()
+    .min(3)
+    .max(80)
+    .regex(/^[a-z0-9][a-z0-9-]*$/),
 });
 
 const signedSnapshotParamsSchema = z.object({

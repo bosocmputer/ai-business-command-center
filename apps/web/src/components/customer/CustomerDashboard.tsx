@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   SalesComparisonPoint,
   SalesGoodsServicesSnapshot,
@@ -13,6 +13,7 @@ const API_BASE_URL = getCommandCenterApiBaseUrl();
 
 type CustomerSession = {
   role: "tenant_viewer";
+  tenant_slug: string;
   tenant: Tenant;
   access: {
     enabled: boolean;
@@ -26,19 +27,35 @@ type DashboardState =
   | { status: "ready"; session: CustomerSession; snapshot: SalesGoodsServicesSnapshot }
   | { status: "empty"; session: CustomerSession; message: string }
   | { status: "blocked"; message: string; tenantStatus?: string }
+  | { status: "not_found"; message: string }
   | { status: "error"; message: string };
 
-export default function CustomerDashboard() {
+type CustomerDashboardProps = {
+  tenantSlug?: string;
+};
+
+export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps) {
   const [state, setState] = useState<DashboardState>({ status: "loading" });
 
-  useEffect(() => {
-    void loadDashboard();
-  }, []);
+  const loadDashboard = useCallback(async () => {
+    if (!tenantSlug) {
+      return;
+    }
 
-  async function loadDashboard() {
     setState({ status: "loading" });
     try {
-      const sessionResponse = await fetch(`${API_BASE_URL}/api/app/session`);
+      const safeTenantSlug = encodeURIComponent(tenantSlug);
+      const sessionResponse = await fetch(
+        `${API_BASE_URL}/api/app/${safeTenantSlug}/session`,
+      );
+      if (sessionResponse.status === 404) {
+        setState({
+          status: "not_found",
+          message:
+            "ไม่พบลิงก์ร้านค้านี้ กรุณาตรวจสอบลิงก์ที่ได้รับจากผู้ดูแล",
+        });
+        return;
+      }
       if (!sessionResponse.ok) {
         const payload = (await sessionResponse.json().catch(() => ({}))) as {
           error?: string;
@@ -59,7 +76,7 @@ export default function CustomerDashboard() {
       }
 
       const reportResponse = await fetch(
-        `${API_BASE_URL}/api/app/reports/sales_goods_services/latest`,
+        `${API_BASE_URL}/api/app/${safeTenantSlug}/reports/sales_goods_services/latest`,
       );
       if (reportResponse.status === 403) {
         const payload = (await reportResponse.json().catch(() => ({}))) as {
@@ -104,6 +121,31 @@ export default function CustomerDashboard() {
           error instanceof Error ? error.message : "โหลด dashboard ไม่สำเร็จ",
       });
     }
+  }, [tenantSlug]);
+
+  useEffect(() => {
+    if (!tenantSlug) {
+      return;
+    }
+    void loadDashboard();
+  }, [loadDashboard, tenantSlug]);
+
+  if (!tenantSlug) {
+    return (
+      <CustomerShell title="AI Business สำหรับร้านค้า">
+        <div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <Badge color="light">Customer Viewer</Badge>
+          <h1 className="mt-4 text-2xl font-semibold text-gray-900">
+            กรุณาใช้ลิงก์ร้านค้าที่ได้รับจากผู้ดูแล
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            หน้านี้ไม่เลือกข้อมูลร้านให้อัตโนมัติ เพื่อป้องกันการเห็นข้อมูลผิดร้าน
+            หากคุณเป็นลูกค้า ให้เปิดลิงก์เฉพาะร้าน เช่น `/app/demo-shop`
+            หรือ `/app/248-shop` ที่ผู้ดูแลส่งให้
+          </p>
+        </div>
+      </CustomerShell>
+    );
   }
 
   if (state.status === "loading") {
@@ -133,6 +175,22 @@ export default function CustomerDashboard() {
       <CustomerShell title="โหลดข้อมูลไม่สำเร็จ">
         <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-error-200 bg-error-50 p-6 text-center text-error-700">
           {state.message}
+        </div>
+      </CustomerShell>
+    );
+  }
+
+  if (state.status === "not_found") {
+    return (
+      <CustomerShell title="ไม่พบร้านค้า">
+        <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <Badge color="warning">ไม่พบลิงก์ร้านค้า</Badge>
+          <h1 className="mt-4 text-2xl font-semibold text-gray-900">
+            เปิด Dashboard ร้านค้านี้ไม่ได้
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            {state.message}
+          </p>
         </div>
       </CustomerShell>
     );

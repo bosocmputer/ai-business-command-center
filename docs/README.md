@@ -57,7 +57,8 @@
 | Phase 1A | Done | report runner + dashboard สำหรับ `sales_goods_services` |
 | Phase 1B | Done | LINE OA demo + webhook + manual send |
 | Phase 1C | Done | scheduler 08:00, system PostgreSQL, signed brief viewer, admin mutation token |
-| Phase 1D | Current | stabilize professional pilot, observe 08:00 run, polish UX from real feedback |
+| Phase 1D | Done | professional LINE brief, signed viewer, permission profiles |
+| Phase 1E | Current | SaaS pilot portal: Owner Admin + Customer Viewer per tenant slug |
 | Phase 2 | Future | report library เพิ่มเติมและ multi-tenant subscription |
 | Phase 3 | Future | LINE/Web chatbot over approved reports |
 | Phase 4 | Future | AI business copilot, anomaly, recommendation |
@@ -67,13 +68,15 @@
 สถานะล่าสุดอยู่ที่ [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md)
 
 ```text
-Latest commit: 9b7cb23
-Web LAN: http://192.168.2.109:3055/command-center
+Latest commit: see latest `main` commit after SaaS portal deploy
+Web Owner LAN: http://192.168.2.109:3055/owner
+Web Customer DEMO SHOP LAN: http://192.168.2.109:3055/app/demo-shop
+Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
 API LAN: http://192.168.2.109:4055
 Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
 System store: PostgreSQL
-Pilot tenant: tenant_demo_remote
+Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
 ```
 
 ห้ามบันทึก signed viewer URL แบบเต็มลงเอกสาร เพราะมี `token=...`

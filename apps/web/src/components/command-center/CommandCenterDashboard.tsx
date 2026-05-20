@@ -135,10 +135,10 @@ const defaultDateRange = {
   date_to: "2026-05-19",
 };
 const fallbackTenantOptions = [
-  { value: "tenant_demo_remote", label: "บริษัท Demo Remote (ฐาน demo)" },
+  { value: "tenant_demo_remote", label: "DEMO SHOP (ฐาน demo)" },
   {
     value: "tenant_office_sml1_2026",
-    label: "บริษัท Office SML1 2026 (ฐาน sml1_2026)",
+    label: "248 SHOP (ฐาน sml1_2026)",
   },
 ];
 
@@ -452,6 +452,26 @@ export default function CommandCenterDashboard() {
         homeLabel="หน้าแรก"
         homeHref="/command-center"
       />
+
+      <div className="rounded-2xl border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-200">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="font-semibold">
+              หน้านี้เป็น legacy/admin report surface ระหว่างเปลี่ยนไป SaaS portal
+            </p>
+            <p className="mt-1">
+              งานจัดการร้านค้า subscription และลิงก์ Dashboard ลูกค้าให้เริ่มจาก
+              หน้า Owner Admin แทน
+            </p>
+          </div>
+          <a
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-warning-300 bg-white px-4 text-sm font-semibold text-warning-800 hover:bg-warning-100 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-100"
+            href="/owner"
+          >
+            ไปหน้า Owner Admin
+          </a>
+        </div>
+      </div>
 
       <ReportControlBar
         tenantId={tenantId}

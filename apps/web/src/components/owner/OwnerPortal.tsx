@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { LineChannelRecord, Tenant } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -15,6 +16,7 @@ const API_BASE_URL = getCommandCenterApiBaseUrl();
 
 type TenantSummary = {
   tenant: Tenant;
+  customer_dashboard_path: string | null;
   access: {
     enabled: boolean;
     status: string;
@@ -280,12 +282,15 @@ export default function OwnerPortal() {
       <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-medium text-brand-500">Owner Admin</p>
+            <p className="text-sm font-medium text-brand-500">
+              ภาพรวมเจ้าของ
+            </p>
             <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
-              AI Business SaaS Control
+              AI Business SaaS Pilot
             </h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              ควบคุมร้านค้า subscription, tenant health และ LINE OA จากที่เดียว
+              เพิ่มร้านค้า คุมสถานะ subscription เชื่อม SML และจัดการ LINE OA
+              ของแต่ละร้านจากที่เดียว
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -315,6 +320,43 @@ export default function OwnerPortal() {
         </div>
       )}
 
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              ขั้นตอนเปิดร้านค้าใหม่
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              ใช้ flow นี้กับลูกค้า: เพิ่มร้าน → เชื่อม SML → ตั้ง LINE OA →
+              ลูกค้าดึง OA เข้ากลุ่ม → owner อนุมัติ → ส่งทดสอบ
+            </p>
+          </div>
+          <Badge color="light">Owner-managed setup</Badge>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          {[
+            "เพิ่มร้าน",
+            "เชื่อม SML",
+            "ตั้ง LINE OA",
+            "ดึง OA เข้ากลุ่ม",
+            "อนุมัติสิทธิ์",
+            "ส่งทดสอบ",
+          ].map((step, index) => (
+            <div
+              className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+              key={step}
+            >
+              <p className="text-xs font-medium text-brand-500">
+                ขั้นที่ {index + 1}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+                {step}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <form
         className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
         onSubmit={createTenant}
@@ -341,7 +383,10 @@ export default function OwnerPortal() {
         </div>
       </form>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
+      <section
+        className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]"
+        id="tenants"
+      >
         <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
@@ -392,7 +437,8 @@ export default function OwnerPortal() {
             LINE OA ของร้าน
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            1 ร้านมีได้หลาย LINE OA และแต่ละ OA มีหลายกลุ่ม LINE ที่รออนุมัติจากหน้า Settings
+            1 ร้านมีได้หลาย LINE OA และแต่ละ OA มีหลายกลุ่ม LINE
+            ที่รออนุมัติจากหน้า LINE OA/สิทธิ์กลุ่ม
           </p>
 
           <div className="mt-4 space-y-3">
@@ -516,6 +562,16 @@ function TenantCard({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {item.customer_dashboard_path ? (
+            <Link
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+              href={item.customer_dashboard_path}
+              rel="noreferrer"
+              target="_blank"
+            >
+              เปิด Dashboard ลูกค้า
+            </Link>
+          ) : null}
           <Button
             disabled={busy === `${tenant.id}-active`}
             size="sm"
