@@ -434,10 +434,10 @@ export default function OwnerPortal() {
           />
 
       <section
-        className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]"
+        className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]"
         id="tenants"
       >
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-base font-semibold text-gray-900 dark:text-white">
@@ -782,7 +782,7 @@ function TenantCard({
   const readiness = getTenantReadiness(item, datasourceTest);
   return (
     <div
-      className={`rounded-2xl border bg-white p-5 dark:bg-white/[0.03] ${
+      className={`rounded-xl border bg-white p-5 dark:bg-white/[0.03] ${
         selected
           ? "border-brand-200 ring-1 ring-brand-100 dark:border-brand-500/40 dark:ring-brand-500/20"
           : "border-gray-200 dark:border-gray-800"
@@ -847,7 +847,7 @@ function TenantCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-5">
         <HealthFact
           label="Pilot readiness"
           value={readiness.label}
@@ -898,7 +898,7 @@ function TenantDetailPanel({
 }) {
   if (!item) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
         เลือกร้านค้าเพื่อดูรายละเอียดการตั้งค่า
       </div>
     );
@@ -909,7 +909,7 @@ function TenantDetailPanel({
   const readiness = getTenantReadiness(item, datasourceTest);
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-gray-400">
@@ -944,24 +944,26 @@ function TenantDetailPanel({
       </div>
 
       <div className="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
-        <div className="mb-5 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Pilot readiness checklist
-              </p>
-              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                เช็คก่อนเปิดให้ลูกค้าใช้งานจริง: ถ้าขาดข้อไหน ระบบยังใช้ได้บางส่วน แต่ยังไม่ควร roll out แบบไม่เฝ้าดู
-              </p>
+        <details className="mb-5 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <summary className="cursor-pointer list-none">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Pilot readiness checklist
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  เปิดดูเฉพาะตอนเตรียม rollout ร้านนี้
+                </p>
+              </div>
+              <Badge color={readiness.tone}>{readiness.label}</Badge>
             </div>
-            <Badge color={readiness.tone}>{readiness.label}</Badge>
-          </div>
+          </summary>
           <div className="mt-4 grid gap-2">
             {readiness.items.map((check) => (
               <ReadinessRow key={check.label} item={check} />
             ))}
           </div>
-        </div>
+        </details>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
