@@ -26,6 +26,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
 - LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
+- `/signin` Owner login สำหรับ admin surface ค่าเริ่มต้น pilot คือ `superadmin/superadmin`
 - `/owner` Owner Admin portal สำหรับคุณ/ทีม ใช้ดูทุกร้าน, เพิ่มร้าน, คุม subscription status, LINE OA metadata และเปิดลิงก์ Dashboard ลูกค้า
 - `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
@@ -35,7 +36,8 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send
 - Signed report viewer link TTL default `72` ชั่วโมง
 - Duplicate guard สำหรับ Morning Brief delivery ต่อ target
-- Lightweight admin token guard สำหรับ mutation endpoints
+- Signed owner session cookie สำหรับ route protection
+- Lightweight admin token guard สำหรับ mutation endpoints ระหว่าง MVP transition
 - Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
 สิ่งที่ไม่มีแล้ว:

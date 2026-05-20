@@ -63,6 +63,12 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 
 ### SaaS Portal / Dashboard
 
+- `/signin` เป็น Owner login สำหรับ admin surface:
+  - ค่าเริ่มต้น pilot: `superadmin / superadmin`
+  - เมื่อ login สำเร็จจะตั้ง signed HTTP-only cookie สำหรับ route protection
+  - ระหว่าง MVP จะ bootstrap admin mutation token ใน `sessionStorage` เพื่อไม่ต้องกรอก token ซ้ำ
+- `/`, `/owner`, `/command-center`, `/command-center/settings` และหน้า admin/template เดิมถูก gate ด้วย owner login
+- `/app`, `/app/:tenantSlug` และ `/command-center/brief` ยังเป็น public/read-only ตามหน้าที่ของ customer viewer และ signed LINE viewer
 - `/owner` เป็น Owner Admin portal สำหรับทีมเรา:
   - เห็นทุกร้าน
   - เพิ่ม tenant ใหม่
@@ -90,7 +96,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - รายงาน
   - LINE OA
   - ประวัติระบบ
-- แก้ sidebar active state ให้รองรับ hash route เช่น `#morning-brief`
+- แก้ sidebar active state ให้ sync path/hash ตอนเปลี่ยนหน้า เช่น `/owner#tenants`, `/command-center#run-history`, `/command-center/settings`
 
 ### LINE Brief Viewer
 
@@ -172,7 +178,9 @@ x-ai-bcc-admin-token: <server-only-token>
   - `GET /api/app/:tenantSlug/session`
   - `GET /api/app/:tenantSlug/reports/sales_goods_services/latest`
 - Legacy customer endpoints ที่ไม่มี slug (`/api/app/session`, `/api/app/reports/...`) จะตอบ safe error และไม่ default ไป DEMO SHOP อีกแล้ว
-- UI ใช้ TailAdmin-style dialog สำหรับกรอก admin token และเก็บใน `sessionStorage`
+- Owner login ใช้ signed cookie ชื่อ `ai_bcc_owner_session`
+- Mutation API เดิมยังใช้ `x-ai-bcc-admin-token` เป็น MVP guard โดยหน้า login จะ bootstrap token ให้หลังเข้าสู่ระบบ
+- UI ใช้ TailAdmin-style dialog สำหรับกรอก admin token เฉพาะกรณี sessionStorage ไม่มี token หรือ token ใช้ไม่ได้
 - UI ใช้ TailAdmin-style confirmation dialog ก่อนส่ง LINE จริง / ส่ง test จริง
 - API log redact `x-ai-bcc-admin-token`
 - LINE target API response/audit ใช้ masked/hash id ไม่ expose target id เต็ม
@@ -201,7 +209,7 @@ comparison: true
 
 ## Validation ล่าสุด
 
-Local validation หลังปรับ SaaS portal routing:
+Local validation หลังเพิ่ม Owner login + sidebar active fix:
 
 ```text
 corepack pnpm -r typecheck  -> pass
@@ -229,6 +237,9 @@ system_store                        -> postgres
 Browser QA:
 
 - `/` redirect ไป `/owner`
+- ถ้ายังไม่ login, `/owner` และ `/command-center` redirect ไป `/signin?next=...`
+- login ด้วย `superadmin/superadmin` เข้า `/owner` ได้
+- logout แล้วกลับไป `/signin`
 - `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP
 - `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
 - `/app/demo-shop` แสดงข้อมูล DEMO SHOP แบบ read-only
@@ -237,11 +248,13 @@ Browser QA:
 - `/command-center/settings` โหลดได้ ไม่มี horizontal overflow
 - `/command-center/brief` signed link โหลดได้ ไม่มี horizontal overflow
 - หน้า brief ไม่มี token leak ใน body text
-- Sidebar active state ทำงานกับ path/hash แล้ว
+- Sidebar active state ทำงานกับ path/hash หลังเปลี่ยนหน้าแล้ว
 
 ## สิ่งที่ยังเป็น MVP ไม่ใช่ Production เต็ม
 
-- Admin auth ยังเป็น shared token prompt ไม่ใช่ login/role permission
+- Owner auth เป็น signed cookie login แล้ว แต่ยังเป็น single admin user ไม่ใช่ user table/role เต็ม
+- ค่า credential เริ่มต้น `superadmin/superadmin` ใช้เฉพาะ pilot ต้องเปลี่ยนก่อน production จริง
+- Mutation API ยังพึ่ง `x-ai-bcc-admin-token` ระหว่างเปลี่ยนผ่านไป session/role เต็ม
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
 - LINE OA token/secret ยังอยู่ใน env หรือ metadata registry ไม่ใช่ encrypted secret table
