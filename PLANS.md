@@ -56,7 +56,7 @@ Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
 API LAN: http://192.168.2.109:4055
 Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
-Latest deployed commit: see latest `main` commit after SaaS pilot deploy
+Latest deployed code commit: 068a594
 ```
 
 ห้ามบันทึก signed viewer URL เต็มลงเอกสาร เพราะ URL มี `token=...`

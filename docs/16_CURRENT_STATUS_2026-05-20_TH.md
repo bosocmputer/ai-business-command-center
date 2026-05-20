@@ -11,7 +11,7 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed code commit: aed0eab
+Latest deployed code commit: 068a594
 SaaS pilot owner/customer portals: ready
 GitHub branch: main
 Deploy target: 192.168.2.109
@@ -249,6 +249,7 @@ Browser QA:
 - `/command-center/brief` signed link โหลดได้ ไม่มี horizontal overflow
 - หน้า brief ไม่มี token leak ใน body text
 - Sidebar active state ทำงานกับ path/hash หลังเปลี่ยนหน้าแล้ว
+- Browser logout จาก user dropdown ล้าง session แล้ว redirect ไป `/signin`
 
 ## สิ่งที่ยังเป็น MVP ไม่ใช่ Production เต็ม
 
