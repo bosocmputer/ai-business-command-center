@@ -46,6 +46,10 @@ const navItems: NavItem[] = [
   },
 ];
 
+const defaultHashByPath: Record<string, string> = {
+  "/command-center": "#sales-report",
+};
+
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
@@ -98,6 +102,7 @@ const AppSidebar: React.FC = () => {
             nav.path && (
               <Link
                 href={nav.path}
+                aria-current={isActive(nav.path) ? "page" : undefined}
                 className={`menu-item group ${
                   isActive(nav.path) ? "menu-item-active" : "menu-item-inactive"
                 }`}
@@ -190,8 +195,12 @@ const AppSidebar: React.FC = () => {
     const syncHash = () => setCurrentHash(window.location.hash);
     syncHash();
     window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
-  }, []);
+    window.addEventListener("popstate", syncHash);
+    return () => {
+      window.removeEventListener("hashchange", syncHash);
+      window.removeEventListener("popstate", syncHash);
+    };
+  }, [pathname]);
 
   const isActive = useCallback(
     (path: string) => {
@@ -200,7 +209,11 @@ const AppSidebar: React.FC = () => {
         return false;
       }
       if (hash) {
-        return currentHash === `#${hash}`;
+        const expectedHash = `#${hash}`;
+        return (
+          currentHash === expectedHash ||
+          (currentHash === "" && defaultHashByPath[pathOnly] === expectedHash)
+        );
       }
       return currentHash === "";
     },
