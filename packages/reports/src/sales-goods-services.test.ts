@@ -273,7 +273,7 @@ describe("sales_goods_services contract", () => {
     expect(longUrlPreview.flex_message).toBeUndefined();
   });
 
-  it("renders a compact executive Flex empty state without noisy empty sections", () => {
+  it("renders a hybrid report-card Flex empty state without alarm wording", () => {
     const snapshot = createEmptySalesGoodsServicesSnapshot({
       tenant_id: "tenant_demo_remote",
       run_id: "empty_line_preview",
@@ -304,15 +304,20 @@ describe("sales_goods_services contract", () => {
 
     expect(preview.line_message_type).toBe("flex");
     expect(preview.flex_message?.altText).toContain("ไม่พบยอดขาย");
-    expect(flexJson).toContain("สิ่งที่ควรตรวจ");
-    expect(flexJson).toContain("วันก่อนหน้ามียอดขาย 6,161.10 บาท จาก 4 บิล");
+    expect(flexJson).toContain("วันนี้ควรรู้อะไร");
+    expect(flexJson).toContain(
+      "ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย 6,161.10 บาท จาก 4 บิล",
+    );
+    expect(flexJson).toContain("ยอดขายตามสาขา");
+    expect(flexJson).toContain("สินค้าขายดี");
+    expect(flexJson).toContain("ไม่มีข้อมูลสำหรับช่วงวันที่นี้");
     expect(flexJson).not.toContain("-100%");
-    expect(flexJson).not.toContain("ยอดหลัก");
-    expect(flexJson).not.toContain("สินค้าขายดี");
+    expect(flexJson).not.toContain("สิ่งที่ควรตรวจ");
     expect(flexJson).not.toContain("ยังไม่มีข้อมูลสาขา");
     expect(flexJson).not.toContain("ยังไม่มีสินค้า");
-    expect(preview.text).not.toContain("ยอดขายตามสาขา");
-    expect(preview.text).not.toContain("สินค้าขายดี");
+    expect(preview.text).toContain("วันนี้ควรรู้อะไร");
+    expect(preview.text).toContain("ยอดขายตามสาขา");
+    expect(preview.text).toContain("สินค้าขายดี");
     expect(preview.text).not.toContain("token=signed-token");
   });
 

@@ -202,10 +202,11 @@ Live LINE send ใช้ `flex_message` เมื่อ signed viewer URL พร
 
 กรณี empty state เช่นยอดขาย `0` และไม่มีบิล:
 
-- Flex bubble ต้องเป็น executive alert แบบ compact
-- แสดง `สิ่งที่ควรตรวจ` แทนการ dump หมวดว่าง
-- ซ่อน `ยอดขายตามสาขา` และ `สินค้าขายดี` ใน bubble ถ้าไม่มีข้อมูลจริง
-- comparison แสดงเป็นข้อมูลอ้างอิง เช่น `วันก่อนหน้ามียอดขาย ...` ไม่ใช้ `-100%` ใน bubble
+- Flex bubble ต้องเป็น hybrid empty-state report card
+- คงหมวดรายงานหลัก เพื่อให้ผู้บริหารยังรู้สึกว่าเป็นรายงานขาย ไม่ใช่ระบบ error
+- แสดง `วันนี้ควรรู้อะไร` เป็น insight สั้น ไม่ใช่ checklist ยาว
+- แสดง `ยอดขายตามสาขา` และ `สินค้าขายดี` ด้วย empty summary แบบเบา ๆ
+- comparison แสดงเป็นข้อมูลอ้างอิง เช่น `ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย ...` ไม่ใช้ `-100%` ใน bubble
 
 ## Current Implementation Status
 

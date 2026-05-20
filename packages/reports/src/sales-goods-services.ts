@@ -324,12 +324,18 @@ export function renderSalesGoodsServicesLinePreview(input: {
         "ยอดขายสุทธิ: 0.00 บาท",
         "บิลขาย: 0 ใบ",
         "",
-        "สิ่งที่ควรตรวจ",
-        "- ร้านหยุดขายหรือปิดร้านในวันนั้นหรือไม่",
-        "- มีบิลขายที่ยังไม่ปิดในระบบ SML หรือไม่",
-        "- ช่วงวันที่ของรายงานถูกต้องหรือไม่",
+        "วันนี้ควรรู้อะไร",
+        "ไม่พบยอดขายในช่วงวันที่นี้ อาจเป็นวันหยุดขาย หรือยังไม่มีการปิดบิลใน SML",
         ...formatEmptyComparisonLines(snapshot),
-        ...warnings.map((warning) => `\nหมายเหตุ: ${warning}`),
+        "",
+        "ยอดขายตามสาขา",
+        "- ไม่มีข้อมูลสำหรับช่วงวันที่นี้",
+        "",
+        "สินค้าขายดี",
+        "- ไม่มีข้อมูลสำหรับช่วงวันที่นี้",
+        ...warnings
+          .filter((warning) => warning !== "ไม่พบยอดขายในช่วงวันที่นี้")
+          .map((warning) => `\nหมายเหตุ: ${warning}`),
         "",
         useFlexMessage
           ? "เปิดรายงาน: กดปุ่มใน LINE เพื่อดูรายละเอียด"
@@ -575,8 +581,9 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
 
   const { snapshot } = input;
   const comparisonText = formatEmptyComparisonSummary(snapshot);
-  const footerNote =
-    input.warnings[0] ?? "กดเปิดรายงานเพื่อดูที่มาและรายละเอียดของรอบรันนี้";
+  const footerNote = input.warnings.find(
+    (warning) => warning !== "ไม่พบยอดขายในช่วงวันที่นี้",
+  );
   const altText = truncateLineText(
     `ไม่พบยอดขาย ${input.tenantName} ${formatReportPeriod(
       snapshot.params.date_from,
@@ -594,7 +601,7 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
       header: {
         type: "box",
         layout: "vertical",
-        paddingAll: "14px",
+        paddingAll: "16px",
         backgroundColor: "#F8FAFC",
         contents: [
           {
@@ -613,7 +620,7 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
             )}`,
             size: "sm",
             color: "#6B7280",
-            margin: "xs",
+            margin: "sm",
             wrap: true,
           },
         ],
@@ -621,8 +628,8 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
       body: {
         type: "box",
         layout: "vertical",
-        paddingAll: "14px",
-        spacing: "sm",
+        paddingAll: "16px",
+        spacing: "md",
         contents: [
           {
             type: "box",
@@ -650,41 +657,48 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
             type: "text",
             text: "0.00 บาท",
             weight: "bold",
-            size: "xl",
+            size: "xxl",
             color: "#111827",
-            margin: "xs",
+            wrap: true,
           },
           {
             type: "box",
-            layout: "horizontal",
-            margin: "xs",
+            layout: "vertical",
+            spacing: "sm",
             contents: [
-              buildFlexCompactMetric("บิลขาย", "0 ใบ"),
-              buildFlexCompactMetric("รายการขาย", "0 รายการ"),
+              buildFlexMetricRow("บิลขาย", "0 ใบ"),
+              buildFlexMetricRow("จำนวนรายการขาย", "0 รายการ"),
+              buildFlexMetricRow("จำนวนขายรวม", "0"),
             ],
           },
           { type: "separator", margin: "md" },
           buildFlexInfoBlock(
-            "สิ่งที่ควรตรวจ",
-            "ร้านหยุดขาย/ปิดร้านหรือไม่\nมีบิลขายที่ยังไม่ปิดใน SML หรือไม่\nช่วงวันที่รายงานถูกต้องหรือไม่",
+            "วันนี้ควรรู้อะไร",
+            "ไม่พบยอดขายในช่วงวันที่นี้ อาจเป็นวันหยุดขาย หรือยังไม่มีการปิดบิลใน SML",
           ),
           ...(comparisonText
-            ? [buildFlexInfoBlock("ข้อมูลอ้างอิง", comparisonText)]
+            ? [buildFlexInfoBlock("เทียบยอด", comparisonText)]
             : []),
-          {
-            type: "text",
-            text: footerNote,
-            size: "xs",
-            color: "#92400E",
-            wrap: true,
-            margin: "sm",
-          },
+          buildFlexInfoBlock("ยอดขายตามสาขา", "ไม่มีข้อมูลสำหรับช่วงวันที่นี้"),
+          buildFlexInfoBlock("สินค้าขายดี", "ไม่มีข้อมูลสำหรับช่วงวันที่นี้"),
+          ...(footerNote
+            ? [
+                {
+                  type: "text",
+                  text: footerNote,
+                  size: "xs",
+                  color: "#92400E",
+                  wrap: true,
+                  margin: "sm",
+                },
+              ]
+            : []),
         ],
       },
       footer: {
         type: "box",
         layout: "vertical",
-        paddingAll: "14px",
+        paddingAll: "16px",
         contents: [
           {
             type: "button",
@@ -700,30 +714,6 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
         ],
       },
     },
-  };
-}
-
-function buildFlexCompactMetric(label: string, value: string) {
-  return {
-    type: "box",
-    layout: "vertical",
-    flex: 1,
-    contents: [
-      {
-        type: "text",
-        text: label,
-        size: "xs",
-        color: "#6B7280",
-      },
-      {
-        type: "text",
-        text: value,
-        size: "sm",
-        color: "#111827",
-        weight: "bold",
-        margin: "xs",
-      },
-    ],
   };
 }
 
@@ -822,20 +812,20 @@ function formatEmptyComparisonLines(snapshot: SalesGoodsServicesSnapshot) {
     return [];
   }
 
-  return ["", `ข้อมูลอ้างอิง: ${comparisonText}`];
+  return ["", `เทียบยอด: ${comparisonText}`];
 }
 
 function formatEmptyComparisonSummary(snapshot: SalesGoodsServicesSnapshot) {
   const previousDay = snapshot.comparison?.previous_day;
   if (previousDay && previousDay.total_sales > 0) {
-    return `วันก่อนหน้ามียอดขาย ${formatMoney(
+    return `ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย ${formatMoney(
       previousDay.total_sales,
     )} บาท จาก ${formatInteger(previousDay.document_count)} บิล`;
   }
 
   const sameWeekdayLastWeek = snapshot.comparison?.same_weekday_last_week;
   if (sameWeekdayLastWeek && sameWeekdayLastWeek.total_sales > 0) {
-    return `วันเดียวกันสัปดาห์ก่อนมียอดขาย ${formatMoney(
+    return `ต่ำกว่าวันเดียวกันสัปดาห์ก่อน ซึ่งมียอดขาย ${formatMoney(
       sameWeekdayLastWeek.total_sales,
     )} บาท จาก ${formatInteger(sameWeekdayLastWeek.document_count)} บิล`;
   }
