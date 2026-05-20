@@ -8,6 +8,9 @@ const lineEnvKeys = [
   "LINE_DEMO_CHANNEL_ACCESS_TOKEN",
   "LINE_DEMO_TARGET_ID",
   "LINE_DEMO_TARGET_TYPE",
+  "LINE_OFFICE_CHANNEL_ACCESS_TOKEN",
+  "LINE_OFFICE_TARGET_ID",
+  "LINE_OFFICE_TARGET_TYPE",
 ] as const;
 
 const originalEnv = new Map<string, string | undefined>(
@@ -49,5 +52,13 @@ describe("LINE channel configuration", () => {
       targetId: "C1234567890abcdef1234567890abcdef",
       targetType: "group",
     });
+  });
+
+  it("does not reuse the legacy demo LINE token for non-demo tenants", () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = "line-channel-token";
+    delete process.env.LINE_OFFICE_CHANNEL_ACCESS_TOKEN;
+
+    expect(readLineChannelCredentials("tenant_office_sml1_2026")).toBeNull();
+    expect(readLineChannelConfig("tenant_office_sml1_2026")).toBeNull();
   });
 });

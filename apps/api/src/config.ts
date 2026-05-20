@@ -143,7 +143,7 @@ export function readLineChannelCredentials(
 
   const channelAccessToken =
     process.env[`${tenant.lineEnvPrefix}_CHANNEL_ACCESS_TOKEN`] ||
-    process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    readLegacyLineChannelAccessToken(tenant.id);
 
   if (!channelAccessToken) {
     return null;
@@ -152,6 +152,14 @@ export function readLineChannelCredentials(
   return {
     channelAccessToken,
   };
+}
+
+function readLegacyLineChannelAccessToken(tenantId: TenantId) {
+  if (tenantId !== "tenant_demo_remote") {
+    return undefined;
+  }
+
+  return process.env.LINE_CHANNEL_ACCESS_TOKEN;
 }
 
 export function readLineWebhookConfig(): LineWebhookConfig | null {
