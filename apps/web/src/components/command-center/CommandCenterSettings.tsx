@@ -625,6 +625,7 @@ export default function CommandCenterSettings() {
           <LineTargetsCard
             targets={lineTargets}
             busyAction={busyAction}
+            onRefresh={() => void loadSettings(tenantId)}
             onApprove={(target, profileKey) =>
               void approveLineTarget(target, profileKey)
             }
@@ -687,6 +688,7 @@ function ReadinessChecklist({
 function LineTargetsCard({
   targets,
   busyAction,
+  onRefresh,
   onApprove,
   onSetProfile,
   onToggleEnabled,
@@ -694,6 +696,7 @@ function LineTargetsCard({
 }: {
   targets: LineTargetRecord[];
   busyAction: string | null;
+  onRefresh: () => void;
   onApprove: (target: LineTargetRecord, profileKey: LineAccessProfileKey) => void;
   onSetProfile: (target: LineTargetRecord, profileKey: LineAccessProfileKey) => void;
   onToggleEnabled: (target: LineTargetRecord) => void;
@@ -701,13 +704,58 @@ function LineTargetsCard({
 }) {
   return (
     <ComponentCard
-      title="LINE Groups & Permissions"
-      desc="กำหนดว่ากลุ่ม LINE ใดรับ Morning Brief หรือดูรายงานขายได้ ก่อนต่อ chatbot ในอนาคต"
-      action={<Badge color="light">{targets.length} targets</Badge>}
+      title="กลุ่ม LINE และสิทธิ์การรับรายงาน"
+      desc="กำหนดว่ากลุ่มไหนรับ Morning Brief หรือเปิดรายงานขายได้ ก่อนต่อ chatbot ในอนาคต"
+      action={
+        <div className="flex items-center gap-2">
+          <Badge color="light">{targets.length} targets</Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            className="px-3 py-2"
+            disabled={Boolean(busyAction)}
+            onClick={onRefresh}
+          >
+            รีเฟรช
+          </Button>
+        </div>
+      }
     >
+      <div className="mb-4 rounded-xl border border-blue-light-100 bg-blue-light-50 p-4 dark:border-blue-light-500/20 dark:bg-blue-light-500/10">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Badge color="info">เริ่มใช้งานกลุ่มใหม่</Badge>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            ขั้นตอนสำหรับผู้ดูแล
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-5">
+          {[
+            ["1", "เพิ่ม OA เข้ากลุ่ม LINE"],
+            ["2", "พิมพ์ test ในกลุ่ม"],
+            ["3", "กลับมากดรีเฟรช"],
+            ["4", "อนุมัติสิทธิ์ของกลุ่ม"],
+            ["5", "กดส่งทดสอบ"],
+          ].map(([step, label]) => (
+            <div
+              key={step}
+              className="rounded-lg border border-white/70 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]"
+            >
+              <p className="mb-1 text-xs font-semibold text-brand-600 dark:text-brand-400">
+                Step {step}
+              </p>
+              <p>{label}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
+          ระบบจะพยายามดึงชื่อกลุ่มจาก LINE อัตโนมัติ ถ้ายังเห็นเป็นรหัสกลุ่ม ให้รอสักครู่แล้วกดรีเฟรช
+          หรือส่งข้อความในกลุ่มอีกครั้งเพื่อให้ webhook อัปเดตข้อมูลล่าสุด
+        </p>
+      </div>
+
       {targets.length === 0 ? (
         <div className="rounded-xl border border-gray-100 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
-          ยังไม่พบกลุ่ม LINE ใหม่ หากเพิ่ม OA เข้ากลุ่มหรือมีคนพิมพ์ ระบบจะบันทึกเป็น pending target ให้อนุมัติ
+          ยังไม่พบกลุ่ม LINE ใหม่ ให้เพิ่ม OA เข้ากลุ่มแล้วพิมพ์ `test` ในกลุ่มก่อน ระบบจะบันทึกเป็นรายการรออนุมัติ
         </div>
       ) : (
         <div className="space-y-3">
@@ -738,15 +786,15 @@ function LineTargetsCard({
                     </div>
                     <div className="grid grid-cols-1 gap-2 text-xs text-gray-500 dark:text-gray-400 md:grid-cols-2 xl:grid-cols-4">
                       <span>ประเภท: {formatLineTargetType(target.target_type)}</span>
-                      <span>Target: {target.target_id_masked}</span>
-                      <span>Profile: {formatAccessProfile(target.access_profile_key)}</span>
+                      <span>รหัสปลายทาง: {target.target_id_masked}</span>
+                      <span>สิทธิ์: {formatAccessProfile(target.access_profile_key)}</span>
                       <span>
                         ล่าสุด: {target.last_delivery_at ? formatDateTime(target.last_delivery_at) : "-"}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                      Reports: {target.allowed_report_keys.length ? target.allowed_report_keys.join(", ") : "ไม่มี"} · Actions:{" "}
-                      {target.allowed_actions.length ? target.allowed_actions.join(", ") : "ไม่มี"}
+                      รายงานที่เห็นได้: {formatAllowedReports(target)} · สิทธิ์การใช้งาน:{" "}
+                      {formatAllowedActions(target)}
                     </p>
                   </div>
 
@@ -1164,6 +1212,38 @@ function formatLineTargetSource(source: LineTargetRecord["source"]) {
     return "รออนุมัติ";
   }
   return "manual";
+}
+
+function formatAllowedReports(target: LineTargetRecord) {
+  if (!target.allowed_report_keys.length) {
+    return "ยังไม่มี";
+  }
+
+  return target.allowed_report_keys
+    .map((reportKey) =>
+      reportKey === "sales_goods_services"
+        ? "รายงานขายสินค้าและบริการ"
+        : reportKey,
+    )
+    .join(", ");
+}
+
+function formatAllowedActions(target: LineTargetRecord) {
+  if (!target.allowed_actions.length) {
+    return "ยังไม่มี";
+  }
+
+  const labels = target.allowed_actions.map((action) => {
+    if (action === "receive_morning_brief") {
+      return "รับ Morning Brief";
+    }
+    if (action === "ask_report") {
+      return "ถามรายงาน";
+    }
+    return "เปิดรายงาน";
+  });
+
+  return labels.join(", ");
 }
 
 function formatRunStatus(status: ReportRunRecord["status"]) {

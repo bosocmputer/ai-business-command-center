@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SalesGoodsServicesLinePreview } from "@ai-bcc/shared";
-import { sendLineBrief } from "./line-client.js";
+import { fetchLineTargetDisplayName, sendLineBrief } from "./line-client.js";
 
 const preview = {
   tenant_id: "tenant_demo_remote",
@@ -206,6 +206,37 @@ describe("sendLineBrief", () => {
     expect(result.status).toBe("failed");
     expect(result.safe_error_message).toBe(
       "LINE push failed due to network or provider error.",
+    );
+  });
+
+  it("fetches a LINE group display name without exposing the raw target id", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ groupName: "ผู้บริหาร Demo" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const displayName = await fetchLineTargetDisplayName({
+      config: {
+        channelAccessToken: "line-token",
+        targetId: "C1234567890abcdef",
+        targetType: "group",
+      },
+      target: {
+        target_id: "C1234567890abcdef",
+        target_type: "group",
+      },
+    });
+
+    expect(displayName).toBe("ผู้บริหาร Demo");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.line.me/v2/bot/group/C1234567890abcdef/summary",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer line-token",
+        }),
+      }),
     );
   });
 });

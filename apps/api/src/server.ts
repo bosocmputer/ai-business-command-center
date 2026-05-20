@@ -31,7 +31,7 @@ import {
 } from "./report-runner.js";
 import { renderSalesGoodsServicesLinePreview } from "@ai-bcc/reports";
 import { createSystemStore } from "./system-store.js";
-import { sendLineBrief } from "./line-client.js";
+import { fetchLineTargetDisplayName, sendLineBrief } from "./line-client.js";
 import {
   normalizeLineWebhookEvents,
   sanitizeLineWebhookEvent,
@@ -343,7 +343,9 @@ app.get("/api/line-targets", async (request, reply) => {
     return reply.status(400).send({ error: "Invalid query" });
   }
 
-  const targets = await listEffectiveLineTargets(query.data.tenant_id);
+  const targets = await enrichLineTargetDisplayNames(
+    await listEffectiveLineTargets(query.data.tenant_id),
+  );
 
   return {
     data: targets.map(toSafeLineTargetRecord),
@@ -1336,6 +1338,37 @@ async function listEffectiveLineTargets(tenantId?: TenantId) {
   return effectiveTargets;
 }
 
+async function enrichLineTargetDisplayNames(
+  targets: StoredLineTargetRecord[],
+) {
+  const enrichedTargets: StoredLineTargetRecord[] = [];
+
+  for (const target of targets) {
+    const displayName = await fetchLineTargetDisplayName({
+      config: buildLineChannelConfigForTarget(target),
+      target,
+    });
+
+    if (!displayName || displayName === target.display_name) {
+      enrichedTargets.push(target);
+      continue;
+    }
+
+    const updatedTarget = {
+      ...target,
+      display_name: displayName,
+      updated_at: new Date().toISOString(),
+    };
+    enrichedTargets.push(updatedTarget);
+
+    if (target.source !== "env_fallback") {
+      await systemStore.upsertLineTarget(updatedTarget);
+    }
+  }
+
+  return enrichedTargets;
+}
+
 async function getEffectiveLineTargetById(id: string) {
   if (id.startsWith("line_target_env_")) {
     const tenantId = id.replace("line_target_env_", "");
@@ -1384,7 +1417,18 @@ async function registerWebhookLineTargets(events: ReturnType<typeof normalizeLin
       continue;
     }
 
-    const saved = await systemStore.upsertLineTarget(pendingTarget);
+    const displayName = await fetchLineTargetDisplayName({
+      config: buildLineChannelConfigForTarget(pendingTarget),
+      target: pendingTarget,
+    });
+    const targetToSave = displayName
+      ? {
+          ...pendingTarget,
+          display_name: displayName,
+          updated_at: new Date().toISOString(),
+        }
+      : pendingTarget;
+    const saved = await systemStore.upsertLineTarget(targetToSave);
     discovered.push(saved);
     await systemStore.appendAuditLog({
       tenant_id: tenantId,

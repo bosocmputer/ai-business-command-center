@@ -9,6 +9,8 @@ import type {
 import type { LineChannelConfig } from "./config.js";
 
 const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
+const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
+const LINE_GROUP_SUMMARY_ENDPOINT = "https://api.line.me/v2/bot/group";
 
 export type SendLineBriefInput = {
   tenantId: TenantId;
@@ -105,6 +107,64 @@ export async function sendLineBrief(
       safe_error_message: "LINE push failed due to network or provider error.",
     };
   }
+}
+
+export async function fetchLineTargetDisplayName(input: {
+  config: LineChannelConfig | null;
+  target: {
+    target_id: string;
+    target_type: "group" | "room" | "user";
+  };
+}) {
+  if (!input.config) {
+    return null;
+  }
+
+  const endpoint = buildLineTargetProfileEndpoint(input.target);
+  if (!endpoint) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.config.channelAccessToken}`,
+      },
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const name =
+      typeof payload.groupName === "string"
+        ? payload.groupName
+        : typeof payload.displayName === "string"
+        ? payload.displayName
+        : null;
+
+    return name?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildLineTargetProfileEndpoint(input: {
+  target_id: string;
+  target_type: "group" | "room" | "user";
+}) {
+  if (input.target_type === "group") {
+    return `${LINE_GROUP_SUMMARY_ENDPOINT}/${encodeURIComponent(
+      input.target_id,
+    )}/summary`;
+  }
+
+  if (input.target_type === "user") {
+    return `${LINE_PROFILE_ENDPOINT}/${encodeURIComponent(input.target_id)}`;
+  }
+
+  return null;
 }
 
 function createLineDeliveryId(tenantId: TenantId) {

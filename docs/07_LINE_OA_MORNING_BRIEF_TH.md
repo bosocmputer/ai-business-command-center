@@ -35,6 +35,7 @@ POST /api/line-targets/:id/test-send
 - target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดกลุ่ม
 - env fallback target เดิมยังใช้ได้สำหรับ pilot และถือเป็น `executive` จนกว่าจะย้ายไป target registry เต็ม
 - web public URL ใช้ same-origin `/api` rewrite ไปยัง API ภายใน Docker เพื่อลดการพึ่งพา API quick tunnel แยกอีกตัว
+- ระบบพยายามดึงชื่อกลุ่มจาก LINE group summary API เพื่อให้ admin เห็นชื่อกลุ่มแทน masked group id ถ้า LINE API ให้สิทธิ์และ OA ยังอยู่ในกลุ่มนั้น
 
 ข้อมูลที่ต้องใช้สำหรับการส่งจริง:
 
@@ -137,6 +138,17 @@ target_id
 - มี `sales_goods_services` ใน `allowed_report_keys`
 
 ถ้า target ไม่มีสิทธิ์ ระบบต้อง skip และบันทึก audit โดยไม่ส่งข้อมูลธุรกิจ
+
+Admin onboarding flow สำหรับกลุ่มใหม่:
+
+```text
+1. เพิ่ม LINE OA เข้ากลุ่ม
+2. พิมพ์ test ในกลุ่ม
+3. กลับมาที่ /command-center/settings แล้วกดรีเฟรช
+4. ตรวจชื่อกลุ่ม/รหัสปลายทาง masked
+5. กดอนุมัติผู้บริหารหรือเลือก profile ที่เหมาะสม
+6. กดส่งทดสอบเฉพาะกลุ่มนั้น
+```
 
 ## Morning Brief Content
 

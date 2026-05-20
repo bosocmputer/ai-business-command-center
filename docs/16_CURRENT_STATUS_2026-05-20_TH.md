@@ -120,6 +120,8 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 - Env fallback target เดิมยังทำงานเป็น `executive` สำหรับ pilot
 - `/command-center/settings` มี section `LINE Groups & Permissions` สำหรับดู masked target, profile, approve/change profile/enable-disable/test send
 - หน้า web/admin/brief สามารถเรียก API ผ่าน same-origin `/api` ได้ ไม่จำเป็นต้อง expose API tunnel แยกใน browser
+- Settings มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
+- API พยายามดึงชื่อกลุ่ม LINE จาก group summary API แล้วบันทึกกลับเป็น `display_name`; ถ้าดึงไม่ได้จะ fallback เป็น masked id
 
 ### Security / Safety
 
