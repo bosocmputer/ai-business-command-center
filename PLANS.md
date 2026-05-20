@@ -27,7 +27,11 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
 - LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
 - `/signin` Owner login สำหรับ admin surface ค่าเริ่มต้น pilot คือ `superadmin/superadmin`
-- `/owner` Owner Admin portal สำหรับคุณ/ทีม ใช้ดูทุกร้าน, เพิ่มร้าน, คุม subscription status, ทดสอบ SML datasource, LINE OA metadata และเปิดลิงก์ Dashboard ลูกค้า
+- `/owner` Owner Admin portal สำหรับคุณ/ทีม โดยแยก section เป็นภาพรวม, ร้านค้า, รายงาน, LINE OA, ประวัติระบบ
+- `/owner/tenants` ใช้เพิ่มร้าน, คุม subscription status, ดู datasource และเปิดลิงก์ Dashboard ลูกค้า
+- `/owner/reports` ใช้ติดตาม report snapshot ล่าสุดต่อร้าน และเข้า legacy runner เมื่อจำเป็น
+- `/owner/line` ใช้ดู LINE OA readiness, onboarding guide และ link ไปจัดการสิทธิ์กลุ่ม
+- `/owner/audit` ใช้ดู latest report run และ latest LINE delivery ต่อ tenant
 - `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP

@@ -71,17 +71,13 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - `/`, `/owner`, `/command-center`, `/command-center/settings` ถูก gate ด้วย owner login
 - TailAdmin sample routes เช่น `/signup`, `/profile`, `/calendar`, `/alerts`, `/basic-tables`, `/bar-chart` ถูก redirect กลับเข้า owner/admin flow เพื่อไม่ให้ product surface ดูเป็น template
 - `/app`, `/app/:tenantSlug` และ `/command-center/brief` ยังเป็น public/read-only ตามหน้าที่ของ customer viewer และ signed LINE viewer
-- `/owner` เป็น Owner Admin portal สำหรับทีมเรา:
-  - เห็นทุกร้าน
-  - เพิ่ม tenant ใหม่
-  - เปลี่ยน subscription status เช่น `active`, `suspended`
-  - ดู tenant health เช่น datasource, LINE OA, LINE targets, users, latest run/delivery
-  - เลือกร้านเพื่อดูรายละเอียดร้าน, dashboard slug, database name และสถานะบริการ
-  - กดทดสอบ SML datasource จาก Owner portal ได้ผ่าน owner API โดยผลลัพธ์ไม่แสดง password/credential เต็ม
-  - มี pilot readiness checklist ต่อร้าน เช่น subscription, datasource, latest snapshot, LINE OA, approved LINE target และ delivery success
-  - มี LINE OA onboarding guide สำหรับบอกลูกค้าดึง OA เข้ากลุ่ม พิมพ์ `test` แล้วรอ owner อนุมัติ
-  - เพิ่ม LINE OA metadata ต่อร้าน
-- Owner card มีปุ่ม `เปิด Dashboard ลูกค้า` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
+- Owner Admin แยกเป็น section/page ตามงานจริงเพื่อลด noise:
+  - `/owner`: ภาพรวมเจ้าของ เห็น readiness ของทุกร้าน, งานที่ต้องทำต่อ, flow เปิดร้านใหม่
+  - `/owner/tenants`: ร้านค้าและการใช้งาน เพิ่ม tenant, เปลี่ยน subscription status, ดู datasource/customer dashboard slug
+  - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ link ไป legacy report runner เมื่อจำเป็นต้องรัน manual
+  - `/owner/line`: LINE OA และกลุ่มรับรายงาน, onboarding guide ให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน
+  - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run และ latest LINE delivery ต่อ tenant
+- Owner card/table มีปุ่ม `Dashboard` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
 - `/app` เป็น neutral state:
   - ไม่โชว์ข้อมูลร้านใดอัตโนมัติ
   - บอกให้ใช้ลิงก์ร้านค้าที่ได้รับจากผู้ดูแล
@@ -97,12 +93,13 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - First viewport เหลือ tenant selector, date range, run action, และ empty/latest state
 - Advanced section เก็บ charts, run history, audit, reconciliation, preview และตาราง
 - Sidebar ฝั่ง admin เปลี่ยนเป็น SaaS owner navigation:
-  - ภาพรวมเจ้าของ
+  - ภาพรวม
+  - ร้านค้า
   - รายงาน
   - LINE OA
   - ประวัติระบบ
-- รายการร้านค้าอยู่ในหน้า `ภาพรวมเจ้าของ` เพื่อไม่ให้เมนูซ้ำกับ anchor `/owner#tenants`
-- แก้ sidebar active state ให้ sync path/hash ตอนเปลี่ยนหน้า เช่น `/owner#tenants` ยัง active ที่ `ภาพรวมเจ้าของ`, `/command-center#run-history`, `/command-center/settings`
+- แก้ sidebar active state ให้ sync ตาม path ใหม่ เช่น `/owner/tenants`, `/owner/reports`, `/owner/line`, `/owner/audit`
+- Legacy `/command-center` และ `/command-center/settings` ไม่อยู่ใน main sidebar แล้ว เพื่อลดความสับสนของ owner portal
 
 ### LINE Brief Viewer
 
@@ -246,7 +243,11 @@ Browser QA:
 - ถ้ายังไม่ login, `/owner` และ `/command-center` redirect ไป `/signin?next=...`
 - login ด้วย `superadmin/superadmin` เข้า `/owner` ได้
 - logout แล้วกลับไป `/signin`
-- `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP
+- `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP ในภาพรวม พร้อมงานที่ต้องทำต่อ
+- `/owner/tenants` เห็น tenant operations และไม่มี horizontal overflow
+- `/owner/reports` เห็นสถานะ report snapshot ต่อร้าน และไม่มี horizontal overflow
+- `/owner/line` เห็น LINE readiness/onboarding guide ต่อร้าน และไม่มี horizontal overflow
+- `/owner/audit` เห็น latest run/delivery ต่อร้าน และไม่มี horizontal overflow
 - `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
 - `/app/demo-shop` แสดงข้อมูล DEMO SHOP แบบ read-only
 - `/app/248-shop` แสดงข้อมูล 248 SHOP แบบ read-only
