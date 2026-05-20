@@ -2,7 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { LineChannelRecord, Tenant } from "@ai-bcc/shared";
+import type {
+  LineAccessProfileKey,
+  LineChannelRecord,
+  LineDeliveryRecord,
+  LineTargetRecord,
+  Tenant,
+} from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { AdminSecurityDialogs } from "@/components/command-center/AdminSecurityDialogs";
@@ -10,8 +16,13 @@ import {
   buildAdminJsonHeaders,
   buildRememberedAdminJsonHeaders,
   forgetAdminToken,
+  requestAdminConfirmation,
 } from "@/components/command-center/adminAuth";
 import { getCommandCenterApiBaseUrl } from "@/components/command-center/apiBaseUrl";
+import {
+  formatLineAccessProfile,
+  OwnerLineTargetsPanel,
+} from "./OwnerLineTargetsPanel";
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
 
@@ -72,6 +83,7 @@ export default function OwnerPortal({
 }) {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [lineChannels, setLineChannels] = useState<LineChannelRecord[]>([]);
+  const [lineTargets, setLineTargets] = useState<LineTargetRecord[]>([]);
   const [datasourceTests, setDatasourceTests] = useState<
     Record<string, DatasourceTestResult>
   >({});
@@ -106,6 +118,9 @@ export default function OwnerPortal({
   const selectedTenantLineChannels = selectedTenantId
     ? lineChannels.filter((channel) => channel.tenant_id === selectedTenantId)
     : lineChannels;
+  const selectedTenantLineTargets = selectedTenantId
+    ? lineTargets.filter((target) => target.tenant_id === selectedTenantId)
+    : [];
   const sectionMeta = getOwnerSectionMeta(section);
 
   useEffect(() => {
@@ -139,10 +154,12 @@ export default function OwnerPortal({
         return;
       }
 
-      const [tenantsResponse, channelsResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/owner/tenants`, { headers }),
-        fetch(`${API_BASE_URL}/api/owner/line-channels`, { headers }),
-      ]);
+      const [tenantsResponse, channelsResponse, lineTargetsResponse] =
+        await Promise.all([
+          fetch(`${API_BASE_URL}/api/owner/tenants`, { headers }),
+          fetch(`${API_BASE_URL}/api/owner/line-channels`, { headers }),
+          fetch(`${API_BASE_URL}/api/line-targets`),
+        ]);
 
       if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
         forgetAdminToken();
@@ -167,8 +184,12 @@ export default function OwnerPortal({
       const channelsPayload = channelsResponse.ok
         ? ((await channelsResponse.json()) as { data: LineChannelRecord[] })
         : { data: [] };
+      const lineTargetsPayload = lineTargetsResponse.ok
+        ? ((await lineTargetsResponse.json()) as { data: LineTargetRecord[] })
+        : { data: [] };
       setTenants(tenantsPayload.data);
       setLineChannels(channelsPayload.data);
+      setLineTargets(lineTargetsPayload.data);
       setDataStatus("ready");
     } catch (error) {
       setDataStatus("error");
@@ -266,6 +287,191 @@ export default function OwnerPortal({
 
       setLineChannelName("");
       setResult({ tone: "success", message: "เพิ่ม LINE OA ให้ร้านค้าแล้ว" });
+      await loadOwnerData();
+    });
+  }
+
+  async function approveLineTarget(
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) {
+    await runOwnerAction(`approve-line-target-${target.id}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "อนุมัติกลุ่ม LINE",
+        description:
+          "เปิดให้กลุ่มนี้รับ Morning Brief ตามสิทธิ์ที่เลือก โดยไม่เปิดเผย target id เต็ม",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนอนุมัติกลุ่ม LINE");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/line-targets/${target.id}/approve`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            access_profile_key: profileKey,
+            enabled: true,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: LineTargetRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "อนุมัติกลุ่ม LINE ไม่สำเร็จ");
+      }
+
+      setSelectedTenantId(payload.data.tenant_id);
+      setResult({
+        tone: "success",
+        message: `อนุมัติ ${payload.data.display_name} เป็น ${formatLineAccessProfile(payload.data.access_profile_key)} แล้ว`,
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function updateLineTargetProfile(
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) {
+    await runOwnerAction(
+      `line-target-profile-${target.id}-${profileKey}`,
+      async () => {
+        const headers = await buildAdminJsonHeaders({
+          actionLabel: "เปลี่ยนสิทธิ์กลุ่ม LINE",
+          description:
+            "ปรับสิทธิ์รายงานของกลุ่มนี้ เช่น ผู้บริหาร ฝ่ายขาย ปฏิบัติการ หรือพนักงาน",
+        });
+        if (!headers) {
+          throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสิทธิ์กลุ่ม LINE");
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/line-targets/${target.id}`,
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ access_profile_key: profileKey }),
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: LineTargetRecord;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "เปลี่ยนสิทธิ์กลุ่ม LINE ไม่สำเร็จ");
+        }
+
+        setResult({
+          tone: "success",
+          message: `${payload.data.display_name}: ${formatLineAccessProfile(payload.data.access_profile_key)}`,
+        });
+        await loadOwnerData();
+      },
+    );
+  }
+
+  async function toggleLineTarget(target: LineTargetRecord) {
+    await runOwnerAction(`line-target-toggle-${target.id}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: target.enabled
+          ? "ปิดรับ Morning Brief"
+          : "เปิดรับ Morning Brief",
+        description:
+          "เปลี่ยนเฉพาะสถานะเปิด/ปิดของกลุ่มนี้ ไม่เปลี่ยน profile สิทธิ์รายงาน",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสถานะกลุ่ม LINE");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/line-targets/${target.id}`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ enabled: !target.enabled }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: LineTargetRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "เปลี่ยนสถานะกลุ่ม LINE ไม่สำเร็จ");
+      }
+
+      setResult({
+        tone: "success",
+        message: payload.data.enabled
+          ? "เปิดรับ Morning Brief ให้กลุ่มนี้แล้ว"
+          : "ปิดรับ Morning Brief ให้กลุ่มนี้แล้ว",
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function testLineTarget(target: LineTargetRecord) {
+    await runOwnerAction(`line-target-test-${target.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันส่ง LINE test จริง",
+        message:
+          "ระบบจะส่ง Flex Morning Brief ทดสอบไปยังปลายทางนี้เท่านั้น เพื่อยืนยันว่ากลุ่มรับข้อความได้จริง",
+        confirmLabel: "ส่งทดสอบ",
+        tone: "danger",
+        details: [
+          { label: "กลุ่ม/ปลายทาง", value: target.display_name },
+          { label: "รหัสปลายทาง", value: target.target_id_masked },
+          {
+            label: "สิทธิ์",
+            value: formatLineAccessProfile(target.access_profile_key),
+          },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "ส่ง LINE test จริง",
+        description:
+          "ใช้ทดสอบเฉพาะกลุ่มนี้หลัง owner อนุมัติสิทธิ์แล้ว",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนส่ง LINE test");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/line-targets/${target.id}/test-send`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ mode: "send" }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: { delivery?: LineDeliveryRecord };
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data?.delivery) {
+        throw new Error(payload.error || "ส่ง LINE test ไม่สำเร็จ");
+      }
+
+      setResult({
+        tone:
+          payload.data.delivery.status === "success" ? "success" : "warning",
+        message:
+          payload.data.delivery.status === "success"
+            ? "ส่ง LINE test สำเร็จ"
+            : payload.data.delivery.safe_error_message ??
+              "ส่ง LINE test แล้วแต่ยังไม่สำเร็จ",
+      });
       await loadOwnerData();
     });
   }
@@ -437,17 +643,23 @@ export default function OwnerPortal({
           datasourceTests={datasourceTests}
           lineChannelName={lineChannelName}
           lineChannels={lineChannels}
+          lineTargets={lineTargets}
           lineSecretConfigured={lineSecretConfigured}
           lineTokenConfigured={lineTokenConfigured}
           newTenantId={newTenantId}
           newTenantName={newTenantName}
+          onApproveLineTarget={approveLineTarget}
+          onSetLineTargetProfile={updateLineTargetProfile}
           onTestDatasource={testDatasource}
+          onTestLineTarget={testLineTarget}
+          onToggleLineTarget={toggleLineTarget}
           onUpdateStatus={updateTenantStatus}
           publicOrigin={publicOrigin}
           section={section}
           selectedTenant={selectedTenant}
           selectedTenantId={selectedTenantId}
           selectedTenantLineChannels={selectedTenantLineChannels}
+          selectedTenantLineTargets={selectedTenantLineTargets}
           selectedTenantSummary={selectedTenantSummary}
           setLineChannelName={setLineChannelName}
           setLineSecretConfigured={setLineSecretConfigured}
@@ -505,11 +717,22 @@ type OwnerSectionContentProps = {
   datasourceTests: Record<string, DatasourceTestResult>;
   lineChannelName: string;
   lineChannels: LineChannelRecord[];
+  lineTargets: LineTargetRecord[];
   lineSecretConfigured: boolean;
   lineTokenConfigured: boolean;
   newTenantId: string;
   newTenantName: string;
+  onApproveLineTarget: (
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) => Promise<void>;
+  onSetLineTargetProfile: (
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) => Promise<void>;
   onTestDatasource: (tenantId: string) => Promise<void>;
+  onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
+  onToggleLineTarget: (target: LineTargetRecord) => Promise<void>;
   onUpdateStatus: (
     tenant: Tenant,
     status: Tenant["status"],
@@ -519,6 +742,7 @@ type OwnerSectionContentProps = {
   selectedTenant?: Tenant;
   selectedTenantId: string;
   selectedTenantLineChannels: LineChannelRecord[];
+  selectedTenantLineTargets: LineTargetRecord[];
   selectedTenantSummary?: TenantSummary;
   setLineChannelName: (value: string) => void;
   setLineSecretConfigured: (value: boolean) => void;
@@ -885,10 +1109,15 @@ function OwnerLineContent({
   lineChannelName,
   lineSecretConfigured,
   lineTokenConfigured,
+  onApproveLineTarget,
+  onSetLineTargetProfile,
+  onTestLineTarget,
+  onToggleLineTarget,
   publicOrigin,
   selectedTenant,
   selectedTenantId,
   selectedTenantLineChannels,
+  selectedTenantLineTargets,
   setLineChannelName,
   setLineSecretConfigured,
   setLineTokenConfigured,
@@ -897,19 +1126,34 @@ function OwnerLineContent({
 }: OwnerSectionContentProps) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
-      <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <OwnerPanelHeader
-          title="LINE OA และกลุ่มรับรายงาน"
-          description="รวมสถานะ LINE ต่อร้าน ก่อนเข้าไปอนุมัติกลุ่มหรือส่ง test จริง"
-          actionHref="/command-center/settings"
-          actionLabel="จัดการสิทธิ์กลุ่ม"
+      <div className="space-y-4">
+        <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <OwnerPanelHeader
+            title="LINE OA และกลุ่มรับรายงาน"
+            description="รวมสถานะ LINE ต่อร้าน เลือกร้านแล้วจัดการกลุ่มรับ Morning Brief ได้จากหน้านี้"
+          />
+          <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+            {tenants.map((item) => (
+              <LineTenantRow
+                item={item}
+                key={item.tenant.id}
+                onSelectTenant={setSelectedTenantId}
+                selected={item.tenant.id === selectedTenantId}
+              />
+            ))}
+          </div>
+        </section>
+
+        <OwnerLineTargetsPanel
+          busy={busy}
+          onApprove={onApproveLineTarget}
+          onSetProfile={onSetLineTargetProfile}
+          onTestSend={onTestLineTarget}
+          onToggleEnabled={onToggleLineTarget}
+          targets={selectedTenantLineTargets}
+          tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
         />
-        <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
-          {tenants.map((item) => (
-            <LineTenantRow item={item} key={item.tenant.id} />
-          ))}
-        </div>
-      </section>
+      </div>
 
       <div className="space-y-4">
         <LineOnboardingGuide
@@ -989,11 +1233,23 @@ function ReportTenantRow({ item }: { item: TenantSummary }) {
   );
 }
 
-function LineTenantRow({ item }: { item: TenantSummary }) {
+function LineTenantRow({
+  item,
+  onSelectTenant,
+  selected,
+}: {
+  item: TenantSummary;
+  onSelectTenant: (tenantId: string) => void;
+  selected: boolean;
+}) {
   const lineReady =
     item.health.line_channels > 0 && item.health.line_targets_enabled > 0;
   return (
-    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_140px_150px_150px] lg:items-center">
+    <div
+      className={`grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_120px_130px_140px_110px] lg:items-center ${
+        selected ? "bg-brand-50/40 dark:bg-brand-500/[0.08]" : ""
+      }`}
+    >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <p className="font-semibold text-gray-900 dark:text-white">
@@ -1023,6 +1279,16 @@ function LineTenantRow({ item }: { item: TenantSummary }) {
             : "ยังไม่มี"
         }
       />
+      <div className="flex lg:justify-end">
+        <Button
+          disabled={selected}
+          size="sm"
+          variant="outline"
+          onClick={() => onSelectTenant(item.tenant.id)}
+        >
+          {selected ? "เลือกอยู่" : "จัดการ"}
+        </Button>
+      </div>
     </div>
   );
 }

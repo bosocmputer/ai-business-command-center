@@ -149,9 +149,10 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 - Scheduler ส่งไปทุก target ที่ `approved=true`, `enabled=true` และผ่าน permission check ของ report นั้น
 - Target ใหม่จาก webhook จะถูกบันทึกเป็น pending ไม่ auto-enable
 - Env fallback target ถูกปิดเป็นค่า default เพื่อไม่ให้กลุ่มเก่าจาก `.env.server` ถูกสร้างกลับมาทุก restart
-- `/command-center/settings` มี section `LINE Groups & Permissions` สำหรับดู masked target, profile, approve/change profile/enable-disable/test send
+- `/owner/line` เป็น flow หลักสำหรับดู masked target, profile, approve/change profile, enable-disable และ test send เฉพาะกลุ่ม
+- `/command-center/settings` ยังมี LINE Groups & Permissions เป็น legacy/admin fallback ชั่วคราว แต่ไม่ใช่ flow หลักแล้ว
 - หน้า web/admin/brief สามารถเรียก API ผ่าน same-origin `/api` ได้ ไม่จำเป็นต้อง expose API tunnel แยกใน browser
-- Settings มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
+- `/owner/line` มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
 - API พยายามดึงชื่อกลุ่ม LINE จาก group summary API แล้วบันทึกกลับเป็น `display_name`; ถ้าดึงไม่ได้จะ fallback เป็น masked id
 - `line_channels` registry เริ่มรองรับหลาย LINE OA ต่อ tenant ในระดับ metadata แล้ว
 - Env fallback target ยังปิดเป็นค่า default และไม่ถูกสร้างกลับมาอัตโนมัติ
@@ -246,7 +247,7 @@ Browser QA:
 - `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP ในภาพรวม พร้อมงานที่ต้องทำต่อ
 - `/owner/tenants` เห็น tenant operations และไม่มี horizontal overflow
 - `/owner/reports` เห็นสถานะ report snapshot ต่อร้าน และไม่มี horizontal overflow
-- `/owner/line` เห็น LINE readiness/onboarding guide ต่อร้าน และไม่มี horizontal overflow
+- `/owner/line` เห็น LINE readiness/onboarding guide, กลุ่ม LINE ต่อร้าน, profile permission และ action ส่ง test โดยไม่มี horizontal overflow
 - `/owner/audit` เห็น latest run/delivery ต่อร้าน และไม่มี horizontal overflow
 - `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
 - `/app/demo-shop` แสดงข้อมูล DEMO SHOP แบบ read-only
@@ -282,7 +283,7 @@ Browser QA:
 
 Priority 1:
 
-1. Browser QA `/`, `/owner`, `/app`, `/app/demo-shop`, `/app/248-shop`, `/command-center/settings`, `/command-center/brief`
+1. Browser QA `/`, `/owner`, `/owner/line`, `/app`, `/app/demo-shop`, `/app/248-shop`, `/command-center/brief`
 2. ทดสอบเปลี่ยน tenant status เป็น `suspended` แล้ว `/app/:tenantSlug` ถูก block และ Morning Brief skip
 3. เพิ่ม LINE OA metadata ใน `/owner` แล้วตรวจว่าไม่ leak token/secret
 4. ออกแบบ login/session จริงแทน slug-only customer pilot
