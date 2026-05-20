@@ -1335,7 +1335,11 @@ function MorningBriefPreview({
           <Badge color={preview.source === "sml_postgres" ? "success" : "warning"}>
             {formatSource(preview.source)}
           </Badge>
-          <Badge color="light">ข้อความ LINE</Badge>
+          <Badge color={preview.line_message_type === "flex" ? "success" : "light"}>
+            {preview.line_message_type === "flex"
+              ? "Flex + ปุ่มเปิดรายงาน"
+              : "ข้อความ LINE"}
+          </Badge>
         </div>
       }
     >
@@ -1372,8 +1376,16 @@ function MorningBriefPreview({
           <SummaryRow label="เลขอ้างอิงรอบรัน" value={preview.run_id} />
           <SummaryRow label="สร้างเมื่อ" value={formatDateTime(preview.generated_at)} />
           <SummaryRow
+            label="รูปแบบข้อความ"
+            value={
+              preview.line_message_type === "flex"
+                ? "Flex Message พร้อมปุ่มเปิดรายงาน"
+                : "Text fallback"
+            }
+          />
+          <SummaryRow
             label="ลิงก์แดชบอร์ด"
-            value={preview.dashboard_url ? "แนบในข้อความแล้ว" : "ยังไม่ตั้งค่า"}
+            value={preview.dashboard_url ? "แนบหลังปุ่มเปิดรายงาน" : "ยังไม่ตั้งค่า"}
           />
           <div>
             <p className="mb-2 text-xs font-medium uppercase text-gray-400">

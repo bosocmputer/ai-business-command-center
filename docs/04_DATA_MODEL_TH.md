@@ -224,6 +224,8 @@ created_at
 
 `delivery_type`: `manual_test`, `morning_brief`
 
+`message_type`: `text`, `flex`
+
 `status`: `dry_run`, `success`, `failed`, `skipped`
 
 ### line_webhook_events

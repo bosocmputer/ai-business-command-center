@@ -172,7 +172,7 @@ describe("sales_goods_services contract", () => {
     });
   });
 
-  it("renders LINE preview with branch, top product, trace, and dashboard link", () => {
+  it("renders LINE preview as Flex with branch, top product, and report button", () => {
     const snapshot = summarizeSalesGoodsServices({
       tenant_id: "tenant_demo_remote",
       run_id: "run_line_preview",
@@ -223,20 +223,54 @@ describe("sales_goods_services contract", () => {
       ],
     });
 
+    const dashboardUrl = "http://localhost:3000/command-center/brief?tenant_id=tenant_demo_remote&run_id=run_line_preview&token=signed-token";
     const preview = renderSalesGoodsServicesLinePreview({
       snapshot,
-      dashboardUrl: "http://localhost:3000/command-center",
+      dashboardUrl,
       tenantName: "Demo Remote",
     });
 
-    expect(preview.text).toContain("AI Business Center");
+    expect(preview.line_message_type).toBe("flex");
+    expect(preview.flex_message).toBeTruthy();
+    expect(preview.flex_message?.type).toBe("flex");
+    expect(preview.flex_message?.altText).toContain("รายงานขาย");
+    expect(preview.flex_message?.altText).not.toContain("token=");
     expect(preview.text).toContain("บริษัท: Demo Remote");
     expect(preview.text).toContain("วันที่ข้อมูล: 10 พ.ค. 2026 - 19 พ.ค. 2026");
     expect(preview.text).toContain("ยอดขายสุทธิ: 107.00 บาท");
-    expect(preview.text).toContain("1. 0000: 107.00 บาท");
+    expect(preview.text).toContain("1. สาขา 0000: 107.00 บาท");
     expect(preview.text).toContain("Product A");
-    expect(preview.text).toContain("Run ID: run_line_preview");
-    expect(preview.text).toContain("http://localhost:3000/command-center");
+    expect(preview.text).not.toContain("AI Business Center");
+    expect(preview.text).not.toContain("Run ID: run_line_preview");
+    expect(preview.text).not.toContain("token=signed-token");
+    expect(JSON.stringify(preview.flex_message)).toContain(dashboardUrl);
+    expect(JSON.stringify(preview.flex_message)).toContain("เปิดรายงาน");
+  });
+
+  it("falls back to text when the signed viewer URL is missing or too long", () => {
+    const snapshot = createEmptySalesGoodsServicesSnapshot({
+      tenant_id: "tenant_demo_remote",
+      run_id: "sample_line_preview",
+      params: { date_from: "2026-05-19", date_to: "2026-05-19" },
+      generated_at: "2026-05-20T01:00:00.000Z",
+    });
+
+    const missingUrlPreview = renderSalesGoodsServicesLinePreview({
+      snapshot,
+      dashboardUrl: null,
+      tenantName: "Demo Remote",
+    });
+    const longUrlPreview = renderSalesGoodsServicesLinePreview({
+      snapshot,
+      dashboardUrl: `https://example.test/${"a".repeat(1100)}`,
+      tenantName: "Demo Remote",
+    });
+
+    expect(missingUrlPreview.line_message_type).toBe("text");
+    expect(missingUrlPreview.flex_message).toBeUndefined();
+    expect(missingUrlPreview.text).toContain("เปิดรายงาน: ยังไม่พร้อมใช้งาน");
+    expect(longUrlPreview.line_message_type).toBe("text");
+    expect(longUrlPreview.flex_message).toBeUndefined();
   });
 
   it("labels sample snapshot safely in LINE preview", () => {

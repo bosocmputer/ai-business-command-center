@@ -52,6 +52,7 @@ Local JSON store ถูก ignore จาก git เพื่อไม่ให�
 ## LINE Morning Brief
 
 Phase 1 professional pilot มี preview, manual test sender และ scheduled sender แล้ว
+ข้อความที่ส่งจริงใช้ LINE Flex Message เป็น default เพื่อให้ผู้บริหารเห็นสรุปแบบ compact และกดปุ่ม `เปิดรายงาน` แทนการเห็น signed URL ยาวในแชท ส่วน text summary ยังเก็บไว้เป็น fallback/preview/dry-run
 
 ```text
 GET /api/reports/:tenantId/sales_goods_services/line-preview
@@ -75,7 +76,12 @@ LINE link ที่ส่งให้ผู้ใช้ต้องเป็น 
 /command-center/brief?tenant_id=...&run_id=...&token=...
 ```
 
-ห้ามบันทึก signed URL เต็มลง docs หรือ log เพราะมี token
+ข้อกำหนดสำคัญ:
+
+- live send ใช้ `message_type = flex` เมื่อ signed URL เป็น http(s) และไม่ยาวเกิน guard ของ LINE URI action
+- ถ้า URL ไม่พร้อมหรือยาวเกิน guard ระบบ fallback เป็น `message_type = text`
+- `altText` และ logs/audit ห้ามมี signed token เต็ม
+- ห้ามบันทึก signed URL เต็มลง docs หรือ log เพราะมี token
 
 ## Admin Mutation Auth
 

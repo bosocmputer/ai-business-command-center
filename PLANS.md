@@ -23,6 +23,7 @@ Workspace ตอนนี้มี Phase 1 professional pilot ที่ deploy �
 - `packages/reports` report contract/renderer สำหรับ `sales_goods_services`
 - Docker Compose deploy บน `192.168.2.109`
 - LINE OA demo flow ส่งเข้ากลุ่มทดสอบได้จริง
+- LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
 - Signed report viewer link TTL default `72` ชั่วโมง
 - Duplicate guard สำหรับ Morning Brief delivery

@@ -691,6 +691,7 @@ function LatestLineDeliveryCard({
         delivery
           ? [
               ["สถานะ", formatDeliveryStatus(delivery.status)],
+              ["รูปแบบ", formatLineMessageType(delivery.message_type)],
               ["สร้างเมื่อ", formatDateTime(delivery.created_at)],
               ["ปลายทาง", delivery.target_id_masked ?? "ยังไม่ตั้งค่า"],
               ["เลขอ้างอิง", delivery.report_run_id],
@@ -826,6 +827,14 @@ function formatDeliveryStatus(status: LineDeliveryRecord["status"]) {
   }
 
   return "ข้ามการส่ง";
+}
+
+function formatLineMessageType(messageType: LineDeliveryRecord["message_type"]) {
+  if (messageType === "flex") {
+    return "Flex + ปุ่มเปิดรายงาน";
+  }
+
+  return "ข้อความธรรมดา";
 }
 
 function formatRunStatus(status: ReportRunRecord["status"]) {

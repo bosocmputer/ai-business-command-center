@@ -1,6 +1,7 @@
 import {
   type BranchSales,
   type DataQualityStatus,
+  type LineFlexMessage,
   type SalesDetailRow,
   type SalesGoodsServicesParams,
   type SalesGoodsServicesLinePreview,
@@ -298,20 +299,20 @@ export function renderSalesGoodsServicesLinePreview(input: {
 }): SalesGoodsServicesLinePreview {
   const { snapshot } = input;
   const warnings = buildLineWarnings(snapshot);
+  const dashboardUrl = input.dashboardUrl ?? null;
+  const useFlexMessage = isValidLineUri(dashboardUrl);
   const branchLines = snapshot.branch_sales.slice(0, 3).map((branch, index) => {
-    return `${index + 1}. ${branch.branch_code}: ${formatMoney(branch.total_amount)} บาท`;
+    return `${index + 1}. ${formatBranchLabel(branch.branch_code)}: ${formatMoney(branch.total_amount)} บาท`;
   });
   const topProductLines = snapshot.top_products.slice(0, 3).map((product, index) => {
     return `${index + 1}. ${product.item_name}: ${formatMoney(product.sum_amount)} บาท`;
   });
-  const dashboardLine = input.dashboardUrl
-    ? [`เปิดรายงาน: ${input.dashboardUrl}`]
-    : [];
   const tenantName = input.tenantName?.trim() || snapshot.tenant_id;
   const generatedAt = formatThaiDateTime(snapshot.generated_at);
+  const insight = buildBusinessInsight(snapshot);
+  const comparisonText = formatComparisonSummary(snapshot);
 
   const lines = [
-    "AI Business Center",
     "รายงานขายสินค้าและบริการ",
     "",
     `บริษัท: ${tenantName}`,
@@ -330,11 +331,26 @@ export function renderSalesGoodsServicesLinePreview(input: {
     "",
     "สินค้าขายดี",
     ...(topProductLines.length ? topProductLines : ["- ไม่มีสินค้าในช่วงเวลานี้"]),
+    "",
+    `สรุปที่ควรดู: ${insight}`,
+    ...(comparisonText ? [`เทียบยอด: ${comparisonText}`] : []),
     ...warnings.map((warning) => `\nหมายเหตุ: ${warning}`),
     "",
-    `Run ID: ${snapshot.run_id}`,
-    ...dashboardLine,
+    useFlexMessage
+      ? "เปิดรายงาน: กดปุ่มใน LINE เพื่อดูรายละเอียด"
+      : "เปิดรายงาน: ยังไม่พร้อมใช้งานในข้อความนี้",
   ];
+  const flexMessage = useFlexMessage
+    ? buildSalesGoodsServicesFlexMessage({
+        snapshot,
+        tenantName,
+        generatedAt,
+        dashboardUrl,
+        insight,
+        comparisonText,
+        warnings,
+      })
+    : undefined;
 
   return {
     tenant_id: snapshot.tenant_id,
@@ -342,13 +358,334 @@ export function renderSalesGoodsServicesLinePreview(input: {
     run_id: snapshot.run_id,
     generated_at: snapshot.generated_at,
     source: snapshot.source,
-    line_message_type: "text",
+    line_message_type: flexMessage ? "flex" : "text",
     title: "Morning Brief - Sales Goods and Services",
     text: lines.join("\n"),
     lines,
+    flex_message: flexMessage,
     warnings,
-    dashboard_url: input.dashboardUrl ?? null,
+    dashboard_url: dashboardUrl,
   };
+}
+
+function buildSalesGoodsServicesFlexMessage(input: {
+  snapshot: SalesGoodsServicesSnapshot;
+  tenantName: string;
+  generatedAt: string;
+  dashboardUrl: string | null;
+  insight: string;
+  comparisonText: string | null;
+  warnings: string[];
+}): LineFlexMessage | undefined {
+  if (!isValidLineUri(input.dashboardUrl)) {
+    return undefined;
+  }
+
+  const { snapshot } = input;
+  const statusText = formatTrustStatus(snapshot);
+  const statusColor =
+    snapshot.summary.document_count === 0 ||
+    snapshot.quality_status === "reconciled_with_warning"
+      ? "#B45309"
+      : "#047857";
+  const firstBranch = snapshot.branch_sales[0];
+  const firstProduct = snapshot.top_products[0];
+  const footerNote =
+    input.warnings[0] ?? "ข้อมูลนี้มาจากรายงานขาย SML ที่ระบบรันและเก็บ snapshot ไว้";
+  const altText = truncateLineText(
+    `รายงานขาย ${input.tenantName} ${formatReportPeriod(
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+    )}: ${formatMoney(snapshot.summary.total_sales)} บาท`,
+    300,
+  );
+
+  return {
+    type: "flex",
+    altText,
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "16px",
+        backgroundColor: "#F8FAFC",
+        contents: [
+          {
+            type: "text",
+            text: "รายงานขายสินค้าและบริการ",
+            weight: "bold",
+            size: "lg",
+            color: "#111827",
+            wrap: true,
+          },
+          {
+            type: "text",
+            text: `${input.tenantName} · ${formatReportPeriod(
+              snapshot.params.date_from,
+              snapshot.params.date_to,
+            )}`,
+            size: "sm",
+            color: "#6B7280",
+            margin: "sm",
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "16px",
+        spacing: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "horizontal",
+            contents: [
+              {
+                type: "text",
+                text: statusText,
+                size: "xs",
+                weight: "bold",
+                color: statusColor,
+                flex: 1,
+              },
+              {
+                type: "text",
+                text: `อัปเดต ${input.generatedAt}`,
+                size: "xs",
+                color: "#6B7280",
+                align: "end",
+                flex: 2,
+              },
+            ],
+          },
+          {
+            type: "text",
+            text: `${formatMoney(snapshot.summary.total_sales)} บาท`,
+            weight: "bold",
+            size: "xxl",
+            color: "#111827",
+            wrap: true,
+          },
+          {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: [
+              buildFlexMetricRow("บิลขาย", `${formatInteger(snapshot.summary.document_count)} ใบ`),
+              buildFlexMetricRow(
+                "จำนวนรายการขาย",
+                `${formatInteger(snapshot.summary.line_count)} รายการ`,
+              ),
+              buildFlexMetricRow("จำนวนขายรวม", formatQty(snapshot.summary.total_qty)),
+            ],
+          },
+          { type: "separator", margin: "md" },
+          buildFlexInfoBlock("วันนี้ควรรู้อะไร", input.insight),
+          ...(input.comparisonText
+            ? [buildFlexInfoBlock("เทียบยอด", input.comparisonText)]
+            : []),
+          buildFlexInfoBlock(
+            "ยอดหลัก",
+            firstBranch
+              ? `${formatBranchLabel(firstBranch.branch_code)} ${formatMoney(
+                  firstBranch.total_amount,
+                )} บาท`
+              : "ยังไม่มีข้อมูลสาขา",
+          ),
+          buildFlexInfoBlock(
+            "สินค้าขายดี",
+            firstProduct
+              ? `${firstProduct.item_name}: ${formatMoney(firstProduct.sum_amount)} บาท`
+              : "ยังไม่มีสินค้าในช่วงเวลานี้",
+          ),
+          {
+            type: "text",
+            text: footerNote,
+            size: "xs",
+            color: "#92400E",
+            wrap: true,
+            margin: "md",
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "16px",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#2563EB",
+            height: "sm",
+            action: {
+              type: "uri",
+              label: "เปิดรายงาน",
+              uri: input.dashboardUrl,
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function buildFlexMetricRow(label: string, value: string) {
+  return {
+    type: "box",
+    layout: "horizontal",
+    contents: [
+      {
+        type: "text",
+        text: label,
+        size: "sm",
+        color: "#6B7280",
+        flex: 2,
+      },
+      {
+        type: "text",
+        text: value,
+        size: "sm",
+        color: "#111827",
+        align: "end",
+        weight: "bold",
+        flex: 2,
+      },
+    ],
+  };
+}
+
+function buildFlexInfoBlock(label: string, value: string) {
+  return {
+    type: "box",
+    layout: "vertical",
+    spacing: "xs",
+    contents: [
+      {
+        type: "text",
+        text: label,
+        size: "xs",
+        color: "#6B7280",
+        weight: "bold",
+      },
+      {
+        type: "text",
+        text: value,
+        size: "sm",
+        color: "#111827",
+        wrap: true,
+      },
+    ],
+  };
+}
+
+function isValidLineUri(value: string | null | undefined): value is string {
+  if (!value || value.length > 1000) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function buildBusinessInsight(snapshot: SalesGoodsServicesSnapshot) {
+  if (snapshot.summary.document_count === 0) {
+    return "ไม่พบยอดขายเมื่อวาน ควรตรวจว่าร้านหยุดขาย ยังไม่ปิดบิล หรือช่วงวันที่ถูกต้องหรือไม่";
+  }
+
+  const topBranch = snapshot.branch_sales[0];
+  if (topBranch && snapshot.summary.total_sales > 0) {
+    const share = (topBranch.total_amount / snapshot.summary.total_sales) * 100;
+    if (share >= 99) {
+      return "ยอดขายอยู่ที่สาขาเดียวเกือบทั้งหมด อาจเป็นร้านสาขาเดียวหรือยังไม่ได้ map สาขา";
+    }
+  }
+
+  const noBranch = snapshot.branch_sales.find(
+    (branch) => branch.branch_code === "no_branch",
+  );
+  if (noBranch && noBranch.total_amount > 0) {
+    return "มีรายการขายที่ไม่ระบุสาขา ควรตรวจการตั้งค่า branch_code ใน SML";
+  }
+
+  if (snapshot.quality_status === "reconciled_with_warning") {
+    return "ยอดหัวบิลและยอดรายละเอียดไม่เท่ากัน ระบบใช้ยอดหัวบิลเป็นตัวเลขหลัก";
+  }
+
+  return "รายงานพร้อมใช้สำหรับดูยอดขายและกดเปิดรายละเอียดเพิ่มเติม";
+}
+
+function formatComparisonSummary(snapshot: SalesGoodsServicesSnapshot) {
+  const previousDay = snapshot.comparison?.previous_day;
+  const sameWeekdayLastWeek = snapshot.comparison?.same_weekday_last_week;
+  const target = previousDay ?? sameWeekdayLastWeek;
+  if (!target) {
+    return null;
+  }
+
+  const label =
+    target.label === "previous_day" ? "วันก่อนหน้า" : "วันเดียวกันสัปดาห์ก่อน";
+  if (target.direction === "no_reference") {
+    return `ยังไม่มีฐานเทียบกับ${label}`;
+  }
+
+  return `${formatComparisonDirection(target.direction)}จาก${label} ${formatSignedMoney(
+    target.difference_amount,
+  )} บาท${target.difference_percent !== null ? ` (${formatSignedPercent(target.difference_percent)})` : ""}`;
+}
+
+function formatComparisonDirection(
+  direction: "up" | "down" | "flat" | "no_reference",
+) {
+  if (direction === "up") {
+    return "เพิ่มขึ้น";
+  }
+  if (direction === "down") {
+    return "ลดลง";
+  }
+  if (direction === "flat") {
+    return "ทรงตัว";
+  }
+  return "ยังไม่มีฐานเทียบ";
+}
+
+function formatSignedMoney(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatMoney(value)}`;
+}
+
+function formatSignedPercent(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toLocaleString("th-TH", {
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
+function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
+  if (snapshot.summary.document_count === 0) {
+    return "ไม่มีข้อมูล";
+  }
+  if (snapshot.source === "sample_snapshot" || snapshot.quality_status === "stale") {
+    return "ข้อมูลเก่า";
+  }
+  if (snapshot.quality_status === "reconciled_with_warning") {
+    return "ควรตรวจยอด";
+  }
+  return "พร้อมใช้";
+}
+
+function formatBranchLabel(branchCode: string) {
+  if (branchCode === "no_branch") {
+    return "ไม่ระบุสาขา";
+  }
+  return `สาขา ${branchCode}`;
 }
 
 function buildLineWarnings(snapshot: SalesGoodsServicesSnapshot): string[] {
@@ -441,4 +778,19 @@ function formatMoney(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatInteger(value: number): string {
+  return value.toLocaleString("th-TH", { maximumFractionDigits: 0 });
+}
+
+function formatQty(value: number): string {
+  return value.toLocaleString("th-TH", { maximumFractionDigits: 3 });
+}
+
+function truncateLineText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
 }

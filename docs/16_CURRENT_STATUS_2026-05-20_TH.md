@@ -11,7 +11,8 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest commit: 9b7cb23
+Latest deployed commit before Flex Message 2.0: 9b7cb23
+Flex Message 2.0 change: included in current main commit
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
@@ -40,7 +41,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 
 - trycloudflare quick tunnel เป็น URL ชั่วคราว อาจเปลี่ยนเมื่อ process/server restart
 - ห้ามบันทึก signed brief URL เต็มลง docs เพราะมี `token=...`
-- LINE message ควรแนบลิงก์แบบ `/command-center/brief?tenant_id=...&run_id=...&token=...` ที่ API สร้างให้เท่านั้น
+- LINE message ใช้ Flex Message พร้อมปุ่ม `เปิดรายงาน`; signed URL ต้องอยู่หลังปุ่มและสร้างจาก API เท่านั้น
 
 ## สิ่งที่สำเร็จแล้ว
 
@@ -86,6 +87,11 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 ### LINE OA / Morning Brief
 
 - LINE OA demo ส่งเข้ากลุ่มทดสอบได้จริง
+- Live send ใช้ LINE Flex Message เป็น default:
+  - ไม่แสดง signed URL ยาวใน body
+  - ไม่มีชื่อ `AI Business Center` ซ้ำในข้อความ เพราะ LINE แสดงชื่อ OA อยู่แล้ว
+  - มี `altText` สั้นสำหรับ notification/talk list
+  - ถ้า signed URL ไม่พร้อมหรือยาวเกิน guard จะ fallback เป็น text message
 - Scheduler รันที่ `08:00 Asia/Bangkok`
 - Scheduler จำกัด tenant เริ่มต้นเป็น `tenant_demo_remote`
 - Morning Brief ใช้ period `yesterday`
@@ -97,6 +103,7 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to
 ```
 
 - LINE message link ชี้ไป report viewer signed URL ไม่ใช่ admin dashboard
+- `line_deliveries.message_type` เก็บ `flex` หรือ `text` เพื่อ audit รูปแบบข้อความ
 
 ### Security / Safety
 
@@ -139,7 +146,7 @@ comparison: true
 
 ## Validation ล่าสุด
 
-Local:
+Local validation หลังเพิ่ม Flex Message 2.0:
 
 ```text
 corepack pnpm -r typecheck  -> pass
@@ -184,9 +191,10 @@ Browser QA:
 
 Priority 1:
 
-1. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งจาก `tenant_demo_remote` จริงและไม่ส่งซ้ำ
+1. Deploy Flex Message 2.0 แล้วตรวจ `line-preview` ว่าได้ `line_message_type = flex`
 2. ถ้า LINE ส่งสำเร็จ ให้กด link จาก LINE แล้วตรวจว่าพาเข้า `/command-center/brief` ของ `run_id` รอบนั้น
-3. เก็บ screenshot และ feedback UX จากผู้บริหาร/ผู้ใช้จริง
+3. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งจาก `tenant_demo_remote` จริงและไม่ส่งซ้ำ
+4. เก็บ screenshot และ feedback UX จากผู้บริหาร/ผู้ใช้จริง
 
 Priority 2:
 

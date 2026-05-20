@@ -20,10 +20,12 @@ POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 - renderer อ่านจาก `report_snapshots` ล่าสุด หรือ snapshot ที่เพิ่ง run ใน morning brief flow
 - `line-preview` ไม่ส่งข้อความจริง
 - `line-send-test` และ `morning-brief/run-and-send` เป็น mutation endpoint ต้องใช้ `x-ai-bcc-admin-token`
+- live send ใช้ LINE Flex Message เป็น default และเก็บ text summary เป็น fallback/preview
 - ข้อความต้องระบุ source เป็นภาษาผู้ใช้ เช่น `ข้อมูลจากระบบขาย SML`
-- ต้องใส่ `run_id` เพื่อ trace กลับไปหา report run
-- ถ้ามี reconciliation warning ต้องแสดงหมายเหตุใน message
+- `run_id` ต้อง trace ได้ผ่าน viewer/details และ `line_deliveries` แต่ไม่ต้องโชว์ในข้อความ LINE ส่วนหลัก
+- ถ้ามี reconciliation warning ต้องแสดงเป็นหมายเหตุหรือ insight ที่อ่านรู้เรื่อง
 - dashboard link ใน LINE ต้องเป็น signed report viewer URL ไม่ใช่ admin dashboard
+- signed URL ต้องอยู่หลังปุ่ม `เปิดรายงาน` ไม่แสดง URL ยาวใน body หลัก
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
 
 ข้อมูลที่ต้องใช้สำหรับการส่งจริง:
@@ -117,10 +119,9 @@ target_id
 
 ## Morning Brief Content
 
-Current professional pilot template:
+Current professional pilot template ใช้ LINE Flex bubble:
 
 ```text
-AI Business Center
 รายงานขายสินค้าและบริการ
 
 บริษัท: {{tenant_name}}
@@ -132,16 +133,22 @@ AI Business Center
 จำนวนรายการขาย: {{line_count}} รายการ
 จำนวนขายรวม: {{total_qty}}
 
-ยอดขายตามสาขา
-{{branch_summary_top_3}}
+วันนี้ควรรู้อะไร
+{{business_insight}}
 
-สินค้าขายดี:
-{{top_products_top_3}}
+เทียบยอด
+{{comparison_summary_if_any}}
 
-หมายเหตุ: {{reconciliation_note_if_any}}
-Run ID: {{run_id}}
-เปิดรายงาน: {{signed_report_viewer_url}}
+ยอดหลัก
+{{top_branch}}
+
+สินค้าขายดี
+{{top_product}}
+
+[เปิดรายงาน]
 ```
+
+ข้อความ fallback สำหรับ preview/log/dry-run ต้องไม่ใส่ชื่อ OA ซ้ำบรรทัดแรก และไม่แสดง signed URL เต็ม ถ้าส่งแบบ Flex สำเร็จให้บอกเพียงว่า `เปิดรายงาน: กดปุ่มใน LINE เพื่อดูรายละเอียด`
 
 ถ้า tenant ไม่มีสาขา:
 
@@ -167,6 +174,9 @@ Run ID: {{run_id}}
 - ใช้คำที่ผู้บริหารอ่านรู้เรื่อง เช่น `จำนวนรายการขาย`, `ข้อมูลจากระบบขาย SML`
 - หลีกเลี่ยงคำ technical เช่น `SML PostgreSQL`, `Dashboard`, `line_count` ในข้อความ LINE
 - link ต้องเปิด `/command-center/brief` ที่ validate signed token ได้
+- Flex Message ต้องมี `altText` สั้นและไม่มี signed token เต็ม
+- URI action ของปุ่ม `เปิดรายงาน` ต้องเป็น http(s) และผ่าน guard ความยาว ไม่เช่นนั้น fallback เป็น text message
+- audit/log เก็บ `message_type = flex | text` และห้ามเก็บ signed token เต็ม
 
 ## Retry Policy
 
@@ -213,7 +223,7 @@ request body:
 behavior:
 
 - `dry_run`: render message, create `line_deliveries`, append audit log, ไม่ส่งออก LINE
-- `send` + env ครบ: push text message ไป LINE Messaging API
+- `send` + env ครบ: push Flex Message ไป LINE Messaging API ถ้า signed URL พร้อม ไม่เช่นนั้น push text fallback
 - `send` + env ไม่ครบ: mark เป็น `skipped` และไม่ส่งออก
 - response และ audit log ห้าม expose token หรือ target id เต็ม ใช้ masked target เท่านั้น
 

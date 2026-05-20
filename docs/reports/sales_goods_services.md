@@ -175,13 +175,20 @@ Comparison จะถูกสร้างเฉพาะ report ที่เป�
 GET /api/reports/:tenantId/sales_goods_services/line-preview
 ```
 
-Output เป็น text payload สำหรับ LINE preview:
+Output คืนทั้ง text fallback และ Flex metadata สำหรับ LINE preview:
 
 ```json
 {
-  "line_message_type": "text",
+  "line_message_type": "flex",
   "title": "Morning Brief - Sales Goods and Services",
-  "text": "Morning Brief - รายงานขายสินค้าและบริการ...",
+  "text": "รายงานขายสินค้าและบริการ...",
+  "flex_message": {
+    "type": "flex",
+    "altText": "รายงานขาย Demo Remote 19 พ.ค. 2026: 0.00 บาท",
+    "contents": {
+      "type": "bubble"
+    }
+  },
   "warnings": [
     "ยอดหัวเอกสารและยอดรายละเอียดสินค้าไม่เท่ากัน..."
   ],
@@ -191,6 +198,8 @@ Output เป็น text payload สำหรับ LINE preview:
 
 Preview นี้ใช้ snapshot ล่าสุด ไม่ยิง SML DB สดเอง
 
+Live LINE send ใช้ `flex_message` เมื่อ signed viewer URL พร้อมและผ่าน guard ของ LINE URI action. ถ้า URL ไม่พร้อมหรือยาวเกิน guard จะ fallback เป็น text message โดยไม่แสดง signed URL เต็มใน body
+
 ## Current Implementation Status
 
 สถานะล่าสุดวันที่ `2026-05-20`:
@@ -199,6 +208,7 @@ Preview นี้ใช้ snapshot ล่าสุด ไม่ยิง SML DB
 - API run/report/latest/line-preview/line-delivery พร้อมใช้งาน
 - Dashboard admin ใช้ snapshot ล่าสุด
 - LINE Morning Brief ใช้ `period = yesterday`
+- LINE Morning Brief live send ใช้ Flex Message พร้อมปุ่ม `เปิดรายงาน`
 - Customer viewer ใช้ signed URL:
 
 ```text

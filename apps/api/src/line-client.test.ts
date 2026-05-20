@@ -16,6 +16,43 @@ const preview = {
   dashboard_url: "http://example.test/command-center",
 } satisfies SalesGoodsServicesLinePreview;
 
+const flexPreview = {
+  ...preview,
+  line_message_type: "flex",
+  text: "รายงานขาย fallback text",
+  flex_message: {
+    type: "flex",
+    altText: "รายงานขาย Demo Remote",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: "รายงานขายสินค้าและบริการ",
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            action: {
+              type: "uri",
+              label: "เปิดรายงาน",
+              uri: "https://example.test/command-center/brief?signed=1",
+            },
+          },
+        ],
+      },
+    },
+  },
+} satisfies SalesGoodsServicesLinePreview;
+
 describe("sendLineBrief", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -91,6 +128,37 @@ describe("sendLineBrief", () => {
         }),
       }),
     );
+  });
+
+  it("sends a Flex message when the preview includes a Flex payload", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ sentMessages: [{ id: "msg-1" }] }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await sendLineBrief({
+      tenantId: "tenant_demo_remote",
+      mode: "send",
+      preview: flexPreview,
+      config: {
+        channelAccessToken: "line-token",
+        targetId: "C1234567890abcdef",
+      },
+    });
+
+    const [, request] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(request.body)) as {
+      messages: Array<Record<string, unknown>>;
+    };
+
+    expect(result.status).toBe("success");
+    expect(result.message_type).toBe("flex");
+    expect(body.messages[0]).toMatchObject({
+      type: "flex",
+      altText: "รายงานขาย Demo Remote",
+    });
+    expect(JSON.stringify(body.messages[0])).toContain("เปิดรายงาน");
   });
 
   it("returns a safe provider failure without leaking secrets", async () => {

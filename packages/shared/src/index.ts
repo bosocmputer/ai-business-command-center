@@ -155,16 +155,25 @@ export type SalesGoodsServicesSnapshot = {
   };
 };
 
+export type LineFlexMessage = {
+  type: "flex";
+  altText: string;
+  contents: Record<string, unknown>;
+};
+
+export type LineMessageType = "text" | "flex";
+
 export type SalesGoodsServicesLinePreview = {
   tenant_id: TenantId;
   report_key: ReportKey;
   run_id: string;
   generated_at: string;
   source: SalesGoodsServicesSnapshot["source"];
-  line_message_type: "text";
+  line_message_type: LineMessageType;
   title: string;
   text: string;
   lines: string[];
+  flex_message?: LineFlexMessage;
   warnings: string[];
   dashboard_url: string | null;
 };
@@ -185,7 +194,7 @@ export type LineDeliveryRecord = {
   period_from: string | null;
   period_to: string | null;
   target_id_masked: string | null;
-  message_type: "text";
+  message_type: LineMessageType;
   status: LineDeliveryStatus;
   sent_at: string | null;
   provider_response_json: Record<string, unknown> | null;

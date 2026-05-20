@@ -984,7 +984,7 @@ function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
     period_to: toDateOnly(row.period_to),
     target_id_masked:
       typeof row.target_id_masked === "string" ? row.target_id_masked : null,
-    message_type: "text",
+    message_type: row.message_type === "flex" ? "flex" : "text",
     status: row.status as LineDeliveryRecord["status"],
     sent_at: row.sent_at ? toIsoString(row.sent_at as string | Date) : null,
     provider_response_json:

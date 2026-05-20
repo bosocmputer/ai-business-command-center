@@ -1,5 +1,6 @@
 import type {
   LineDeliveryRecord,
+  LineMessageType,
   LineSendMode,
   SalesGoodsServicesLinePreview,
   TenantId,
@@ -24,6 +25,11 @@ export async function sendLineBrief(
 ): Promise<LineDeliveryRecord> {
   const now = new Date().toISOString();
   const configured = Boolean(input.config);
+  const lineMessage = input.preview.flex_message ?? {
+    type: "text" as const,
+    text: input.preview.text,
+  };
+  const messageType: LineMessageType = input.preview.flex_message ? "flex" : "text";
   const baseDelivery = {
     id: createLineDeliveryId(input.tenantId),
     tenant_id: input.tenantId,
@@ -34,7 +40,7 @@ export async function sendLineBrief(
     period_from: input.periodFrom ?? null,
     period_to: input.periodTo ?? null,
     target_id_masked: input.config ? maskTargetId(input.config.targetId) : null,
-    message_type: "text" as const,
+    message_type: messageType,
     sent_at: null,
     provider_response_json: null,
     safe_error_message: null,
@@ -69,12 +75,7 @@ export async function sendLineBrief(
       },
       body: JSON.stringify({
         to: input.config.targetId,
-        messages: [
-          {
-            type: "text",
-            text: input.preview.text,
-          },
-        ],
+        messages: [lineMessage],
       }),
     });
 
