@@ -77,6 +77,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ manual report runner สำหรับรายงานขายสินค้าและบริการโดยตรง
   - `/owner/line`: LINE OA และกลุ่มรับรายงาน, onboarding guide ให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน
   - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run และ latest LINE delivery ต่อ tenant
+- `/owner` มี Pilot rollout board:
+  - แสดง progress ต่อร้านจาก checklist subscription, SML datasource, snapshot, LINE OA, approved target, LINE delivery
+  - บอก next action และพาไปหน้าที่เกี่ยวข้อง เช่น `/owner/tenants`, `/owner/reports`, `/owner/line`
+  - ใช้สำหรับปิดงาน setup ก่อนส่งให้ลูกค้า ไม่ต้องเดาว่าร้านไหนติดขั้นตอนไหน
 - Owner card/table มีปุ่ม `Dashboard` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
 - `/app` เป็น neutral state:
   - ไม่โชว์ข้อมูลร้านใดอัตโนมัติ
@@ -90,6 +94,8 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
     - KPI รองอยู่ในแถบเดียว: บิลขาย, รายการขาย, จำนวนขายรวม
     - insight `วันนี้ควรรู้อะไร` อยู่คู่กับยอดขายหลัก ไม่แยกเป็น card dump
     - comparison และ data trust ใช้ภาษาธุรกิจ ไม่ใช้ wording แบบ debug
+    - มี drilldown read-only สำหรับบิลขายและรายการสินค้า/บริการจาก snapshot
+    - drilldown จำกัดจำนวนแถวที่ render เพื่อกันหน้า customer ช้าเมื่อ report ใหญ่
     - รายละเอียด source/run id อยู่ใน collapsed section
     - วันที่บน customer viewer ใช้ปี ค.ศ. เพื่อให้ตรงกับ LINE และข้อมูล SML
   - slug ที่ใช้งานจริงตอนนี้:

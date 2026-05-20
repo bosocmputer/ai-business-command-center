@@ -414,6 +414,8 @@ function CustomerDashboardContent({
         />
       </section>
 
+      <CustomerDetailDrilldown snapshot={snapshot} />
+
       <details className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs leading-5 text-gray-500">
         <summary className="cursor-pointer select-none font-semibold text-gray-700">
           รายละเอียดแหล่งข้อมูล
@@ -437,6 +439,138 @@ function CustomerDashboardContent({
         </p>
       </details>
     </CustomerShell>
+  );
+}
+
+function CustomerDetailDrilldown({
+  snapshot,
+}: {
+  snapshot: SalesGoodsServicesSnapshot;
+}) {
+  const documents = snapshot.documents.slice(0, 10);
+  const lines = snapshot.lines.slice(0, 15);
+
+  return (
+    <details className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+      <summary className="cursor-pointer select-none">
+        <div className="inline-flex w-full flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">
+              ดูรายละเอียดบิล/สินค้า
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              เปิดเมื่อต้องการตรวจบิลและรายการขายจาก snapshot รอบนี้
+            </p>
+          </div>
+          <span className="text-xs font-medium text-gray-500">
+            {formatNumber(snapshot.documents.length)} บิล ·{" "}
+            {formatNumber(snapshot.lines.length)} รายการ
+          </span>
+        </div>
+      </summary>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <DetailTablePanel
+          emptyLabel="ไม่มีบิลขายในช่วงวันที่นี้"
+          title="บิลขายล่าสุด"
+        >
+          {documents.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-[620px] text-left text-sm">
+                <thead className="border-b border-gray-100 text-xs text-gray-500">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">วันที่</th>
+                    <th className="py-2 pr-4 font-medium">เลขที่บิล</th>
+                    <th className="py-2 pr-4 font-medium">ลูกค้า</th>
+                    <th className="py-2 text-right font-medium">ยอดขาย</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {documents.map((document) => (
+                    <tr key={`${document.doc_date}-${document.doc_no}`}>
+                      <td className="py-2 pr-4 text-gray-600">
+                        {formatThaiDate(document.doc_date)}
+                      </td>
+                      <td className="py-2 pr-4 font-semibold text-gray-900">
+                        {document.doc_no}
+                      </td>
+                      <td className="max-w-[220px] truncate py-2 pr-4 text-gray-600">
+                        {document.cust_name || document.cust_code || "-"}
+                      </td>
+                      <td className="py-2 text-right font-semibold text-gray-900">
+                        {formatCurrency(document.total_amount)} บาท
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </DetailTablePanel>
+
+        <DetailTablePanel
+          emptyLabel="ไม่มีรายการสินค้าในช่วงวันที่นี้"
+          title="รายการสินค้า/บริการ"
+        >
+          {lines.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-[760px] text-left text-sm">
+                <thead className="border-b border-gray-100 text-xs text-gray-500">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">สินค้า/บริการ</th>
+                    <th className="py-2 pr-4 font-medium">บิล</th>
+                    <th className="py-2 text-right font-medium">จำนวน</th>
+                    <th className="py-2 text-right font-medium">ยอดขาย</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {lines.map((line, index) => (
+                    <tr key={`${line.doc_no}-${line.item_code}-${index}`}>
+                      <td className="max-w-[320px] truncate py-2 pr-4 font-semibold text-gray-900">
+                        {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-600">
+                        {line.doc_no}
+                      </td>
+                      <td className="py-2 text-right text-gray-600">
+                        {formatNumber(line.qty)}
+                      </td>
+                      <td className="py-2 text-right font-semibold text-gray-900">
+                        {formatCurrency(line.sum_amount)} บาท
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </DetailTablePanel>
+      </div>
+
+      <p className="mt-3 text-xs leading-5 text-gray-500">
+        แสดงเฉพาะรายการแรกเพื่อให้หน้าโหลดเร็ว หากต้องการตรวจครบทุกแถวให้ใช้
+        owner report runner หรือ export ในรอบถัดไป
+      </p>
+    </details>
+  );
+}
+
+function DetailTablePanel({
+  children,
+  emptyLabel,
+  title,
+}: {
+  children: React.ReactNode;
+  emptyLabel: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+      <div className="mt-3 rounded-lg border border-gray-100 bg-white p-3">
+        {children ? children : <p className="text-sm text-gray-500">{emptyLabel}</p>}
+      </div>
+    </section>
   );
 }
 

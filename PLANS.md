@@ -28,6 +28,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
 - `/signin` Owner login สำหรับ admin surface ค่าเริ่มต้น pilot คือ `superadmin/superadmin`
 - `/owner` Owner Admin portal สำหรับคุณ/ทีม โดยแยก section เป็นภาพรวม, ร้านค้า, รายงาน, LINE OA, ประวัติระบบ
+- `/owner` มี Pilot rollout board แสดง readiness ต่อร้าน, progress, next action และลิงก์ไปหน้าที่ต้องทำต่อ
 - `/owner/tenants` ใช้เพิ่มร้าน, คุม subscription status, ดู datasource และเปิดลิงก์ Dashboard ลูกค้า
 - `/owner/reports` ใช้ติดตาม report snapshot ล่าสุดต่อร้าน และรันรายงานขายสินค้าและบริการแบบ manual จาก Owner Portal โดยตรง
 - `/owner/line` ใช้ดู LINE OA readiness, onboarding guide, อนุมัติ/เปลี่ยนสิทธิ์กลุ่ม LINE และส่ง test เฉพาะกลุ่ม
@@ -36,6 +37,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
 - `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
+- `/app/:tenantSlug` มี drilldown read-only สำหรับบิลขายและรายการสินค้า/บริการ โดยจำกัดจำนวนแถวที่ render เพื่อให้หน้า customer โหลดเร็ว
 - API ฝั่ง customer ใช้ `/api/app/:tenantSlug/*` และ derive tenant จาก slug ฝั่ง server เท่านั้น
 - tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send

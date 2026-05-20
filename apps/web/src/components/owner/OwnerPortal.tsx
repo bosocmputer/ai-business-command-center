@@ -1062,6 +1062,8 @@ function OwnerOverviewContent({
         <OwnerStatCard label="LINE OA" value={`${lineChannels.length}`} />
       </section>
 
+      <OwnerRolloutBoard tenants={tenants} />
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
           <OwnerPanelHeader
@@ -1113,6 +1115,88 @@ function OwnerOverviewContent({
         </div>
       </section>
     </div>
+  );
+}
+
+function OwnerRolloutBoard({ tenants }: { tenants: TenantSummary[] }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <OwnerPanelHeader
+        title="Pilot rollout board"
+        description="สรุปขั้นตอนที่เหลือของแต่ละร้าน เพื่อให้ owner รู้ทันทีว่าต้องไปทำอะไรต่อก่อนส่งให้ลูกค้า"
+      />
+      <div className="grid gap-3 border-t border-gray-100 p-4 dark:border-gray-800 lg:grid-cols-2">
+        {tenants.map((item) => {
+          const readiness = getTenantReadiness(item);
+          const nextStep = getTenantNextStep(item, readiness.items);
+          const progressPercent = Math.round(
+            (readiness.readyCount / readiness.items.length) * 100,
+          );
+
+          return (
+            <div
+              className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
+              key={item.tenant.id}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                      {item.tenant.name}
+                    </h3>
+                    <Badge color={readiness.tone}>{readiness.label}</Badge>
+                    <Badge color={tenantStatusTone(item.tenant.status)}>
+                      {formatTenantStatus(item.tenant.status)}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {nextStep.description}
+                  </p>
+                </div>
+                <Link
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                  href={nextStep.href}
+                >
+                  {nextStep.actionLabel}
+                </Link>
+              </div>
+
+              <div className="mt-4">
+                <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
+                  <div
+                    className={`h-full rounded-full ${
+                      readiness.tone === "success"
+                        ? "bg-success-500"
+                        : readiness.tone === "warning"
+                          ? "bg-warning-500"
+                          : "bg-error-500"
+                    }`}
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {readiness.items.slice(0, 6).map((check) => (
+                    <div
+                      className="flex items-start gap-2 text-xs leading-5"
+                      key={check.label}
+                    >
+                      <span
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                          check.ok ? "bg-success-500" : "bg-warning-500"
+                        }`}
+                      />
+                      <span className="text-gray-600 dark:text-gray-400">
+                        {check.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -2405,6 +2489,52 @@ function getTenantReadiness(
       readyCount === checks.length
         ? "พร้อม pilot"
         : `${readyCount}/${checks.length} พร้อม`,
+  };
+}
+
+function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
+  const firstMissing = checks.find((check) => !check.ok);
+  if (!firstMissing) {
+    return {
+      actionLabel: "เปิด Dashboard",
+      description: "ร้านนี้พร้อมสำหรับ pilot แล้ว ตรวจหน้าลูกค้าได้เลย",
+      href: item.customer_dashboard_path ?? "/app",
+    };
+  }
+
+  if (firstMissing.label.includes("Subscription")) {
+    return {
+      actionLabel: "เปิดร้าน",
+      description: "ร้านถูกบล็อกหรือยังไม่เปิดใช้งาน ต้องแก้สถานะก่อน",
+      href: "/owner/tenants",
+    };
+  }
+  if (firstMissing.label.includes("SML")) {
+    return {
+      actionLabel: "ตรวจ SML",
+      description: "ต้องทดสอบ datasource ก่อนรันรายงานหรือส่งให้ลูกค้า",
+      href: "/owner/tenants",
+    };
+  }
+  if (firstMissing.label.includes("รายงาน")) {
+    return {
+      actionLabel: "รันรายงาน",
+      description: "ยังไม่มี snapshot ล่าสุดสำหรับ dashboard และ LINE",
+      href: "/owner/reports",
+    };
+  }
+  if (firstMissing.label.includes("LINE")) {
+    return {
+      actionLabel: "ตั้ง LINE",
+      description: "ต้องเพิ่ม LINE OA หรืออนุมัติกลุ่มรับ Morning Brief",
+      href: "/owner/line",
+    };
+  }
+
+  return {
+    actionLabel: "ดูรายละเอียด",
+    description: firstMissing.detail,
+    href: "/owner",
   };
 }
 
