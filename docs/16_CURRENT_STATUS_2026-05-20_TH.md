@@ -11,8 +11,8 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed commit before LINE permissions: 781ff5e
-LINE group permission profile change: implemented in current working tree
+Latest deployed commit: edd3afc
+LINE group permission profile + same-origin API proxy: deployed
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
