@@ -2,12 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type {
-  LineAccessProfileKey,
-  LineChannelRecord,
-  LineDeliveryRecord,
-  LineTargetRecord,
-  Tenant,
+import {
+  deriveMorningBriefDateRange,
+  type LineAccessProfileKey,
+  type LineChannelRecord,
+  type LineDeliveryRecord,
+  type LineTargetRecord,
+  type ReportRunRecord,
+  type SalesGoodsServicesSnapshot,
+  type Tenant,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -25,6 +28,7 @@ import {
 } from "./OwnerLineTargetsPanel";
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
+const defaultReportRange = deriveMorningBriefDateRange();
 
 type TenantSummary = {
   tenant: Tenant;
@@ -94,6 +98,16 @@ export default function OwnerPortal({
   const [newTenantName, setNewTenantName] = useState("");
   const [newTenantId, setNewTenantId] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState("");
+  const [reportDateFrom, setReportDateFrom] = useState(
+    defaultReportRange.date_from,
+  );
+  const [reportDateTo, setReportDateTo] = useState(
+    defaultReportRange.date_to,
+  );
+  const [lastManualRun, setLastManualRun] =
+    useState<ReportRunRecord | null>(null);
+  const [lastManualSnapshot, setLastManualSnapshot] =
+    useState<SalesGoodsServicesSnapshot | null>(null);
   const [lineChannelName, setLineChannelName] = useState("");
   const [lineTokenConfigured, setLineTokenConfigured] = useState(true);
   const [lineSecretConfigured, setLineSecretConfigured] = useState(true);
@@ -566,6 +580,88 @@ export default function OwnerPortal({
     });
   }
 
+  async function runSalesReport() {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนรันรายงาน" });
+      return;
+    }
+    if (!reportDateFrom || !reportDateTo || reportDateFrom > reportDateTo) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาเลือกช่วงวันที่ให้ถูกต้อง",
+      });
+      return;
+    }
+
+    await runOwnerAction(`report-run-${tenant.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันรันรายงาน SML",
+        message:
+          "ระบบจะ query ฐานข้อมูล SML ของร้านนี้และบันทึก snapshot ล่าสุดให้ dashboard และ LINE ใช้ต่อ",
+        confirmLabel: "รันรายงาน",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          {
+            label: "รายงาน",
+            value: "รายงานขายสินค้าและบริการ",
+          },
+          {
+            label: "ช่วงวันที่",
+            value: formatReportPeriod(reportDateFrom, reportDateTo),
+          },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "รันรายงานขายสินค้าและบริการ",
+        description:
+          "ระบบจะ query ฐาน SML ของ tenant นี้และบันทึก snapshot ล่าสุด",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/reports/${tenant.id}/sales_goods_services/run`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            date_from: reportDateFrom,
+            date_to: reportDateTo,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: SalesGoodsServicesSnapshot;
+        run?: ReportRunRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
+        if (payload.run) {
+          setLastManualRun(payload.run);
+        }
+        throw new Error(payload.error || "รันรายงานไม่สำเร็จ");
+      }
+
+      setLastManualSnapshot(payload.data);
+      setLastManualRun(payload.run ?? null);
+      setResult({
+        tone: "success",
+        message: `${tenant.name}: รันรายงานสำเร็จ ยอดขาย ${formatCurrency(payload.data.summary.total_sales)} จาก ${payload.data.summary.document_count.toLocaleString("th-TH")} บิล`,
+      });
+      await loadOwnerData();
+    });
+  }
+
   async function runOwnerAction(name: string, action: () => Promise<void>) {
     setBusy(name);
     try {
@@ -641,6 +737,8 @@ export default function OwnerPortal({
           createLineChannel={createLineChannel}
           createTenant={createTenant}
           datasourceTests={datasourceTests}
+          lastManualRun={lastManualRun}
+          lastManualSnapshot={lastManualSnapshot}
           lineChannelName={lineChannelName}
           lineChannels={lineChannels}
           lineTargets={lineTargets}
@@ -655,6 +753,8 @@ export default function OwnerPortal({
           onToggleLineTarget={toggleLineTarget}
           onUpdateStatus={updateTenantStatus}
           publicOrigin={publicOrigin}
+          reportDateFrom={reportDateFrom}
+          reportDateTo={reportDateTo}
           section={section}
           selectedTenant={selectedTenant}
           selectedTenantId={selectedTenantId}
@@ -666,8 +766,11 @@ export default function OwnerPortal({
           setLineTokenConfigured={setLineTokenConfigured}
           setNewTenantId={setNewTenantId}
           setNewTenantName={setNewTenantName}
+          setReportDateFrom={setReportDateFrom}
+          setReportDateTo={setReportDateTo}
           setSelectedTenantId={setSelectedTenantId}
           tenants={tenants}
+          onRunSalesReport={runSalesReport}
         />
       ) : null}
 
@@ -715,6 +818,8 @@ type OwnerSectionContentProps = {
   createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
   createTenant: (event: FormEvent<HTMLFormElement>) => void;
   datasourceTests: Record<string, DatasourceTestResult>;
+  lastManualRun: ReportRunRecord | null;
+  lastManualSnapshot: SalesGoodsServicesSnapshot | null;
   lineChannelName: string;
   lineChannels: LineChannelRecord[];
   lineTargets: LineTargetRecord[];
@@ -730,6 +835,7 @@ type OwnerSectionContentProps = {
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
   ) => Promise<void>;
+  onRunSalesReport: () => Promise<void>;
   onTestDatasource: (tenantId: string) => Promise<void>;
   onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
   onToggleLineTarget: (target: LineTargetRecord) => Promise<void>;
@@ -738,6 +844,8 @@ type OwnerSectionContentProps = {
     status: Tenant["status"],
   ) => Promise<void>;
   publicOrigin: string;
+  reportDateFrom: string;
+  reportDateTo: string;
   section: OwnerPortalSection;
   selectedTenant?: Tenant;
   selectedTenantId: string;
@@ -749,6 +857,8 @@ type OwnerSectionContentProps = {
   setLineTokenConfigured: (value: boolean) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
+  setReportDateFrom: (value: string) => void;
+  setReportDateTo: (value: string) => void;
   setSelectedTenantId: (value: string) => void;
   tenants: TenantSummary[];
 };
@@ -758,7 +868,7 @@ function OwnerSectionContent(props: OwnerSectionContentProps) {
     return <OwnerTenantsContent {...props} />;
   }
   if (props.section === "reports") {
-    return <OwnerReportsContent tenants={props.tenants} />;
+    return <OwnerReportsContent {...props} />;
   }
   if (props.section === "line") {
     return <OwnerLineContent {...props} />;
@@ -1085,21 +1195,54 @@ function OwnerTenantsContent({
   );
 }
 
-function OwnerReportsContent({ tenants }: { tenants: TenantSummary[] }) {
+function OwnerReportsContent({
+  busy,
+  lastManualRun,
+  lastManualSnapshot,
+  onRunSalesReport,
+  reportDateFrom,
+  reportDateTo,
+  selectedTenantId,
+  selectedTenantSummary,
+  setReportDateFrom,
+  setReportDateTo,
+  setSelectedTenantId,
+  tenants,
+}: OwnerSectionContentProps) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <OwnerPanelHeader
-        title="รายงานขายสินค้าและบริการ"
-        description="ดูสถานะ snapshot ล่าสุดต่อร้าน และเข้า legacy report runner เฉพาะตอนต้องรัน manual"
-        actionHref="/command-center"
-        actionLabel="เปิด report runner"
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+      <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <OwnerPanelHeader
+          title="รายงานขายสินค้าและบริการ"
+          description="ดูสถานะ snapshot ล่าสุดต่อร้าน และรัน approved report ได้จาก Owner Portal"
+        />
+        <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+          {tenants.map((item) => (
+            <ReportTenantRow
+              item={item}
+              key={item.tenant.id}
+              onSelectTenant={setSelectedTenantId}
+              selected={item.tenant.id === selectedTenantId}
+            />
+          ))}
+        </div>
+      </section>
+
+      <OwnerReportRunnerPanel
+        busy={busy}
+        dateFrom={reportDateFrom}
+        dateTo={reportDateTo}
+        lastRun={lastManualRun}
+        lastSnapshot={lastManualSnapshot}
+        onDateFromChange={setReportDateFrom}
+        onDateToChange={setReportDateTo}
+        onRun={onRunSalesReport}
+        selectedTenant={selectedTenantSummary}
+        selectedTenantId={selectedTenantId}
+        setSelectedTenantId={setSelectedTenantId}
+        tenants={tenants}
       />
-      <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
-        {tenants.map((item) => (
-          <ReportTenantRow item={item} key={item.tenant.id} />
-        ))}
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -1198,9 +1341,185 @@ function OwnerAuditContent({ tenants }: { tenants: TenantSummary[] }) {
   );
 }
 
-function ReportTenantRow({ item }: { item: TenantSummary }) {
+function OwnerReportRunnerPanel({
+  busy,
+  dateFrom,
+  dateTo,
+  lastRun,
+  lastSnapshot,
+  onDateFromChange,
+  onDateToChange,
+  onRun,
+  selectedTenant,
+  selectedTenantId,
+  setSelectedTenantId,
+  tenants,
+}: {
+  busy: string | null;
+  dateFrom: string;
+  dateTo: string;
+  lastRun: ReportRunRecord | null;
+  lastSnapshot: SalesGoodsServicesSnapshot | null;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onRun: () => Promise<void>;
+  selectedTenant?: TenantSummary;
+  selectedTenantId: string;
+  setSelectedTenantId: (value: string) => void;
+  tenants: TenantSummary[];
+}) {
+  const isRunning = busy === `report-run-${selectedTenantId}`;
+  const selectedSnapshotMatches =
+    lastSnapshot?.tenant_id === selectedTenantId &&
+    lastSnapshot.params.date_from === dateFrom &&
+    lastSnapshot.params.date_to === dateTo;
+
   return (
-    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_140px_170px_140px] lg:items-center">
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-gray-400">
+            Manual report run
+          </p>
+          <h2 className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
+            รันรายงานแบบผู้ดูแล
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้ approved SQL เดียวกับ dashboard/LINE และบันทึก snapshot ที่ trace ได้
+          </p>
+        </div>
+        <Badge color={selectedTenant?.access.enabled ? "success" : "warning"}>
+          {selectedTenant?.access.enabled ? "พร้อมรัน" : "ควรตรวจสถานะร้าน"}
+        </Badge>
+      </div>
+
+      <div className="mt-5 space-y-4 border-t border-gray-100 pt-5 dark:border-gray-800">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          ร้านค้า
+          <select
+            className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            onChange={(event) => setSelectedTenantId(event.target.value)}
+            value={selectedTenantId}
+          >
+            {tenants.map((item) => (
+              <option key={item.tenant.id} value={item.tenant.id}>
+                {item.tenant.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            จากวันที่
+            <input
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              onChange={(event) => onDateFromChange(event.target.value)}
+              type="date"
+              value={dateFrom}
+            />
+          </label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            ถึงวันที่
+            <input
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              onChange={(event) => onDateToChange(event.target.value)}
+              type="date"
+              value={dateTo}
+            />
+          </label>
+        </div>
+
+        <Button
+          className="w-full"
+          disabled={isRunning || !selectedTenantId}
+          onClick={() => void onRun()}
+          size="sm"
+        >
+          {isRunning ? "กำลังรันรายงาน..." : "รันรายงาน"}
+        </Button>
+
+        <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+          <p className="text-xs font-semibold uppercase text-gray-400">
+            Snapshot ล่าสุดของร้านที่เลือก
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <HealthFact
+              label="รายงานล่าสุด"
+              value={
+                selectedTenant?.health.latest_snapshot_at
+                  ? formatDateTime(selectedTenant.health.latest_snapshot_at)
+                  : "ยังไม่มี"
+              }
+            />
+            <HealthFact
+              label="สถานะล่าสุด"
+              value={formatRunStatus(selectedTenant?.health.latest_report_status ?? null)}
+            />
+          </div>
+        </div>
+
+        {lastRun ? (
+          <div
+            className={`rounded-xl border p-3 text-sm ${
+              lastRun.status === "success"
+                ? "border-success-100 bg-success-50 text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-300"
+                : "border-warning-100 bg-warning-50 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300"
+            }`}
+          >
+            <p className="font-semibold">ผลรันล่าสุดในหน้านี้</p>
+            <p className="mt-1 text-xs leading-5">
+              {formatRunStatus(lastRun.status)} ·{" "}
+              {formatReportPeriod(lastRun.params.date_from, lastRun.params.date_to)}
+              {lastRun.safe_error_message ? ` · ${lastRun.safe_error_message}` : ""}
+            </p>
+          </div>
+        ) : null}
+
+        {selectedSnapshotMatches && lastSnapshot ? (
+          <dl className="grid gap-2 sm:grid-cols-2">
+            <HealthFact
+              label="ยอดขายสุทธิ"
+              value={formatCurrency(lastSnapshot.summary.total_sales)}
+            />
+            <HealthFact
+              label="บิลขาย"
+              value={`${lastSnapshot.summary.document_count.toLocaleString("th-TH")} ใบ`}
+            />
+            <HealthFact
+              label="รายการขาย"
+              value={`${lastSnapshot.summary.line_count.toLocaleString("th-TH")} รายการ`}
+            />
+            <HealthFact
+              label="Trust"
+              value={formatQualityStatus(lastSnapshot.quality_status)}
+            />
+          </dl>
+        ) : (
+          <p className="rounded-xl border border-dashed border-gray-200 p-3 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:text-gray-400">
+            หลังรันสำเร็จ ระบบจะแสดงยอดขายและจำนวนบิลของช่วงวันที่นี้ตรงนี้ทันที
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReportTenantRow({
+  item,
+  onSelectTenant,
+  selected,
+}: {
+  item: TenantSummary;
+  onSelectTenant: (tenantId: string) => void;
+  selected: boolean;
+}) {
+  return (
+    <div
+      className={`grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_140px_170px_110px] lg:items-center ${
+        selected ? "bg-brand-50/40 dark:bg-brand-500/[0.08]" : ""
+      }`}
+    >
       <div className="min-w-0">
         <p className="font-semibold text-gray-900 dark:text-white">
           {item.tenant.name}
@@ -1222,12 +1541,14 @@ function ReportTenantRow({ item }: { item: TenantSummary }) {
         }
       />
       <div className="flex gap-2 lg:justify-end">
-        <Link
-          className="inline-flex h-9 items-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-          href="/command-center"
+        <Button
+          disabled={selected}
+          size="sm"
+          variant="outline"
+          onClick={() => onSelectTenant(item.tenant.id)}
         >
-          รันรายงาน
-        </Link>
+          {selected ? "เลือกอยู่" : "จัดการ"}
+        </Button>
       </div>
     </div>
   );
@@ -2122,6 +2443,36 @@ function formatTenantStatus(status: Tenant["status"]) {
     cancelled: "ยกเลิก",
   };
   return labels[status];
+}
+
+function formatCurrency(value: number) {
+  return `${value.toLocaleString("th-TH", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })} บาท`;
+}
+
+function formatReportPeriod(dateFrom: string, dateTo: string) {
+  if (dateFrom === dateTo) {
+    return dateFrom;
+  }
+  return `${dateFrom} ถึง ${dateTo}`;
+}
+
+function formatQualityStatus(status: SalesGoodsServicesSnapshot["quality_status"]) {
+  if (status === "valid") {
+    return "พร้อมใช้";
+  }
+  if (status === "reconciled_with_warning") {
+    return "ควรตรวจยอด";
+  }
+  if (status === "failed") {
+    return "ไม่สำเร็จ";
+  }
+  if (status === "stale") {
+    return "ข้อมูลเก่า";
+  }
+  return "บางส่วน";
 }
 
 function formatDateTime(value: string) {

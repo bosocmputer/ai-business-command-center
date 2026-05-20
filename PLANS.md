@@ -29,7 +29,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/signin` Owner login สำหรับ admin surface ค่าเริ่มต้น pilot คือ `superadmin/superadmin`
 - `/owner` Owner Admin portal สำหรับคุณ/ทีม โดยแยก section เป็นภาพรวม, ร้านค้า, รายงาน, LINE OA, ประวัติระบบ
 - `/owner/tenants` ใช้เพิ่มร้าน, คุม subscription status, ดู datasource และเปิดลิงก์ Dashboard ลูกค้า
-- `/owner/reports` ใช้ติดตาม report snapshot ล่าสุดต่อร้าน และเข้า legacy runner เมื่อจำเป็น
+- `/owner/reports` ใช้ติดตาม report snapshot ล่าสุดต่อร้าน และรันรายงานขายสินค้าและบริการแบบ manual จาก Owner Portal โดยตรง
 - `/owner/line` ใช้ดู LINE OA readiness, onboarding guide, อนุมัติ/เปลี่ยนสิทธิ์กลุ่ม LINE และส่ง test เฉพาะกลุ่ม
 - `/owner/audit` ใช้ดู latest report run และ latest LINE delivery ต่อ tenant
 - `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ

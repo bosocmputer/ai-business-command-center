@@ -74,7 +74,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Owner Admin แยกเป็น section/page ตามงานจริงเพื่อลด noise:
   - `/owner`: ภาพรวมเจ้าของ เห็น readiness ของทุกร้าน, งานที่ต้องทำต่อ, flow เปิดร้านใหม่
   - `/owner/tenants`: ร้านค้าและการใช้งาน เพิ่ม tenant, เปลี่ยน subscription status, ดู datasource/customer dashboard slug
-  - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ link ไป legacy report runner เมื่อจำเป็นต้องรัน manual
+  - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ manual report runner สำหรับรายงานขายสินค้าและบริการโดยตรง
   - `/owner/line`: LINE OA และกลุ่มรับรายงาน, onboarding guide ให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน
   - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run และ latest LINE delivery ต่อ tenant
 - Owner card/table มีปุ่ม `Dashboard` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
@@ -246,7 +246,7 @@ Browser QA:
 - logout แล้วกลับไป `/signin`
 - `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP ในภาพรวม พร้อมงานที่ต้องทำต่อ
 - `/owner/tenants` เห็น tenant operations และไม่มี horizontal overflow
-- `/owner/reports` เห็นสถานะ report snapshot ต่อร้าน และไม่มี horizontal overflow
+- `/owner/reports` เห็นสถานะ report snapshot ต่อร้าน, เลือกร้าน/ช่วงวันที่, ยืนยันก่อนรัน report และไม่มี horizontal overflow
 - `/owner/line` เห็น LINE readiness/onboarding guide, กลุ่ม LINE ต่อร้าน, profile permission และ action ส่ง test โดยไม่มี horizontal overflow
 - `/owner/audit` เห็น latest run/delivery ต่อร้าน และไม่มี horizontal overflow
 - `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
