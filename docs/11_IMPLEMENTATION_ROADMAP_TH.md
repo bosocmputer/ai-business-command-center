@@ -164,13 +164,45 @@ Current acceptance:
 - `sales_goods_services` run จาก SML DB ได้
 - dashboard/admin control room ใช้งานได้ที่ `/command-center`
 - customer-facing signed viewer ใช้งานได้ที่ `/command-center/brief`
+- Owner Admin SaaS control plane เริ่มใช้งานที่ `/owner`
+- Customer read-only viewer เริ่มใช้งานที่ `/app`
+- tenant status gate เริ่มใช้จริงกับ customer viewer และ Morning Brief scheduler
+- `line_channels` registry รองรับหลาย LINE OA ต่อ tenant ในระดับ metadata แล้ว
 - LINE OA demo ส่งเข้ากลุ่มทดสอบได้
 - worker scheduler พร้อมรอบ `08:00 Asia/Bangkok`
 - system store ใช้ PostgreSQL
 - mutation endpoints มี MVP admin token guard
-- latest deployed commit = `9b7cb23`
+- latest deployed commit ให้ดูจาก `docs/16_CURRENT_STATUS_2026-05-20_TH.md`
 
-## Phase 2: Report Library and Multi-Tenant
+## Phase 2: SaaS Multi-Tenant Control Plane
+
+สถานะ: เริ่ม implement แล้วในรอบ SaaS pilot
+
+เพิ่มแล้ว:
+
+- owner portal สำหรับเพิ่มร้านค้าและเปลี่ยน subscription status
+- customer viewer แบบ read-only
+- `users` table สำหรับ owner/customer role seed
+- `line_channels` table สำหรับหลาย LINE OA ต่อ tenant
+- suspended/cancelled gate สำหรับ customer viewer และ LINE scheduler
+
+ต้องทำต่อ:
+
+- login/session จริงแทน customer session shim
+- encrypted datasource secret store
+- encrypted LINE channel token/secret store
+- `subscriptions` table แยกจาก `tenants.status`
+- `tenant_report_configs` สำหรับเปิด/ปิด report ต่อ package/tenant
+- owner UI สำหรับ datasource config จริง, report package, billing note และ audit
+
+Acceptance:
+
+- owner admin เห็นและควบคุม tenant ทั้งหมด
+- customer A อ่านข้อมูล customer B ไม่ได้ผ่าน session/login จริง
+- suspended tenant ถูก block แต่ owner ยังดู health/audit ได้
+- เพิ่ม LINE OA/กลุ่ม LINE ต่อร้านโดยไม่ต้องแก้ code
+
+## Phase 3: Report Library and Multi-Report
 
 เพิ่ม:
 
@@ -194,7 +226,7 @@ Acceptance:
 - เปิด report เดิมให้ tenant ใหม่ได้
 - shared report definition ใช้ซ้ำได้
 
-## Phase 3: Production Hardening
+## Phase 4: Production Hardening
 
 เพิ่ม:
 
@@ -214,7 +246,7 @@ Acceptance:
 - restore backup test ผ่าน
 - LINE failure retry/log ผ่าน
 
-## Phase 4: Chatbot over Approved Reports
+## Phase 5: Chatbot over Approved Reports
 
 เพิ่ม:
 

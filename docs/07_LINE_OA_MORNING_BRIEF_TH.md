@@ -13,6 +13,8 @@ GET /api/reports/:tenantId/sales_goods_services/line-preview
 GET /api/reports/:tenantId/sales_goods_services/line-deliveries
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+GET /api/owner/line-channels
+POST /api/owner/line-channels
 GET /api/line-targets?tenant_id=...
 POST /api/line-targets/:id/approve
 PATCH /api/line-targets/:id
@@ -34,6 +36,8 @@ POST /api/line-targets/:id/test-send
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
 - target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดกลุ่ม
 - LINE target ต้องมาจาก target registry/webhook ที่ admin อนุมัติแล้ว; env fallback target ปิดเป็นค่า default เพื่อกันกลุ่มเก่าถูกสร้างกลับมาทุก restart
+- tenant ที่เป็น `suspended` หรือ `cancelled` จะไม่ส่ง Morning Brief แม้ target จะ approved แล้ว
+- Owner Admin เริ่มมี `line_channels` registry เพื่อรองรับหลาย LINE OA ต่อ tenant: 1 tenant มีหลาย OA, 1 OA มีหลาย target
 - web public URL ใช้ same-origin `/api` rewrite ไปยัง API ภายใน Docker เพื่อลดการพึ่งพา API quick tunnel แยกอีกตัว
 - ระบบพยายามดึงชื่อกลุ่มจาก LINE group summary API เพื่อให้ admin เห็นชื่อกลุ่มแทน masked group id ถ้า LINE API ให้สิทธิ์และ OA ยังอยู่ในกลุ่มนั้น
 
@@ -43,6 +47,12 @@ POST /api/line-targets/:id/test-send
 - target recipient เช่น `userId`, `groupId`, หรือ `roomId`
 - tenant/channel mapping ใน `line_channels`
 - send log/retry ใน `line_deliveries`
+
+หมายเหตุ production:
+
+- Phase ปัจจุบัน `line_channels` เก็บ metadata และสถานะ configured ก่อน ยังไม่เก็บ token จริงใน DB
+- Production ต้องเพิ่ม encrypted secret store สำหรับ `channel_access_token` และ `channel_secret`
+- Webhook หลาย LINE OA ควรมี route หรือ channel mapping ที่ระบุได้ว่า event มาจาก channel ใด ก่อน auto-map target เข้าช่องทางนั้น
 
 ## LINE OA Strategy
 

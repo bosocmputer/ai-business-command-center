@@ -10,7 +10,7 @@ docs/16_CURRENT_STATUS_2026-05-20_TH.md
 
 ## Current State
 
-Workspace ตอนนี้มี Phase 1 professional pilot ที่ deploy ได้แล้ว
+Workspace ตอนนี้มี Phase 1 professional pilot และกำลังยกระดับเป็น SaaS pilot ที่แยก Owner Admin กับ Customer Viewer แล้ว
 
 สิ่งที่มี:
 
@@ -26,6 +26,10 @@ Workspace ตอนนี้มี Phase 1 professional pilot ที่ deploy �
 - LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
 - LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
+- `/owner` Owner Admin portal สำหรับคุณ/ทีม ใช้ดูทุกร้าน, เพิ่มร้าน, คุม subscription status และ LINE OA metadata
+- `/app` Customer Viewer portal สำหรับร้านค้าแบบ read-only เห็นเฉพาะ tenant ของตัวเองผ่าน session shim
+- tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
+- suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send
 - Signed report viewer link TTL default `72` ชั่วโมง
 - Duplicate guard สำหรับ Morning Brief delivery ต่อ target
 - Lightweight admin token guard สำหรับ mutation endpoints
@@ -45,7 +49,7 @@ Web LAN: http://192.168.2.109:3055/command-center
 API LAN: http://192.168.2.109:4055
 Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
-Latest deployed commit: 9b7cb23
+Latest deployed commit: see latest `main` commit after SaaS pilot deploy
 ```
 
 ห้ามบันทึก signed viewer URL เต็มลงเอกสาร เพราะ URL มี `token=...`
@@ -145,32 +149,39 @@ Acceptance:
 - system DB migration/seed ได้
 - health endpoint พร้อม
 
-## Phase 2: System DB and Tenant Foundation
+## Phase 2: SaaS Tenant Foundation
 
-Implement tables:
+Current implementation เพิ่ม SaaS pilot primitives แล้ว:
 
 - `tenants`
-- `datasources`
+- `users`
 - `report_definitions`
-- `tenant_report_configs`
 - `report_runs`
 - `report_snapshots`
 - `line_channels`
+- `line_targets`
 - `line_deliveries`
 - `audit_logs`
 
 Minimum behavior:
 
-- seed demo tenant
+- seed demo tenant และ office tenant โดยไม่ overwrite status ที่ owner เปลี่ยนใน system store
+- owner เพิ่ม tenant ใหม่ได้จาก `/owner`
+- owner เปลี่ยน subscription status ได้
+- customer viewer อ่านรายงานอย่างเดียวที่ `/app`
+- suspended/cancelled tenant ถูก block จาก customer viewer และ LINE scheduler
+- LINE OA หลายตัวต่อ tenant มี registry metadata แล้ว
 - seed `sales_goods_services` definition after contract ready
-- datasource secret stored encrypted or placeholder/env-only in dev
+- datasource secret ยังเป็น env/deployment-level สำหรับ pilot; production ต้องย้ายเข้า encrypted secret store
 - every customer-facing table has `tenant_id`
 
 Acceptance:
 
 - can create tenant
-- can store datasource without plaintext secret exposure
-- can enable report per tenant
+- can block tenant by subscription status
+- customer cannot access admin/config controls from `/app`
+- can register multiple LINE OA metadata per tenant
+- can enable report per tenant (next increment: `tenant_report_configs`)
 
 ## Phase 3: Report Runner MVP
 

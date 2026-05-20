@@ -20,13 +20,15 @@ Current implementation ผ่าน `SystemStore` persist ตารางหล�
 - `report_definitions`
 - `report_runs`
 - `report_snapshots`
+- `users`
+- `line_channels`
 - `line_targets`
 - `line_deliveries`
 - `line_webhook_events`
 - `worker_heartbeats`
 - `audit_logs`
 
-ส่วน `datasources`, `line_channels`, `users`, `roles`, `subscriptions` ยังเป็น future expansion หลัง professional pilot stable ตอนนี้ datasource/LINE channel token ยังมาจาก env บน server แต่ปลายทาง LINE เริ่มมี `line_targets` สำหรับ group-level permission แล้ว
+ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง ส่วน datasource/LINE channel secret ยังมาจาก env บน server หรือ metadata ใน `line_channels` โดยไม่ commit secret ลง repo
 
 ### tenants
 
@@ -34,16 +36,23 @@ Current implementation ผ่าน `SystemStore` persist ตารางหล�
 
 ```text
 id
-company_name
-display_name
-plan
+name
+database_name
+description
+datasource_configured
 status
-timezone
-created_at
-updated_at
+plan_code
+suspended_reason
+current_period_end
 ```
 
-`status`: `trial`, `active`, `paused`, `cancelled`
+`status`: `trial`, `active`, `past_due`, `suspended`, `cancelled`
+
+Policy:
+
+- `trial` / `active`: dashboard และ LINE ใช้งานได้
+- `past_due`: ยังใช้งานได้ แต่ owner เห็น warning
+- `suspended` / `cancelled`: customer viewer ถูก block และ scheduler ไม่ส่ง LINE
 
 ### subscriptions
 
@@ -187,15 +196,17 @@ LINE OA/channel config ต่อ tenant ใน production
 ```text
 id
 tenant_id
-name
-line_channel_id
-encrypted_channel_access_token
+display_name
+channel_type
+channel_access_token_configured
+channel_secret_configured
 enabled
+source
 created_at
 updated_at
 ```
 
-Phase ปัจจุบัน channel token ยังอยู่ใน env (`LINE_CHANNEL_ACCESS_TOKEN` หรือ tenant-specific env) และไม่บันทึก token ลง system DB
+Phase ปัจจุบัน `line_channels` เป็น registry/metadata สำหรับ Owner Admin ก่อน เช่น มี token/secret แล้วหรือยัง, เปิดใช้งานหรือไม่, source มาจาก env/manual. Token จริงยังอยู่ใน env (`LINE_CHANNEL_ACCESS_TOKEN` หรือ tenant-specific env) จนกว่าจะเพิ่ม encrypted secret store
 
 ### line_targets
 
@@ -204,6 +215,7 @@ Phase ปัจจุบัน channel token ยังอยู่ใน env (`L
 ```text
 id
 tenant_id
+line_channel_id
 display_name
 target_type
 target_id

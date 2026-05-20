@@ -1,11 +1,27 @@
 import { z } from "zod";
 
-export const tenantIdSchema = z.enum([
-  "tenant_demo_remote",
-  "tenant_office_sml1_2026",
-]);
+export const tenantIdSchema = z
+  .string()
+  .min(3)
+  .max(80)
+  .regex(
+    /^[a-z0-9][a-z0-9_-]*$/,
+    "tenant_id must use lowercase letters, numbers, underscores, or hyphens",
+  );
 
 export const reportKeySchema = z.literal("sales_goods_services");
+
+export const tenantStatusSchema = z.enum([
+  "trial",
+  "active",
+  "past_due",
+  "suspended",
+  "cancelled",
+]);
+
+export const planCodeSchema = z.enum(["starter", "business", "pro"]);
+
+export const userRoleSchema = z.enum(["owner_admin", "tenant_viewer"]);
 
 export const isoDateSchema = z
   .string()
@@ -36,6 +52,9 @@ export const dataQualityStatusSchema = z.enum([
 
 export type TenantId = z.infer<typeof tenantIdSchema>;
 export type ReportKey = z.infer<typeof reportKeySchema>;
+export type TenantStatus = z.infer<typeof tenantStatusSchema>;
+export type PlanCode = z.infer<typeof planCodeSchema>;
+export type UserRole = z.infer<typeof userRoleSchema>;
 export type SalesGoodsServicesParams = z.infer<
   typeof salesGoodsServicesParamsSchema
 >;
@@ -47,6 +66,31 @@ export type Tenant = {
   databaseName: string;
   description: string;
   datasourceConfigured: boolean;
+  status: TenantStatus;
+  planCode: PlanCode;
+  suspendedReason: string | null;
+  currentPeriodEnd: string | null;
+};
+
+export type SubscriptionRecord = {
+  tenant_id: TenantId;
+  plan_code: PlanCode;
+  status: TenantStatus;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  suspended_reason: string | null;
+  updated_at: string;
+};
+
+export type UserRecord = {
+  id: string;
+  email: string;
+  display_name: string;
+  role: UserRole;
+  tenant_id: TenantId | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ReportRunStatus = "success" | "failed" | "running";
@@ -183,9 +227,23 @@ export type AllowedLineAction = z.infer<typeof allowedLineActionSchema>;
 export type LineTargetType = "user" | "group" | "room";
 export type LineTargetSource = "env_fallback" | "webhook" | "manual";
 
+export type LineChannelRecord = {
+  id: string;
+  tenant_id: TenantId;
+  display_name: string;
+  channel_type: "line_oa";
+  channel_access_token_configured: boolean;
+  channel_secret_configured: boolean;
+  enabled: boolean;
+  source: "env" | "manual";
+  created_at: string;
+  updated_at: string;
+};
+
 export type LineTargetRecord = {
   id: string;
   tenant_id: TenantId;
+  line_channel_id: string | null;
   display_name: string;
   target_type: LineTargetType;
   target_id_masked: string;

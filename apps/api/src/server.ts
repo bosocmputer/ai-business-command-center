@@ -7,13 +7,16 @@ import {
   lineSendRequestSchema,
   lineAccessProfileKeySchema,
   type LineDeliveryRecord,
+  type LineChannelRecord,
   morningBriefRequestSchema,
+  planCodeSchema,
   reportKeySchema,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
   salesGoodsServicesParamsSchema,
   tenantIdSchema,
+  tenantStatusSchema,
   type TenantId,
 } from "@ai-bcc/shared";
 import {
@@ -99,8 +102,251 @@ app.get("/health", async () => ({
 }));
 
 app.get("/api/tenants", async () => ({
-  data: listTenants(),
+  data: await systemStore.listTenants(),
 }));
+
+app.get("/api/owner/tenants", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const tenants = await systemStore.listTenants();
+  const summaries = (await Promise.all(
+    tenants.map(async (tenant) => buildOwnerTenantSummary(tenant.id)),
+  )).filter((summary): summary is NonNullable<typeof summary> =>
+    Boolean(summary),
+  );
+
+  return { data: summaries };
+});
+
+app.post("/api/owner/tenants", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const body = ownerTenantCreateSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid tenant create request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const existingTenant = (await systemStore.listTenants()).find(
+    (tenant) => tenant.id === body.data.tenant_id,
+  );
+  if (existingTenant) {
+    return reply.status(409).send({ error: "Tenant already exists." });
+  }
+
+  const now = new Date().toISOString();
+  const tenant = await systemStore.upsertTenant({
+    id: body.data.tenant_id,
+    name: body.data.name,
+    databaseName: body.data.database_name ?? "",
+    description: body.data.description ?? "",
+    datasourceConfigured: false,
+    status: body.data.status,
+    planCode: body.data.plan_code,
+    suspendedReason: null,
+    currentPeriodEnd: body.data.current_period_end ?? null,
+  });
+
+  await systemStore.upsertUser({
+    id: `user_${tenant.id}_viewer`,
+    email: body.data.viewer_email ?? `viewer+${tenant.id}@ai-business.local`,
+    display_name: `${tenant.name} Viewer`,
+    role: "tenant_viewer",
+    tenant_id: tenant.id,
+    enabled: true,
+    created_at: now,
+    updated_at: now,
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: tenant.id,
+    actor_id: null,
+    action: "owner_tenant_created",
+    target_type: "tenant",
+    target_id: tenant.id,
+    metadata_json: {
+      plan_code: tenant.planCode,
+      status: tenant.status,
+    },
+  });
+
+  return { data: await buildOwnerTenantSummary(tenant.id) };
+});
+
+app.patch("/api/owner/tenants/:tenantId", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = tenantParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid tenant_id" });
+  }
+
+  const body = ownerTenantPatchSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid tenant update request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const current = (await systemStore.listTenants()).find(
+    (tenant) => tenant.id === routeParams.data.tenantId,
+  );
+  if (!current) {
+    return reply.status(404).send({ error: "Tenant not found" });
+  }
+
+  const updated = await systemStore.upsertTenant({
+    ...current,
+    name: body.data.name ?? current.name,
+    databaseName: body.data.database_name ?? current.databaseName,
+    description: body.data.description ?? current.description,
+    datasourceConfigured:
+      body.data.datasource_configured ?? current.datasourceConfigured,
+    status: body.data.status ?? current.status,
+    planCode: body.data.plan_code ?? current.planCode,
+    suspendedReason:
+      body.data.suspended_reason !== undefined
+        ? body.data.suspended_reason
+        : current.suspendedReason,
+    currentPeriodEnd:
+      body.data.current_period_end !== undefined
+        ? body.data.current_period_end
+        : current.currentPeriodEnd,
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: updated.id,
+    actor_id: null,
+    action: "owner_tenant_updated",
+    target_type: "tenant",
+    target_id: updated.id,
+    metadata_json: {
+      plan_code: updated.planCode,
+      status: updated.status,
+      datasource_configured: updated.datasourceConfigured,
+    },
+  });
+
+  return { data: await buildOwnerTenantSummary(updated.id) };
+});
+
+app.get("/api/owner/line-channels", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const query = lineChannelsQuerySchema.safeParse(request.query);
+  if (!query.success) {
+    return reply.status(400).send({ error: "Invalid query" });
+  }
+
+  return {
+    data: await listEffectiveLineChannels(query.data.tenant_id),
+  };
+});
+
+app.post("/api/owner/line-channels", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const body = lineChannelCreateSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid LINE channel request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const tenant = await getTenantOrNull(body.data.tenant_id);
+  if (!tenant) {
+    return reply.status(404).send({ error: "Tenant not found." });
+  }
+
+  const now = new Date().toISOString();
+  const channel: LineChannelRecord = {
+    id: `line_channel_${body.data.tenant_id}_${Date.now()}`,
+    tenant_id: body.data.tenant_id,
+    display_name: body.data.display_name,
+    channel_type: "line_oa",
+    channel_access_token_configured: Boolean(
+      body.data.channel_access_token_configured,
+    ),
+    channel_secret_configured: Boolean(body.data.channel_secret_configured),
+    enabled: body.data.enabled ?? true,
+    source: "manual",
+    created_at: now,
+    updated_at: now,
+  };
+
+  const saved = await systemStore.upsertLineChannel(channel);
+  await systemStore.appendAuditLog({
+    tenant_id: saved.tenant_id,
+    actor_id: null,
+    action: "line_channel_created",
+    target_type: "line_channel",
+    target_id: saved.id,
+    metadata_json: {
+      display_name: saved.display_name,
+      enabled: saved.enabled,
+      token_configured: saved.channel_access_token_configured,
+      secret_configured: saved.channel_secret_configured,
+    },
+  });
+
+  return { data: saved };
+});
+
+app.get("/api/app/session", async (request, reply) => {
+  const session = await resolveCustomerSession(request);
+  if (!session.ok) {
+    return reply.status(session.statusCode).send({ error: session.error });
+  }
+
+  return {
+    data: {
+      role: "tenant_viewer",
+      tenant: session.tenant,
+      access: tenantAccessStatus(session.tenant),
+    },
+  };
+});
+
+app.get("/api/app/reports/sales_goods_services/latest", async (request, reply) => {
+  const session = await resolveCustomerSession(request);
+  if (!session.ok) {
+    return reply.status(session.statusCode).send({ error: session.error });
+  }
+
+  const access = tenantAccessStatus(session.tenant);
+  if (!access.enabled) {
+    return reply.status(403).send({
+      error: access.message,
+      tenant_status: session.tenant.status,
+    });
+  }
+
+  const snapshot = await systemStore.getLatestSnapshot(session.tenant.id);
+  if (!snapshot) {
+    return reply.status(404).send({ error: "Snapshot not found" });
+  }
+
+  return { data: snapshot, tenant: session.tenant };
+});
 
 app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
@@ -176,6 +422,7 @@ app.get("/api/operations/status", async () => {
   const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
     "morning_brief_scheduler",
   );
+  const tenants = await systemStore.listTenants();
   const heartbeatAgeSeconds = latestHeartbeat
     ? Math.floor((Date.now() - new Date(latestHeartbeat.checked_at).getTime()) / 1000)
     : null;
@@ -213,13 +460,15 @@ app.get("/api/operations/status", async () => {
         age_seconds: heartbeatAgeSeconds,
         status: latestHeartbeat ? (heartbeatFresh ? latestHeartbeat.status : "stale") : "missing",
       },
-      tenants: listTenants().map((tenant) => {
+      tenants: tenants.map((tenant) => {
         const lineCredentials = readLineChannelCredentials(tenant.id);
         const lineConfig = readLineChannelConfig(tenant.id);
         return {
           id: tenant.id,
           name: tenant.name,
           database_name: tenant.databaseName,
+          status: tenant.status,
+          plan_code: tenant.planCode,
           datasource_configured: tenant.datasourceConfigured,
           line_configured: Boolean(lineCredentials),
           line_target_masked: lineConfig ? maskIdentifier(lineConfig.targetId) : null,
@@ -500,6 +749,18 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     return reply.status(404).send({ error: "LINE target not found" });
   }
 
+  const tenant = await getTenantOrNull(target.tenant_id);
+  if (!tenant) {
+    return reply.status(404).send({ error: "Tenant not found." });
+  }
+  const access = tenantAccessStatus(tenant);
+  if (!access.enabled) {
+    return reply.status(403).send({
+      error: access.message,
+      tenant_status: tenant.status,
+    });
+  }
+
   const permission = canAccessLineReport({
     tenantId: target.tenant_id,
     target,
@@ -647,6 +908,18 @@ app.get(
       return reply.status(statusCode).send({ error: errorMessage });
     }
 
+    const tenant = await getTenantOrNull(params.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+    const access = tenantAccessStatus(tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: tenant.status,
+      });
+    }
+
     const snapshot = await systemStore.getSnapshotByRunId(
       params.data.tenantId,
       params.data.runId,
@@ -727,6 +1000,18 @@ app.post(
     }
 
     const tenantId = params.data.tenantId;
+    const tenant = await getTenantOrNull(tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+    const access = tenantAccessStatus(tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: tenant.status,
+      });
+    }
+
     const snapshot = await systemStore.getLatestSnapshot(tenantId);
     if (!snapshot) {
       return reply.status(404).send({ error: "Snapshot not found" });
@@ -807,6 +1092,28 @@ app.post(
     }
 
     const tenantId = routeParams.data.tenantId;
+    const tenant = await getTenantOrNull(tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+    const access = tenantAccessStatus(tenant);
+    if (!access.enabled) {
+      await systemStore.appendAuditLog({
+        tenant_id: tenantId,
+        actor_id: null,
+        action: "morning_brief_skipped_subscription",
+        target_type: "tenant",
+        target_id: tenantId,
+        metadata_json: {
+          status: tenant.status,
+          reason: access.message,
+        },
+      });
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: tenant.status,
+      });
+    }
     const reportParams = deriveMorningBriefDateRange({
       period: body.data.period,
       timeZone: "Asia/Bangkok",
@@ -1311,6 +1618,168 @@ function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
   }
 }
 
+async function buildOwnerTenantSummary(tenantId: TenantId) {
+  const tenants = await systemStore.listTenants();
+  const tenant = tenants.find((item) => item.id === tenantId);
+  if (!tenant) {
+    return null;
+  }
+
+  const [snapshot, runs, deliveries, lineTargets, lineChannels, users] =
+    await Promise.all([
+      systemStore.getLatestSnapshot(tenantId),
+      systemStore.listRuns(tenantId),
+      systemStore.listLineDeliveries(tenantId),
+      systemStore.listLineTargets(tenantId),
+      listEffectiveLineChannels(tenantId),
+      systemStore.listUsers(tenantId),
+    ]);
+  const latestRun = runs[0] ?? null;
+  const latestDelivery = deliveries[0] ?? null;
+  const enabledTargets = lineTargets.filter(
+    (target) =>
+      target.approved &&
+      target.enabled &&
+      target.allowed_actions.includes("receive_morning_brief"),
+  );
+  const access = tenantAccessStatus(tenant);
+
+  return {
+    tenant,
+    access,
+    health: {
+      datasource_configured: tenant.datasourceConfigured,
+      line_channels: lineChannels.length,
+      line_targets_total: lineTargets.length,
+      line_targets_enabled: enabledTargets.length,
+      users: users.filter((user) => user.enabled).length,
+      latest_report_run_at: latestRun?.finished_at ?? latestRun?.started_at ?? null,
+      latest_report_status: latestRun?.status ?? null,
+      latest_snapshot_at: snapshot?.generated_at ?? null,
+      latest_line_delivery_at: latestDelivery?.sent_at ?? latestDelivery?.created_at ?? null,
+      latest_line_delivery_status: latestDelivery?.status ?? null,
+    },
+  };
+}
+
+async function listEffectiveLineChannels(tenantId?: TenantId) {
+  const storedChannels = await systemStore.listLineChannels(tenantId);
+  const tenantIds = tenantId
+    ? [tenantId]
+    : (await systemStore.listTenants()).map((tenant) => tenant.id);
+  const envChannels = tenantIds
+    .map((id) => buildEnvLineChannel(id))
+    .filter((channel): channel is LineChannelRecord => Boolean(channel));
+
+  return [
+    ...storedChannels,
+    ...envChannels.filter(
+      (envChannel) =>
+        !storedChannels.some(
+          (stored) =>
+            stored.tenant_id === envChannel.tenant_id &&
+            stored.source === envChannel.source &&
+            stored.display_name === envChannel.display_name,
+        ),
+    ),
+  ];
+}
+
+function buildEnvLineChannel(tenantId: TenantId): LineChannelRecord | null {
+  const credentials = readLineChannelCredentials(tenantId);
+  if (!credentials) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: `line_channel_env_${tenantId}`,
+    tenant_id: tenantId,
+    display_name: "LINE OA จาก environment",
+    channel_type: "line_oa",
+    channel_access_token_configured: true,
+    channel_secret_configured: Boolean(readLineWebhookConfig()),
+    enabled: true,
+    source: "env",
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function tenantAccessStatus(tenant: { status: string }) {
+  if (tenant.status === "suspended") {
+    return {
+      enabled: false,
+      status: tenant.status,
+      message: "บัญชีร้านค้านี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ",
+    };
+  }
+
+  if (tenant.status === "cancelled") {
+    return {
+      enabled: false,
+      status: tenant.status,
+      message: "บัญชีร้านค้านี้ถูกยกเลิก กรุณาติดต่อผู้ดูแลระบบ",
+    };
+  }
+
+  if (tenant.status === "past_due") {
+    return {
+      enabled: true,
+      status: tenant.status,
+      message: "บัญชีนี้มียอดค้างชำระ แต่ยังอยู่ในช่วงผ่อนผัน",
+    };
+  }
+
+  return {
+    enabled: true,
+    status: tenant.status,
+    message: "บัญชีพร้อมใช้งาน",
+  };
+}
+
+async function getTenantOrNull(tenantId: TenantId) {
+  return (
+    (await systemStore.listTenants()).find((tenant) => tenant.id === tenantId) ??
+    null
+  );
+}
+
+async function resolveCustomerSession(request: {
+  headers: Record<string, string | string[] | undefined>;
+}) {
+  const headerTenantId = request.headers["x-ai-bcc-tenant-id"];
+  const rawTenantId = Array.isArray(headerTenantId)
+    ? headerTenantId[0]
+    : headerTenantId;
+  const tenantId =
+    tenantIdSchema.safeParse(rawTenantId).success && rawTenantId
+      ? rawTenantId
+      : process.env.CUSTOMER_DEMO_TENANT_ID || "tenant_demo_remote";
+  const parsed = tenantIdSchema.safeParse(tenantId);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      error: "Invalid customer tenant session.",
+    };
+  }
+
+  const tenant = await getTenantOrNull(parsed.data);
+  if (!tenant) {
+    return {
+      ok: false as const,
+      statusCode: 404,
+      error: "Customer tenant not found.",
+    };
+  }
+
+  return {
+    ok: true as const,
+    tenant,
+  };
+}
+
 async function listEffectiveLineTargets(tenantId?: TenantId) {
   const storedTargets = await systemStore.listLineTargets(tenantId);
   const tenantIds = tenantId
@@ -1613,6 +2082,40 @@ const lineWebhookEventsQuerySchema = z.object({
 
 const lineTargetsQuerySchema = z.object({
   tenant_id: tenantIdSchema.optional(),
+});
+
+const lineChannelsQuerySchema = z.object({
+  tenant_id: tenantIdSchema.optional(),
+});
+
+const ownerTenantCreateSchema = z.object({
+  tenant_id: tenantIdSchema,
+  name: z.string().trim().min(2).max(120),
+  database_name: z.string().trim().max(120).optional(),
+  description: z.string().trim().max(500).optional(),
+  status: tenantStatusSchema.default("trial"),
+  plan_code: planCodeSchema.default("starter"),
+  current_period_end: z.string().datetime().nullable().optional(),
+  viewer_email: z.string().email().optional(),
+});
+
+const ownerTenantPatchSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  database_name: z.string().trim().max(120).optional(),
+  description: z.string().trim().max(500).optional(),
+  datasource_configured: z.boolean().optional(),
+  status: tenantStatusSchema.optional(),
+  plan_code: planCodeSchema.optional(),
+  current_period_end: z.string().datetime().nullable().optional(),
+  suspended_reason: z.string().trim().max(500).nullable().optional(),
+});
+
+const lineChannelCreateSchema = z.object({
+  tenant_id: tenantIdSchema,
+  display_name: z.string().trim().min(2).max(120),
+  channel_access_token_configured: z.boolean().optional().default(false),
+  channel_secret_configured: z.boolean().optional().default(false),
+  enabled: z.boolean().optional().default(true),
 });
 
 const lineTargetParamsSchema = z.object({

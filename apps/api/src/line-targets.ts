@@ -68,6 +68,7 @@ export function buildEnvFallbackLineTarget(input: {
   return {
     id: `line_target_env_${input.tenantId}`,
     tenant_id: input.tenantId,
+    line_channel_id: null,
     display_name: "Pilot LINE target",
     target_type: normalizeLineTargetType({
       value: input.config.targetType,
@@ -105,6 +106,7 @@ export function buildPendingWebhookLineTarget(input: {
   return {
     id: createLineTargetId(input.tenantId, input.event.source_id),
     tenant_id: input.tenantId,
+    line_channel_id: null,
     display_name: `LINE ${input.event.source_type} ${maskLineTargetId(
       input.event.source_id,
     )}`,

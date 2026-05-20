@@ -11,8 +11,8 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed commit: edd3afc
-LINE group permission profile + same-origin API proxy: deployed
+Latest deployed commit: see latest `main` commit after SaaS pilot deploy
+SaaS pilot owner/customer portals: ready for deploy
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
@@ -59,6 +59,17 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 
 ### Dashboard / Admin
 
+- `/owner` เป็น Owner Admin portal สำหรับทีมเรา:
+  - เห็นทุกร้าน
+  - เพิ่ม tenant ใหม่
+  - เปลี่ยน subscription status เช่น `active`, `suspended`
+  - ดู tenant health เช่น datasource, LINE OA, LINE targets, users, latest run/delivery
+  - เพิ่ม LINE OA metadata ต่อร้าน
+- `/app` เป็น Customer Viewer portal:
+  - read-only
+  - ไม่มี config/admin token/manual mutation
+  - ใช้ tenant session shim ใน MVP และต้องเปลี่ยนเป็น login/session จริงก่อน production
+  - tenant `suspended`/`cancelled` ถูก block ด้วยข้อความติดต่อผู้ดูแล
 - `/command-center` เป็น admin control room สำหรับทีมดูแล ไม่ใช่หน้าลูกค้ากดจาก LINE
 - First viewport เหลือ tenant selector, date range, run action, และ empty/latest state
 - Advanced section เก็บ charts, run history, audit, reconciliation, preview และตาราง
@@ -122,6 +133,8 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 - หน้า web/admin/brief สามารถเรียก API ผ่าน same-origin `/api` ได้ ไม่จำเป็นต้อง expose API tunnel แยกใน browser
 - Settings มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
 - API พยายามดึงชื่อกลุ่ม LINE จาก group summary API แล้วบันทึกกลับเป็น `display_name`; ถ้าดึงไม่ได้จะ fallback เป็น masked id
+- `line_channels` registry เริ่มรองรับหลาย LINE OA ต่อ tenant ในระดับ metadata แล้ว
+- Env fallback target ยังปิดเป็นค่า default และไม่ถูกสร้างกลับมาอัตโนมัติ
 
 ### Security / Safety
 
@@ -139,6 +152,11 @@ x-ai-bcc-admin-token: <server-only-token>
   - `POST /api/line-targets/:id/approve`
   - `PATCH /api/line-targets/:id`
   - `POST /api/line-targets/:id/test-send`
+  - `GET /api/owner/tenants`
+  - `POST /api/owner/tenants`
+  - `PATCH /api/owner/tenants/:tenantId`
+  - `GET /api/owner/line-channels`
+  - `POST /api/owner/line-channels`
 - UI ใช้ TailAdmin-style dialog สำหรับกรอก admin token และเก็บใน `sessionStorage`
 - UI ใช้ TailAdmin-style confirmation dialog ก่อนส่ง LINE จริง / ส่ง test จริง
 - API log redact `x-ai-bcc-admin-token`
@@ -203,8 +221,11 @@ Browser QA:
 - Admin auth ยังเป็น shared token prompt ไม่ใช่ login/role permission
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
-- LINE OA ยังเป็น OA กลางสำหรับ demo/subscription เริ่มต้น
-- customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี pending target discovery และ permission profile แล้ว
+- LINE OA token/secret ยังอยู่ใน env หรือ metadata registry ไม่ใช่ encrypted secret table
+- customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี `line_channels` registry, pending target discovery และ permission profile แล้ว
+- `/app` customer session ยังเป็น MVP shim ไม่ใช่ login/role จริง
+- `subscriptions` ยังไม่แยก table ใช้ `tenants.status` เป็น gate จริงชั่วคราว
+- `tenant_report_configs` ยังไม่เปิดใช้จริง รายงานแรกยังเป็น `sales_goods_services`
 - ยังไม่แยกสิทธิ์ราย user ใน LINE group เดียวกัน
 - ยังไม่มี backup/restore automation สำหรับ system PostgreSQL
 - ยังไม่ได้ทำ CI/CD pipeline
@@ -214,20 +235,21 @@ Browser QA:
 
 Priority 1:
 
-1. ตรวจ `GET /api/line-targets?tenant_id=tenant_demo_remote` ว่าเหลือเฉพาะ target registry/webhook ที่อนุมัติแล้ว
-2. เพิ่ม OA เข้ากลุ่มใหม่หรือพิมพ์ในกลุ่ม แล้วตรวจ webhook discovery ว่า target ใหม่เป็น pending ไม่ auto-enable
-3. ทดสอบ approve/change profile/test send จาก `/command-center/settings`
-4. ตรวจ Morning Brief รอบ `08:00 Asia/Bangkok` ว่าส่งเฉพาะ target ที่ผ่าน permission และไม่ส่งซ้ำข้าม target
+1. Browser QA `/owner`, `/app`, `/command-center/settings`, `/command-center/brief`
+2. ทดสอบเปลี่ยน tenant status เป็น `suspended` แล้ว `/app` ถูก block และ Morning Brief skip
+3. เพิ่ม LINE OA metadata ใน `/owner` แล้วตรวจว่าไม่ leak token/secret
+4. ออกแบบ login/session จริงแทน customer session shim
 
 Priority 2:
 
-1. ปรับ copy/UX empty state ของวันที่ยอดขายเป็น 0 ถ้าลูกค้ารู้สึกว่าดูเหมือนระบบไม่มีข้อมูล
-2. เพิ่มตัวกรองวันใน viewer หรือ link กลับไป admin เฉพาะผู้ดูแล
-3. เตรียม report ถัดไปจาก SML query จริง เช่น AR Overdue, SO Backlog หรือ Inventory Risk
+1. ทำ login/session จริงสำหรับ owner/customer แทน admin token/session shim
+2. ทำ encrypted datasource secret store และ owner datasource config
+3. ทำ encrypted LINE channel token/secret store สำหรับหลาย LINE OA จริง
+4. เพิ่ม `subscriptions` และ `tenant_report_configs` เป็น table/workflow แยก
 
 Priority 3:
 
-1. วาง lightweight login/role แทน shared admin token
+1. เตรียม report ถัดไปจาก SML query จริง เช่น AR Overdue, SO Backlog หรือ Inventory Risk
 2. ทำ named tunnel/domain แทน trycloudflare quick tunnel
 3. ทำ read-only DB user guide สำหรับลูกค้า pilot
 

@@ -22,7 +22,10 @@ type LineWebhookConfig = {
   debugToken: string | null;
 };
 
-type TenantDefinition = Omit<Tenant, "datasourceConfigured"> & {
+type TenantDefinition = Pick<
+  Tenant,
+  "id" | "name" | "databaseName" | "description"
+> & {
   envPrefix: "SML_DEMO_DB" | "SML_OFFICE_DB";
   lineEnvPrefix: "LINE_DEMO" | "LINE_OFFICE";
 };
@@ -60,6 +63,10 @@ export function listTenants(): Tenant[] {
     databaseName: tenant.databaseName,
     description: tenant.description,
     datasourceConfigured: Boolean(readDatasourceConfig(tenant.id)),
+    status: "active",
+    planCode: tenant.id === "tenant_demo_remote" ? "business" : "starter",
+    suspendedReason: null,
+    currentPeriodEnd: null,
   }));
 }
 

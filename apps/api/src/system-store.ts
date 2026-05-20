@@ -2,13 +2,17 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import {
+  type LineChannelRecord,
   type LineDeliveryRecord,
   type LineTargetRecord,
   type LineWebhookEventRecord,
+  type PlanCode,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type Tenant,
   type TenantId,
+  type TenantStatus,
+  type UserRecord,
   type WorkerHeartbeatRecord,
 } from "@ai-bcc/shared";
 import type { StoredLineTargetRecord } from "./line-targets.js";
@@ -38,6 +42,19 @@ export type SystemStore = {
     tenants: Tenant[];
     reportDefinitions: ReportDefinitionSeed[];
   }): Promise<void>;
+  listTenants(): Promise<Tenant[]>;
+  upsertTenant(tenant: Tenant): Promise<Tenant>;
+  updateTenantStatus(input: {
+    tenantId: TenantId;
+    status: TenantStatus;
+    planCode?: PlanCode;
+    suspendedReason?: string | null;
+    currentPeriodEnd?: string | null;
+  }): Promise<Tenant | null>;
+  listUsers(tenantId?: TenantId): Promise<UserRecord[]>;
+  upsertUser(user: UserRecord): Promise<UserRecord>;
+  listLineChannels(tenantId?: TenantId): Promise<LineChannelRecord[]>;
+  upsertLineChannel(channel: LineChannelRecord): Promise<LineChannelRecord>;
   getLatestSnapshot(
     tenantId: TenantId,
   ): Promise<SalesGoodsServicesSnapshot | null>;
@@ -85,6 +102,8 @@ type StoreFile = {
   lineWebhookEvents: LineWebhookEventRecord[];
   workerHeartbeats: WorkerHeartbeatRecord[];
   auditLogs: AuditLogEntry[];
+  users: UserRecord[];
+  lineChannels: LineChannelRecord[];
 };
 
 export function createSystemStore(): SystemStore {
@@ -110,7 +129,7 @@ class LocalJsonSystemStore implements SystemStore {
     reportDefinitions: ReportDefinitionSeed[];
   }) {
     this.data = await this.load();
-    this.data.tenants = input.tenants;
+    this.data.tenants = mergeTenants(this.data.tenants, input.tenants);
     this.data.reportDefinitions = input.reportDefinitions;
 
     for (const tenant of input.tenants) {
@@ -122,6 +141,82 @@ class LocalJsonSystemStore implements SystemStore {
     }
 
     await this.persist();
+  }
+
+  async listTenants() {
+    return this.requireData().tenants;
+  }
+
+  async upsertTenant(tenant: Tenant) {
+    const data = this.requireData();
+    data.tenants = [
+      tenant,
+      ...data.tenants.filter((existing) => existing.id !== tenant.id),
+    ].sort((a, b) => a.name.localeCompare(b.name));
+    await this.persist();
+    return tenant;
+  }
+
+  async updateTenantStatus(input: {
+    tenantId: TenantId;
+    status: TenantStatus;
+    planCode?: PlanCode;
+    suspendedReason?: string | null;
+    currentPeriodEnd?: string | null;
+  }) {
+    const data = this.requireData();
+    const tenant = data.tenants.find((item) => item.id === input.tenantId);
+    if (!tenant) {
+      return null;
+    }
+
+    const updated: Tenant = {
+      ...tenant,
+      status: input.status,
+      planCode: input.planCode ?? tenant.planCode,
+      suspendedReason:
+        input.suspendedReason !== undefined
+          ? input.suspendedReason
+          : tenant.suspendedReason,
+      currentPeriodEnd:
+        input.currentPeriodEnd !== undefined
+          ? input.currentPeriodEnd
+          : tenant.currentPeriodEnd,
+    };
+    await this.upsertTenant(updated);
+    return updated;
+  }
+
+  async listUsers(tenantId?: TenantId) {
+    return this.requireData().users.filter(
+      (user) => !tenantId || user.tenant_id === tenantId,
+    );
+  }
+
+  async upsertUser(user: UserRecord) {
+    const data = this.requireData();
+    data.users = [
+      user,
+      ...data.users.filter((existing) => existing.id !== user.id),
+    ];
+    await this.persist();
+    return user;
+  }
+
+  async listLineChannels(tenantId?: TenantId) {
+    return this.requireData().lineChannels
+      .filter((channel) => !tenantId || channel.tenant_id === tenantId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  async upsertLineChannel(channel: LineChannelRecord) {
+    const data = this.requireData();
+    data.lineChannels = [
+      channel,
+      ...data.lineChannels.filter((existing) => existing.id !== channel.id),
+    ];
+    await this.persist();
+    return channel;
   }
 
   async getLatestSnapshot(tenantId: TenantId) {
@@ -342,6 +437,8 @@ class LocalJsonSystemStore implements SystemStore {
         lineWebhookEvents: parsed.lineWebhookEvents ?? [],
         workerHeartbeats: parsed.workerHeartbeats ?? [],
         auditLogs: parsed.auditLogs ?? [],
+        users: normalizeUsers(parsed.users),
+        lineChannels: normalizeLineChannels(parsed.lineChannels),
       };
     } catch {
       return {
@@ -354,6 +451,8 @@ class LocalJsonSystemStore implements SystemStore {
         lineWebhookEvents: [],
         workerHeartbeats: [],
         auditLogs: [],
+        users: [],
+        lineChannels: [],
       };
     }
   }
@@ -410,14 +509,7 @@ class PostgresSystemStore implements SystemStore {
     await this.pool.query(systemSchemaSql);
 
     for (const tenant of input.tenants) {
-      await this.pool.query(
-        `
-insert into tenants (id, name, status)
-values ($1, $2, 'active')
-on conflict (id) do update set name = excluded.name
-`,
-        [tenant.id, tenant.name],
-      );
+      await this.upsertSeedTenant(tenant);
     }
 
     for (const definition of input.reportDefinitions) {
@@ -447,6 +539,249 @@ set name = excluded.name,
         await this.saveSnapshot(snapshot);
       }
     }
+  }
+
+  async listTenants() {
+    const result = await this.pool.query(
+      `
+select id, name, status, plan_code, database_name, description, datasource_configured, suspended_reason, current_period_end
+from tenants
+order by name asc
+`,
+    );
+
+    return result.rows.map(mapTenantRow);
+  }
+
+  private async upsertSeedTenant(tenant: Tenant) {
+    await this.pool.query(
+      `
+insert into tenants (
+  id,
+  name,
+  status,
+  plan_code,
+  database_name,
+  description,
+  datasource_configured,
+  suspended_reason,
+  current_period_end
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+on conflict (id) do update
+set name = excluded.name,
+    database_name = excluded.database_name,
+    description = excluded.description,
+    datasource_configured = excluded.datasource_configured
+`,
+      [
+        tenant.id,
+        tenant.name,
+        tenant.status,
+        tenant.planCode,
+        tenant.databaseName,
+        tenant.description,
+        tenant.datasourceConfigured,
+        tenant.suspendedReason,
+        tenant.currentPeriodEnd,
+      ],
+    );
+  }
+
+  async upsertTenant(tenant: Tenant) {
+    const result = await this.pool.query(
+      `
+insert into tenants (
+  id,
+  name,
+  status,
+  plan_code,
+  database_name,
+  description,
+  datasource_configured,
+  suspended_reason,
+  current_period_end
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+on conflict (id) do update
+set name = excluded.name,
+    status = excluded.status,
+    plan_code = excluded.plan_code,
+    database_name = excluded.database_name,
+    description = excluded.description,
+    datasource_configured = excluded.datasource_configured,
+    suspended_reason = excluded.suspended_reason,
+    current_period_end = excluded.current_period_end
+returning id, name, status, plan_code, database_name, description, datasource_configured, suspended_reason, current_period_end
+`,
+      [
+        tenant.id,
+        tenant.name,
+        tenant.status,
+        tenant.planCode,
+        tenant.databaseName,
+        tenant.description,
+        tenant.datasourceConfigured,
+        tenant.suspendedReason,
+        tenant.currentPeriodEnd,
+      ],
+    );
+
+    return mapTenantRow(result.rows[0]);
+  }
+
+  async updateTenantStatus(input: {
+    tenantId: TenantId;
+    status: TenantStatus;
+    planCode?: PlanCode;
+    suspendedReason?: string | null;
+    currentPeriodEnd?: string | null;
+  }) {
+    const result = await this.pool.query(
+      `
+update tenants
+set status = $2,
+    plan_code = coalesce($3, plan_code),
+    suspended_reason = $4,
+    current_period_end = $5::timestamptz
+where id = $1
+returning id, name, status, plan_code, database_name, description, datasource_configured, suspended_reason, current_period_end
+`,
+      [
+        input.tenantId,
+        input.status,
+        input.planCode ?? null,
+        input.suspendedReason ?? null,
+        input.currentPeriodEnd ?? null,
+      ],
+    );
+
+    return result.rows[0] ? mapTenantRow(result.rows[0]) : null;
+  }
+
+  async listUsers(tenantId?: TenantId) {
+    const result = await this.pool.query(
+      `
+select id, email, display_name, role, tenant_id, enabled, created_at, updated_at
+from users
+where ($1::text is null or tenant_id = $1)
+order by created_at desc
+`,
+      [tenantId ?? null],
+    );
+
+    return result.rows.map(mapUserRow);
+  }
+
+  async upsertUser(user: UserRecord) {
+    const result = await this.pool.query(
+      `
+insert into users (
+  id, email, display_name, role, tenant_id, enabled, created_at, updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)
+on conflict (id) do update
+set email = excluded.email,
+    display_name = excluded.display_name,
+    role = excluded.role,
+    tenant_id = excluded.tenant_id,
+    enabled = excluded.enabled,
+    updated_at = excluded.updated_at
+returning id, email, display_name, role, tenant_id, enabled, created_at, updated_at
+`,
+      [
+        user.id,
+        user.email,
+        user.display_name,
+        user.role,
+        user.tenant_id,
+        user.enabled,
+        user.created_at,
+        user.updated_at,
+      ],
+    );
+
+    return mapUserRow(result.rows[0]);
+  }
+
+  async listLineChannels(tenantId?: TenantId) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  line_channel_id,
+  display_name,
+  channel_type,
+  channel_access_token_configured,
+  channel_secret_configured,
+  enabled,
+  source,
+  created_at,
+  updated_at
+from line_channels
+where ($1::text is null or tenant_id = $1)
+order by updated_at desc
+`,
+      [tenantId ?? null],
+    );
+
+    return result.rows.map(mapLineChannelRow);
+  }
+
+  async upsertLineChannel(channel: LineChannelRecord) {
+    const result = await this.pool.query(
+      `
+insert into line_channels (
+  id,
+  tenant_id,
+  display_name,
+  channel_type,
+  channel_access_token_configured,
+  channel_secret_configured,
+  enabled,
+  source,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz)
+on conflict (id) do update
+set line_channel_id = excluded.line_channel_id,
+    display_name = excluded.display_name,
+    channel_type = excluded.channel_type,
+    channel_access_token_configured = excluded.channel_access_token_configured,
+    channel_secret_configured = excluded.channel_secret_configured,
+    enabled = excluded.enabled,
+    source = excluded.source,
+    updated_at = excluded.updated_at
+returning
+  id,
+  tenant_id,
+  line_channel_id,
+  display_name,
+  channel_type,
+  channel_access_token_configured,
+  channel_secret_configured,
+  enabled,
+  source,
+  created_at,
+  updated_at
+`,
+      [
+        channel.id,
+        channel.tenant_id,
+        channel.display_name,
+        channel.channel_type,
+        channel.channel_access_token_configured,
+        channel.channel_secret_configured,
+        channel.enabled,
+        channel.source,
+        channel.created_at,
+        channel.updated_at,
+      ],
+    );
+
+    return mapLineChannelRow(result.rows[0]);
   }
 
   async getLatestSnapshot(tenantId: TenantId) {
@@ -709,6 +1044,7 @@ limit 50
 select
   id,
   tenant_id,
+  line_channel_id,
   display_name,
   target_type,
   target_id,
@@ -739,6 +1075,7 @@ order by updated_at desc
 select
   id,
   tenant_id,
+  line_channel_id,
   display_name,
   target_type,
   target_id,
@@ -772,6 +1109,7 @@ limit 1
 select
   id,
   tenant_id,
+  line_channel_id,
   display_name,
   target_type,
   target_id,
@@ -802,6 +1140,7 @@ limit 1
 insert into line_targets (
   id,
   tenant_id,
+  line_channel_id,
   display_name,
   target_type,
   target_id,
@@ -817,9 +1156,10 @@ insert into line_targets (
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14::timestamptz, $15::timestamptz, $16::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14, $15::timestamptz, $16::timestamptz, $17::timestamptz)
 on conflict (id) do update
-set display_name = excluded.display_name,
+set line_channel_id = excluded.line_channel_id,
+    display_name = excluded.display_name,
     target_type = excluded.target_type,
     target_id = excluded.target_id,
     target_id_masked = excluded.target_id_masked,
@@ -835,6 +1175,7 @@ set display_name = excluded.display_name,
 returning
   id,
   tenant_id,
+  line_channel_id,
   display_name,
   target_type,
   target_id,
@@ -853,6 +1194,7 @@ returning
       [
         target.id,
         target.tenant_id,
+        target.line_channel_id,
         target.display_name,
         target.target_type,
         target.target_id,
@@ -1214,10 +1556,62 @@ function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
   };
 }
 
+function mapTenantRow(row: Record<string, unknown>): Tenant {
+  return {
+    id: String(row.id) as TenantId,
+    name: String(row.name),
+    databaseName:
+      typeof row.database_name === "string" ? row.database_name : "",
+    description:
+      typeof row.description === "string" ? row.description : "",
+    datasourceConfigured: Boolean(row.datasource_configured),
+    status: normalizeTenantStatus(row.status),
+    planCode: normalizePlanCode(row.plan_code),
+    suspendedReason:
+      typeof row.suspended_reason === "string" ? row.suspended_reason : null,
+    currentPeriodEnd: row.current_period_end
+      ? toIsoString(row.current_period_end as string | Date)
+      : null,
+  };
+}
+
+function mapUserRow(row: Record<string, unknown>): UserRecord {
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    display_name: String(row.display_name),
+    role: row.role === "owner_admin" ? "owner_admin" : "tenant_viewer",
+    tenant_id:
+      typeof row.tenant_id === "string" ? (row.tenant_id as TenantId) : null,
+    enabled: Boolean(row.enabled),
+    created_at: toIsoString(row.created_at as string | Date),
+    updated_at: toIsoString(row.updated_at as string | Date),
+  };
+}
+
+function mapLineChannelRow(row: Record<string, unknown>): LineChannelRecord {
+  return {
+    id: String(row.id),
+    tenant_id: String(row.tenant_id) as TenantId,
+    display_name: String(row.display_name),
+    channel_type: "line_oa",
+    channel_access_token_configured: Boolean(
+      row.channel_access_token_configured,
+    ),
+    channel_secret_configured: Boolean(row.channel_secret_configured),
+    enabled: Boolean(row.enabled),
+    source: row.source === "env" ? "env" : "manual",
+    created_at: toIsoString(row.created_at as string | Date),
+    updated_at: toIsoString(row.updated_at as string | Date),
+  };
+}
+
 function mapLineTargetRow(row: Record<string, unknown>): StoredLineTargetRecord {
   return {
     id: String(row.id),
     tenant_id: row.tenant_id as TenantId,
+    line_channel_id:
+      typeof row.line_channel_id === "string" ? row.line_channel_id : null,
     display_name: String(row.display_name),
     target_type:
       row.target_type === "group" || row.target_type === "room"
@@ -1297,6 +1691,7 @@ function normalizeLineTarget(value: unknown): StoredLineTargetRecord | null {
   return {
     id: String(target.id),
     tenant_id: target.tenant_id,
+    line_channel_id: target.line_channel_id ?? null,
     display_name: String(target.display_name || "LINE target"),
     target_type:
       target.target_type === "group" || target.target_type === "room"
@@ -1361,13 +1756,119 @@ function normalizeLineTargetSource(value: unknown): LineTargetRecord["source"] {
   return "manual";
 }
 
+function normalizeTenantStatus(value: unknown): TenantStatus {
+  if (
+    value === "trial" ||
+    value === "active" ||
+    value === "past_due" ||
+    value === "suspended" ||
+    value === "cancelled"
+  ) {
+    return value;
+  }
+
+  return "active";
+}
+
+function normalizePlanCode(value: unknown): PlanCode {
+  if (value === "business" || value === "pro") {
+    return value;
+  }
+
+  return "starter";
+}
+
+function mergeTenants(existing: Tenant[], seeds: Tenant[]) {
+  const byId = new Map(existing.map((tenant) => [tenant.id, tenant]));
+  for (const seed of seeds) {
+    const current = byId.get(seed.id);
+    byId.set(seed.id, current ? { ...current, ...seed, status: current.status } : seed);
+  }
+
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizeUsers(value: unknown): UserRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is UserRecord => Boolean(item && typeof item === "object"))
+    .map((item) => ({
+      id: String(item.id),
+      email: String(item.email),
+      display_name: String(item.display_name || item.email || "User"),
+      role: item.role === "owner_admin" ? "owner_admin" : "tenant_viewer",
+      tenant_id:
+        typeof item.tenant_id === "string" ? (item.tenant_id as TenantId) : null,
+      enabled: item.enabled !== false,
+      created_at: item.created_at ?? new Date().toISOString(),
+      updated_at: item.updated_at ?? new Date().toISOString(),
+    }));
+}
+
+function normalizeLineChannels(value: unknown): LineChannelRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (item): item is Partial<LineChannelRecord> =>
+        Boolean(item && typeof item === "object" && item.id && item.tenant_id),
+    )
+    .map((item) => ({
+      id: String(item.id),
+      tenant_id: String(item.tenant_id) as TenantId,
+      display_name: String(item.display_name || "LINE OA"),
+      channel_type: "line_oa",
+      channel_access_token_configured: Boolean(
+        item.channel_access_token_configured,
+      ),
+      channel_secret_configured: Boolean(item.channel_secret_configured),
+      enabled: item.enabled !== false,
+      source: item.source === "env" ? "env" : "manual",
+      created_at: item.created_at ?? new Date().toISOString(),
+      updated_at: item.updated_at ?? new Date().toISOString(),
+    }));
+}
+
 const systemSchemaSql = `
 create table if not exists tenants (
   id text primary key,
   name text not null,
   status text not null default 'active',
+  plan_code text not null default 'starter',
+  database_name text not null default '',
+  description text not null default '',
+  datasource_configured boolean not null default false,
+  suspended_reason text,
+  current_period_end timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table tenants
+  add column if not exists plan_code text not null default 'starter',
+  add column if not exists database_name text not null default '',
+  add column if not exists description text not null default '',
+  add column if not exists datasource_configured boolean not null default false,
+  add column if not exists suspended_reason text,
+  add column if not exists current_period_end timestamptz;
+
+create table if not exists users (
+  id text primary key,
+  email text not null unique,
+  display_name text not null,
+  role text not null,
+  tenant_id text references tenants(id),
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists users_tenant_idx
+on users (tenant_id, created_at desc);
 
 create table if not exists report_definitions (
   report_key text primary key,
@@ -1441,6 +1942,7 @@ where delivery_key is not null;
 create table if not exists line_targets (
   id text primary key,
   tenant_id text not null references tenants(id),
+  line_channel_id text,
   display_name text not null,
   target_type text not null,
   target_id text not null,
@@ -1457,6 +1959,25 @@ create table if not exists line_targets (
   updated_at timestamptz not null default now(),
   unique (tenant_id, target_id_hash)
 );
+
+alter table line_targets
+  add column if not exists line_channel_id text;
+
+create table if not exists line_channels (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  display_name text not null,
+  channel_type text not null default 'line_oa',
+  channel_access_token_configured boolean not null default false,
+  channel_secret_configured boolean not null default false,
+  enabled boolean not null default true,
+  source text not null default 'manual',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists line_channels_tenant_idx
+on line_channels (tenant_id, updated_at desc);
 
 create index if not exists line_targets_tenant_idx
 on line_targets (tenant_id, updated_at desc);

@@ -29,6 +29,10 @@ describe("local JSON system store", () => {
         databaseName: "demo",
         description: "test",
         datasourceConfigured: false,
+        status: "active",
+        planCode: "business",
+        suspendedReason: null,
+        currentPeriodEnd: null,
       },
     ];
 
