@@ -100,7 +100,7 @@ Latest Browser QA:
 
 ## สิ่งที่ยังควรทำต่อ
 
-1. ซ่อนหรือปิด TailAdmin sample routes ก่อน production จริง หากยังไม่มี auth
+1. ปิด TailAdmin sample routes จาก public/admin UX แล้ว redirect กลับ `/owner` เพื่อไม่ให้ผู้ใช้เห็นหน้า template
 2. เพิ่ม design wrapper สำหรับ `CommandCenterMetricCard` ถ้าจะมี KPI ซ้ำในหลายรายงาน
 3. ทำ mobile QA หลังเพิ่มรายงานใหม่ทุกตัว เพราะชื่อสินค้า SML และชื่อสาขาอาจยาวมาก
 4. เพิ่ม empty/error/loading pattern กลางสำหรับ report pages
@@ -120,6 +120,6 @@ Latest Browser QA:
 
 ## Assumptions
 
-- Phase 1 ยังเป็น demo/pilot จึงยังคง TailAdmin sample routes ไว้เป็น reference ใน repo ได้
+- Phase 1 ยังเป็น demo/pilot จึงยังคง TailAdmin sample files ไว้เป็น component reference ใน repo ได้ แต่ route ต้องไม่เป็น product surface ให้ผู้ใช้เห็น
 - Dashboard/Settings เป็นหน้าผู้ดูแล ส่วน brief viewer เป็นหน้าลูกค้ากดจาก LINE
 - ไม่เปลี่ยน business logic, API contract หรือ report calculation ใน audit รอบนี้

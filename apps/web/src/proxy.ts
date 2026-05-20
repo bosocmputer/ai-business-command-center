@@ -6,8 +6,7 @@ import {
   verifyOwnerSessionToken,
 } from "@/lib/ownerAuth";
 
-const protectedExactPaths = new Set([
-  "/",
+const retiredTemplatePaths = new Set([
   "/profile",
   "/calendar",
   "/blank",
@@ -32,6 +31,16 @@ export async function proxy(request: NextRequest) {
     ),
   );
 
+  if (pathname === "/signup" || retiredTemplatePaths.has(pathname)) {
+    if (isSignedIn) {
+      return NextResponse.redirect(new URL("/owner", request.url));
+    }
+
+    const redirectUrl = new URL("/signin", request.url);
+    redirectUrl.searchParams.set("next", "/owner");
+    return NextResponse.redirect(redirectUrl);
+  }
+
   if (pathname === "/signin" && isSignedIn) {
     const nextPath = request.nextUrl.searchParams.get("next") || "/owner";
     return NextResponse.redirect(new URL(safeNextPath(nextPath), request.url));
@@ -55,7 +64,7 @@ export const config = {
 };
 
 function isProtectedOwnerPath(pathname: string) {
-  if (protectedExactPaths.has(pathname)) {
+  if (pathname === "/") {
     return true;
   }
 

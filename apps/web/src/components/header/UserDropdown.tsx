@@ -8,10 +8,10 @@ import { DropdownItem } from "../ui/dropdown/DropdownItem";
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
 
-function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
-  e.stopPropagation();
-  setIsOpen((prev) => !prev);
-}
+  function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
+    e.stopPropagation();
+    setIsOpen((prev) => !prev);
+  }
 
   function closeDropdown() {
     setIsOpen(false);
@@ -27,7 +27,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
   return (
     <div className="relative">
       <button
-        onClick={toggleDropdown} 
+        onClick={toggleDropdown}
         className="flex items-center text-gray-700 dark:text-gray-400 dropdown-toggle"
       >
         <span className="mr-3 overflow-hidden rounded-full h-11 w-11">
@@ -73,7 +73,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
             ผู้ดูแล AI Business
           </span>
           <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            admin@ai-business.local
+            Owner Admin
           </span>
         </div>
 
@@ -82,7 +82,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
             <DropdownItem
               onItemClick={closeDropdown}
               tag="a"
-              href="/profile"
+              href="/owner"
               className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
             >
               <svg
@@ -100,14 +100,14 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
                   fill=""
                 />
               </svg>
-              แก้ไขโปรไฟล์
+              ภาพรวมเจ้าของ
             </DropdownItem>
           </li>
           <li>
             <DropdownItem
               onItemClick={closeDropdown}
               tag="a"
-              href="/profile"
+              href="/command-center/settings"
               className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
             >
               <svg
@@ -125,14 +125,14 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
                   fill=""
                 />
               </svg>
-              ตั้งค่าบัญชี
+              ตั้งค่า LINE OA
             </DropdownItem>
           </li>
           <li>
             <DropdownItem
               onItemClick={closeDropdown}
               tag="a"
-              href="/profile"
+              href="/app"
               className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
             >
               <svg
@@ -150,7 +150,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
                   fill=""
                 />
               </svg>
-              ศูนย์ช่วยเหลือ
+              ลิงก์ Dashboard ลูกค้า
             </DropdownItem>
           </li>
         </ul>

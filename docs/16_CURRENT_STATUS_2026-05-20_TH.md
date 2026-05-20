@@ -65,9 +65,11 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 
 - `/signin` เป็น Owner login สำหรับ admin surface:
   - ค่าเริ่มต้น pilot: `superadmin / superadmin`
+  - ค่าเริ่มต้นนี้เก็บไว้หลังบ้านสำหรับ owner เท่านั้น ไม่แสดงเป็น hint บน UX/UI
   - เมื่อ login สำเร็จจะตั้ง signed HTTP-only cookie สำหรับ route protection
   - ระหว่าง MVP จะ bootstrap admin mutation token ใน `sessionStorage` เพื่อไม่ต้องกรอก token ซ้ำ
-- `/`, `/owner`, `/command-center`, `/command-center/settings` และหน้า admin/template เดิมถูก gate ด้วย owner login
+- `/`, `/owner`, `/command-center`, `/command-center/settings` ถูก gate ด้วย owner login
+- TailAdmin sample routes เช่น `/signup`, `/profile`, `/calendar`, `/alerts`, `/basic-tables`, `/bar-chart` ถูก redirect กลับเข้า owner/admin flow เพื่อไม่ให้ product surface ดูเป็น template
 - `/app`, `/app/:tenantSlug` และ `/command-center/brief` ยังเป็น public/read-only ตามหน้าที่ของ customer viewer และ signed LINE viewer
 - `/owner` เป็น Owner Admin portal สำหรับทีมเรา:
   - เห็นทุกร้าน
@@ -249,12 +251,13 @@ Browser QA:
 - `/command-center/brief` signed link โหลดได้ ไม่มี horizontal overflow
 - หน้า brief ไม่มี token leak ใน body text
 - Sidebar active state ทำงานกับ path/hash หลังเปลี่ยนหน้าแล้ว
+- User dropdown ชี้ไปเฉพาะ owner/customer/product routes ไม่ชี้ไป TailAdmin sample `/profile`
 - Browser logout จาก user dropdown ล้าง session แล้ว redirect ไป `/signin`
 
 ## สิ่งที่ยังเป็น MVP ไม่ใช่ Production เต็ม
 
 - Owner auth เป็น signed cookie login แล้ว แต่ยังเป็น single admin user ไม่ใช่ user table/role เต็ม
-- ค่า credential เริ่มต้น `superadmin/superadmin` ใช้เฉพาะ pilot ต้องเปลี่ยนก่อน production จริง
+- ค่า credential เริ่มต้น `superadmin/superadmin` ใช้เฉพาะ owner pilot และไม่แสดงบน UI; production จริงควรย้ายไป user/role table หรือ strong secret ที่หมุนได้
 - Mutation API ยังพึ่ง `x-ai-bcc-admin-token` ระหว่างเปลี่ยนผ่านไป session/role เต็ม
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
