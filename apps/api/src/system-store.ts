@@ -710,7 +710,6 @@ returning id, email, display_name, role, tenant_id, enabled, created_at, updated
 select
   id,
   tenant_id,
-  line_channel_id,
   display_name,
   channel_type,
   channel_access_token_configured,
@@ -746,8 +745,7 @@ insert into line_channels (
 )
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz)
 on conflict (id) do update
-set line_channel_id = excluded.line_channel_id,
-    display_name = excluded.display_name,
+set display_name = excluded.display_name,
     channel_type = excluded.channel_type,
     channel_access_token_configured = excluded.channel_access_token_configured,
     channel_secret_configured = excluded.channel_secret_configured,
@@ -757,7 +755,6 @@ set line_channel_id = excluded.line_channel_id,
 returning
   id,
   tenant_id,
-  line_channel_id,
   display_name,
   channel_type,
   channel_access_token_configured,
