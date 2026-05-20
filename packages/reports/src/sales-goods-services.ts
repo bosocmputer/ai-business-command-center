@@ -323,16 +323,15 @@ export function renderSalesGoodsServicesLinePreview(input: {
         "สถานะ: ไม่พบยอดขาย",
         "ยอดขายสุทธิ: 0.00 บาท",
         "บิลขาย: 0 ใบ",
+        "จำนวนรายการขาย: 0 รายการ",
         "",
         "วันนี้ควรรู้อะไร",
         "ไม่พบยอดขายในช่วงวันที่นี้ อาจเป็นวันหยุดขาย หรือยังไม่มีการปิดบิลใน SML",
         ...formatEmptyComparisonLines(snapshot),
         "",
-        "ยอดขายตามสาขา",
-        "- ไม่มีข้อมูลสำหรับช่วงวันที่นี้",
-        "",
-        "สินค้าขายดี",
-        "- ไม่มีข้อมูลสำหรับช่วงวันที่นี้",
+        "ข้อมูลประกอบ",
+        "ยอดขายตามสาขา: ไม่มีข้อมูลสำหรับช่วงวันที่นี้",
+        "สินค้าขายดี: ไม่มีข้อมูลสำหรับช่วงวันที่นี้",
         ...warnings
           .filter((warning) => warning !== "ไม่พบยอดขายในช่วงวันที่นี้")
           .map((warning) => `\nหมายเหตุ: ${warning}`),
@@ -470,7 +469,7 @@ function buildSalesGoodsServicesFlexMessage(input: {
         type: "box",
         layout: "vertical",
         paddingAll: "16px",
-        spacing: "md",
+        spacing: "sm",
         contents: [
           {
             type: "box",
@@ -663,12 +662,11 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
           },
           {
             type: "box",
-            layout: "vertical",
-            spacing: "sm",
+            layout: "horizontal",
+            margin: "xs",
             contents: [
-              buildFlexMetricRow("บิลขาย", "0 ใบ"),
-              buildFlexMetricRow("จำนวนรายการขาย", "0 รายการ"),
-              buildFlexMetricRow("จำนวนขายรวม", "0"),
+              buildFlexCompactMetric("บิลขาย", "0 ใบ"),
+              buildFlexCompactMetric("รายการขาย", "0 รายการ"),
             ],
           },
           { type: "separator", margin: "md" },
@@ -679,8 +677,10 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
           ...(comparisonText
             ? [buildFlexInfoBlock("เทียบยอด", comparisonText)]
             : []),
-          buildFlexInfoBlock("ยอดขายตามสาขา", "ไม่มีข้อมูลสำหรับช่วงวันที่นี้"),
-          buildFlexInfoBlock("สินค้าขายดี", "ไม่มีข้อมูลสำหรับช่วงวันที่นี้"),
+          buildFlexInlineSummary([
+            ["ยอดขายตามสาขา", "ไม่มีข้อมูล"],
+            ["สินค้าขายดี", "ไม่มีข้อมูล"],
+          ]),
           ...(footerNote
             ? [
                 {
@@ -714,6 +714,62 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
         ],
       },
     },
+  };
+}
+
+function buildFlexCompactMetric(label: string, value: string) {
+  return {
+    type: "box",
+    layout: "vertical",
+    flex: 1,
+    contents: [
+      {
+        type: "text",
+        text: label,
+        size: "xs",
+        color: "#6B7280",
+      },
+      {
+        type: "text",
+        text: value,
+        size: "sm",
+        color: "#111827",
+        weight: "bold",
+        margin: "xs",
+      },
+    ],
+  };
+}
+
+function buildFlexInlineSummary(items: Array<[string, string]>) {
+  return {
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    margin: "sm",
+    contents: items.map(([label, value]) => ({
+      type: "box",
+      layout: "vertical",
+      flex: 1,
+      contents: [
+        {
+          type: "text",
+          text: label,
+          size: "xs",
+          color: "#6B7280",
+          weight: "bold",
+          wrap: true,
+        },
+        {
+          type: "text",
+          text: value,
+          size: "sm",
+          color: "#111827",
+          margin: "xs",
+          wrap: true,
+        },
+      ],
+    })),
   };
 }
 

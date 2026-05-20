@@ -158,6 +158,14 @@ Empty-state policy สำหรับวันที่ยอดขายเป�
 - ไม่ใช้ wording แบบ alarm เช่น `ลดลง -100%` ใน bubble; ให้ใช้ข้อมูลอ้างอิงแบบนุ่ม เช่น `ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย ...`
 - ลดคำซ้ำ เช่น `ยังไม่มีข้อมูลสาขา`, `ยังไม่มีสินค้า`, `ไม่พบยอดขาย` ไม่ควรซ้อนกันหลายบรรทัดใน bubble เดียว
 
+Multi-report policy เมื่อมีรายงานเพิ่ม:
+
+- Morning Brief ห้ามต่อทุก report แบบเต็ม ๆ จนข้อความยาวขึ้นเรื่อย ๆ
+- LINE ควรเป็น executive digest: 1 bubble หลักหรือ carousel สั้น ๆ ที่เลือกเฉพาะ 3-5 สัญญาณสำคัญที่สุดของวัน
+- แต่ละ report ต้องมี contract ของตัวเองและสร้าง `line_summary` แบบสั้น ไม่เกิน 1 KPI + 1 insight + 1 CTA
+- รายละเอียดเต็มให้ไปอยู่ใน `/command-center/brief` หรือ report viewer แยกรายงาน ไม่ใช่ใน LINE chat
+- ถ้ามีหลาย report ในวันเดียว ให้เรียงตาม severity/business impact เช่น ยอดขายผิดปกติ, AR overdue, stock risk, SO backlog
+
 ถ้า tenant ไม่มีสาขา:
 
 ```text

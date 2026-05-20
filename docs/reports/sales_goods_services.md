@@ -205,8 +205,10 @@ Live LINE send ใช้ `flex_message` เมื่อ signed viewer URL พร
 - Flex bubble ต้องเป็น hybrid empty-state report card
 - คงหมวดรายงานหลัก เพื่อให้ผู้บริหารยังรู้สึกว่าเป็นรายงานขาย ไม่ใช่ระบบ error
 - แสดง `วันนี้ควรรู้อะไร` เป็น insight สั้น ไม่ใช่ checklist ยาว
-- แสดง `ยอดขายตามสาขา` และ `สินค้าขายดี` ด้วย empty summary แบบเบา ๆ
+- แสดง `ยอดขายตามสาขา` และ `สินค้าขายดี` ด้วย empty summary แบบเบา ๆ ในพื้นที่ compact
 - comparison แสดงเป็นข้อมูลอ้างอิง เช่น `ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย ...` ไม่ใช้ `-100%` ใน bubble
+
+เมื่อระบบมีหลาย report แล้ว `sales_goods_services` ต้องส่งออกเฉพาะ sales summary สั้นสำหรับ Morning Brief หลัก ส่วนรายละเอียดเต็มยังอยู่ใน signed report viewer ของ report นี้
 
 ## Current Implementation Status
 

@@ -94,8 +94,9 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - ถ้า signed URL ไม่พร้อมหรือยาวเกิน guard จะ fallback เป็น text message
 - Empty-state Flex bubble ใช้ hybrid report card:
   - คงโครงรายงานผู้บริหาร ไม่กลายเป็น checklist/error card
-  - แสดงหมวดสาขา/สินค้าแบบ empty summary ที่ไม่ซ้ำคำ
+  - แสดงหมวดสาขา/สินค้าแบบ empty summary ที่ compact และไม่ซ้ำคำ
   - ใช้ข้อมูลอ้างอิงแบบนุ่มแทน wording `-100%`
+- เมื่อเพิ่ม report ใหม่ Morning Brief ต้องเป็น executive digest รวมเฉพาะ signal สำคัญ ไม่ใช่เอา report ทุกตัวมาต่อกันจนยาว
 - Scheduler รันที่ `08:00 Asia/Bangkok`
 - Scheduler จำกัด tenant เริ่มต้นเป็น `tenant_demo_remote`
 - Morning Brief ใช้ period `yesterday`

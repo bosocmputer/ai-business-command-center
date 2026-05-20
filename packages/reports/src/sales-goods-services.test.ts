@@ -310,12 +310,13 @@ describe("sales_goods_services contract", () => {
     );
     expect(flexJson).toContain("ยอดขายตามสาขา");
     expect(flexJson).toContain("สินค้าขายดี");
-    expect(flexJson).toContain("ไม่มีข้อมูลสำหรับช่วงวันที่นี้");
+    expect(flexJson).toContain("ไม่มีข้อมูล");
     expect(flexJson).not.toContain("-100%");
     expect(flexJson).not.toContain("สิ่งที่ควรตรวจ");
     expect(flexJson).not.toContain("ยังไม่มีข้อมูลสาขา");
     expect(flexJson).not.toContain("ยังไม่มีสินค้า");
     expect(preview.text).toContain("วันนี้ควรรู้อะไร");
+    expect(preview.text).toContain("จำนวนรายการขาย: 0 รายการ");
     expect(preview.text).toContain("ยอดขายตามสาขา");
     expect(preview.text).toContain("สินค้าขายดี");
     expect(preview.text).not.toContain("token=signed-token");
