@@ -8,6 +8,7 @@ import Button from "@/components/ui/button/Button";
 import { AdminSecurityDialogs } from "@/components/command-center/AdminSecurityDialogs";
 import {
   buildAdminJsonHeaders,
+  buildRememberedAdminJsonHeaders,
   forgetAdminToken,
 } from "@/components/command-center/adminAuth";
 import { getCommandCenterApiBaseUrl } from "@/components/command-center/apiBaseUrl";
@@ -41,6 +42,8 @@ type ActionResult = {
   message: string;
 };
 
+type OwnerDataStatus = "checking" | "auth_required" | "ready" | "error";
+
 type DatasourceTestResult = {
   ok: boolean;
   checked_at: string;
@@ -62,6 +65,8 @@ export default function OwnerPortal() {
     Record<string, DatasourceTestResult>
   >({});
   const [loading, setLoading] = useState(true);
+  const [dataStatus, setDataStatus] =
+    useState<OwnerDataStatus>("checking");
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [newTenantName, setNewTenantName] = useState("");
@@ -93,7 +98,7 @@ export default function OwnerPortal() {
     : lineChannels;
 
   useEffect(() => {
-    void loadOwnerData();
+    void loadOwnerData({ promptForToken: false });
   }, []);
 
   useEffect(() => {
@@ -106,17 +111,22 @@ export default function OwnerPortal() {
     }
   }, [selectedTenantId, tenants]);
 
-  async function loadOwnerData() {
+  async function loadOwnerData({
+    promptForToken = true,
+  }: { promptForToken?: boolean } = {}) {
     setLoading(true);
     setResult(null);
     try {
-      const headers = await buildAdminJsonHeaders({
-        actionLabel: "เปิด Owner Admin Portal",
-        description:
-          "หน้านี้เห็นทุกร้านและใช้จัดการ subscription/config ระดับระบบ",
-      });
+      const headers = promptForToken
+        ? await buildAdminJsonHeaders({
+            actionLabel: "เปิด Owner Admin Portal",
+            description:
+              "หน้านี้เห็นทุกร้านและใช้จัดการ subscription/config ระดับระบบ",
+          })
+        : buildRememberedAdminJsonHeaders();
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนเปิด Owner Admin");
+        setDataStatus("auth_required");
+        return;
       }
 
       const [tenantsResponse, channelsResponse] = await Promise.all([
@@ -126,6 +136,12 @@ export default function OwnerPortal() {
 
       if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
         forgetAdminToken();
+        setDataStatus("auth_required");
+        setResult({
+          tone: "warning",
+          message: "Admin token ใช้ไม่ได้หรือหมดอายุ กรุณายืนยันสิทธิ์อีกครั้ง",
+        });
+        return;
       }
 
       if (!tenantsResponse.ok) {
@@ -143,7 +159,9 @@ export default function OwnerPortal() {
         : { data: [] };
       setTenants(tenantsPayload.data);
       setLineChannels(channelsPayload.data);
+      setDataStatus("ready");
     } catch (error) {
+      setDataStatus("error");
       setResult({
         tone: "error",
         message:
@@ -353,7 +371,7 @@ export default function OwnerPortal() {
     <div className="space-y-5">
       <AdminSecurityDialogs />
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-medium text-brand-500">
@@ -368,11 +386,15 @@ export default function OwnerPortal() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge color="success">ใช้งาน {activeCount}</Badge>
-            <Badge color={suspendedCount ? "warning" : "light"}>
-              ระงับ {suspendedCount}
+            <Badge color={dataStatus === "ready" ? "success" : "light"}>
+              ใช้งาน {dataStatus === "ready" ? activeCount : "-"}
             </Badge>
-            <Badge color="light">{lineChannels.length} LINE OA</Badge>
+            <Badge color={suspendedCount ? "warning" : "light"}>
+              ระงับ {dataStatus === "ready" ? suspendedCount : "-"}
+            </Badge>
+            <Badge color="light">
+              {dataStatus === "ready" ? lineChannels.length : "-"} LINE OA
+            </Badge>
             <Button size="sm" variant="outline" onClick={() => void loadOwnerData()}>
               รีเฟรช
             </Button>
@@ -394,68 +416,22 @@ export default function OwnerPortal() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              ขั้นตอนเปิดร้านค้าใหม่
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              ใช้ flow นี้กับลูกค้า: เพิ่มร้าน → เชื่อม SML → ตั้ง LINE OA →
-              ลูกค้าดึง OA เข้ากลุ่ม → owner อนุมัติ → ส่งทดสอบ
-            </p>
-          </div>
-          <Badge color="light">Owner-managed setup</Badge>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          {[
-            "เพิ่มร้าน",
-            "เชื่อม SML",
-            "ตั้ง LINE OA",
-            "ดึง OA เข้ากลุ่ม",
-            "อนุมัติสิทธิ์",
-            "ส่งทดสอบ",
-          ].map((step, index) => (
-            <div
-              className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
-              key={step}
-            >
-              <p className="text-xs font-medium text-brand-500">
-                ขั้นที่ {index + 1}
-              </p>
-              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
-                {step}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {dataStatus === "auth_required" ? (
+        <OwnerAuthGate onVerify={() => void loadOwnerData({ promptForToken: true })} />
+      ) : null}
 
-      <form
-        className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
-        onSubmit={createTenant}
-      >
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-          เพิ่มร้านค้าใหม่
-        </h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-          <input
-            className="h-11 rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
-            onChange={(event) => setNewTenantName(event.target.value)}
-            placeholder="ชื่อร้านค้า"
-            value={newTenantName}
+      {dataStatus === "checking" ? <OwnerLoadingState /> : null}
+
+      {dataStatus === "ready" ? (
+        <>
+          <OwnerSetupPanel
+            busy={busy}
+            createTenant={createTenant}
+            newTenantId={newTenantId}
+            newTenantName={newTenantName}
+            setNewTenantId={setNewTenantId}
+            setNewTenantName={setNewTenantName}
           />
-          <input
-            className="h-11 rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
-            onChange={(event) => setNewTenantId(event.target.value)}
-            placeholder="tenant_id เช่น tenant_demo_remote"
-            value={newTenantId}
-          />
-          <Button disabled={busy === "create"} size="sm">
-            เพิ่มร้านค้า
-          </Button>
-        </div>
-      </form>
 
       <section
         className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]"
@@ -521,106 +497,269 @@ export default function OwnerPortal() {
             tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
           />
 
-          <form
-            className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
-            onSubmit={createLineChannel}
-          >
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            LINE OA ของร้าน
+          <LineChannelPanel
+            busy={busy}
+            createLineChannel={createLineChannel}
+            lineChannelName={lineChannelName}
+            lineSecretConfigured={lineSecretConfigured}
+            lineTokenConfigured={lineTokenConfigured}
+            selectedTenant={selectedTenant}
+            selectedTenantId={selectedTenantId}
+            selectedTenantLineChannels={selectedTenantLineChannels}
+            setLineChannelName={setLineChannelName}
+            setLineSecretConfigured={setLineSecretConfigured}
+            setLineTokenConfigured={setLineTokenConfigured}
+            setSelectedTenantId={setSelectedTenantId}
+            tenants={tenants}
+          />
+        </div>
+      </section>
+        </>
+      ) : null}
+
+    </div>
+  );
+}
+
+function OwnerAuthGate({ onVerify }: { onVerify: () => void }) {
+  return (
+    <section className="rounded-xl border border-warning-200 bg-warning-50 p-5 dark:border-warning-500/30 dark:bg-warning-500/10">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <Badge color="warning">ต้องยืนยันสิทธิ์</Badge>
+          <h2 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
+            ยืนยัน Admin token เพื่อโหลดข้อมูลร้านค้า
           </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            1 ร้านมีได้หลาย LINE OA และแต่ละ OA มีหลายกลุ่ม LINE
-            ที่รออนุมัติจากหน้า LINE OA/สิทธิ์กลุ่ม
+          <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">
+            เพื่อไม่ให้หน้า owner แสดงข้อมูลผิดหรือโหลดค้าง ระบบจะยังไม่แสดง tenant,
+            datasource และ LINE config จนกว่าจะยืนยันสิทธิ์ผู้ดูแล
           </p>
+        </div>
+        <Button onClick={onVerify} size="sm">
+          ยืนยันสิทธิ์ผู้ดูแล
+        </Button>
+      </div>
+    </section>
+  );
+}
 
-          <div className="mt-4 space-y-3">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              ร้านค้า
-              <select
-                className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                onChange={(event) => setSelectedTenantId(event.target.value)}
-                value={selectedTenantId}
-              >
-                {tenants.map((item) => (
-                  <option key={item.tenant.id} value={item.tenant.id}>
-                    {item.tenant.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+function OwnerLoadingState() {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <Badge color="light">กำลังโหลด</Badge>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="h-20 rounded-lg bg-gray-100 dark:bg-white/[0.04]" />
+        <div className="h-20 rounded-lg bg-gray-100 dark:bg-white/[0.04]" />
+        <div className="h-20 rounded-lg bg-gray-100 dark:bg-white/[0.04]" />
+      </div>
+    </section>
+  );
+}
 
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              ชื่อ LINE OA
-              <input
-                className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
-                onChange={(event) => setLineChannelName(event.target.value)}
-                placeholder="เช่น AI Business Center Demo"
-                value={lineChannelName}
-              />
-            </label>
+function OwnerSetupPanel({
+  busy,
+  createTenant,
+  newTenantId,
+  newTenantName,
+  setNewTenantId,
+  setNewTenantName,
+}: {
+  busy: string | null;
+  createTenant: (event: FormEvent<HTMLFormElement>) => void;
+  newTenantId: string;
+  newTenantName: string;
+  setNewTenantId: (value: string) => void;
+  setNewTenantName: (value: string) => void;
+}) {
+  return (
+    <details className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              ตั้งค่าเพิ่มเติม
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              เพิ่มร้านใหม่เมื่อเริ่ม pilot ลูกค้ารายถัดไป ส่วน flow หลักคือเลือก tenant ด้านล่างแล้วจัดการต่อ
+            </p>
+          </div>
+          <Badge color="light">คลิกเพื่อเปิด</Badge>
+        </div>
+      </summary>
 
-            <label className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+      <form
+        className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
+        onSubmit={createTenant}
+      >
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+          เพิ่มร้านค้าใหม่
+        </h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <input
+            className="h-11 rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+            onChange={(event) => setNewTenantName(event.target.value)}
+            placeholder="ชื่อร้านค้า"
+            value={newTenantName}
+          />
+          <input
+            className="h-11 rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+            onChange={(event) => setNewTenantId(event.target.value)}
+            placeholder="tenant_id เช่น tenant_demo_remote"
+            value={newTenantId}
+          />
+          <Button disabled={busy === "create"} size="sm">
+            เพิ่มร้านค้า
+          </Button>
+        </div>
+      </form>
+    </details>
+  );
+}
+
+function LineChannelPanel({
+  busy,
+  createLineChannel,
+  lineChannelName,
+  lineSecretConfigured,
+  lineTokenConfigured,
+  selectedTenant,
+  selectedTenantId,
+  selectedTenantLineChannels,
+  setLineChannelName,
+  setLineSecretConfigured,
+  setLineTokenConfigured,
+  setSelectedTenantId,
+  tenants,
+}: {
+  busy: string | null;
+  createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
+  lineChannelName: string;
+  lineSecretConfigured: boolean;
+  lineTokenConfigured: boolean;
+  selectedTenant?: Tenant;
+  selectedTenantId: string;
+  selectedTenantLineChannels: LineChannelRecord[];
+  setLineChannelName: (value: string) => void;
+  setLineSecretConfigured: (value: boolean) => void;
+  setLineTokenConfigured: (value: boolean) => void;
+  setSelectedTenantId: (value: string) => void;
+  tenants: TenantSummary[];
+}) {
+  return (
+    <details className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              LINE OA ของร้าน
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              เพิ่ม LINE OA metadata เมื่อพร้อมผูกช่องทางจริง
+            </p>
+          </div>
+          <Badge color="light">
+            {selectedTenantLineChannels.length} ช่องทาง
+          </Badge>
+        </div>
+      </summary>
+
+      <form
+        className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
+        onSubmit={createLineChannel}
+      >
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            ร้านค้า
+            <select
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) => setSelectedTenantId(event.target.value)}
+              value={selectedTenantId}
+            >
+              {tenants.map((item) => (
+                <option key={item.tenant.id} value={item.tenant.id}>
+                  {item.tenant.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            ชื่อ LINE OA
+            <input
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              onChange={(event) => setLineChannelName(event.target.value)}
+              placeholder="เช่น AI Business Center Demo"
+              value={lineChannelName}
+            />
+          </label>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
               <input
                 checked={lineTokenConfigured}
                 className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
-                onChange={(event) => setLineTokenConfigured(event.target.checked)}
+                onChange={(event) =>
+                  setLineTokenConfigured(event.target.checked)
+                }
                 type="checkbox"
               />
               <span>มี Channel access token แล้ว</span>
             </label>
-            <label className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+            <label className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
               <input
                 checked={lineSecretConfigured}
                 className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
-                onChange={(event) => setLineSecretConfigured(event.target.checked)}
+                onChange={(event) =>
+                  setLineSecretConfigured(event.target.checked)
+                }
                 type="checkbox"
               />
               <span>มี Channel secret สำหรับ webhook แล้ว</span>
             </label>
-
-            <Button disabled={busy === "create-line-channel"} size="sm">
-              เพิ่ม LINE OA
-            </Button>
           </div>
 
-          <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
-            <p className="text-xs font-semibold uppercase text-gray-400">
-              LINE OA ที่ผูกกับ {selectedTenant?.name ?? "ร้านนี้"}
-            </p>
-            <div className="mt-3 space-y-2">
-              {selectedTenantLineChannels.length ? (
-                selectedTenantLineChannels.map((channel) => (
-                  <div
-                    className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
-                    key={channel.id}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {channel.display_name}
-                      </p>
-                      <Badge color={channel.enabled ? "success" : "warning"}>
-                        {channel.enabled ? "เปิดใช้" : "ปิด"}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      token: {channel.channel_access_token_configured ? "มี" : "ยังไม่มี"} · secret:{" "}
-                      {channel.channel_secret_configured ? "มี" : "ยังไม่มี"} · source:{" "}
-                      {channel.source}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
-                  ยังไม่มี LINE OA สำหรับร้านนี้
-                </p>
-              )}
-            </div>
-          </div>
-          </form>
+          <Button disabled={busy === "create-line-channel"} size="sm">
+            เพิ่ม LINE OA
+          </Button>
         </div>
-      </section>
+      </form>
 
-    </div>
+      <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <p className="text-xs font-semibold uppercase text-gray-400">
+          LINE OA ที่ผูกกับ {selectedTenant?.name ?? "ร้านนี้"}
+        </p>
+        <div className="mt-3 space-y-2">
+          {selectedTenantLineChannels.length ? (
+            selectedTenantLineChannels.map((channel) => (
+              <div
+                className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+                key={channel.id}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {channel.display_name}
+                  </p>
+                  <Badge color={channel.enabled ? "success" : "warning"}>
+                    {channel.enabled ? "เปิดใช้" : "ปิด"}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  token:{" "}
+                  {channel.channel_access_token_configured ? "มี" : "ยังไม่มี"}{" "}
+                  · secret:{" "}
+                  {channel.channel_secret_configured ? "มี" : "ยังไม่มี"} ·
+                  source: {channel.source}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              ยังไม่มี LINE OA สำหรับร้านนี้
+            </p>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -865,23 +1004,25 @@ function LineOnboardingGuide({
     : "/api/line/webhook";
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase text-gray-400">
-            LINE OA onboarding
-          </p>
-          <h2 className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
-            วิธีให้ {tenantName} เริ่มรับ Morning Brief
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            ลูกค้าทำแค่ดึง OA เข้ากลุ่มและพิมพ์ test จากนั้น owner เป็นคนอนุมัติสิทธิ์และส่งทดสอบ
-          </p>
+    <details className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase text-gray-400">
+              LINE OA onboarding
+            </p>
+            <h2 className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
+              วิธีให้ {tenantName} เริ่มรับ Morning Brief
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              ดึง OA เข้ากลุ่ม → พิมพ์ test → owner อนุมัติสิทธิ์
+            </p>
+          </div>
+          <Badge color="light">ไม่ auto-enable กลุ่มใหม่</Badge>
         </div>
-        <Badge color="light">ไม่ auto-enable กลุ่มใหม่</Badge>
-      </div>
+      </summary>
 
-      <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
         <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
           Webhook URL สำหรับ trycloudflare รอบนี้
         </p>
@@ -900,7 +1041,7 @@ function LineOnboardingGuide({
           "กดส่งทดสอบเฉพาะกลุ่มก่อนเปิด Morning Brief ประจำวัน",
         ].map((step, index) => (
           <div
-            className="flex gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+            className="flex gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
             key={step}
           >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
@@ -912,7 +1053,7 @@ function LineOnboardingGuide({
           </div>
         ))}
       </div>
-    </section>
+    </details>
   );
 }
 

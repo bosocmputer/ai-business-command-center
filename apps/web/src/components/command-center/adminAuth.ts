@@ -154,10 +154,30 @@ export async function buildAdminJsonHeaders(
   };
 }
 
+export function buildRememberedAdminJsonHeaders() {
+  const token = getRememberedAdminToken();
+  if (!token) {
+    return null;
+  }
+
+  return {
+    "Content-Type": "application/json",
+    "x-ai-bcc-admin-token": token,
+  };
+}
+
 export function forgetAdminToken() {
   if (typeof window !== "undefined") {
     window.sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
   }
+}
+
+export function getRememberedAdminToken() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)?.trim() || null;
 }
 
 export function rememberAdminToken(token: string) {
