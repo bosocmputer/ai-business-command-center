@@ -42,6 +42,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - trycloudflare quick tunnel เป็น URL ชั่วคราว อาจเปลี่ยนเมื่อ process/server restart
 - ห้ามบันทึก signed brief URL เต็มลง docs เพราะมี `token=...`
 - LINE message ใช้ Flex Message พร้อมปุ่ม `เปิดรายงาน`; signed URL ต้องอยู่หลังปุ่มและสร้างจาก API เท่านั้น
+- Web ใช้ same-origin `/api` rewrite ไป API service ภายใน Docker ได้แล้ว เพื่อลดปัญหา API quick tunnel URL หมดอายุหรือ DNS ไม่ทัน
 
 ## สิ่งที่สำเร็จแล้ว
 
@@ -118,6 +119,7 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 - Target ใหม่จาก webhook จะถูกบันทึกเป็น pending ไม่ auto-enable
 - Env fallback target เดิมยังทำงานเป็น `executive` สำหรับ pilot
 - `/command-center/settings` มี section `LINE Groups & Permissions` สำหรับดู masked target, profile, approve/change profile/enable-disable/test send
+- หน้า web/admin/brief สามารถเรียก API ผ่าน same-origin `/api` ได้ ไม่จำเป็นต้อง expose API tunnel แยกใน browser
 
 ### Security / Safety
 

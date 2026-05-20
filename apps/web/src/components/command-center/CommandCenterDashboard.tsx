@@ -41,6 +41,7 @@ import {
   TableIcon,
 } from "@/icons";
 import { buildAdminJsonHeaders, forgetAdminToken } from "./adminAuth";
+import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 
 type AuditLogEntry = {
   id?: number;
@@ -121,8 +122,7 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
   ssr: false,
 });
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:4000";
+const API_BASE_URL = getCommandCenterApiBaseUrl();
 
 const defaultTenantId: TenantId = "tenant_demo_remote";
 const defaultDateRange = {

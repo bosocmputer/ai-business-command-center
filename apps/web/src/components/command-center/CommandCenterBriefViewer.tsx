@@ -11,9 +11,9 @@ import type {
   SalesHeaderRow,
   TopProduct,
 } from "@ai-bcc/shared";
+import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:4000";
+const API_BASE_URL = getCommandCenterApiBaseUrl();
 
 type SnapshotResponse = {
   data?: SalesGoodsServicesSnapshot;

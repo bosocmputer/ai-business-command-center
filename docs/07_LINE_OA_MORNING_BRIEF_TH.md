@@ -34,6 +34,7 @@ POST /api/line-targets/:id/test-send
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
 - target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดกลุ่ม
 - env fallback target เดิมยังใช้ได้สำหรับ pilot และถือเป็น `executive` จนกว่าจะย้ายไป target registry เต็ม
+- web public URL ใช้ same-origin `/api` rewrite ไปยัง API ภายใน Docker เพื่อลดการพึ่งพา API quick tunnel แยกอีกตัว
 
 ข้อมูลที่ต้องใช้สำหรับการส่งจริง:
 
