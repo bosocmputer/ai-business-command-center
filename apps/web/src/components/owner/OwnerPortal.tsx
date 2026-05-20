@@ -41,9 +41,26 @@ type ActionResult = {
   message: string;
 };
 
+type DatasourceTestResult = {
+  ok: boolean;
+  checked_at: string;
+  latency_ms: number;
+  database_name: string | null;
+  user_name_masked: string | null;
+  required_tables: {
+    ic_trans: boolean;
+    ic_trans_detail: boolean;
+    ar_customer: boolean;
+  };
+  safe_error_message: string | null;
+};
+
 export default function OwnerPortal() {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [lineChannels, setLineChannels] = useState<LineChannelRecord[]>([]);
+  const [datasourceTests, setDatasourceTests] = useState<
+    Record<string, DatasourceTestResult>
+  >({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -67,6 +84,9 @@ export default function OwnerPortal() {
   const selectedTenant = tenants.find(
     (item) => item.tenant.id === selectedTenantId,
   )?.tenant;
+  const selectedTenantSummary = tenants.find(
+    (item) => item.tenant.id === selectedTenantId,
+  );
   const selectedTenantLineChannels = selectedTenantId
     ? lineChannels.filter((channel) => channel.tenant_id === selectedTenantId)
     : lineChannels;
@@ -260,6 +280,55 @@ export default function OwnerPortal() {
     });
   }
 
+  async function testDatasource(tenantId: string) {
+    const tenant = tenants.find((item) => item.tenant.id === tenantId)?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "ไม่พบร้านค้าที่ต้องการทดสอบ" });
+      return;
+    }
+
+    await runOwnerAction(`datasource-${tenantId}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `ทดสอบ SML datasource ของ ${tenant.name}`,
+        description:
+          "ตรวจการเชื่อมต่อฐานข้อมูล SML และตารางหลัก โดยไม่แสดง password หรือ credential เต็มใน UI",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนทดสอบ SML datasource");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/test`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({}),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: DatasourceTestResult;
+        error?: string;
+      };
+
+      if (payload.data) {
+        setDatasourceTests((previous) => ({
+          ...previous,
+          [tenantId]: payload.data as DatasourceTestResult,
+        }));
+        await loadOwnerData();
+        setResult({
+          tone: payload.data.ok ? "success" : "warning",
+          message: payload.data.ok
+            ? `เชื่อมต่อ SML ของ ${tenant.name} สำเร็จ`
+            : toDatasourceBusinessMessage(payload.data.safe_error_message),
+        });
+        return;
+      }
+
+      throw new Error(payload.error || "ทดสอบ SML datasource ไม่สำเร็จ");
+    });
+  }
+
   async function runOwnerAction(name: string, action: () => Promise<void>) {
     setBusy(name);
     try {
@@ -420,19 +489,32 @@ export default function OwnerPortal() {
               tenants.map((item) => (
                 <TenantCard
                   busy={busy}
+                  datasourceTest={datasourceTests[item.tenant.id]}
                   item={item}
                   key={item.tenant.id}
+                  onSelectTenant={setSelectedTenantId}
                   onUpdateStatus={updateTenantStatus}
+                  selected={item.tenant.id === selectedTenantId}
                 />
               ))
             )}
           </div>
         </div>
 
-        <form
-          className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
-          onSubmit={createLineChannel}
-        >
+        <div className="space-y-4">
+          <TenantDetailPanel
+            busy={busy}
+            datasourceTest={
+              selectedTenantId ? datasourceTests[selectedTenantId] : undefined
+            }
+            item={selectedTenantSummary}
+            onTestDatasource={testDatasource}
+          />
+
+          <form
+            className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
+            onSubmit={createLineChannel}
+          >
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
             LINE OA ของร้าน
           </h2>
@@ -524,7 +606,8 @@ export default function OwnerPortal() {
               )}
             </div>
           </div>
-        </form>
+          </form>
+        </div>
       </section>
 
     </div>
@@ -534,15 +617,27 @@ export default function OwnerPortal() {
 function TenantCard({
   item,
   busy,
+  selected,
+  datasourceTest,
+  onSelectTenant,
   onUpdateStatus,
 }: {
   item: TenantSummary;
   busy: string | null;
+  selected: boolean;
+  datasourceTest?: DatasourceTestResult;
+  onSelectTenant: (tenantId: string) => void;
   onUpdateStatus: (tenant: Tenant, status: Tenant["status"]) => Promise<void>;
 }) {
   const tenant = item.tenant;
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div
+      className={`rounded-2xl border bg-white p-5 dark:bg-white/[0.03] ${
+        selected
+          ? "border-brand-200 ring-1 ring-brand-100 dark:border-brand-500/40 dark:ring-brand-500/20"
+          : "border-gray-200 dark:border-gray-800"
+      }`}
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -562,6 +657,14 @@ function TenantCard({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={selected}
+            size="sm"
+            variant="outline"
+            onClick={() => onSelectTenant(tenant.id)}
+          >
+            {selected ? "กำลังจัดการ" : "จัดการร้านนี้"}
+          </Button>
           {item.customer_dashboard_path ? (
             <Link
               className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
@@ -594,7 +697,15 @@ function TenantCard({
       <div className="mt-4 grid gap-3 md:grid-cols-4">
         <HealthFact
           label="Datasource"
-          value={item.health.datasource_configured ? "พร้อม" : "ยังไม่พร้อม"}
+          value={
+            datasourceTest
+              ? datasourceTest.ok
+                ? "ทดสอบผ่าน"
+                : "ต้องตรวจ"
+              : item.health.datasource_configured
+                ? "พร้อม"
+                : "ยังไม่พร้อม"
+          }
         />
         <HealthFact
           label="LINE OA"
@@ -612,6 +723,150 @@ function TenantCard({
               : "ยังไม่มี"
           }
         />
+      </div>
+    </div>
+  );
+}
+
+function TenantDetailPanel({
+  item,
+  busy,
+  datasourceTest,
+  onTestDatasource,
+}: {
+  item?: TenantSummary;
+  busy: string | null;
+  datasourceTest?: DatasourceTestResult;
+  onTestDatasource: (tenantId: string) => Promise<void>;
+}) {
+  if (!item) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+        เลือกร้านค้าเพื่อดูรายละเอียดการตั้งค่า
+      </div>
+    );
+  }
+
+  const tenant = item.tenant;
+  const datasourceBusy = busy === `datasource-${tenant.id}`;
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-gray-400">
+            ร้านที่กำลังจัดการ
+          </p>
+          <h2 className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
+            {tenant.name}
+          </h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {tenant.id}
+          </p>
+        </div>
+        <Badge color={tenantStatusTone(tenant.status)}>
+          {formatTenantStatus(tenant.status)}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <HealthFact label="แพ็กเกจ" value={tenant.planCode} />
+        <HealthFact
+          label="Dashboard ลูกค้า"
+          value={item.customer_dashboard_path ?? "ยังไม่มี slug"}
+        />
+        <HealthFact
+          label="ฐานข้อมูล SML"
+          value={tenant.databaseName || "ยังไม่ระบุ"}
+        />
+        <HealthFact
+          label="สถานะบริการ"
+          value={item.access.enabled ? "เปิดใช้งาน" : "ถูกบล็อก"}
+        />
+      </div>
+
+      <div className="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              SML PostgreSQL datasource
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ตรวจว่า API server เชื่อมฐานข้อมูลได้ และพบตาราง SML ที่รายงานนี้ต้องใช้
+            </p>
+          </div>
+          <Button
+            disabled={datasourceBusy}
+            size="sm"
+            variant="outline"
+            onClick={() => void onTestDatasource(tenant.id)}
+          >
+            {datasourceBusy ? "กำลังทดสอบ..." : "ทดสอบ SML"}
+          </Button>
+        </div>
+
+        <DatasourceTestSummary result={datasourceTest} />
+      </div>
+    </div>
+  );
+}
+
+function DatasourceTestSummary({
+  result,
+}: {
+  result?: DatasourceTestResult;
+}) {
+  if (!result) {
+    return (
+      <p className="mt-4 rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+        ยังไม่ได้ทดสอบในรอบนี้ กด “ทดสอบ SML” เพื่อเช็ค connection จริงจาก server
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge color={result.ok ? "success" : "warning"}>
+          {result.ok ? "เชื่อมต่อได้" : "ควรตรวจสอบ"}
+        </Badge>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          ตรวจล่าสุด {formatDateTime(result.checked_at)} · {result.latency_ms} ms
+        </span>
+      </div>
+      {result.safe_error_message ? (
+        <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+          {toDatasourceBusinessMessage(result.safe_error_message)}
+        </p>
+      ) : null}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <HealthFact
+          label="Database"
+          value={result.database_name ?? "ไม่ทราบชื่อ"}
+        />
+        <HealthFact
+          label="DB user"
+          value={result.user_name_masked ?? "ไม่เปิดเผย"}
+        />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {Object.entries(result.required_tables).map(([table, ok]) => (
+          <div
+            className="rounded-lg border border-gray-100 bg-white p-3 text-sm dark:border-gray-800 dark:bg-gray-900"
+            key={table}
+          >
+            <p className="font-semibold text-gray-900 dark:text-white">
+              {table}
+            </p>
+            <p
+              className={`mt-1 text-xs ${
+                ok ? "text-success-600" : "text-warning-600"
+              }`}
+            >
+              {ok ? "พบตาราง" : "ไม่พบตาราง"}
+            </p>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -668,4 +923,26 @@ function slugifyTenantId(value: string) {
     .replace(/^_+|_+$/g, "");
 
   return normalized ? `tenant_${normalized}` : "";
+}
+
+function toDatasourceBusinessMessage(value: string | null) {
+  if (!value) {
+    return "เชื่อมต่อได้";
+  }
+  if (value.includes("not configured")) {
+    return "ยังไม่ได้ตั้งค่าฐานข้อมูล SML สำหรับร้านนี้บน server";
+  }
+  if (value.includes("authentication")) {
+    return "ชื่อผู้ใช้หรือรหัสผ่านฐานข้อมูลไม่ถูกต้อง";
+  }
+  if (value.includes("timed out")) {
+    return "เชื่อมต่อฐานข้อมูลช้าเกินเวลาที่กำหนด";
+  }
+  if (value.includes("unreachable")) {
+    return "ติดต่อฐานข้อมูลไม่ได้ กรุณาตรวจ host, port หรือ network/VPN";
+  }
+  if (value.includes("required SML tables")) {
+    return "เชื่อมต่อได้ แต่ยังไม่พบตาราง SML ที่รายงานนี้ต้องใช้ครบ";
+  }
+  return "ทดสอบ datasource ไม่สำเร็จ กรุณาตรวจการตั้งค่าฐานข้อมูล";
 }

@@ -1,5 +1,5 @@
 import cors from "@fastify/cors";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   deriveMorningBriefDateRange,
@@ -313,6 +313,11 @@ app.post("/api/owner/line-channels", async (request, reply) => {
   return { data: saved };
 });
 
+app.post(
+  "/api/owner/tenants/:tenantId/datasource/test",
+  async (request, reply) => testTenantDatasource(request, reply),
+);
+
 app.get("/api/app/:tenantSlug/session", async (request, reply) => {
   const session = await resolveCustomerSessionBySlug(request.params);
   if (!session.ok) {
@@ -373,6 +378,13 @@ app.get("/api/app/reports/sales_goods_services/latest", async (_request, reply) 
 );
 
 app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
+  return testTenantDatasource(request, reply);
+});
+
+async function testTenantDatasource(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
   const adminAuth = requireAdminMutation(request);
   if (!adminAuth.ok) {
     return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
@@ -440,7 +452,7 @@ app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
   }
 
   return response;
-});
+}
 
 app.get("/api/operations/status", async () => {
   const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(

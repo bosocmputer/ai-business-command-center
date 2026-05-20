@@ -76,6 +76,8 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - เพิ่ม tenant ใหม่
   - เปลี่ยน subscription status เช่น `active`, `suspended`
   - ดู tenant health เช่น datasource, LINE OA, LINE targets, users, latest run/delivery
+  - เลือกร้านเพื่อดูรายละเอียดร้าน, dashboard slug, database name และสถานะบริการ
+  - กดทดสอบ SML datasource จาก Owner portal ได้ผ่าน owner API โดยผลลัพธ์ไม่แสดง password/credential เต็ม
   - เพิ่ม LINE OA metadata ต่อร้าน
 - Owner card มีปุ่ม `เปิด Dashboard ลูกค้า` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
 - `/app` เป็น neutral state:
@@ -261,6 +263,7 @@ Browser QA:
 - Mutation API ยังพึ่ง `x-ai-bcc-admin-token` ระหว่างเปลี่ยนผ่านไป session/role เต็ม
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
+- Owner portal ทดสอบ datasource ได้แล้ว แต่ยังไม่ได้บันทึก/แก้ host, port, user, password ผ่าน UI แบบ encrypted
 - LINE OA token/secret ยังอยู่ใน env หรือ metadata registry ไม่ใช่ encrypted secret table
 - customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี `line_channels` registry, pending target discovery และ permission profile แล้ว
 - `/app/:tenantSlug` ยังเป็น pilot link-based viewer ไม่ใช่ login/role จริง
