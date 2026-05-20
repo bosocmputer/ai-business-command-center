@@ -40,7 +40,12 @@ import {
   GroupIcon,
   TableIcon,
 } from "@/icons";
-import { buildAdminJsonHeaders, forgetAdminToken } from "./adminAuth";
+import { AdminSecurityDialogs } from "./AdminSecurityDialogs";
+import {
+  buildAdminJsonHeaders,
+  forgetAdminToken,
+  requestAdminConfirmation,
+} from "./adminAuth";
 import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 
 type AuditLogEntry = {
@@ -299,7 +304,11 @@ export default function CommandCenterDashboard() {
     setRunning(true);
     setError(null);
     try {
-      const headers = buildAdminJsonHeaders();
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "รันรายงานขายสินค้าและบริการ",
+        description:
+          "ระบบจะ query ฐาน SML ของ tenant นี้และบันทึก snapshot ล่าสุด",
+      });
       if (!headers) {
         throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
       }
@@ -348,19 +357,44 @@ export default function CommandCenterDashboard() {
     try {
       if (
         mode === "send" &&
-        !window.confirm(
-          [
-            "ยืนยันส่ง LINE Morning Brief จริง?",
-            `บริษัท: ${selectedTenant?.name ?? tenantId}`,
-            `วันที่ข้อมูล: ${formatReportPeriod(morningBriefPeriod.date_from, morningBriefPeriod.date_to)}`,
-            `ปลายทาง: ${getTenantLineTarget(operationsStatus, tenantId)}`,
-          ].join("\n"),
-        )
+        !(await requestAdminConfirmation({
+          title: "ยืนยันส่ง LINE Morning Brief จริง",
+          message:
+            "ระบบจะรันรายงานของช่วงวันที่นี้และส่งข้อความเข้า LINE target ที่ตั้งค่าไว้",
+          confirmLabel: "ส่ง LINE",
+          tone: "danger",
+          details: [
+            {
+              label: "บริษัท",
+              value: selectedTenant?.name ?? tenantId,
+            },
+            {
+              label: "วันที่ข้อมูล",
+              value: formatReportPeriod(
+                morningBriefPeriod.date_from,
+                morningBriefPeriod.date_to,
+              ),
+            },
+            {
+              label: "ปลายทาง",
+              value: getTenantLineTarget(operationsStatus, tenantId),
+            },
+          ],
+        }))
       ) {
         return;
       }
 
-      const headers = buildAdminJsonHeaders();
+      const headers = await buildAdminJsonHeaders({
+        actionLabel:
+          mode === "send"
+            ? "ส่ง LINE Morning Brief จริง"
+            : "สร้างตัวอย่าง Morning Brief",
+        description:
+          mode === "send"
+            ? "รายการนี้จะส่งข้อความจริงเข้า LINE"
+            : "รายการนี้สร้าง preview/dry run โดยไม่ส่งเข้า LINE จริง",
+      });
       if (!headers) {
         throw new Error("ต้องกรอก Admin token ก่อนส่งหรือทดสอบ LINE");
       }
@@ -411,6 +445,8 @@ export default function CommandCenterDashboard() {
 
   return (
     <div className="space-y-6">
+      <AdminSecurityDialogs />
+
       <PageBreadcrumb
         pageTitle="แดชบอร์ดธุรกิจ"
         homeLabel="หน้าแรก"

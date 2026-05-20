@@ -20,7 +20,12 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import Select from "@/components/form/Select";
 import Label from "@/components/form/Label";
-import { buildAdminJsonHeaders, forgetAdminToken } from "./adminAuth";
+import { AdminSecurityDialogs } from "./AdminSecurityDialogs";
+import {
+  buildAdminJsonHeaders,
+  forgetAdminToken,
+  requestAdminConfirmation,
+} from "./adminAuth";
 import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 
 type OperationsStatus = {
@@ -329,14 +334,27 @@ export default function CommandCenterSettings() {
   async function sendMorningBrief() {
     await runAction("send", async () => {
       if (
-        !window.confirm(
-          [
-            "ยืนยันส่ง LINE Morning Brief จริง?",
-            `บริษัท: ${selectedTenant?.name ?? tenantId}`,
-            `วันที่ข้อมูล: ${formatReportPeriod(yesterday.date_from, yesterday.date_to)}`,
-            `ปลายทางที่มีสิทธิ์: ${enabledLineTargetCount || 0} กลุ่ม/ปลายทาง`,
-          ].join("\n"),
-        )
+        !(await requestAdminConfirmation({
+          title: "ยืนยันส่ง LINE Morning Brief จริง",
+          message:
+            "ระบบจะส่ง Flex Message เข้าเฉพาะกลุ่ม/ปลายทางที่อนุมัติและมีสิทธิ์รับรายงานนี้",
+          confirmLabel: "ส่ง LINE",
+          tone: "danger",
+          details: [
+            {
+              label: "บริษัท",
+              value: selectedTenant?.name ?? tenantId,
+            },
+            {
+              label: "วันที่ข้อมูล",
+              value: formatReportPeriod(yesterday.date_from, yesterday.date_to),
+            },
+            {
+              label: "ปลายทางที่มีสิทธิ์",
+              value: `${enabledLineTargetCount || 0} กลุ่ม/ปลายทาง`,
+            },
+          ],
+        }))
       ) {
         return;
       }
@@ -478,14 +496,27 @@ export default function CommandCenterSettings() {
   async function testLineTarget(target: LineTargetRecord) {
     await runAction(`target-test-${target.id}`, async () => {
       if (
-        !window.confirm(
-          [
-            "ยืนยันส่ง LINE test จริงไปยังปลายทางนี้?",
-            `ปลายทาง: ${target.display_name}`,
-            `Target: ${target.target_id_masked}`,
-            `สิทธิ์: ${formatAccessProfile(target.access_profile_key)}`,
-          ].join("\n"),
-        )
+        !(await requestAdminConfirmation({
+          title: "ยืนยันส่ง LINE test จริง",
+          message:
+            "ระบบจะส่งข้อความทดสอบไปยังปลายทางนี้เท่านั้น ใช้ตรวจว่ากลุ่มรับข้อความได้จริง",
+          confirmLabel: "ส่งทดสอบ",
+          tone: "danger",
+          details: [
+            {
+              label: "ปลายทาง",
+              value: target.display_name,
+            },
+            {
+              label: "รหัสปลายทาง",
+              value: target.target_id_masked,
+            },
+            {
+              label: "สิทธิ์",
+              value: formatAccessProfile(target.access_profile_key),
+            },
+          ],
+        }))
       ) {
         return;
       }
@@ -513,6 +544,8 @@ export default function CommandCenterSettings() {
 
   return (
     <div className="space-y-6">
+      <AdminSecurityDialogs />
+
       <PageBreadcrumb
         pageTitle="ตั้งค่าระบบ"
         homeLabel="แดชบอร์ด"
@@ -1074,7 +1107,11 @@ async function mutateJson<T>(
   url: string,
   body: unknown,
 ): Promise<T> {
-  const headers = buildAdminJsonHeaders();
+  const headers = await buildAdminJsonHeaders({
+    actionLabel: "ทำรายการผู้ดูแลระบบ",
+    description:
+      "ระบบจะส่งคำสั่งที่เปลี่ยนข้อมูลจริง เช่น ทดสอบฐานข้อมูล รันรายงาน หรือแก้สิทธิ์ LINE",
+  });
   if (!headers) {
     throw new Error("ต้องกรอก Admin token ก่อนทำรายการ");
   }

@@ -139,8 +139,8 @@ x-ai-bcc-admin-token: <server-only-token>
   - `POST /api/line-targets/:id/approve`
   - `PATCH /api/line-targets/:id`
   - `POST /api/line-targets/:id/test-send`
-- UI จะ prompt admin token ฝั่ง browser และเก็บใน `sessionStorage`
-- UI มี confirmation ก่อนส่ง LINE จริง
+- UI ใช้ TailAdmin-style dialog สำหรับกรอก admin token และเก็บใน `sessionStorage`
+- UI ใช้ TailAdmin-style confirmation dialog ก่อนส่ง LINE จริง / ส่ง test จริง
 - API log redact `x-ai-bcc-admin-token`
 - LINE target API response/audit ใช้ masked/hash id ไม่ expose target id เต็ม
 - Secret จริงอยู่ใน `.env.server` บน server เท่านั้น ไม่ commit
@@ -261,4 +261,5 @@ curl http://127.0.0.1:4055/health
 - อย่า hardcode credential จริงลง repo
 - ถ้าจะส่ง LINE จริง ต้อง confirm กับ user ก่อน
 - ถ้าจะทดสอบ mutation endpoint ให้ใช้ token จาก server env โดยไม่ echo ออกมา
+- ค่า admin token สำหรับ pilot อาจตั้งให้ง่ายต่อการจำใน server env ได้ แต่ production ต้องเปลี่ยนเป็น secret ที่ strong และหมุนได้
 - ถ้าเห็นยอด `0` ของวันที่ `2026-05-19` ให้ถือว่าเป็นข้อมูลจริงของ snapshot ล่าสุด ไม่ใช่ error

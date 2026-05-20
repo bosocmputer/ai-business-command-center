@@ -21,8 +21,8 @@
 - Signed report viewer ใช้ token ผูกกับ `tenant_id + report_key + run_id + expires_at`
 - Signed viewer TTL default = `72` ชั่วโมง
 - Mutation endpoints ใช้ lightweight admin token ผ่าน header `x-ai-bcc-admin-token`
-- UI prompt admin token และเก็บใน `sessionStorage`
-- UI ต้อง confirm ก่อนส่ง LINE จริง
+- UI ใช้ in-app dialog สำหรับกรอก admin token และเก็บใน `sessionStorage`
+- UI ใช้ in-app confirmation dialog ก่อนส่ง LINE จริง ไม่ใช้ browser alert/prompt
 - API log redact `x-ai-bcc-admin-token`
 - LINE target แสดงแบบ masked เท่านั้น
 - LINE target registry รองรับ group-level permission profile และ target ใหม่จาก webhook จะไม่ถูกเปิดใช้งานอัตโนมัติ
