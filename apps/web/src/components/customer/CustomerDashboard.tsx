@@ -148,7 +148,23 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   }
 
   if (state.status === "loading") {
-    return <CustomerShell title="กำลังโหลดข้อมูลร้านค้า" />;
+    return (
+      <CustomerShell title="กำลังโหลดรายงาน">
+        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+          <Badge color="light">กำลังโหลด</Badge>
+          <div className="mt-4 h-7 w-56 rounded bg-gray-100" />
+          <div className="mt-3 h-4 w-full max-w-xl rounded bg-gray-100" />
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+            {["sales", "docs", "lines", "qty"].map((item) => (
+              <div
+                className="h-20 rounded-lg border border-gray-100 bg-gray-50"
+                key={item}
+              />
+            ))}
+          </div>
+        </section>
+      </CustomerShell>
+    );
   }
 
   if (state.status === "blocked") {
@@ -240,14 +256,14 @@ function CustomerDashboardContent({
   return (
     <CustomerShell tenant={session.tenant} title="Dashboard ร้านค้า">
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge color={trust.color}>{trust.label}</Badge>
               <Badge color="light">ข้อมูลเฉพาะ {session.tenant.name}</Badge>
               <Badge color="light">อ่านอย่างเดียว</Badge>
             </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-normal text-gray-900">
+            <h1 className="mt-3 text-2xl font-semibold text-gray-900">
               สรุปยอดขายล่าสุด
             </h1>
             <p className="mt-1 text-sm leading-6 text-gray-500">
@@ -256,7 +272,7 @@ function CustomerDashboardContent({
             </p>
           </div>
           <button
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex h-9 w-fit items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
             onClick={onRefresh}
             type="button"
           >
@@ -264,7 +280,7 @@ function CustomerDashboardContent({
           </button>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-5 grid overflow-hidden rounded-lg border border-gray-100 md:grid-cols-4">
           <Kpi label="ยอดขายสุทธิ" value={`${formatCurrency(snapshot.summary.total_sales)} บาท`} />
           <Kpi label="บิลขาย" value={`${formatNumber(snapshot.summary.document_count)} ใบ`} />
           <Kpi label="รายการขาย" value={`${formatNumber(snapshot.summary.line_count)} รายการ`} />
@@ -272,7 +288,7 @@ function CustomerDashboardContent({
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
         <InfoPanel title="วันนี้ควรรู้อะไร">
           <InsightLine
             label="สาขาหลัก"
@@ -308,7 +324,7 @@ function CustomerDashboardContent({
         </InfoPanel>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         <RankPanel
           emptyLabel="ยังไม่มีข้อมูลสาขา"
           items={snapshot.branch_sales.slice(0, 5).map((branch) => ({
@@ -329,20 +345,10 @@ function CustomerDashboardContent({
         />
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-6 text-gray-600 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">
-              ที่มาข้อมูล
-            </h2>
-            <p className="mt-1">
-              Dashboard นี้อ่านจาก snapshot รายงานของร้าน {session.tenant.name} เท่านั้น
-              และไม่เปิดให้แก้ config หรือส่ง LINE จากฝั่งลูกค้า
-            </p>
-          </div>
-          <Badge color="light">{snapshot.run_id}</Badge>
-        </div>
-      </section>
+      <p className="text-xs leading-5 text-gray-500">
+        ข้อมูลนี้อ่านจาก snapshot ล่าสุดของร้าน {session.tenant.name} เท่านั้น
+        ลูกค้าไม่สามารถแก้ config หรือส่ง LINE จากหน้านี้ได้
+      </p>
     </CustomerShell>
   );
 }
@@ -383,9 +389,9 @@ function CustomerShell({
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+    <div className="border-b border-gray-100 bg-gray-50 p-3 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0">
       <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="mt-2 text-xl font-semibold tracking-normal text-gray-900">{value}</p>
+      <p className="mt-2 text-xl font-semibold text-gray-900">{value}</p>
     </div>
   );
 }
