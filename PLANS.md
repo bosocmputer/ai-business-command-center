@@ -38,6 +38,8 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - Duplicate guard สำหรับ Morning Brief delivery ต่อ target
 - Signed owner session cookie สำหรับ route protection
 - Lightweight admin token guard สำหรับ mutation endpoints ระหว่าง MVP transition
+- `/owner` มี pilot readiness checklist ต่อร้าน และคู่มือ LINE OA onboarding สำหรับให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`
+- Secret vault foundation สำหรับเข้ารหัส datasource/LINE secrets ด้วย AES-256-GCM และ system store `secrets` metadata โดยยังไม่เปิดช่องกรอก secret ดิบใน UI
 - Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
 สิ่งที่ไม่มีแล้ว:
@@ -56,7 +58,7 @@ Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
 API LAN: http://192.168.2.109:4055
 Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
-Latest deployed code commit: 068a594
+Latest deployed code commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
 ```
 
 ห้ามบันทึก signed viewer URL เต็มลงเอกสาร เพราะ URL มี `token=...`
@@ -180,7 +182,7 @@ Minimum behavior:
 - suspended/cancelled tenant ถูก block จาก customer viewer และ LINE scheduler
 - LINE OA หลายตัวต่อ tenant มี registry metadata แล้ว
 - seed `sales_goods_services` definition after contract ready
-- datasource secret ยังเป็น env/deployment-level สำหรับ pilot; production ต้องย้ายเข้า encrypted secret store
+- datasource secret ยังเป็น env/deployment-level สำหรับ pilot; รอบนี้มี encrypted secret store foundation แล้ว แต่ owner datasource config UI ยังไม่บันทึก password/token จริง
 - every customer-facing table has `tenant_id`
 
 Acceptance:
@@ -189,6 +191,7 @@ Acceptance:
 - can block tenant by subscription status
 - customer cannot access admin/config controls from `/app/:tenantSlug`
 - can register multiple LINE OA metadata per tenant
+- can see per-tenant pilot readiness checklist in owner portal
 - can enable report per tenant (next increment: `tenant_report_configs`)
 
 ## Phase 3: Report Runner MVP

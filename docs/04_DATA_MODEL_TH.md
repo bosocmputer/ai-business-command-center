@@ -26,9 +26,10 @@ Current implementation ผ่าน `SystemStore` persist ตารางหล�
 - `line_deliveries`
 - `line_webhook_events`
 - `worker_heartbeats`
+- `secrets`
 - `audit_logs`
 
-ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง ส่วน datasource/LINE channel secret ยังมาจาก env บน server หรือ metadata ใน `line_channels` โดยไม่ commit secret ลง repo
+ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง ส่วน datasource/LINE channel secret ยังมาจาก env บน server หรือ metadata ใน `line_channels` โดยไม่ commit secret ลง repo. รอบล่าสุดเพิ่ม `secrets` เป็น encrypted secret foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า workflow config
 
 ### tenants
 
@@ -53,6 +54,29 @@ Policy:
 - `trial` / `active`: dashboard และ LINE ใช้งานได้
 - `past_due`: ยังใช้งานได้ แต่ owner เห็น warning
 - `suspended` / `cancelled`: customer viewer ถูก block และ scheduler ไม่ส่ง LINE
+
+### secrets
+
+เก็บ encrypted secret envelope สำหรับ datasource และ LINE channel ใน phase ถัดไป
+
+```text
+id
+tenant_id
+scope
+secret_key
+encrypted_value
+encryption_key_id
+metadata_json
+created_at
+updated_at
+```
+
+Policy:
+
+- `encrypted_value` ต้องเป็น envelope จาก secret vault ไม่ใช่ plaintext
+- `tenant_id + scope + secret_key` ใช้เป็น boundary เพื่อป้องกันนำ secret ข้าม tenant
+- UI/API ที่ list secret ต้องคืนเฉพาะ metadata และ `has_encrypted_value`
+- decrypt เฉพาะตอน worker/API ต้องใช้งานจริงใน memory
 
 ### subscriptions
 

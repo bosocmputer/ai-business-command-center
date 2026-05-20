@@ -70,6 +70,7 @@ export default function OwnerPortal() {
   const [lineChannelName, setLineChannelName] = useState("");
   const [lineTokenConfigured, setLineTokenConfigured] = useState(true);
   const [lineSecretConfigured, setLineSecretConfigured] = useState(true);
+  const [publicOrigin, setPublicOrigin] = useState("");
 
   const activeCount = useMemo(
     () =>
@@ -93,6 +94,10 @@ export default function OwnerPortal() {
 
   useEffect(() => {
     void loadOwnerData();
+  }, []);
+
+  useEffect(() => {
+    setPublicOrigin(window.location.origin);
   }, []);
 
   useEffect(() => {
@@ -511,6 +516,11 @@ export default function OwnerPortal() {
             onTestDatasource={testDatasource}
           />
 
+          <LineOnboardingGuide
+            publicOrigin={publicOrigin}
+            tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
+          />
+
           <form
             className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
             onSubmit={createLineChannel}
@@ -630,6 +640,7 @@ function TenantCard({
   onUpdateStatus: (tenant: Tenant, status: Tenant["status"]) => Promise<void>;
 }) {
   const tenant = item.tenant;
+  const readiness = getTenantReadiness(item, datasourceTest);
   return (
     <div
       className={`rounded-2xl border bg-white p-5 dark:bg-white/[0.03] ${
@@ -648,6 +659,9 @@ function TenantCard({
               {formatTenantStatus(tenant.status)}
             </Badge>
             <Badge color="light">{tenant.planCode}</Badge>
+            <Badge color={readiness.tone}>
+              Pilot {readiness.readyCount}/{readiness.items.length}
+            </Badge>
           </div>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {tenant.id} · ฐานข้อมูล {tenant.databaseName || "ยังไม่ตั้งค่า"}
@@ -694,7 +708,11 @@ function TenantCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <HealthFact
+          label="Pilot readiness"
+          value={readiness.label}
+        />
         <HealthFact
           label="Datasource"
           value={
@@ -749,6 +767,7 @@ function TenantDetailPanel({
 
   const tenant = item.tenant;
   const datasourceBusy = busy === `datasource-${tenant.id}`;
+  const readiness = getTenantReadiness(item, datasourceTest);
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
@@ -786,6 +805,25 @@ function TenantDetailPanel({
       </div>
 
       <div className="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+        <div className="mb-5 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Pilot readiness checklist
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                เช็คก่อนเปิดให้ลูกค้าใช้งานจริง: ถ้าขาดข้อไหน ระบบยังใช้ได้บางส่วน แต่ยังไม่ควร roll out แบบไม่เฝ้าดู
+              </p>
+            </div>
+            <Badge color={readiness.tone}>{readiness.label}</Badge>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {readiness.items.map((check) => (
+              <ReadinessRow key={check.label} item={check} />
+            ))}
+          </div>
+        </div>
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -806,8 +844,75 @@ function TenantDetailPanel({
         </div>
 
         <DatasourceTestSummary result={datasourceTest} />
+
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+          Secret readiness: รอบนี้วางฐาน encrypted secret store แล้ว แต่หน้า config ยังไม่รับ password/token ดิบจนกว่าจะเปิด workflow บันทึก secret แบบ masked + audited.
+        </div>
       </div>
     </div>
+  );
+}
+
+function LineOnboardingGuide({
+  publicOrigin,
+  tenantName,
+}: {
+  publicOrigin: string;
+  tenantName: string;
+}) {
+  const webhookUrl = publicOrigin
+    ? `${publicOrigin}/api/line/webhook`
+    : "/api/line/webhook";
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-gray-400">
+            LINE OA onboarding
+          </p>
+          <h2 className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
+            วิธีให้ {tenantName} เริ่มรับ Morning Brief
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ลูกค้าทำแค่ดึง OA เข้ากลุ่มและพิมพ์ test จากนั้น owner เป็นคนอนุมัติสิทธิ์และส่งทดสอบ
+          </p>
+        </div>
+        <Badge color="light">ไม่ auto-enable กลุ่มใหม่</Badge>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+          Webhook URL สำหรับ trycloudflare รอบนี้
+        </p>
+        <p className="mt-2 break-all rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 dark:border-gray-800 dark:bg-gray-900 dark:text-white">
+          {webhookUrl}
+        </p>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {[
+          "เพิ่มหรือเลือก LINE OA ของร้านใน LINE Developers",
+          "ตั้ง Webhook URL และเปิด Use webhook",
+          "ให้ลูกค้าดึง OA เข้ากลุ่ม LINE ที่ต้องการรับรายงาน",
+          "ให้ลูกค้าพิมพ์ test ในกลุ่ม เพื่อให้ระบบ discover target",
+          "กลับมาหน้า LINE OA/สิทธิ์กลุ่ม แล้วอนุมัติ profile เช่น ผู้บริหาร หรือฝ่ายขาย",
+          "กดส่งทดสอบเฉพาะกลุ่มก่อนเปิด Morning Brief ประจำวัน",
+        ].map((step, index) => (
+          <div
+            className="flex gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+            key={step}
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
+              {index + 1}
+            </span>
+            <p className="text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {step}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -881,6 +986,112 @@ function HealthFact({ label, value }: { label: string; value: string }) {
       </p>
     </div>
   );
+}
+
+type ReadinessCheck = {
+  ok: boolean;
+  label: string;
+  detail: string;
+};
+
+function ReadinessRow({ item }: { item: ReadinessCheck }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div>
+        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          {item.label}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {item.detail}
+        </p>
+      </div>
+      <Badge color={item.ok ? "success" : "warning"}>
+        {item.ok ? "พร้อม" : "ต้องทำ"}
+      </Badge>
+    </div>
+  );
+}
+
+function getTenantReadiness(
+  item: TenantSummary,
+  datasourceTest?: DatasourceTestResult,
+) {
+  const checks: ReadinessCheck[] = [
+    {
+      ok: item.access.enabled,
+      label: "Subscription เปิดใช้งาน",
+      detail: item.access.enabled
+        ? "ลูกค้าเข้า dashboard และ scheduler ส่ง LINE ได้ตามสิทธิ์"
+        : item.access.message,
+    },
+    {
+      ok: datasourceTest ? datasourceTest.ok : item.health.datasource_configured,
+      label: "SML datasource เชื่อมได้",
+      detail: datasourceTest
+        ? datasourceTest.ok
+          ? `ทดสอบผ่าน ${datasourceTest.latency_ms} ms`
+          : toDatasourceBusinessMessage(datasourceTest.safe_error_message)
+        : item.health.datasource_configured
+          ? "มี datasource config แล้ว ควรกดทดสอบก่อน rollout"
+          : "ยังไม่ได้ตั้งค่า datasource สำหรับร้านนี้",
+    },
+    {
+      ok: Boolean(item.health.latest_snapshot_at),
+      label: "มีรายงานล่าสุด",
+      detail: item.health.latest_snapshot_at
+        ? `ล่าสุด ${formatDateTime(item.health.latest_snapshot_at)}`
+        : "ยังไม่มี snapshot ให้ลูกค้าดู",
+    },
+    {
+      ok: item.health.line_channels > 0,
+      label: "LINE OA ลงทะเบียนแล้ว",
+      detail: item.health.line_channels
+        ? `${item.health.line_channels} LINE OA`
+        : "ยังไม่มี LINE OA metadata สำหรับร้านนี้",
+    },
+    {
+      ok: item.health.line_targets_enabled > 0,
+      label: "มีกลุ่ม LINE ที่อนุมัติแล้ว",
+      detail: `${item.health.line_targets_enabled}/${item.health.line_targets_total} target เปิดรับ Morning Brief`,
+    },
+    {
+      ok: item.health.latest_line_delivery_status === "success",
+      label: "ส่ง LINE ทดสอบสำเร็จ",
+      detail: item.health.latest_line_delivery_at
+        ? `${formatLineDeliveryStatus(item.health.latest_line_delivery_status)} · ${formatDateTime(item.health.latest_line_delivery_at)}`
+        : "ยังไม่มี delivery log สำเร็จ",
+    },
+  ];
+  const readyCount = checks.filter((check) => check.ok).length;
+  const tone =
+    readyCount === checks.length
+      ? ("success" as const)
+      : readyCount >= 4
+        ? ("warning" as const)
+        : ("error" as const);
+
+  return {
+    items: checks,
+    readyCount,
+    tone,
+    label:
+      readyCount === checks.length
+        ? "พร้อม pilot"
+        : `${readyCount}/${checks.length} พร้อม`,
+  };
+}
+
+function formatLineDeliveryStatus(status: string | null) {
+  if (status === "success") {
+    return "ส่งสำเร็จ";
+  }
+  if (status === "failed") {
+    return "ส่งไม่สำเร็จ";
+  }
+  if (status === "skipped") {
+    return "ข้ามการส่ง";
+  }
+  return "ยังไม่ทราบสถานะ";
 }
 
 function tenantStatusTone(status: Tenant["status"]) {

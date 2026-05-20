@@ -36,6 +36,22 @@ export type ReportDefinitionSeed = {
   contract_json: Record<string, unknown>;
 };
 
+export type SecretRecord = {
+  id: string;
+  tenant_id: TenantId | null;
+  scope: "datasource" | "line_channel" | "system";
+  secret_key: string;
+  encrypted_value: string;
+  encryption_key_id: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SecretMetadataRecord = Omit<SecretRecord, "encrypted_value"> & {
+  has_encrypted_value: boolean;
+};
+
 export type SystemStore = {
   readonly kind: "postgres" | "local-json";
   initialize(input: {
@@ -55,6 +71,9 @@ export type SystemStore = {
   upsertUser(user: UserRecord): Promise<UserRecord>;
   listLineChannels(tenantId?: TenantId): Promise<LineChannelRecord[]>;
   upsertLineChannel(channel: LineChannelRecord): Promise<LineChannelRecord>;
+  getSecretRecord(id: string): Promise<SecretRecord | null>;
+  upsertSecretRecord(secret: SecretRecord): Promise<SecretRecord>;
+  listSecretMetadata(tenantId?: TenantId): Promise<SecretMetadataRecord[]>;
   getLatestSnapshot(
     tenantId: TenantId,
   ): Promise<SalesGoodsServicesSnapshot | null>;
@@ -104,6 +123,7 @@ type StoreFile = {
   auditLogs: AuditLogEntry[];
   users: UserRecord[];
   lineChannels: LineChannelRecord[];
+  secrets: SecretRecord[];
 };
 
 export function createSystemStore(): SystemStore {
@@ -217,6 +237,27 @@ class LocalJsonSystemStore implements SystemStore {
     ];
     await this.persist();
     return channel;
+  }
+
+  async getSecretRecord(id: string) {
+    return this.requireData().secrets.find((secret) => secret.id === id) ?? null;
+  }
+
+  async upsertSecretRecord(secret: SecretRecord) {
+    const data = this.requireData();
+    data.secrets = [
+      secret,
+      ...data.secrets.filter((existing) => existing.id !== secret.id),
+    ];
+    await this.persist();
+    return secret;
+  }
+
+  async listSecretMetadata(tenantId?: TenantId) {
+    return this.requireData().secrets
+      .filter((secret) => !tenantId || secret.tenant_id === tenantId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .map(toSecretMetadata);
   }
 
   async getLatestSnapshot(tenantId: TenantId) {
@@ -439,6 +480,7 @@ class LocalJsonSystemStore implements SystemStore {
         auditLogs: parsed.auditLogs ?? [],
         users: normalizeUsers(parsed.users),
         lineChannels: normalizeLineChannels(parsed.lineChannels),
+        secrets: normalizeSecrets(parsed.secrets),
       };
     } catch {
       return {
@@ -453,6 +495,7 @@ class LocalJsonSystemStore implements SystemStore {
         auditLogs: [],
         users: [],
         lineChannels: [],
+        secrets: [],
       };
     }
   }
@@ -779,6 +822,102 @@ returning
     );
 
     return mapLineChannelRow(result.rows[0]);
+  }
+
+  async getSecretRecord(id: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  scope,
+  secret_key,
+  encrypted_value,
+  encryption_key_id,
+  metadata_json,
+  created_at,
+  updated_at
+from secrets
+where id = $1
+limit 1
+`,
+      [id],
+    );
+
+    return result.rows[0] ? mapSecretRow(result.rows[0]) : null;
+  }
+
+  async upsertSecretRecord(secret: SecretRecord) {
+    const result = await this.pool.query(
+      `
+insert into secrets (
+  id,
+  tenant_id,
+  scope,
+  secret_key,
+  encrypted_value,
+  encryption_key_id,
+  metadata_json,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+on conflict (id) do update
+set tenant_id = excluded.tenant_id,
+    scope = excluded.scope,
+    secret_key = excluded.secret_key,
+    encrypted_value = excluded.encrypted_value,
+    encryption_key_id = excluded.encryption_key_id,
+    metadata_json = excluded.metadata_json,
+    updated_at = excluded.updated_at
+returning
+  id,
+  tenant_id,
+  scope,
+  secret_key,
+  encrypted_value,
+  encryption_key_id,
+  metadata_json,
+  created_at,
+  updated_at
+`,
+      [
+        secret.id,
+        secret.tenant_id,
+        secret.scope,
+        secret.secret_key,
+        secret.encrypted_value,
+        secret.encryption_key_id,
+        JSON.stringify(secret.metadata_json),
+        secret.created_at,
+        secret.updated_at,
+      ],
+    );
+
+    return mapSecretRow(result.rows[0]);
+  }
+
+  async listSecretMetadata(tenantId?: TenantId) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  scope,
+  secret_key,
+  encrypted_value,
+  encryption_key_id,
+  metadata_json,
+  created_at,
+  updated_at
+from secrets
+where ($1::text is null or tenant_id = $1)
+order by updated_at desc
+`,
+      [tenantId ?? null],
+    );
+
+    return result.rows.map((row) => toSecretMetadata(mapSecretRow(row)));
   }
 
   async getLatestSnapshot(tenantId: TenantId) {
@@ -1603,6 +1742,30 @@ function mapLineChannelRow(row: Record<string, unknown>): LineChannelRecord {
   };
 }
 
+function mapSecretRow(row: Record<string, unknown>): SecretRecord {
+  return {
+    id: String(row.id),
+    tenant_id:
+      typeof row.tenant_id === "string" ? (row.tenant_id as TenantId) : null,
+    scope: normalizeSecretScope(row.scope),
+    secret_key: String(row.secret_key),
+    encrypted_value: String(row.encrypted_value),
+    encryption_key_id: String(row.encryption_key_id),
+    metadata_json:
+      (row.metadata_json as Record<string, unknown> | null) ?? {},
+    created_at: toIsoString(row.created_at as string | Date),
+    updated_at: toIsoString(row.updated_at as string | Date),
+  };
+}
+
+function toSecretMetadata(secret: SecretRecord): SecretMetadataRecord {
+  const { encrypted_value: _encryptedValue, ...metadata } = secret;
+  return {
+    ...metadata,
+    has_encrypted_value: Boolean(_encryptedValue),
+  };
+}
+
 function mapLineTargetRow(row: Record<string, unknown>): StoredLineTargetRecord {
   return {
     id: String(row.id),
@@ -1831,6 +1994,52 @@ function normalizeLineChannels(value: unknown): LineChannelRecord[] {
     }));
 }
 
+function normalizeSecrets(value: unknown): SecretRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (item): item is Partial<SecretRecord> =>
+        Boolean(
+          item &&
+            typeof item === "object" &&
+            item.id &&
+            item.scope &&
+            item.secret_key &&
+            item.encrypted_value,
+        ),
+    )
+    .map((item) => ({
+      id: String(item.id),
+      tenant_id:
+        typeof item.tenant_id === "string" ? (item.tenant_id as TenantId) : null,
+      scope: normalizeSecretScope(item.scope),
+      secret_key: String(item.secret_key),
+      encrypted_value: String(item.encrypted_value),
+      encryption_key_id: String(item.encryption_key_id || "unknown"),
+      metadata_json:
+        item.metadata_json && typeof item.metadata_json === "object"
+          ? (item.metadata_json as Record<string, unknown>)
+          : {},
+      created_at: item.created_at ?? new Date().toISOString(),
+      updated_at: item.updated_at ?? new Date().toISOString(),
+    }));
+}
+
+function normalizeSecretScope(value: unknown): SecretRecord["scope"] {
+  if (
+    value === "datasource" ||
+    value === "line_channel" ||
+    value === "system"
+  ) {
+    return value;
+  }
+
+  return "system";
+}
+
 const systemSchemaSql = `
 create table if not exists tenants (
   id text primary key,
@@ -1975,6 +2184,22 @@ create table if not exists line_channels (
 
 create index if not exists line_channels_tenant_idx
 on line_channels (tenant_id, updated_at desc);
+
+create table if not exists secrets (
+  id text primary key,
+  tenant_id text references tenants(id),
+  scope text not null,
+  secret_key text not null,
+  encrypted_value text not null,
+  encryption_key_id text not null,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, scope, secret_key)
+);
+
+create index if not exists secrets_tenant_idx
+on secrets (tenant_id, scope, updated_at desc);
 
 create index if not exists line_targets_tenant_idx
 on line_targets (tenant_id, updated_at desc);

@@ -133,15 +133,14 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   if (!tenantSlug) {
     return (
       <CustomerShell title="AI Business สำหรับร้านค้า">
-        <div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+        <div className="mx-auto mt-10 max-w-2xl rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
           <Badge color="light">Customer Viewer</Badge>
           <h1 className="mt-4 text-2xl font-semibold text-gray-900">
             กรุณาใช้ลิงก์ร้านค้าที่ได้รับจากผู้ดูแล
           </h1>
           <p className="mt-2 text-sm leading-6 text-gray-600">
             หน้านี้ไม่เลือกข้อมูลร้านให้อัตโนมัติ เพื่อป้องกันการเห็นข้อมูลผิดร้าน
-            หากคุณเป็นลูกค้า ให้เปิดลิงก์เฉพาะร้าน เช่น `/app/demo-shop`
-            หรือ `/app/248-shop` ที่ผู้ดูแลส่งให้
+            หากคุณเป็นลูกค้า ให้เปิดลิงก์เฉพาะร้านที่ผู้ดูแลส่งให้เท่านั้น
           </p>
         </div>
       </CustomerShell>
@@ -155,7 +154,7 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   if (state.status === "blocked") {
     return (
       <CustomerShell title="บัญชีร้านค้านี้ยังไม่พร้อมใช้งาน">
-        <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-warning-200 bg-warning-50 p-6 text-center">
+        <div className="mx-auto mt-10 max-w-xl rounded-xl border border-warning-200 bg-warning-50 p-6 text-center">
           <Badge color="warning">
             {formatTenantStatus(state.tenantStatus ?? "suspended")}
           </Badge>
@@ -173,7 +172,7 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   if (state.status === "error") {
     return (
       <CustomerShell title="โหลดข้อมูลไม่สำเร็จ">
-        <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-error-200 bg-error-50 p-6 text-center text-error-700">
+        <div className="mx-auto mt-10 max-w-xl rounded-xl border border-error-200 bg-error-50 p-6 text-center text-error-700">
           {state.message}
         </div>
       </CustomerShell>
@@ -183,7 +182,7 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   if (state.status === "not_found") {
     return (
       <CustomerShell title="ไม่พบร้านค้า">
-        <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+        <div className="mx-auto mt-10 max-w-xl rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
           <Badge color="warning">ไม่พบลิงก์ร้านค้า</Badge>
           <h1 className="mt-4 text-2xl font-semibold text-gray-900">
             เปิด Dashboard ร้านค้านี้ไม่ได้
@@ -199,7 +198,7 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
   if (state.status === "empty") {
     return (
       <CustomerShell tenant={state.session.tenant} title="Dashboard ร้านค้า">
-        <div className="rounded-2xl border border-gray-200 bg-white p-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-6">
           <Badge color="warning">ยังไม่มีรายงาน</Badge>
           <h1 className="mt-4 text-2xl font-semibold text-gray-900">
             รอข้อมูลรายงานแรกจาก SML
@@ -233,26 +232,27 @@ function CustomerDashboardContent({
   const topBranch = snapshot.branch_sales[0] ?? null;
   const topProduct = snapshot.top_products[0] ?? null;
   const trust = useMemo(() => getTrustStatus(snapshot), [snapshot]);
+  const periodLabel =
+    snapshot.params.date_from === snapshot.params.date_to
+      ? formatThaiDate(snapshot.params.date_from)
+      : `${formatThaiDate(snapshot.params.date_from)} ถึง ${formatThaiDate(snapshot.params.date_to)}`;
 
   return (
     <CustomerShell tenant={session.tenant} title="Dashboard ร้านค้า">
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge color={trust.color}>{trust.label}</Badge>
-              <Badge color="light">{formatTenantStatus(session.tenant.status)}</Badge>
-              <Badge color="light">{session.tenant.planCode}</Badge>
+              <Badge color="light">ข้อมูลเฉพาะ {session.tenant.name}</Badge>
+              <Badge color="light">อ่านอย่างเดียว</Badge>
             </div>
-            <h1 className="mt-3 text-2xl font-semibold text-gray-900">
-              รายงานขายสินค้าและบริการ
+            <h1 className="mt-3 text-2xl font-semibold tracking-normal text-gray-900">
+              สรุปยอดขายล่าสุด
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              วันที่ข้อมูล {formatThaiDate(snapshot.params.date_from)}
-              {snapshot.params.date_from !== snapshot.params.date_to
-                ? ` ถึง ${formatThaiDate(snapshot.params.date_to)}`
-                : ""}{" "}
-              · อัปเดต {formatDateTime(snapshot.generated_at)}
+            <p className="mt-1 text-sm leading-6 text-gray-500">
+              รายงานขายสินค้าและบริการ · วันที่ข้อมูล {periodLabel} · อัปเดต{" "}
+              {formatDateTime(snapshot.generated_at)}
             </p>
           </div>
           <button
@@ -272,7 +272,7 @@ function CustomerDashboardContent({
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <InfoPanel title="วันนี้ควรรู้อะไร">
           <InsightLine
             label="สาขาหลัก"
@@ -328,6 +328,21 @@ function CustomerDashboardContent({
           title="สินค้าขายดี"
         />
       </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-6 text-gray-600 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">
+              ที่มาข้อมูล
+            </h2>
+            <p className="mt-1">
+              Dashboard นี้อ่านจาก snapshot รายงานของร้าน {session.tenant.name} เท่านั้น
+              และไม่เปิดให้แก้ config หรือส่ง LINE จากฝั่งลูกค้า
+            </p>
+          </div>
+          <Badge color="light">{snapshot.run_id}</Badge>
+        </div>
+      </section>
     </CustomerShell>
   );
 }
@@ -344,10 +359,10 @@ function CustomerShell({
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">
       <div className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-              AI Business
+            <p className="text-xs font-semibold uppercase text-brand-500">
+              AI Business Viewer
             </p>
             <h1 className="text-lg font-semibold">{title}</h1>
           </div>
@@ -359,7 +374,7 @@ function CustomerShell({
           ) : null}
         </div>
       </div>
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6">
         {children}
       </div>
     </main>
@@ -368,9 +383,9 @@ function CustomerShell({
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
       <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-gray-900">{value}</p>
+      <p className="mt-2 text-xl font-semibold tracking-normal text-gray-900">{value}</p>
     </div>
   );
 }
@@ -383,7 +398,7 @@ function InfoPanel({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
       <h2 className="text-base font-semibold text-gray-900">{title}</h2>
       <div className="mt-4 space-y-3">{children}</div>
     </div>
@@ -437,7 +452,7 @@ function RankPanel({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
       <h2 className="text-base font-semibold text-gray-900">{title}</h2>
       <div className="mt-4 divide-y divide-gray-100">
         {items.length ? (

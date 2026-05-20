@@ -27,6 +27,11 @@
 - LINE target แสดงแบบ masked เท่านั้น
 - LINE target registry รองรับ group-level permission profile และ target ใหม่จาก webhook จะไม่ถูกเปิดใช้งานอัตโนมัติ
 - Secret จริงอยู่ใน `.env.server` บน server และห้าม commit
+- เพิ่ม secret vault foundation แล้ว:
+  - เข้ารหัสด้วย AES-256-GCM
+  - ผูก associated data กับ tenant/scope/key เพื่อลดโอกาสนำ ciphertext ข้าม tenant ไปใช้ผิด
+  - system store มี `secrets` metadata table แล้ว
+  - owner UI ยังไม่รับ password/token ดิบจนกว่าจะมี masked input + audit workflow
 
 Protected mutation endpoints:
 
@@ -85,6 +90,8 @@ scope: เฉพาะ schema/table/view ที่ใช้รายงาน
 ขั้นต่ำสำหรับ MVP:
 
 - encrypt ด้วย application secret จาก environment variable
+- ใช้ `AI_BCC_SECRET_KEY` อย่างน้อย 32 ตัวอักษร หรือ key material 32 bytes
+- เก็บเฉพาะ encrypted envelope ใน system store
 - ห้าม log secret
 - decrypt เฉพาะตอนใช้งานใน memory
 

@@ -72,6 +72,22 @@ create table if not exists line_targets (
 create index if not exists line_targets_tenant_idx
 on line_targets (tenant_id, updated_at desc);
 
+create table if not exists secrets (
+  id text primary key,
+  tenant_id text references tenants(id),
+  scope text not null,
+  secret_key text not null,
+  encrypted_value text not null,
+  encryption_key_id text not null,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, scope, secret_key)
+);
+
+create index if not exists secrets_tenant_idx
+on secrets (tenant_id, scope, updated_at desc);
+
 create table if not exists audit_logs (
   id bigserial primary key,
   tenant_id text,

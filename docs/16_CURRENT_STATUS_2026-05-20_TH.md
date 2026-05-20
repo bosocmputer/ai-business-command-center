@@ -11,7 +11,7 @@
 ```text
 วันที่บันทึก: 2026-05-20
 Timezone: Asia/Bangkok
-Latest deployed code commit: 068a594
+Latest deployed code commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
 SaaS pilot owner/customer portals: ready
 GitHub branch: main
 Deploy target: 192.168.2.109
@@ -78,6 +78,8 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - ดู tenant health เช่น datasource, LINE OA, LINE targets, users, latest run/delivery
   - เลือกร้านเพื่อดูรายละเอียดร้าน, dashboard slug, database name และสถานะบริการ
   - กดทดสอบ SML datasource จาก Owner portal ได้ผ่าน owner API โดยผลลัพธ์ไม่แสดง password/credential เต็ม
+  - มี pilot readiness checklist ต่อร้าน เช่น subscription, datasource, latest snapshot, LINE OA, approved LINE target และ delivery success
+  - มี LINE OA onboarding guide สำหรับบอกลูกค้าดึง OA เข้ากลุ่ม พิมพ์ `test` แล้วรอ owner อนุมัติ
   - เพิ่ม LINE OA metadata ต่อร้าน
 - Owner card มีปุ่ม `เปิด Dashboard ลูกค้า` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
 - `/app` เป็น neutral state:
@@ -262,9 +264,9 @@ Browser QA:
 - ค่า credential เริ่มต้น `superadmin/superadmin` ใช้เฉพาะ owner pilot และไม่แสดงบน UI; production จริงควรย้ายไป user/role table หรือ strong secret ที่หมุนได้
 - Mutation API ยังพึ่ง `x-ai-bcc-admin-token` ระหว่างเปลี่ยนผ่านไป session/role เต็ม
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
-- SML DB credential ยังอยู่ใน env ไม่ใช่ encrypted datasource table
+- SML DB credential ยังอยู่ใน env; เพิ่ม secret vault/table foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า encrypted datasource workflow
 - Owner portal ทดสอบ datasource ได้แล้ว แต่ยังไม่ได้บันทึก/แก้ host, port, user, password ผ่าน UI แบบ encrypted
-- LINE OA token/secret ยังอยู่ใน env หรือ metadata registry ไม่ใช่ encrypted secret table
+- LINE OA token/secret ยังอยู่ใน env หรือ metadata registry; เพิ่ม secret vault/table foundation แล้ว แต่ยังไม่ migrate LINE credential จริงเข้า encrypted channel workflow
 - customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี `line_channels` registry, pending target discovery และ permission profile แล้ว
 - `/app/:tenantSlug` ยังเป็น pilot link-based viewer ไม่ใช่ login/role จริง
 - หลังมี login จริง customer tenant ต้อง derive จาก session/role ไม่ใช่ slug เพียงอย่างเดียว
@@ -287,8 +289,8 @@ Priority 1:
 Priority 2:
 
 1. ทำ login/session จริงสำหรับ owner/customer แทน admin token/slug-only viewer
-2. ทำ encrypted datasource secret store และ owner datasource config
-3. ทำ encrypted LINE channel token/secret store สำหรับหลาย LINE OA จริง
+2. ต่อ owner datasource config ให้บันทึก secret ผ่าน encrypted secret store
+3. ต่อ LINE channel token/secret ให้บันทึกผ่าน encrypted secret store สำหรับหลาย LINE OA จริง
 4. เพิ่ม `subscriptions` และ `tenant_report_configs` เป็น table/workflow แยก
 
 Priority 3:

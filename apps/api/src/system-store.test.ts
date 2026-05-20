@@ -114,6 +114,17 @@ describe("local JSON system store", () => {
       metadata_json: { enabled: true, runAt: "08:00" },
       checked_at: "2026-05-19T01:00:03.000Z",
     });
+    await firstStore.upsertSecretRecord({
+      id: "secret_datasource_password",
+      tenant_id: "tenant_demo_remote",
+      scope: "datasource",
+      secret_key: "sml_password",
+      encrypted_value: "v1.encrypted-envelope",
+      encryption_key_id: "test-key",
+      metadata_json: { host: "masked-host", username_masked: "po...es" },
+      created_at: "2026-05-19T01:00:04.000Z",
+      updated_at: "2026-05-19T01:00:04.000Z",
+    });
     await firstStore.appendAuditLog({
       tenant_id: "tenant_demo_remote",
       actor_id: null,
@@ -173,6 +184,26 @@ describe("local JSON system store", () => {
       status: "ok",
       checked_at: "2026-05-19T01:00:03.000Z",
     });
+    await expect(
+      secondStore.getSecretRecord("secret_datasource_password"),
+    ).resolves.toMatchObject({
+      tenant_id: "tenant_demo_remote",
+      scope: "datasource",
+      secret_key: "sml_password",
+      encrypted_value: "v1.encrypted-envelope",
+    });
+    const secretMetadata = await secondStore.listSecretMetadata(
+      "tenant_demo_remote",
+    );
+    expect(secretMetadata).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "secret_datasource_password",
+          has_encrypted_value: true,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(secretMetadata)).not.toContain("v1.encrypted-envelope");
     await secondStore.close();
   });
 });
