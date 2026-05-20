@@ -58,13 +58,23 @@ type DatasourceTestResult = {
   safe_error_message: string | null;
 };
 
-export default function OwnerPortal() {
+export type OwnerPortalSection =
+  | "overview"
+  | "tenants"
+  | "reports"
+  | "line"
+  | "audit";
+
+export default function OwnerPortal({
+  section = "overview",
+}: {
+  section?: OwnerPortalSection;
+}) {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [lineChannels, setLineChannels] = useState<LineChannelRecord[]>([]);
   const [datasourceTests, setDatasourceTests] = useState<
     Record<string, DatasourceTestResult>
   >({});
-  const [loading, setLoading] = useState(true);
   const [dataStatus, setDataStatus] =
     useState<OwnerDataStatus>("checking");
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,6 +106,7 @@ export default function OwnerPortal() {
   const selectedTenantLineChannels = selectedTenantId
     ? lineChannels.filter((channel) => channel.tenant_id === selectedTenantId)
     : lineChannels;
+  const sectionMeta = getOwnerSectionMeta(section);
 
   useEffect(() => {
     void loadOwnerData({ promptForToken: false });
@@ -114,7 +125,6 @@ export default function OwnerPortal() {
   async function loadOwnerData({
     promptForToken = true,
   }: { promptForToken?: boolean } = {}) {
-    setLoading(true);
     setResult(null);
     try {
       const headers = promptForToken
@@ -167,8 +177,6 @@ export default function OwnerPortal() {
         message:
           error instanceof Error ? error.message : "โหลด Owner Admin ไม่สำเร็จ",
       });
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -375,14 +383,13 @@ export default function OwnerPortal() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-medium text-brand-500">
-              ภาพรวมเจ้าของ
+              {sectionMeta.eyebrow}
             </p>
             <h1 className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
-              AI Business SaaS Pilot
+              {sectionMeta.title}
             </h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              เพิ่มร้านค้า คุมสถานะ subscription เชื่อม SML และจัดการ LINE OA
-              ของแต่ละร้านจากที่เดียว
+              {sectionMeta.description}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -423,98 +430,33 @@ export default function OwnerPortal() {
       {dataStatus === "checking" ? <OwnerLoadingState /> : null}
 
       {dataStatus === "ready" ? (
-        <>
-          <OwnerSetupPanel
-            busy={busy}
-            createTenant={createTenant}
-            newTenantId={newTenantId}
-            newTenantName={newTenantName}
-            setNewTenantId={setNewTenantId}
-            setNewTenantName={setNewTenantName}
-          />
-
-      <section
-        className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]"
-        id="tenants"
-      >
-        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="p-5 pb-0">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-                ร้านค้าและสิทธิ์การใช้งาน
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                ร้านที่ถูกระงับจะเข้า `/app` ไม่ได้ และ scheduler จะไม่ส่ง Morning Brief
-                ให้ทุกกลุ่มของร้านนั้น
-              </p>
-            </div>
-            <select
-              className="mx-5 mt-5 h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white md:mx-5 md:mt-5"
-              onChange={(event) => setSelectedTenantId(event.target.value)}
-              value={selectedTenantId}
-            >
-              {tenants.map((item) => (
-                <option key={item.tenant.id} value={item.tenant.id}>
-                  {item.tenant.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mt-4 divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
-            {loading ? (
-              <div className="p-5 text-sm text-gray-500 dark:text-gray-400">
-                กำลังโหลดข้อมูลร้านค้า...
-              </div>
-            ) : (
-              tenants.map((item) => (
-                <TenantCard
-                  busy={busy}
-                  datasourceTest={datasourceTests[item.tenant.id]}
-                  item={item}
-                  key={item.tenant.id}
-                  onSelectTenant={setSelectedTenantId}
-                  onUpdateStatus={updateTenantStatus}
-                  selected={item.tenant.id === selectedTenantId}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <TenantDetailPanel
-            busy={busy}
-            datasourceTest={
-              selectedTenantId ? datasourceTests[selectedTenantId] : undefined
-            }
-            item={selectedTenantSummary}
-            onTestDatasource={testDatasource}
-          />
-
-          <LineOnboardingGuide
-            publicOrigin={publicOrigin}
-            tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
-          />
-
-          <LineChannelPanel
-            busy={busy}
-            createLineChannel={createLineChannel}
-            lineChannelName={lineChannelName}
-            lineSecretConfigured={lineSecretConfigured}
-            lineTokenConfigured={lineTokenConfigured}
-            selectedTenant={selectedTenant}
-            selectedTenantId={selectedTenantId}
-            selectedTenantLineChannels={selectedTenantLineChannels}
-            setLineChannelName={setLineChannelName}
-            setLineSecretConfigured={setLineSecretConfigured}
-            setLineTokenConfigured={setLineTokenConfigured}
-            setSelectedTenantId={setSelectedTenantId}
-            tenants={tenants}
-          />
-        </div>
-      </section>
-        </>
+        <OwnerSectionContent
+          busy={busy}
+          createLineChannel={createLineChannel}
+          createTenant={createTenant}
+          datasourceTests={datasourceTests}
+          lineChannelName={lineChannelName}
+          lineChannels={lineChannels}
+          lineSecretConfigured={lineSecretConfigured}
+          lineTokenConfigured={lineTokenConfigured}
+          newTenantId={newTenantId}
+          newTenantName={newTenantName}
+          onTestDatasource={testDatasource}
+          onUpdateStatus={updateTenantStatus}
+          publicOrigin={publicOrigin}
+          section={section}
+          selectedTenant={selectedTenant}
+          selectedTenantId={selectedTenantId}
+          selectedTenantLineChannels={selectedTenantLineChannels}
+          selectedTenantSummary={selectedTenantSummary}
+          setLineChannelName={setLineChannelName}
+          setLineSecretConfigured={setLineSecretConfigured}
+          setLineTokenConfigured={setLineTokenConfigured}
+          setNewTenantId={setNewTenantId}
+          setNewTenantName={setNewTenantName}
+          setSelectedTenantId={setSelectedTenantId}
+          tenants={tenants}
+        />
       ) : null}
 
     </div>
@@ -554,6 +496,642 @@ function OwnerLoadingState() {
       </div>
     </section>
   );
+}
+
+type OwnerSectionContentProps = {
+  busy: string | null;
+  createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
+  createTenant: (event: FormEvent<HTMLFormElement>) => void;
+  datasourceTests: Record<string, DatasourceTestResult>;
+  lineChannelName: string;
+  lineChannels: LineChannelRecord[];
+  lineSecretConfigured: boolean;
+  lineTokenConfigured: boolean;
+  newTenantId: string;
+  newTenantName: string;
+  onTestDatasource: (tenantId: string) => Promise<void>;
+  onUpdateStatus: (
+    tenant: Tenant,
+    status: Tenant["status"],
+  ) => Promise<void>;
+  publicOrigin: string;
+  section: OwnerPortalSection;
+  selectedTenant?: Tenant;
+  selectedTenantId: string;
+  selectedTenantLineChannels: LineChannelRecord[];
+  selectedTenantSummary?: TenantSummary;
+  setLineChannelName: (value: string) => void;
+  setLineSecretConfigured: (value: boolean) => void;
+  setLineTokenConfigured: (value: boolean) => void;
+  setNewTenantId: (value: string) => void;
+  setNewTenantName: (value: string) => void;
+  setSelectedTenantId: (value: string) => void;
+  tenants: TenantSummary[];
+};
+
+function OwnerSectionContent(props: OwnerSectionContentProps) {
+  if (props.section === "tenants") {
+    return <OwnerTenantsContent {...props} />;
+  }
+  if (props.section === "reports") {
+    return <OwnerReportsContent tenants={props.tenants} />;
+  }
+  if (props.section === "line") {
+    return <OwnerLineContent {...props} />;
+  }
+  if (props.section === "audit") {
+    return <OwnerAuditContent tenants={props.tenants} />;
+  }
+  return <OwnerOverviewContent {...props} />;
+}
+
+function getOwnerSectionMeta(section: OwnerPortalSection) {
+  const meta: Record<
+    OwnerPortalSection,
+    { eyebrow: string; title: string; description: string }
+  > = {
+    overview: {
+      eyebrow: "Owner cockpit",
+      title: "ภาพรวมระบบลูกค้า",
+      description:
+        "ดูสถานะทุกร้าน งานที่ต้องทำต่อ และจุดเสี่ยงก่อนส่งรายงานให้ลูกค้า",
+    },
+    tenants: {
+      eyebrow: "Tenant operations",
+      title: "ร้านค้าและการใช้งาน",
+      description:
+        "เพิ่มร้าน คุม subscription ตรวจ SML datasource และเปิด dashboard ลูกค้า",
+    },
+    reports: {
+      eyebrow: "Report operations",
+      title: "รายงานและ snapshot",
+      description:
+        "ติดตามรายงานขายล่าสุดต่อร้าน และเข้า runner เฉพาะเมื่อต้องรัน manual",
+    },
+    line: {
+      eyebrow: "LINE operations",
+      title: "LINE OA และสิทธิ์กลุ่ม",
+      description:
+        "จัดการช่องทาง LINE OA กลุ่มที่รออนุมัติ สิทธิ์การรับ Morning Brief และ test send",
+    },
+    audit: {
+      eyebrow: "System history",
+      title: "ประวัติระบบ",
+      description:
+        "ตรวจรอบรายงานล่าสุด การส่ง LINE ล่าสุด และจุดที่ต้อง trace ต่อ",
+    },
+  };
+
+  return meta[section];
+}
+
+function OwnerStatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <p className="text-xs font-medium uppercase text-gray-400">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function OwnerPanelHeader({
+  actionHref,
+  actionLabel,
+  description,
+  title,
+}: {
+  actionHref?: string;
+  actionLabel?: string;
+  description: string;
+  title: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:justify-between">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+          {title}
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {description}
+        </p>
+      </div>
+      {actionHref && actionLabel ? (
+        <Link
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          href={actionHref}
+        >
+          {actionLabel}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function TenantOperationsTable({ tenants }: { tenants: TenantSummary[] }) {
+  return (
+    <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+      {tenants.map((item) => {
+        const readiness = getTenantReadiness(item);
+        return (
+          <div
+            className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1.1fr)_120px_120px_150px_120px] lg:items-center"
+            key={item.tenant.id}
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold text-gray-900 dark:text-white">
+                  {item.tenant.name}
+                </p>
+                <Badge color={tenantStatusTone(item.tenant.status)}>
+                  {formatTenantStatus(item.tenant.status)}
+                </Badge>
+              </div>
+              <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+                {item.tenant.id} · ฐาน {item.tenant.databaseName || "ยังไม่ตั้งค่า"}
+              </p>
+            </div>
+            <CompactFact
+              label="Pilot"
+              value={readiness.label}
+            />
+            <CompactFact
+              label="SML"
+              value={item.health.datasource_configured ? "พร้อม" : "ต้องตั้งค่า"}
+            />
+            <CompactFact
+              label="LINE"
+              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} กลุ่ม`}
+            />
+            <div className="flex gap-2 lg:justify-end">
+              <Link
+                className="inline-flex h-9 items-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                href={item.customer_dashboard_path ?? "/app"}
+                target="_blank"
+              >
+                Dashboard
+              </Link>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OwnerFlowCard() {
+  const steps = [
+    "เพิ่มร้าน",
+    "เชื่อม SML",
+    "รันรายงาน",
+    "ตั้ง LINE OA",
+    "อนุมัติกลุ่ม",
+    "ส่งทดสอบ",
+  ];
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        Flow เปิดร้านใหม่
+      </h2>
+      <div className="mt-4 space-y-2">
+        {steps.map((step, index) => (
+          <div className="flex items-center gap-3" key={step}>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
+              {index + 1}
+            </span>
+            <p className="text-sm text-gray-700 dark:text-gray-300">{step}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OwnerOverviewContent({
+  tenants,
+  lineChannels,
+}: OwnerSectionContentProps) {
+  const activeTenants = tenants.filter((item) => item.access.enabled);
+  const readyTenants = tenants.filter(
+    (item) => getTenantReadiness(item).readyCount === getTenantReadiness(item).items.length,
+  );
+  const actionItems = buildOwnerActionItems(tenants);
+
+  return (
+    <div className="space-y-4">
+      <section className="grid gap-3 md:grid-cols-4">
+        <OwnerStatCard label="ร้านทั้งหมด" value={`${tenants.length}`} />
+        <OwnerStatCard label="เปิดใช้งาน" value={`${activeTenants.length}`} />
+        <OwnerStatCard label="พร้อม pilot" value={`${readyTenants.length}`} />
+        <OwnerStatCard label="LINE OA" value={`${lineChannels.length}`} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <OwnerPanelHeader
+            title="ร้านค้า"
+            description="มุมมองรวมสำหรับติดตามว่าแต่ละร้านพร้อมให้บริการหรือยัง"
+            actionHref="/owner/tenants"
+            actionLabel="จัดการร้านค้า"
+          />
+          <TenantOperationsTable tenants={tenants} />
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              สิ่งที่ควรทำต่อ
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              แสดงเฉพาะงานที่กระทบ rollout หรือการส่ง Morning Brief
+            </p>
+            <div className="mt-4 space-y-3">
+              {actionItems.length ? (
+                actionItems.slice(0, 6).map((item) => (
+                  <div
+                    className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+                    key={`${item.tenantName}-${item.title}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {item.title}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                          {item.tenantName} · {item.description}
+                        </p>
+                      </div>
+                      <Badge color={item.tone}>{item.label}</Badge>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-lg border border-success-100 bg-success-50 p-3 text-sm text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-300">
+                  ทุก tenant หลักพร้อมสำหรับ pilot รอบนี้
+                </p>
+              )}
+            </div>
+          </div>
+
+          <OwnerFlowCard />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OwnerTenantsContent({
+  busy,
+  createTenant,
+  datasourceTests,
+  newTenantId,
+  newTenantName,
+  onTestDatasource,
+  onUpdateStatus,
+  selectedTenantId,
+  selectedTenantSummary,
+  setNewTenantId,
+  setNewTenantName,
+  setSelectedTenantId,
+  tenants,
+}: OwnerSectionContentProps) {
+  return (
+    <div className="space-y-4">
+      <OwnerSetupPanel
+        busy={busy}
+        createTenant={createTenant}
+        newTenantId={newTenantId}
+        newTenantName={newTenantName}
+        setNewTenantId={setNewTenantId}
+        setNewTenantName={setNewTenantName}
+      />
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                ร้านค้าและสิทธิ์การใช้งาน
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                ร้านที่ถูกระงับจะเข้า `/app` ไม่ได้ และ scheduler จะไม่ส่ง Morning Brief
+                ให้ทุกกลุ่มของร้านนั้น
+              </p>
+            </div>
+            <select
+              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) => setSelectedTenantId(event.target.value)}
+              value={selectedTenantId}
+            >
+              {tenants.map((item) => (
+                <option key={item.tenant.id} value={item.tenant.id}>
+                  {item.tenant.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+            {tenants.map((item) => (
+              <TenantCard
+                busy={busy}
+                datasourceTest={datasourceTests[item.tenant.id]}
+                item={item}
+                key={item.tenant.id}
+                onSelectTenant={setSelectedTenantId}
+                onUpdateStatus={onUpdateStatus}
+                selected={item.tenant.id === selectedTenantId}
+              />
+            ))}
+          </div>
+        </div>
+
+        <TenantDetailPanel
+          busy={busy}
+          datasourceTest={
+            selectedTenantId ? datasourceTests[selectedTenantId] : undefined
+          }
+          item={selectedTenantSummary}
+          onTestDatasource={onTestDatasource}
+        />
+      </section>
+    </div>
+  );
+}
+
+function OwnerReportsContent({ tenants }: { tenants: TenantSummary[] }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <OwnerPanelHeader
+        title="รายงานขายสินค้าและบริการ"
+        description="ดูสถานะ snapshot ล่าสุดต่อร้าน และเข้า legacy report runner เฉพาะตอนต้องรัน manual"
+        actionHref="/command-center"
+        actionLabel="เปิด report runner"
+      />
+      <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+        {tenants.map((item) => (
+          <ReportTenantRow item={item} key={item.tenant.id} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OwnerLineContent({
+  busy,
+  createLineChannel,
+  lineChannelName,
+  lineSecretConfigured,
+  lineTokenConfigured,
+  publicOrigin,
+  selectedTenant,
+  selectedTenantId,
+  selectedTenantLineChannels,
+  setLineChannelName,
+  setLineSecretConfigured,
+  setLineTokenConfigured,
+  setSelectedTenantId,
+  tenants,
+}: OwnerSectionContentProps) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+      <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <OwnerPanelHeader
+          title="LINE OA และกลุ่มรับรายงาน"
+          description="รวมสถานะ LINE ต่อร้าน ก่อนเข้าไปอนุมัติกลุ่มหรือส่ง test จริง"
+          actionHref="/command-center/settings"
+          actionLabel="จัดการสิทธิ์กลุ่ม"
+        />
+        <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+          {tenants.map((item) => (
+            <LineTenantRow item={item} key={item.tenant.id} />
+          ))}
+        </div>
+      </section>
+
+      <div className="space-y-4">
+        <LineOnboardingGuide
+          publicOrigin={publicOrigin}
+          tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
+        />
+        <LineChannelPanel
+          busy={busy}
+          createLineChannel={createLineChannel}
+          lineChannelName={lineChannelName}
+          lineSecretConfigured={lineSecretConfigured}
+          lineTokenConfigured={lineTokenConfigured}
+          selectedTenant={selectedTenant}
+          selectedTenantId={selectedTenantId}
+          selectedTenantLineChannels={selectedTenantLineChannels}
+          setLineChannelName={setLineChannelName}
+          setLineSecretConfigured={setLineSecretConfigured}
+          setLineTokenConfigured={setLineTokenConfigured}
+          setSelectedTenantId={setSelectedTenantId}
+          tenants={tenants}
+        />
+      </div>
+    </div>
+  );
+}
+
+function OwnerAuditContent({ tenants }: { tenants: TenantSummary[] }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <OwnerPanelHeader
+        title="ประวัติระบบล่าสุด"
+        description="มุมมอง audit แบบ owner: รอบรายงานและการส่ง LINE ล่าสุดต่อร้าน"
+        actionHref="/command-center#run-history"
+        actionLabel="เปิด run history"
+      />
+      <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+        {tenants.map((item) => (
+          <AuditTenantRow item={item} key={item.tenant.id} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportTenantRow({ item }: { item: TenantSummary }) {
+  return (
+    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_140px_170px_140px] lg:items-center">
+      <div className="min-w-0">
+        <p className="font-semibold text-gray-900 dark:text-white">
+          {item.tenant.name}
+        </p>
+        <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+          sales_goods_services · ฐาน {item.tenant.databaseName || "-"}
+        </p>
+      </div>
+      <CompactFact
+        label="สถานะรัน"
+        value={formatRunStatus(item.health.latest_report_status)}
+      />
+      <CompactFact
+        label="Snapshot ล่าสุด"
+        value={
+          item.health.latest_snapshot_at
+            ? formatDateTime(item.health.latest_snapshot_at)
+            : "ยังไม่มี"
+        }
+      />
+      <div className="flex gap-2 lg:justify-end">
+        <Link
+          className="inline-flex h-9 items-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          href="/command-center"
+        >
+          รันรายงาน
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function LineTenantRow({ item }: { item: TenantSummary }) {
+  const lineReady =
+    item.health.line_channels > 0 && item.health.line_targets_enabled > 0;
+  return (
+    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_140px_150px_150px] lg:items-center">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-semibold text-gray-900 dark:text-white">
+            {item.tenant.name}
+          </p>
+          <Badge color={lineReady ? "success" : "warning"}>
+            {lineReady ? "พร้อมส่ง" : "ต้องตั้งค่า"}
+          </Badge>
+        </div>
+        <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+          Morning Brief · {item.tenant.id}
+        </p>
+      </div>
+      <CompactFact
+        label="LINE OA"
+        value={`${item.health.line_channels} ช่องทาง`}
+      />
+      <CompactFact
+        label="กลุ่มที่เปิดรับ"
+        value={`${item.health.line_targets_enabled}/${item.health.line_targets_total} กลุ่ม`}
+      />
+      <CompactFact
+        label="ส่งล่าสุด"
+        value={
+          item.health.latest_line_delivery_at
+            ? formatDateTime(item.health.latest_line_delivery_at)
+            : "ยังไม่มี"
+        }
+      />
+    </div>
+  );
+}
+
+function AuditTenantRow({ item }: { item: TenantSummary }) {
+  return (
+    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1fr)_170px_170px_140px] lg:items-center">
+      <div className="min-w-0">
+        <p className="font-semibold text-gray-900 dark:text-white">
+          {item.tenant.name}
+        </p>
+        <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+          {item.tenant.id}
+        </p>
+      </div>
+      <CompactFact
+        label="รันรายงานล่าสุด"
+        value={
+          item.health.latest_report_run_at
+            ? formatDateTime(item.health.latest_report_run_at)
+            : "ยังไม่มี"
+        }
+      />
+      <CompactFact
+        label="ส่ง LINE ล่าสุด"
+        value={
+          item.health.latest_line_delivery_at
+            ? formatDateTime(item.health.latest_line_delivery_at)
+            : "ยังไม่มี"
+        }
+      />
+      <Badge color={item.health.latest_line_delivery_status === "success" ? "success" : "light"}>
+        {formatLineDeliveryStatus(item.health.latest_line_delivery_status)}
+      </Badge>
+    </div>
+  );
+}
+
+function buildOwnerActionItems(tenants: TenantSummary[]) {
+  return tenants.flatMap((item) => {
+    const actions: Array<{
+      description: string;
+      label: "ต้องทำ" | "ตรวจ";
+      tenantName: string;
+      title: string;
+      tone: "warning" | "error";
+    }> = [];
+
+    if (!item.access.enabled) {
+      actions.push({
+        description: item.access.message,
+        label: "ต้องทำ",
+        tenantName: item.tenant.name,
+        title: "บัญชีร้านถูกบล็อก",
+        tone: "error",
+      });
+    }
+    if (!item.health.datasource_configured) {
+      actions.push({
+        description: "ยังไม่มี datasource config สำหรับ SML",
+        label: "ต้องทำ",
+        tenantName: item.tenant.name,
+        title: "เชื่อม SML datasource",
+        tone: "warning",
+      });
+    }
+    if (!item.health.latest_snapshot_at) {
+      actions.push({
+        description: "ลูกค้ายังไม่มี snapshot ล่าสุดให้ดู",
+        label: "ต้องทำ",
+        tenantName: item.tenant.name,
+        title: "รันรายงานแรก",
+        tone: "warning",
+      });
+    }
+    if (item.health.line_channels === 0) {
+      actions.push({
+        description: "ยังไม่มี LINE OA metadata สำหรับร้านนี้",
+        label: "ต้องทำ",
+        tenantName: item.tenant.name,
+        title: "เพิ่ม LINE OA",
+        tone: "warning",
+      });
+    }
+    if (item.health.line_channels > 0 && item.health.line_targets_enabled === 0) {
+      actions.push({
+        description: "มี LINE OA แล้ว แต่ยังไม่มีกลุ่มที่อนุมัติรับ Morning Brief",
+        label: "ตรวจ",
+        tenantName: item.tenant.name,
+        title: "อนุมัติกลุ่ม LINE",
+        tone: "warning",
+      });
+    }
+
+    return actions;
+  });
+}
+
+function formatRunStatus(status: string | null) {
+  if (status === "success") {
+    return "สำเร็จ";
+  }
+  if (status === "failed") {
+    return "ล้มเหลว";
+  }
+  if (status === "running") {
+    return "กำลังรัน";
+  }
+  return "ยังไม่มี";
 }
 
 function OwnerSetupPanel({

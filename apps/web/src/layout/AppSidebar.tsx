@@ -8,7 +8,9 @@ import {
   ChevronDownIcon,
   GridIcon,
   HorizontaLDots,
+  GroupIcon,
   TableIcon,
+  TimeIcon,
 } from "../icons/index";
 
 type NavItem = {
@@ -21,29 +23,32 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     icon: <GridIcon />,
-    name: "ภาพรวมเจ้าของ",
+    name: "ภาพรวม",
     path: "/owner",
+  },
+  {
+    icon: <GroupIcon />,
+    name: "ร้านค้า",
+    path: "/owner/tenants",
   },
   {
     icon: <TableIcon />,
     name: "รายงาน",
-    path: "/command-center#sales-report",
+    path: "/owner/reports",
   },
   {
     icon: <CalenderIcon />,
     name: "LINE OA",
-    path: "/command-center/settings",
+    path: "/owner/line",
   },
   {
-    icon: <TableIcon />,
+    icon: <TimeIcon />,
     name: "ประวัติระบบ",
-    path: "/command-center#run-history",
+    path: "/owner/audit",
   },
 ];
 
-const defaultHashByPath: Record<string, string> = {
-  "/command-center": "#sales-report",
-};
+const defaultHashByPath: Record<string, string> = {};
 
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
