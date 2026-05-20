@@ -35,6 +35,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
+- `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
 - API ฝั่ง customer ใช้ `/api/app/:tenantSlug/*` และ derive tenant จาก slug ฝั่ง server เท่านั้น
 - tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send

@@ -85,6 +85,13 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - read-only
   - ไม่มี config/admin token/manual mutation
   - derive tenant จาก slug ฝั่ง server เท่านั้น ไม่ใช้ `tenant_id` จาก query/header
+  - ใช้ compact executive report layout:
+    - ยอดขายสุทธิเป็นตัวเลขหลักใน first viewport
+    - KPI รองอยู่ในแถบเดียว: บิลขาย, รายการขาย, จำนวนขายรวม
+    - insight `วันนี้ควรรู้อะไร` อยู่คู่กับยอดขายหลัก ไม่แยกเป็น card dump
+    - comparison และ data trust ใช้ภาษาธุรกิจ ไม่ใช้ wording แบบ debug
+    - รายละเอียด source/run id อยู่ใน collapsed section
+    - วันที่บน customer viewer ใช้ปี ค.ศ. เพื่อให้ตรงกับ LINE และข้อมูล SML
   - slug ที่ใช้งานจริงตอนนี้:
     - `demo-shop` -> DEMO SHOP
     - `248-shop` -> 248 SHOP
