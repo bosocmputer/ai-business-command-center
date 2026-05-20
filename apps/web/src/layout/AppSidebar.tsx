@@ -25,11 +25,6 @@ const navItems: NavItem[] = [
     path: "/owner",
   },
   {
-    icon: <GridIcon />,
-    name: "ร้านค้า",
-    path: "/owner#tenants",
-  },
-  {
     icon: <TableIcon />,
     name: "รายงาน",
     path: "/command-center#sales-report",
@@ -214,6 +209,9 @@ const AppSidebar: React.FC = () => {
           currentHash === expectedHash ||
           (currentHash === "" && defaultHashByPath[pathOnly] === expectedHash)
         );
+      }
+      if (pathOnly === "/owner") {
+        return true;
       }
       return currentHash === "";
     },

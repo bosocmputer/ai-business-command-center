@@ -92,11 +92,11 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Advanced section เก็บ charts, run history, audit, reconciliation, preview และตาราง
 - Sidebar ฝั่ง admin เปลี่ยนเป็น SaaS owner navigation:
   - ภาพรวมเจ้าของ
-  - ร้านค้า
   - รายงาน
   - LINE OA
   - ประวัติระบบ
-- แก้ sidebar active state ให้ sync path/hash ตอนเปลี่ยนหน้า เช่น `/owner#tenants`, `/command-center#run-history`, `/command-center/settings`
+- รายการร้านค้าอยู่ในหน้า `ภาพรวมเจ้าของ` เพื่อไม่ให้เมนูซ้ำกับ anchor `/owner#tenants`
+- แก้ sidebar active state ให้ sync path/hash ตอนเปลี่ยนหน้า เช่น `/owner#tenants` ยัง active ที่ `ภาพรวมเจ้าของ`, `/command-center#run-history`, `/command-center/settings`
 
 ### LINE Brief Viewer
 
