@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import type { ApexOptions } from "apexcharts";
 import {
   deriveMorningBriefDateRange,
+  formatSmlBranchLabel,
   type LineDeliveryRecord,
   type LineSendMode,
   type LineSendResult,
@@ -2107,8 +2108,5 @@ function formatSource(value: SalesGoodsServicesSnapshot["source"]) {
 }
 
 function formatBranchLabel(branchCode: string) {
-  if (branchCode === "no_branch") {
-    return "ไม่ระบุสาขา";
-  }
-  return `สาขา ${branchCode}`;
+  return formatSmlBranchLabel(branchCode);
 }

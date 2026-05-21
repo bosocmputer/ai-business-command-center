@@ -157,6 +157,9 @@ export type SalesDocumentListItem = SalesHeaderRow & {
   detail_total_amount: number;
   detail_total_qty: number;
   resolved_branch_code: string;
+  resolved_branch_label?: string;
+  resolved_branch_name?: string;
+  resolved_branch_note?: string;
 };
 
 export type SalesDocumentPage = {
@@ -175,9 +178,32 @@ export type SalesDocumentPage = {
 
 export type BranchSales = {
   branch_code: string;
+  branch_label?: string;
+  branch_name?: string;
+  branch_note?: string;
   total_amount: number;
   document_count: number;
   line_count: number;
+};
+
+export type BranchMeaning = {
+  code: string;
+  label: string;
+  name: string;
+  note: string;
+  is_unmapped: boolean;
+};
+
+export type SalesFinancialBreakdown = {
+  gross_sales: number;
+  total_discount: number;
+  after_discount_amount: number;
+  before_vat_amount: number;
+  vat_amount: number;
+  net_sales: number;
+  discount_percent: number | null;
+  vat_rate: number | null;
+  document_count_with_discount: number;
 };
 
 export type TopProduct = {
@@ -222,6 +248,7 @@ export type SalesGoodsServicesSnapshot = {
     total_qty: number;
     top_product_name: string | null;
   };
+  financial_breakdown?: SalesFinancialBreakdown;
   branch_sales: BranchSales[];
   top_products: TopProduct[];
   documents: SalesHeaderRow[];
@@ -236,6 +263,46 @@ export type SalesGoodsServicesSnapshot = {
     body: string[];
   };
 };
+
+export function getSmlBranchMeaning(
+  branchCode: string | null | undefined,
+): BranchMeaning {
+  const code = branchCode?.trim() || "no_branch";
+
+  if (code === "no_branch") {
+    return {
+      code,
+      label: "ไม่ระบุสาขา",
+      name: "ไม่ระบุสาขา",
+      note: "ไม่พบรหัสสาขาในหัวบิลหรือรายการสินค้า",
+      is_unmapped: true,
+    };
+  }
+
+  if (["0", "00", "000", "0000"].includes(code)) {
+    return {
+      code,
+      label: `สาขาหลัก (${code})`,
+      name: "สาขาหลัก",
+      note: "ตีความจากรหัสสาขา SML ยังไม่ได้ map เป็นชื่อสาขาจริง",
+      is_unmapped: true,
+    };
+  }
+
+  return {
+    code,
+    label: `สาขา ${code}`,
+    name: `สาขา ${code}`,
+    note: "รหัสสาขาจาก SML ยังไม่ได้ map เป็นชื่อสาขาจริง",
+    is_unmapped: true,
+  };
+}
+
+export function formatSmlBranchLabel(
+  branchCode: string | null | undefined,
+): string {
+  return getSmlBranchMeaning(branchCode).label;
+}
 
 export type LineFlexMessage = {
   type: "flex";

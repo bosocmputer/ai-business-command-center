@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import type {
-  BranchSales,
-  SalesComparisonPoint,
-  SalesDetailRow,
-  SalesGoodsServicesSnapshot,
-  SalesHeaderRow,
-  TopProduct,
+import {
+  formatSmlBranchLabel,
+  type BranchSales,
+  type SalesComparisonPoint,
+  type SalesDetailRow,
+  type SalesGoodsServicesSnapshot,
+  type SalesHeaderRow,
+  type TopProduct,
 } from "@ai-bcc/shared";
 import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 
@@ -1069,10 +1070,7 @@ function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
 }
 
 function formatBranchLabel(branchCode: string) {
-  if (branchCode === "no_branch") {
-    return "รายการไม่ระบุสาขา";
-  }
-  return `สาขา ${branchCode}`;
+  return formatSmlBranchLabel(branchCode);
 }
 
 function formatCashierLabel(value: string | null) {

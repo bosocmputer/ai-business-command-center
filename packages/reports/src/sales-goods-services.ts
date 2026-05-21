@@ -1,8 +1,11 @@
 import {
+  formatSmlBranchLabel,
+  getSmlBranchMeaning,
   type BranchSales,
   type DataQualityStatus,
   type LineFlexMessage,
   type SalesDetailRow,
+  type SalesFinancialBreakdown,
   type SalesGoodsServicesParams,
   type SalesGoodsServicesLinePreview,
   type SalesGoodsServicesSnapshot,
@@ -386,6 +389,60 @@ function resolveDocumentBranch(
   return headerBranch || detailBranches[0] || "no_branch";
 }
 
+function buildFinancialBreakdown(
+  headers: SalesHeaderRow[],
+  headerTotal: number,
+): SalesFinancialBreakdown {
+  const grossSales = roundMoney(
+    headers.reduce((sum, row) => sum + safeNumber(row.total_value), 0),
+  );
+  const totalDiscount = roundMoney(
+    headers.reduce((sum, row) => sum + safeNumber(row.total_discount), 0),
+  );
+  const afterDiscountAmount = roundMoney(
+    headers.reduce(
+      (sum, row) => sum + safeNumber(row.total_except_discount),
+      0,
+    ),
+  );
+  const rawBeforeVatAmount = roundMoney(
+    headers.reduce((sum, row) => sum + safeNumber(row.total_except_vat), 0),
+  );
+  const vatAmount = roundMoney(
+    headers.reduce((sum, row) => sum + safeNumber(row.total_vat_value), 0),
+  );
+  const derivedBeforeVatAmount = roundMoney(headerTotal - vatAmount);
+  const rawBeforeVatReconciles =
+    Math.abs(roundMoney(rawBeforeVatAmount + vatAmount - headerTotal)) <= 0.05;
+  const beforeVatAmount =
+    rawBeforeVatAmount > 0 && rawBeforeVatReconciles
+      ? rawBeforeVatAmount
+      : derivedBeforeVatAmount;
+  const vatRates = [
+    ...new Set(
+      headers
+        .map((row) => safeNumber(row.vat_rate))
+        .filter((rate) => Number.isFinite(rate))
+        .map((rate) => roundQty(rate)),
+    ),
+  ];
+
+  return {
+    gross_sales: grossSales,
+    total_discount: totalDiscount,
+    after_discount_amount: afterDiscountAmount,
+    before_vat_amount: beforeVatAmount,
+    vat_amount: vatAmount,
+    net_sales: headerTotal,
+    discount_percent:
+      grossSales > 0 ? roundQty((totalDiscount / grossSales) * 100) : null,
+    vat_rate: vatRates.length === 1 ? vatRates[0] : null,
+    document_count_with_discount: headers.filter(
+      (row) => safeNumber(row.total_discount) > 0,
+    ).length,
+  };
+}
+
 export function summarizeSalesGoodsServices(input: {
   tenant_id: TenantId;
   run_id: string;
@@ -405,6 +462,10 @@ export function summarizeSalesGoodsServices(input: {
     input.details.reduce((sum, row) => sum + safeNumber(row.qty), 0),
   );
   const difference = roundMoney(headerTotal - detailTotal);
+  const financialBreakdown = buildFinancialBreakdown(
+    input.headers,
+    headerTotal,
+  );
 
   const detailsByDoc = new Map<string, SalesDetailRow[]>();
   for (const detail of input.details) {
@@ -418,11 +479,15 @@ export function summarizeSalesGoodsServices(input: {
 
   for (const header of input.headers) {
     const branchCode = resolveDocumentBranch(header, detailsByDoc);
+    const branchMeaning = getSmlBranchMeaning(branchCode);
     headerBranchByDoc.set(header.doc_no, branchCode);
     const current =
       branchMap.get(branchCode) ??
       ({
         branch_code: branchCode,
+        branch_label: branchMeaning.label,
+        branch_name: branchMeaning.name,
+        branch_note: branchMeaning.note,
         total_amount: 0,
         document_count: 0,
         line_count: 0,
@@ -439,10 +504,14 @@ export function summarizeSalesGoodsServices(input: {
       detail.branch_code,
       headerBranchByDoc.get(detail.doc_no),
     );
+    const branchMeaning = getSmlBranchMeaning(branchCode);
     const current =
       branchMap.get(branchCode) ??
       ({
         branch_code: branchCode,
+        branch_label: branchMeaning.label,
+        branch_name: branchMeaning.name,
+        branch_note: branchMeaning.note,
         total_amount: 0,
         document_count: 0,
         line_count: 0,
@@ -496,6 +565,7 @@ export function summarizeSalesGoodsServices(input: {
       total_qty: totalQty,
       top_product_name: topProducts[0]?.item_name ?? null,
     },
+    financial_breakdown: financialBreakdown,
     branch_sales: [...branchMap.values()].sort(
       (a, b) => b.total_amount - a.total_amount,
     ),
@@ -1196,10 +1266,7 @@ function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
 }
 
 function formatBranchLabel(branchCode: string) {
-  if (branchCode === "no_branch") {
-    return "ไม่ระบุสาขา";
-  }
-  return `สาขา ${branchCode}`;
+  return formatSmlBranchLabel(branchCode);
 }
 
 function isEmptySalesSnapshot(snapshot: SalesGoodsServicesSnapshot) {

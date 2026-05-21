@@ -186,9 +186,85 @@ describe("sales_goods_services contract", () => {
     });
 
     expect(snapshot.summary.total_sales).toBe(107);
+    expect(snapshot.financial_breakdown).toMatchObject({
+      gross_sales: 100,
+      total_discount: 0,
+      before_vat_amount: 100,
+      vat_amount: 7,
+      net_sales: 107,
+      vat_rate: 7,
+    });
     expect(snapshot.reconciliation.detail_sum_amount).toBe(100);
     expect(snapshot.reconciliation.difference_amount).toBe(7);
     expect(snapshot.reconciliation.status).toBe("reconciled_with_warning");
+  });
+
+  it("separates gross sales, discount, VAT, and net sales for executive reporting", () => {
+    const snapshot = summarizeSalesGoodsServices({
+      tenant_id: "tenant_demo_remote",
+      run_id: "run_financial_breakdown",
+      params: { date_from: "2026-05-10", date_to: "2026-05-10" },
+      generated_at: "2026-05-10T01:00:00.000Z",
+      source: "sml_postgres",
+      headers: [
+        {
+          rownum: 0,
+          doc_date: "2026-05-10",
+          doc_no: "INV-1",
+          doc_time: "10:00",
+          doc_ref: null,
+          cust_code: null,
+          cust_name: null,
+          branch_code: "0000",
+          total_value: 1000,
+          total_discount: 100,
+          total_except_discount: 900,
+          total_except_vat: 841.12,
+          vat_rate: 7,
+          total_vat_value: 58.88,
+          vat_type: "I",
+          total_amount: 900,
+          cashier_code: null,
+        },
+        {
+          rownum: 0,
+          doc_date: "2026-05-10",
+          doc_no: "INV-2",
+          doc_time: "11:00",
+          doc_ref: null,
+          cust_code: null,
+          cust_name: null,
+          branch_code: "0000",
+          total_value: 500,
+          total_discount: 0,
+          total_except_discount: 500,
+          total_except_vat: 467.29,
+          vat_rate: 7,
+          total_vat_value: 32.71,
+          vat_type: "I",
+          total_amount: 500,
+          cashier_code: null,
+        },
+      ],
+      details: [],
+    });
+
+    expect(snapshot.financial_breakdown).toEqual({
+      gross_sales: 1500,
+      total_discount: 100,
+      after_discount_amount: 1400,
+      before_vat_amount: 1308.41,
+      vat_amount: 91.59,
+      net_sales: 1400,
+      discount_percent: 6.667,
+      vat_rate: 7,
+      document_count_with_discount: 1,
+    });
+    expect(snapshot.branch_sales[0]).toMatchObject({
+      branch_code: "0000",
+      branch_label: "สาขาหลัก (0000)",
+      branch_name: "สาขาหลัก",
+    });
   });
 
   it("assigns document sales to detail branch when header branch is blank", () => {
@@ -244,6 +320,7 @@ describe("sales_goods_services contract", () => {
 
     expect(snapshot.branch_sales[0]).toMatchObject({
       branch_code: "000",
+      branch_label: "สาขาหลัก (000)",
       total_amount: 107,
       document_count: 1,
       line_count: 1,
@@ -316,7 +393,7 @@ describe("sales_goods_services contract", () => {
     expect(preview.text).toContain("บริษัท: Demo Remote");
     expect(preview.text).toContain("วันที่ข้อมูล: 10 พ.ค. 2026 - 19 พ.ค. 2026");
     expect(preview.text).toContain("ยอดขายสุทธิ: 107.00 บาท");
-    expect(preview.text).toContain("1. สาขา 0000: 107.00 บาท");
+    expect(preview.text).toContain("1. สาขาหลัก (0000): 107.00 บาท");
     expect(preview.text).toContain("Product A");
     expect(preview.text).not.toContain("AI Business Center");
     expect(preview.text).not.toContain("Run ID: run_line_preview");

@@ -1,16 +1,18 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  SalesComparisonPoint,
-  SalesDetailRow,
-  SalesDocumentDetail,
-  SalesDocumentListItem,
-  SalesDocumentPage,
-  SalesGoodsServicesSnapshot,
-  SalesGoodsServicesParams,
-  SalesHeaderRow,
-  Tenant,
+import {
+  formatSmlBranchLabel,
+  type SalesComparisonPoint,
+  type SalesDetailRow,
+  type SalesDocumentDetail,
+  type SalesDocumentListItem,
+  type SalesDocumentPage,
+  type SalesFinancialBreakdown,
+  type SalesGoodsServicesSnapshot,
+  type SalesGoodsServicesParams,
+  type SalesHeaderRow,
+  type Tenant,
 } from "@ai-bcc/shared";
 import Button from "@/components/ui/button/Button";
 import Badge from "@/components/ui/badge/Badge";
@@ -306,6 +308,10 @@ function CustomerDashboardContent({
     () => buildExecutiveNotes(snapshot, trust),
     [snapshot, trust],
   );
+  const financialBreakdown = useMemo(
+    () => getFinancialBreakdown(snapshot),
+    [snapshot],
+  );
   const periodLabel =
     snapshot.params.date_from === snapshot.params.date_to
       ? formatThaiDate(snapshot.params.date_from)
@@ -432,6 +438,10 @@ function CustomerDashboardContent({
         />
 
         <aside className="min-w-0 space-y-4">
+          <InfoPanel title="ความหมายยอดขาย">
+            <FinancialBreakdownRows breakdown={financialBreakdown} />
+          </InfoPanel>
+
           <InfoPanel title="เทียบยอด">
             <ComparisonLine
               currentSales={snapshot.summary.total_sales}
@@ -1444,6 +1454,85 @@ function InfoPanel({
   );
 }
 
+function FinancialBreakdownRows({
+  breakdown,
+}: {
+  breakdown: SalesFinancialBreakdown;
+}) {
+  const discountMeta =
+    breakdown.discount_percent !== null && breakdown.total_discount > 0
+      ? `${formatNumber(breakdown.discount_percent)}% ของยอดก่อนส่วนลด`
+      : breakdown.document_count_with_discount > 0
+        ? `${formatNumber(breakdown.document_count_with_discount)} บิลมีส่วนลด`
+        : "ไม่มีส่วนลดในช่วงนี้";
+  const vatMeta =
+    breakdown.vat_rate !== null
+      ? `VAT ${formatNumber(breakdown.vat_rate)}% จาก SML`
+      : "อัตรา VAT หลายแบบหรือไม่ระบุ";
+
+  return (
+    <div className="space-y-2">
+      <FinancialBreakdownRow
+        label="ยอดก่อนส่วนลด"
+        value={`${formatCurrency(breakdown.gross_sales)} บาท`}
+      />
+      <FinancialBreakdownRow
+        label="ส่วนลดรวม"
+        meta={discountMeta}
+        tone={breakdown.total_discount > 0 ? "warning" : "neutral"}
+        value={`${formatCurrency(breakdown.total_discount)} บาท`}
+      />
+      <FinancialBreakdownRow
+        label="ยอดก่อน VAT"
+        meta="คำนวณจากยอดขายสุทธิหัก VAT"
+        value={`${formatCurrency(breakdown.before_vat_amount)} บาท`}
+      />
+      <FinancialBreakdownRow
+        label="VAT"
+        meta={vatMeta}
+        value={`${formatCurrency(breakdown.vat_amount)} บาท`}
+      />
+      <FinancialBreakdownRow
+        label="ยอดขายสุทธิ"
+        tone="strong"
+        value={`${formatCurrency(breakdown.net_sales)} บาท`}
+      />
+      <p className="pt-1 text-xs leading-5 text-gray-500">
+        ยอดขายสุทธิใช้หัวบิล SML เป็นตัวเลขหลัก ส่วนรายละเอียดสินค้าใช้ช่วยอธิบายสินค้าและจำนวน
+      </p>
+    </div>
+  );
+}
+
+function FinancialBreakdownRow({
+  label,
+  meta,
+  tone = "neutral",
+  value,
+}: {
+  label: string;
+  meta?: string;
+  tone?: "neutral" | "warning" | "strong";
+  value: string;
+}) {
+  const valueClass =
+    tone === "strong"
+      ? "text-gray-900"
+      : tone === "warning"
+        ? "text-orange-700"
+        : "text-gray-800";
+
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-gray-500">{label}</p>
+        {meta ? <p className="mt-0.5 text-xs text-gray-400">{meta}</p> : null}
+      </div>
+      <p className={`shrink-0 text-sm font-semibold ${valueClass}`}>{value}</p>
+    </div>
+  );
+}
+
 function ExecutiveNote({
   description,
   title,
@@ -1580,6 +1669,62 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getFinancialBreakdown(
+  snapshot: SalesGoodsServicesSnapshot,
+): SalesFinancialBreakdown {
+  if (snapshot.financial_breakdown) {
+    return snapshot.financial_breakdown;
+  }
+
+  const documents = snapshot.documents ?? [];
+  const grossSales = roundMoney(
+    documents.reduce((sum, row) => sum + safeNumber(row.total_value), 0),
+  );
+  const totalDiscount = roundMoney(
+    documents.reduce((sum, row) => sum + safeNumber(row.total_discount), 0),
+  );
+  const rawBeforeVatAmount = roundMoney(
+    documents.reduce((sum, row) => sum + safeNumber(row.total_except_vat), 0),
+  );
+  const vatAmount = roundMoney(
+    documents.reduce((sum, row) => sum + safeNumber(row.total_vat_value), 0),
+  );
+  const derivedBeforeVatAmount = roundMoney(
+    snapshot.summary.total_sales - vatAmount,
+  );
+  const rawBeforeVatReconciles =
+    Math.abs(
+      roundMoney(rawBeforeVatAmount + vatAmount - snapshot.summary.total_sales),
+    ) <= 0.05;
+  const beforeVatAmount =
+    rawBeforeVatAmount > 0 && rawBeforeVatReconciles
+      ? rawBeforeVatAmount
+      : derivedBeforeVatAmount;
+  const vatRates = [
+    ...new Set(
+      documents
+        .map((row) => safeNumber(row.vat_rate))
+        .filter((rate) => Number.isFinite(rate))
+        .map((rate) => roundQty(rate)),
+    ),
+  ];
+
+  return {
+    gross_sales: grossSales || snapshot.summary.total_sales,
+    total_discount: totalDiscount,
+    after_discount_amount: roundMoney(grossSales - totalDiscount),
+    before_vat_amount: beforeVatAmount,
+    vat_amount: vatAmount,
+    net_sales: snapshot.summary.total_sales,
+    discount_percent:
+      grossSales > 0 ? roundQty((totalDiscount / grossSales) * 100) : null,
+    vat_rate: vatRates.length === 1 ? vatRates[0] : null,
+    document_count_with_discount: documents.filter(
+      (row) => safeNumber(row.total_discount) > 0,
+    ).length,
+  };
+}
+
 function getTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
   if (snapshot.summary.document_count === 0) {
     return {
@@ -1681,10 +1826,7 @@ function formatTenantStatus(status: string) {
 }
 
 function formatBranchLabel(value: string) {
-  if (value === "no_branch") {
-    return "ไม่ระบุสาขา";
-  }
-  return `สาขา ${value}`;
+  return formatSmlBranchLabel(value);
 }
 
 function formatThaiDate(value: string) {
@@ -1805,6 +1947,25 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function safeNumber(value: number | string | null | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function roundQty(value: number) {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
 
 function formatShare(value: number, total: number) {

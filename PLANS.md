@@ -37,6 +37,8 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
 - `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
+- `/app/:tenantSlug` เพิ่มชั้นความหมายธุรกิจของรายงานขาย: แสดง `ยอดก่อนส่วนลด`, `ส่วนลดรวม`, `ยอดก่อน VAT`, `VAT`, `ยอดขายสุทธิ` แยกจากกัน และใช้คำอธิบายว่า KPI หลักมาจากหัวบิล SML
+- รหัสสาขา SML ถูกแปลงเป็น business label กลาง เช่น `0000`/`000` เป็น `สาขาหลัก (0000)`/`สาขาหลัก (000)` และ `no_branch` เป็น `ไม่ระบุสาขา` เพื่อไม่ให้ผู้บริหารเห็นรหัสลอย ๆ
 - `/app/:tenantSlug` มี date filter/quick range สำหรับดูรายงานช่วงที่เลือกแบบ read-only โดยจำกัดช่วงไม่เกิน 31 วันใน pilot
 - `/app/:tenantSlug` มี server-side search + pagination ในรายการบิล และ drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ด้วย approved SQL ตามช่วงวันที่ที่กำลังดู
 - `/app/:tenantSlug` ใช้ UX แบบ responsive: desktop เป็น TailAdmin-style table สำหรับรายการบิล, mobile เป็น bill cards ที่กดง่าย และรายการสินค้าในบิลเป็น item cards แทนตารางแนวนอนทุก viewport

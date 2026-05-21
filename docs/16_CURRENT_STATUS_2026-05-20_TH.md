@@ -142,6 +142,8 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - ซ่อนค่าแคชเชียร์ที่เป็น system account เช่น `SUPERADMIN` ไม่ให้ดูเหมือนชื่อผู้ขายจริง
   - ย้าย VAT/ส่วนลด/ยอดรวมสินค้าไว้ใน section collapsed `ข้อมูลภาษี/ส่วนลด`
   - แสดงสาขาพร้อม helper ว่าเป็น `รหัสสาขาจาก SML` จนกว่าจะมี branch mapping เป็นชื่อสาขา
+  - รหัสสาขาใน report/customer UI ใช้ helper กลาง: `0000`/`000` เป็น `สาขาหลัก (รหัส)`, `no_branch` เป็น `ไม่ระบุสาขา`, รหัสอื่นเป็น `สาขา <code>` เพื่อให้ผู้บริหารอ่านง่ายแต่ยัง trace กลับ SML ได้
+  - Customer dashboard เพิ่ม panel `ความหมายยอดขาย` แยก `ยอดก่อนส่วนลด`, `ส่วนลดรวม`, `ยอดก่อน VAT`, `VAT`, และ `ยอดขายสุทธิ` จาก `financial_breakdown` ใน snapshot โดย fallback จากเอกสารเดิมได้สำหรับ snapshot เก่า
   - ไม่ใช้ตารางดิบแนวนอนในพื้นที่หลักของ brief viewer เพื่อลดความงงบนมือถือ
 
 ### LINE OA / Morning Brief

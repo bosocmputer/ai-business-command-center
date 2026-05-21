@@ -127,6 +127,13 @@ unknown:
 
 `branch_code` ไม่ควรเป็น required field สำหรับทุก tenant แต่ถ้ามีควรใช้เป็น dimension หลัก
 
+Phase 1 ใช้ branch meaning helper กลางก่อนมี master mapping:
+
+- `0000`, `000`, `00`, `0` = `สาขาหลัก (รหัส)` เพราะร้าน SML จำนวนมากใช้เป็นสาขาหลักหรือสำนักงานใหญ่
+- ค่าว่าง/ไม่มีข้อมูล = `ไม่ระบุสาขา` และใช้เป็นสัญญาณให้ owner ตรวจ mapping
+- รหัสอื่น = `สาขา <code>` จนกว่า owner จะ map เป็นชื่อจริง เช่น `สาขาบางนา`
+- UI ต้องแสดงชื่ออ่านง่าย แต่เก็บรหัสเดิมไว้เสมอเพื่อ audit และ reconcile กับ SML
+
 ## Shared vs Tenant-Specific
 
 ### Shared

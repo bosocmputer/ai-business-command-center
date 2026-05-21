@@ -8,6 +8,7 @@ import {
   validateSalesGoodsServicesParams,
 } from "@ai-bcc/reports";
 import {
+  getSmlBranchMeaning,
   type SalesDocumentDetail,
   type SalesDocumentListItem,
   type SalesDocumentPage,
@@ -339,12 +340,17 @@ function mapHeaderRow(row: Record<string, unknown>): SalesHeaderRow {
 }
 
 function mapDocumentPageRow(row: Record<string, unknown>): SalesDocumentListItem {
+  const resolvedBranchCode = toStringValue(row.resolved_branch_code) || "no_branch";
+  const branchMeaning = getSmlBranchMeaning(resolvedBranchCode);
   return {
     ...mapHeaderRow(row),
     detail_line_count: toNumber(row.detail_line_count),
     detail_total_amount: toNumber(row.detail_total_amount),
     detail_total_qty: toNumber(row.detail_total_qty),
-    resolved_branch_code: toStringValue(row.resolved_branch_code) || "no_branch",
+    resolved_branch_code: resolvedBranchCode,
+    resolved_branch_label: branchMeaning.label,
+    resolved_branch_name: branchMeaning.name,
+    resolved_branch_note: branchMeaning.note,
   };
 }
 

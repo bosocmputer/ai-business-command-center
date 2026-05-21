@@ -48,6 +48,22 @@ Branch fallback:
 detail.branch_code -> header.branch_code -> no_branch
 ```
 
+Branch meaning for business UI:
+
+- `0000`, `000`, `00`, `0` แสดงเป็น `สาขาหลัก (รหัส)` เพื่อไม่ให้ผู้บริหารเห็นรหัสลอย ๆ
+- `no_branch` แสดงเป็น `ไม่ระบุสาขา` และถือเป็น data-quality signal ว่าหัวบิล/รายการสินค้าไม่มีรหัสสาขา
+- รหัสอื่นยังแสดงเป็น `สาขา <code>` จนกว่าจะมี master mapping เป็นชื่อสาขาจริงของแต่ละ tenant
+- ทุก label ต้องยังเก็บรหัสเดิมไว้เพื่อ trace กลับ SML ได้
+
+Financial meaning:
+
+- `ยอดขายสุทธิ` = `ic_trans.total_amount` และเป็นตัวเลขหลักสำหรับ KPI, LINE, dashboard
+- `ยอดก่อนส่วนลด` = ผลรวม `ic_trans.total_value`
+- `ส่วนลดรวม` = ผลรวม `ic_trans.total_discount`
+- `ยอดก่อน VAT` = `ยอดขายสุทธิ - VAT` สำหรับ executive display; ถ้า `ic_trans.total_except_vat + VAT` reconcile กับยอดสุทธิได้ ระบบใช้ค่าจาก SML ตรง ๆ ได้
+- `VAT` = ผลรวม `ic_trans.total_vat_value`
+- `ยอดรวมสินค้า` จาก detail ใช้เพื่ออธิบายสินค้า/จำนวน ไม่ใช้แทนยอดเงินจริงเมื่อยอด detail ไม่ตรง header
+
 ## Header Query
 
 ใช้กับ KPI ที่เป็นยอดเงินจริงและจำนวนเอกสาร
@@ -172,7 +188,7 @@ Rules:
 
 - API derive `tenant_id` จาก `tenantSlug` ฝั่ง server เท่านั้น
 - document page bind `date_from`, `date_to`, `search`, `page_size`, `offset` เป็น `$1..$5` ห้าม concat เข้า SQL
-- document page คืนเฉพาะบิลของหน้าที่ขอ พร้อม `detail_line_count`, `detail_total_amount`, `detail_total_qty`, `resolved_branch_code`
+- document page คืนเฉพาะบิลของหน้าที่ขอ พร้อม `detail_line_count`, `detail_total_amount`, `detail_total_qty`, `resolved_branch_code` และ business label เช่น `resolved_branch_label`
 - document detail bind `doc_no` เป็น `$3` ห้าม concat เข้า SQL
 - document detail คืน header + detail lines เฉพาะบิลนั้น
 - ไม่ store detail ทุกแถวของช่วงใหญ่ลง snapshot เพื่อกัน payload ใหญ่เกินจำเป็น
@@ -192,6 +208,28 @@ Rules:
     "total_qty": 297,
     "top_product_name": "สินค้า A"
   },
+  "financial_breakdown": {
+    "gross_sales": 132000,
+    "total_discount": 5851.22,
+    "after_discount_amount": 126148.78,
+    "before_vat_amount": 117895.12,
+    "vat_amount": 8253.66,
+    "net_sales": 126148.78,
+    "discount_percent": 4.433,
+    "vat_rate": 7,
+    "document_count_with_discount": 12
+  },
+  "branch_sales": [
+    {
+      "branch_code": "0000",
+      "branch_label": "สาขาหลัก (0000)",
+      "branch_name": "สาขาหลัก",
+      "branch_note": "ตีความจากรหัสสาขา SML ยังไม่ได้ map เป็นชื่อสาขาจริง",
+      "total_amount": 126148.78,
+      "document_count": 68,
+      "line_count": 139
+    }
+  ],
   "reconciliation": {
     "header_total_amount": 126148.78,
     "detail_sum_amount": 131760.9,
