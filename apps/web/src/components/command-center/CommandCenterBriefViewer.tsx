@@ -68,7 +68,8 @@ type ViewerParams = {
 };
 
 const DETAILED_PRINT_PAGE_SIZE = 50;
-const DETAILED_PRINT_MAX_DOCUMENTS = 1000;
+const DETAILED_PRINT_MAX_DOCUMENTS = 300;
+const DETAILED_PRINT_MAX_DETAIL_LINES = 5000;
 const DETAILED_PRINT_DETAIL_CONCURRENCY = 4;
 
 type DetailedPrintDocument = {
@@ -85,6 +86,7 @@ type DetailedPrintState =
       totalDocuments: number | null;
       loadedDocuments: number;
       loadedDetails: number;
+      loadedLines: number;
     }
   | {
       status: "ready";
@@ -499,11 +501,21 @@ function PremiumReportViewer({
       totalDocuments: null,
       loadedDocuments: 0,
       loadedDetails: 0,
+      loadedLines: 0,
     });
 
     try {
       const firstPage = await fetchPrintDocumentPage(1);
       const totalDocuments = firstPage.pagination.total_items;
+      if (snapshot.summary.line_count > DETAILED_PRINT_MAX_DETAIL_LINES) {
+        throw new Error(
+          `รายงานนี้มีรายละเอียด ${formatInteger(
+            snapshot.summary.line_count,
+          )} แถว ซึ่งมากเกินสำหรับพิมพ์ผ่าน browser กรุณาเลือกช่วงวันที่สั้นลงไม่เกิน ${formatInteger(
+            DETAILED_PRINT_MAX_DETAIL_LINES,
+          )} แถว`,
+        );
+      }
       if (totalDocuments > DETAILED_PRINT_MAX_DOCUMENTS) {
         throw new Error(
           `ช่วงนี้มี ${formatInteger(
@@ -521,6 +533,7 @@ function PremiumReportViewer({
         totalDocuments,
         loadedDocuments: documents.length,
         loadedDetails: 0,
+        loadedLines: 0,
       });
 
       for (let nextPage = 2; nextPage <= firstPage.pagination.total_pages; nextPage += 1) {
@@ -532,6 +545,7 @@ function PremiumReportViewer({
           totalDocuments,
           loadedDocuments: documents.length,
           loadedDetails: 0,
+          loadedLines: 0,
         });
       }
 
@@ -540,6 +554,8 @@ function PremiumReportViewer({
       );
       let cursor = 0;
       let loadedDetails = 0;
+      let loadedLines = 0;
+      let abortError: Error | null = null;
 
       setDetailedPrintState({
         status: "loading",
@@ -547,10 +563,14 @@ function PremiumReportViewer({
         totalDocuments,
         loadedDocuments: documents.length,
         loadedDetails: 0,
+        loadedLines: 0,
       });
 
       async function worker() {
         for (;;) {
+          if (abortError) {
+            return;
+          }
           const currentIndex = cursor;
           cursor += 1;
           if (currentIndex >= documents.length) {
@@ -558,11 +578,20 @@ function PremiumReportViewer({
           }
           const document = documents[currentIndex];
           try {
+            const detail = await fetchPrintDocumentDetail(document);
+            loadedLines += detail.lines.length;
             detailedDocuments[currentIndex] = {
               document,
-              detail: await fetchPrintDocumentDetail(document),
+              detail,
               error: null,
             };
+            if (loadedLines > DETAILED_PRINT_MAX_DETAIL_LINES) {
+              abortError = new Error(
+                `รายงานนี้มีรายละเอียดมากกว่า ${formatInteger(
+                  DETAILED_PRINT_MAX_DETAIL_LINES,
+                )} แถว ซึ่งมากเกินสำหรับพิมพ์ผ่าน browser กรุณาเลือกช่วงวันที่สั้นลง`,
+              );
+            }
           } catch (error) {
             detailedDocuments[currentIndex] = {
               document,
@@ -580,6 +609,7 @@ function PremiumReportViewer({
               totalDocuments,
               loadedDocuments: documents.length,
               loadedDetails,
+              loadedLines,
             });
           }
         }
@@ -593,6 +623,9 @@ function PremiumReportViewer({
           ),
         }).map(() => worker()),
       );
+      if (abortError) {
+        throw abortError;
+      }
 
       const readyState: DetailedPrintState = {
         status: "ready",
@@ -1417,6 +1450,9 @@ function DetailedPrintNotice({
         <span className="text-[#475467]">
           {formatInteger(loaded)}
           {total ? ` / ${formatInteger(total)}` : ""} เอกสาร
+          {state.phase === "details"
+            ? ` · ${formatInteger(state.loadedLines)} แถว`
+            : ""}
         </span>
       </div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
@@ -1426,7 +1462,9 @@ function DetailedPrintNotice({
         />
       </div>
       <p className="mt-2 text-[12px] leading-[18px] text-[#667085]">
-        รายงานละเอียดจะดึงข้อมูลจาก SML ตามช่วงวันที่นี้ แล้วจัดหน้าเป็นแนวนอนสำหรับพิมพ์/PDF
+        รายงานละเอียดจะดึงข้อมูลจาก SML ตามช่วงวันที่นี้ จำกัดไม่เกิน{" "}
+        {formatInteger(DETAILED_PRINT_MAX_DOCUMENTS)} เอกสาร และ{" "}
+        {formatInteger(DETAILED_PRINT_MAX_DETAIL_LINES)} แถวรายละเอียด
       </p>
     </div>
   );
@@ -1516,15 +1554,74 @@ function DetailedPrintReport({
           </p>
         )}
 
-        <div className="print-document-list">
-          {printState.documents.map((entry, index) => (
-            <DetailedPrintDocumentGroup
-              copy={copy}
-              entry={entry}
-              index={index + 1}
-              key={`${entry.document.doc_date}-${entry.document.doc_no}`}
-            />
-          ))}
+        <div className="print-sml-table-wrap">
+          <table className="print-sml-table">
+            <colgroup>
+              <col className="sml-col-date" />
+              <col className="sml-col-doc" />
+              <col className="sml-col-time" />
+              <col className="sml-col-ref" />
+              <col className="sml-col-code" />
+              <col className="sml-col-name" />
+              <col className="sml-col-money" />
+              <col className="sml-col-money" />
+              <col className="sml-col-money" />
+              <col className="sml-col-money" />
+              <col className="sml-col-rate" />
+              <col className="sml-col-money" />
+              <col className="sml-col-tax" />
+              <col className="sml-col-money" />
+              <col className="sml-col-user" />
+            </colgroup>
+            <thead>
+              <tr className="print-sml-section-row">
+                <th colSpan={15}>หัวเอกสาร</th>
+              </tr>
+              <tr className="print-sml-doc-header">
+                <th>เอกสารวันที่</th>
+                <th>เอกสารเลขที่</th>
+                <th>เวลา</th>
+                <th>เอกสารอ้างอิง</th>
+                <th>รหัส{copy.partyLabel}</th>
+                <th>ชื่อ{copy.partyLabel}</th>
+                <th className="numeric">มูลค่าสินค้า</th>
+                <th className="numeric">มูลค่าส่วนลด</th>
+                <th className="numeric">มูลค่าหลังหักส่วนลด</th>
+                <th className="numeric">มูลค่ายกเว้นภาษี</th>
+                <th className="numeric">อัตราภาษี</th>
+                <th className="numeric">ภาษีมูลค่าเพิ่ม</th>
+                <th>ประเภทภาษี</th>
+                <th className="numeric">มูลค่าสุทธิ</th>
+                <th>Cashier</th>
+              </tr>
+              <tr className="print-sml-detail-header">
+                <th>เอกสารวันที่</th>
+                <th>ชื่อ{copy.partyLabel}</th>
+                <th>รหัสสินค้า</th>
+                <th>ชื่อสินค้า</th>
+                <th>คลัง</th>
+                <th>พื้นที่เก็บ</th>
+                <th>หน่วยนับ</th>
+                <th className="numeric">จำนวน</th>
+                <th className="numeric">ราคา</th>
+                <th>ส่วนลด</th>
+                <th className="numeric">มูลค่าส่วนลด</th>
+                <th className="numeric">รวมมูลค่า</th>
+                <th>ประเภทภาษี</th>
+                <th />
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {printState.documents.map((entry, index) => (
+                <DetailedPrintSmlRows
+                  entry={entry}
+                  index={index + 1}
+                  key={`${entry.document.doc_date}-${entry.document.doc_no}`}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
 
         <footer className="print-footer">
@@ -1545,178 +1642,80 @@ function PrintSummaryItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DetailedPrintDocumentGroup({
-  copy,
+function DetailedPrintSmlRows({
   entry,
   index,
 }: {
-  copy: ReportCopy;
   entry: DetailedPrintDocument;
   index: number;
 }) {
   const document = entry.detail?.document ?? entry.document;
   const party = document.cust_name || document.cust_code || "-";
-  const branchLabel = getDocumentBranchLabel(entry.document, document);
   const lines = entry.detail?.lines ?? [];
-  const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
-  const technicalMeta = buildDocumentTechnicalMeta(document, lines);
 
   return (
-    <article className="print-document-block">
-      <div className="print-document-heading">
-        <div className="print-document-title">
-          <span>เอกสารที่ {formatInteger(index)}</span>
+    <>
+      <tr className="print-sml-doc-row">
+        <td>{formatSmlDate(document.doc_date)}</td>
+        <td>
           <strong>{document.doc_no}</strong>
-          {document.doc_ref ? (
-            <small>อ้างอิง {document.doc_ref}</small>
-          ) : null}
-        </div>
-        <div className="print-document-meta-grid">
-          <PrintMeta label="วันที่/เวลา" value={`${formatThaiDate(document.doc_date)}${document.doc_time ? ` · ${formatTime(document.doc_time)}` : ""}`} />
-          <PrintMeta label={copy.partyLabel} value={party} />
-          <PrintMeta label="รหัส" value={document.cust_code || "-"} />
-          <PrintMeta label="สาขา" value={branchLabel} />
-          <PrintMeta label="ผู้ทำรายการ" value={document.cashier_code || "-"} />
-          <PrintMeta label="จำนวนรายการ" value={`${formatInteger(lines.length || entry.document.detail_line_count)} รายการ`} />
-        </div>
-      </div>
-
-      <div className="print-amount-strip">
-        <PrintAmount label="ยอดก่อนลด" value={`${formatMoney(document.total_value)} บาท`} />
-        <PrintAmount label="ส่วนลด" value={`${formatMoney(document.total_discount)} บาท`} />
-        <PrintAmount label="ยอดก่อน VAT" value={`${formatMoney(document.total_except_vat)} บาท`} />
-        <PrintAmount label="VAT" value={`${formatMoney(document.total_vat_value)} บาท`} />
-        <PrintAmount label="ยอดสุทธิ" value={`${formatMoney(document.total_amount)} บาท`} emphasis />
-      </div>
-
+          <span className="print-muted">ลำดับ {formatInteger(index)}</span>
+        </td>
+        <td>{document.doc_time ? formatTime(document.doc_time) : ""}</td>
+        <td>{document.doc_ref || ""}</td>
+        <td>{document.cust_code || ""}</td>
+        <td>{party}</td>
+        <td className="numeric">{formatMoney(document.total_value)}</td>
+        <td className="numeric">{formatSmlOptionalMoney(document.total_discount)}</td>
+        <td className="numeric">{formatMoney(document.total_except_discount)}</td>
+        <td className="numeric">{formatMoney(document.total_except_vat)}</td>
+        <td className="numeric">{formatSmlOptionalQty(document.vat_rate)}</td>
+        <td className="numeric">{formatSmlOptionalMoney(document.total_vat_value)}</td>
+        <td>{document.vat_type || ""}</td>
+        <td className="numeric">
+          <strong>{formatMoney(document.total_amount)}</strong>
+        </td>
+        <td>{document.cashier_code || ""}</td>
+      </tr>
       {entry.error ? (
-        <div className="print-detail-error">{entry.error}</div>
+        <tr className="print-sml-error-row">
+          <td colSpan={15}>{entry.error}</td>
+        </tr>
+      ) : lines.length ? (
+        lines.map((line, lineIndex) => (
+          <tr
+            className="print-sml-detail-row"
+            key={`${line.doc_no}-${line.line_number ?? lineIndex}`}
+          >
+            <td>{formatSmlDate(line.doc_date || document.doc_date)}</td>
+            <td>{line.cust_name || party}</td>
+            <td>
+              {line.item_code || ""}
+              {line.barcode ? (
+                <span className="print-muted">Barcode: {line.barcode}</span>
+              ) : null}
+            </td>
+            <td>{line.item_name || ""}</td>
+            <td>{line.wh_code || ""}</td>
+            <td>{line.shelf_code || ""}</td>
+            <td>{line.unit_name || line.unit_code || ""}</td>
+            <td className="numeric">{formatQty(line.qty)}</td>
+            <td className="numeric">{formatSmlOptionalMoney(line.price)}</td>
+            <td>{line.discount || ""}</td>
+            <td className="numeric">{formatSmlOptionalMoney(line.discount_amount)}</td>
+            <td className="numeric">{formatMoney(line.sum_amount)}</td>
+            <td>{[line.vat_type, line.tax_type].filter(Boolean).join(" / ")}</td>
+            <td />
+            <td />
+          </tr>
+        ))
       ) : (
-        <table className="print-line-table">
-          <thead>
-            <tr>
-              <th className="line-index-col">#</th>
-              <th className="line-code-col">รหัสสินค้า / Barcode</th>
-              <th className="line-name-col">ชื่อสินค้า</th>
-              <th className="line-location-col">คลัง / ที่เก็บ / หน่วย</th>
-              <th className="line-number-col numeric">จำนวน</th>
-              <th className="line-money-col numeric">ราคา / ส่วนลด</th>
-              <th className="line-tax-col">VAT / Tax</th>
-              <th className="line-money-col numeric">ยอดรายการ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length ? (
-              lines.map((line, lineIndex) => (
-                <tr key={`${line.doc_no}-${line.line_number ?? lineIndex}`}>
-                  <td className="line-index-col">{formatInteger(lineIndex + 1)}</td>
-                  <td>
-                    <strong>{line.item_code || "-"}</strong>
-                    <span className="print-muted">Barcode: {line.barcode || "-"}</span>
-                  </td>
-                  <td>
-                    <strong>{line.item_name || "-"}</strong>
-                    {line.ref_row !== null && line.ref_row !== undefined ? (
-                      <span className="print-muted">Ref row: {formatInteger(line.ref_row)}</span>
-                    ) : null}
-                  </td>
-                  <td>
-                    <span>คลัง {line.wh_code || "-"}</span>
-                    <span className="print-muted">
-                      ที่เก็บ {line.shelf_code || "-"} · หน่วย{" "}
-                      {line.unit_name || line.unit_code || "-"}
-                    </span>
-                  </td>
-                  <td className="numeric">{formatQty(line.qty)}</td>
-                  <td className="numeric">
-                    <strong>{formatMoney(line.price)}</strong>
-                    <span className="print-muted">
-                      ลด {line.discount || "-"} / {formatMoney(line.discount_amount)}
-                    </span>
-                  </td>
-                  <td>{[line.vat_type, line.tax_type].filter(Boolean).join(" / ") || "-"}</td>
-                  <td className="numeric">
-                    <strong>{formatMoney(line.sum_amount)}</strong>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td className="print-empty-line" colSpan={8}>
-                  ไม่พบรายละเอียดสินค้าในเอกสารนี้
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <tr className="print-sml-empty-row">
+          <td colSpan={15}>ไม่พบรายละเอียดสินค้าในเอกสารนี้</td>
+        </tr>
       )}
-
-      <div className="print-document-technical">
-        <span>ข้อมูลจากระบบ SML</span>
-        {technicalMeta.map((item) => (
-          <small key={item.label}>
-            {item.label}: {item.value}
-          </small>
-        ))}
-        <small>ยอดรวมสินค้า: {formatMoney(detailTotal)} บาท</small>
-      </div>
-    </article>
+    </>
   );
-}
-
-function PrintMeta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="print-meta-item">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function PrintAmount({
-  emphasis,
-  label,
-  value,
-}: {
-  emphasis?: boolean;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className={`print-amount-item ${emphasis ? "is-emphasis" : ""}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function buildDocumentTechnicalMeta(
-  document: SalesDocumentDetail["document"],
-  lines: SalesDetailRow[],
-) {
-  const refs = new Set<string>();
-  const temp1 = new Set<string>();
-  const temp2 = new Set<string>();
-  for (const line of lines) {
-    if (line.ref_row !== null && line.ref_row !== undefined) {
-      refs.add(formatInteger(line.ref_row));
-    }
-    if (line.temp_float_1 !== null && line.temp_float_1 !== undefined) {
-      temp1.add(formatQty(line.temp_float_1));
-    }
-    if (line.temp_float_2 !== null && line.temp_float_2 !== undefined) {
-      temp2.add(formatQty(line.temp_float_2));
-    }
-  }
-
-  return [
-    ["สถานะ", document.last_status || "-"],
-    ["VAT type", document.vat_type || "-"],
-    ["VAT rate", `${formatQty(document.vat_rate)}%`],
-    ["Ref rows", refs.size ? Array.from(refs).slice(0, 6).join(", ") : "-"],
-    ["Temp 1", temp1.size ? Array.from(temp1).slice(0, 4).join(", ") : "-"],
-    ["Temp 2", temp2.size ? Array.from(temp2).slice(0, 4).join(", ") : "-"],
-  ].map(([label, value]) => ({ label, value }));
 }
 
 function DetailedPrintStyles() {
@@ -1843,6 +1842,98 @@ function DetailedPrintStyles() {
           color: #93370d;
           margin: 0 0 10px;
           padding: 8px 10px;
+        }
+
+        .detailed-print-screen-mode .print-sml-table-wrap {
+          border: 1px solid #d0d5dd;
+          border-radius: 8px;
+          overflow-x: auto;
+        }
+
+        .detailed-print-screen-mode .print-sml-table {
+          border-collapse: collapse;
+          min-width: 1320px;
+          table-layout: fixed;
+          width: 100%;
+        }
+
+        .detailed-print-screen-mode .print-sml-table th,
+        .detailed-print-screen-mode .print-sml-table td {
+          border: 1px solid #d0d5dd;
+          padding: 5px 6px;
+          text-align: left;
+          vertical-align: top;
+          word-break: break-word;
+        }
+
+        .detailed-print-screen-mode .print-sml-table th {
+          color: #344054;
+          font-size: 10px;
+          font-weight: 700;
+        }
+
+        .detailed-print-screen-mode .print-sml-section-row th {
+          background: #e0f2fe;
+          color: #075985;
+          font-size: 11px;
+          text-align: left;
+        }
+
+        .detailed-print-screen-mode .print-sml-doc-header th {
+          background: #f2f4f7;
+        }
+
+        .detailed-print-screen-mode .print-sml-detail-header th {
+          background: #f9fafb;
+          color: #667085;
+        }
+
+        .detailed-print-screen-mode .print-sml-doc-row td {
+          background: #ffffff;
+          color: #101828;
+          font-size: 10.5px;
+          font-weight: 600;
+        }
+
+        .detailed-print-screen-mode .print-sml-detail-row td {
+          background: #fcfcfd;
+          color: #344054;
+          font-size: 10px;
+        }
+
+        .detailed-print-screen-mode .print-sml-error-row td,
+        .detailed-print-screen-mode .print-sml-empty-row td {
+          background: #fff7ed;
+          color: #b42318;
+          font-size: 10px;
+        }
+
+        .detailed-print-screen-mode .sml-col-date {
+          width: 78px;
+        }
+
+        .detailed-print-screen-mode .sml-col-doc,
+        .detailed-print-screen-mode .sml-col-ref {
+          width: 104px;
+        }
+
+        .detailed-print-screen-mode .sml-col-time,
+        .detailed-print-screen-mode .sml-col-rate,
+        .detailed-print-screen-mode .sml-col-tax {
+          width: 58px;
+        }
+
+        .detailed-print-screen-mode .sml-col-code,
+        .detailed-print-screen-mode .sml-col-user {
+          width: 78px;
+        }
+
+        .detailed-print-screen-mode .sml-col-name {
+          width: 220px;
+        }
+
+        .detailed-print-screen-mode .sml-col-money {
+          width: 88px;
         }
 
         .detailed-print-screen-mode .print-document-list {
@@ -2144,6 +2235,109 @@ function DetailedPrintStyles() {
           color: #93370d;
           margin: 0 0 8px;
           padding: 5px 6px;
+        }
+
+        .print-sml-table-wrap {
+          overflow: visible;
+        }
+
+        .print-sml-table {
+          border-collapse: collapse;
+          table-layout: fixed;
+          width: 100%;
+        }
+
+        .print-sml-table thead {
+          display: table-header-group;
+        }
+
+        .print-sml-table th,
+        .print-sml-table td {
+          border: 1px solid #cbd5e1;
+          padding: 2.5px 3px;
+          text-align: left;
+          vertical-align: top;
+          word-break: break-word;
+        }
+
+        .print-sml-table th {
+          color: #344054;
+          font-size: 6.8px;
+          font-weight: 700;
+        }
+
+        .print-sml-table td {
+          font-size: 6.8px;
+        }
+
+        .print-sml-section-row th {
+          background: #e0f2fe;
+          color: #075985;
+          text-align: left;
+        }
+
+        .print-sml-doc-header th {
+          background: #f2f4f7;
+        }
+
+        .print-sml-detail-header th {
+          background: #f9fafb;
+          color: #667085;
+        }
+
+        .print-sml-doc-row {
+          break-after: avoid;
+          page-break-after: avoid;
+        }
+
+        .print-sml-doc-row td {
+          background: #ffffff;
+          color: #101828;
+          font-weight: 700;
+        }
+
+        .print-sml-detail-row {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .print-sml-detail-row td {
+          background: #fcfcfd;
+          color: #344054;
+        }
+
+        .print-sml-error-row td,
+        .print-sml-empty-row td {
+          background: #fff7ed;
+          color: #b42318;
+        }
+
+        .sml-col-date {
+          width: 7%;
+        }
+
+        .sml-col-doc,
+        .sml-col-ref {
+          width: 8%;
+        }
+
+        .sml-col-time,
+        .sml-col-rate,
+        .sml-col-tax {
+          width: 4.8%;
+        }
+
+        .sml-col-code,
+        .sml-col-user {
+          width: 6.3%;
+        }
+
+        .sml-col-name {
+          width: 15%;
+        }
+
+        .sml-col-money {
+          width: 7%;
         }
 
         .print-document-list {
@@ -2523,21 +2717,6 @@ function getPrimaryRanking(snapshot: ReportSnapshot) {
   }));
 }
 
-function getDocumentBranchLabel(
-  document: SalesDocumentListItem,
-  detailDocument?: SalesDocumentDetail["document"],
-) {
-  return (
-    document.resolved_branch_label ||
-    document.resolved_branch_name ||
-    formatSmlBranchLabel(
-      document.resolved_branch_code ||
-        detailDocument?.branch_code ||
-        document.branch_code,
-    )
-  );
-}
-
 function buildPresetRange(preset: "yesterday" | "month" | "quarter" | "year") {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2639,6 +2818,14 @@ function formatThaiDate(value: string) {
   }).format(new Date(year, month - 1, day));
 }
 
+function formatSmlDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return value;
+  }
+  return `${day}/${month}/${year + 543}`;
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -2665,6 +2852,10 @@ function formatMoney(value: number) {
   }).format(value || 0);
 }
 
+function formatSmlOptionalMoney(value: number) {
+  return value ? formatMoney(value) : "";
+}
+
 function formatInteger(value: number) {
   return new Intl.NumberFormat("th-TH", {
     maximumFractionDigits: 0,
@@ -2675,6 +2866,10 @@ function formatQty(value: number) {
   return new Intl.NumberFormat("th-TH", {
     maximumFractionDigits: 3,
   }).format(value || 0);
+}
+
+function formatSmlOptionalQty(value: number) {
+  return value ? formatQty(value) : "";
 }
 
 function formatSignedMoney(value: number) {
