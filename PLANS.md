@@ -39,7 +39,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
 - `/app/:tenantSlug` มี date filter/quick range สำหรับดูรายงานช่วงที่เลือกแบบ read-only โดยจำกัดช่วงไม่เกิน 31 วันใน pilot
 - `/app/:tenantSlug` มี search + pagination ในตารางบิล และ drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ด้วย approved SQL ตามช่วงวันที่ที่กำลังดู
-- `/command-center/brief` สำหรับ LINE link ใช้ mobile-first bill list + bill detail drawer แทนตารางดิบ เพื่อให้ผู้บริหารกดดูสินค้าในบิลได้โดยไม่งง
+- `/command-center/brief` สำหรับ LINE link ใช้ mobile-first bill list + bill detail drawer แทนตารางดิบ โดย drawer เรียงแบบผู้บริหารอ่านง่าย: สรุปยอดสั้น ๆ → สินค้าในบิล → หมายเหตุยอด → ข้อมูลบิล/ภาษีแบบย่อ
 - API ฝั่ง customer ใช้ `/api/app/:tenantSlug/*` และ derive tenant จาก slug ฝั่ง server เท่านั้น
 - tenant status gate: `trial`, `active`, `past_due`, `suspended`, `cancelled`
 - suspended/cancelled tenant ถูก block จาก customer viewer และ scheduler/Morning Brief send

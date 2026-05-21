@@ -718,6 +718,7 @@ function BillDetailDrawer({
 
   const difference = bill.document.total_amount - bill.detailTotal;
   const hasBillDifference = Math.abs(difference) > 0.01;
+  const cashierLabel = formatCashierLabel(bill.document.cashier_code);
 
   return (
     <div
@@ -750,7 +751,7 @@ function BillDetailDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xl leading-none text-gray-500 transition hover:bg-gray-200 hover:text-gray-800 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/15"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-base leading-none text-gray-500 transition hover:bg-gray-200 hover:text-gray-800 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/15"
                 aria-label="ปิดรายละเอียดบิล"
               >
                 ×
@@ -761,7 +762,7 @@ function BillDetailDrawer({
           <div className="flex-1 overflow-y-auto px-4 py-4">
             <div className="grid grid-cols-2 gap-3">
               <BillMetric
-                label="ยอดตามบิล"
+                label="ยอดขายบิลนี้"
                 value={`${formatMoney(bill.document.total_amount)} บาท`}
                 emphasis
               />
@@ -769,36 +770,18 @@ function BillDetailDrawer({
                 label="รายการสินค้า"
                 value={`${formatInteger(bill.lines.length)} รายการ`}
               />
-              <BillMetric label="จำนวนขายรวม" value={formatQty(bill.totalQty)} />
-              <BillMetric label="สาขา" value={formatBranchLabel(bill.branchCode)} />
+              <BillMetric label="จำนวนรวม" value={formatQty(bill.totalQty)} />
+              <BillMetric
+                label="สาขา"
+                value={formatBranchLabel(bill.branchCode)}
+                helper="รหัสสาขาจาก SML"
+              />
             </div>
-
-            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.04]">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                ข้อมูลบิล
-              </p>
-              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                <BillFact label="ลูกค้า" value={bill.document.cust_name || bill.document.cust_code || "-"} />
-                <BillFact label="แคชเชียร์" value={bill.document.cashier_code || "-"} />
-                <BillFact label="ยอดก่อนส่วนลด" value={`${formatMoney(bill.document.total_value)} บาท`} />
-                <BillFact label="ส่วนลดรวม" value={`${formatMoney(bill.document.total_discount)} บาท`} />
-                <BillFact label="VAT" value={`${formatMoney(bill.document.total_vat_value)} บาท`} />
-                <BillFact label="ยอดรายการสินค้า" value={`${formatMoney(bill.detailTotal)} บาท`} />
-              </dl>
-            </div>
-
-            {(hasReportWarning || hasBillDifference) && (
-              <p className="mt-3 rounded-lg bg-warning-50 px-3 py-2 text-sm leading-6 text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
-                ยอดตามบิลกับยอดรายการสินค้าอาจไม่เท่ากันจาก VAT ส่วนลด หรือโครงสร้างบิลของ SML
-                ระบบใช้ยอดตามบิลเป็นยอดขายหลัก
-                {hasBillDifference ? ` ส่วนต่างบิลนี้ ${formatMoney(difference)} บาท` : ""}
-              </p>
-            )}
 
             <div className="mt-5">
               <SectionTitle
                 title="สินค้าในบิลนี้"
-                caption="เรียงตามลำดับรายการจากระบบ SML"
+                caption="ดูสินค้าที่เป็นที่มาของยอดขายบิลนี้"
               />
               <div className="mt-3 space-y-2">
                 {bill.lines.length ? (
@@ -813,6 +796,37 @@ function BillDetailDrawer({
                   <EmptyInline text="ไม่พบรายการสินค้าใน snapshot ของบิลนี้" />
                 )}
               </div>
+            </div>
+
+            {(hasReportWarning || hasBillDifference) && (
+              <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm leading-6 text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
+                หมายเหตุ: ยอดขายบิลนี้กับยอดรวมสินค้าอาจไม่เท่ากันจาก VAT ส่วนลด หรือโครงสร้างบิลของ SML
+                ระบบใช้ยอดขายบิลนี้เป็นยอดขายหลัก
+                {hasBillDifference ? ` ส่วนต่างบิลนี้ ${formatMoney(difference)} บาท` : ""}
+              </p>
+            )}
+
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.04]">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                ข้อมูลบิล
+              </p>
+              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                <BillFact label="ลูกค้า" value={bill.document.cust_name || bill.document.cust_code || "-"} />
+                {cashierLabel ? (
+                  <BillFact label="ผู้ขาย/แคชเชียร์" value={cashierLabel} />
+                ) : null}
+              </dl>
+              <details className="mt-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-gray-800 dark:text-white">
+                  ข้อมูลภาษี/ส่วนลด
+                </summary>
+                <dl className="grid gap-3 border-t border-gray-100 px-3 py-3 text-sm dark:border-gray-800 sm:grid-cols-2">
+                  <BillFact label="ยอดก่อนส่วนลด" value={`${formatMoney(bill.document.total_value)} บาท`} />
+                  <BillFact label="ส่วนลดรวม" value={`${formatMoney(bill.document.total_discount)} บาท`} />
+                  <BillFact label="VAT" value={`${formatMoney(bill.document.total_vat_value)} บาท`} />
+                  <BillFact label="ยอดรวมสินค้า" value={`${formatMoney(bill.detailTotal)} บาท`} />
+                </dl>
+              </details>
             </div>
           </div>
 
@@ -835,10 +849,12 @@ function BillMetric({
   label,
   value,
   emphasis,
+  helper,
 }: {
   label: string;
   value: string;
   emphasis?: boolean;
+  helper?: string;
 }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
@@ -851,6 +867,11 @@ function BillMetric({
       >
         {value}
       </p>
+      {helper ? (
+        <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+          {helper}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1052,6 +1073,17 @@ function formatBranchLabel(branchCode: string) {
     return "รายการไม่ระบุสาขา";
   }
   return `สาขา ${branchCode}`;
+}
+
+function formatCashierLabel(value: string | null) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.toUpperCase() === "SUPERADMIN") {
+    return null;
+  }
+  return normalized;
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {

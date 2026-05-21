@@ -169,6 +169,7 @@ Rules:
 - bind `doc_no` เป็น `$3` ห้าม concat เข้า SQL
 - คืน header + detail lines เฉพาะบิลนั้น
 - ไม่ store detail ทุกแถวของช่วงใหญ่ลง snapshot เพื่อกัน payload ใหญ่เกินจำเป็น
+- LINE brief viewer ต้องแสดง drilldown แบบ mobile-first: สินค้าในบิลมาก่อนข้อมูลภาษี/ส่วนลด, ซ่อน system cashier value เช่น `SUPERADMIN`, และใช้คำธุรกิจ เช่น `ยอดขายบิลนี้`, `จำนวนรวม`, `ยอดรวมสินค้า`
 
 ## Snapshot Shape
 
