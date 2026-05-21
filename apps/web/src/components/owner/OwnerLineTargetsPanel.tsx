@@ -473,6 +473,9 @@ function formatEstimatedMonthlyMessages(summary: {
 }) {
   const knownMessages = summary.knownRecipients * 30;
   if (summary.unknownTargets) {
+    if (knownMessages === 0) {
+      return "รอระบุจำนวนผู้รับ";
+    }
     return `${knownMessages.toLocaleString("th-TH")}+ messages`;
   }
   return `${knownMessages.toLocaleString("th-TH")} messages`;
