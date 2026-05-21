@@ -3016,6 +3016,7 @@ function buildReportViewerUrl(snapshot: ReportSnapshot) {
     url.searchParams.set("report_key", snapshot.report_key);
     url.searchParams.set("run_id", snapshot.run_id);
     url.searchParams.set("token", token);
+    url.searchParams.set("openExternalBrowser", "1");
     return url.toString();
   } catch {
     return null;
