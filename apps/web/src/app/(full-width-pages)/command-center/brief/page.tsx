@@ -5,7 +5,7 @@ import CommandCenterBriefViewer, {
 } from "@/components/command-center/CommandCenterBriefViewer";
 
 export const metadata: Metadata = {
-  title: "รายงานขายสินค้าและบริการ | AI Business Center",
+  title: "รายงานผู้บริหาร | AI Business Center",
 };
 
 export default function CommandCenterBriefPage() {

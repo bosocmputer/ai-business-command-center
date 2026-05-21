@@ -9,6 +9,7 @@ import {
   type BranchSales,
   type ReportKey,
   type ReportSnapshot,
+  type SalesComparisonPoint,
   type SalesDetailRow,
   type SalesDocumentDetail,
   type SalesDocumentListItem,
@@ -261,6 +262,10 @@ function PremiumReportViewer({
     snapshot.quality_status === "reconciled_with_warning" ||
     Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
 
+  useEffect(() => {
+    document.title = `${copy.title} | AI Business Center`;
+  }, [copy.title]);
+
   const runRange = useCallback(
     async (nextDateFrom = dateFrom, nextDateTo = dateTo) => {
       setRangeLoading(true);
@@ -438,12 +443,21 @@ function PremiumReportViewer({
                 · อัปเดต {generatedAt}
               </p>
             </div>
-            <a
-              href="#documents"
-              className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
-            >
-              ดูรายละเอียดเอกสาร
-            </a>
+            <div className="flex flex-wrap gap-2 print:hidden">
+              <button
+                className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm transition hover:bg-[#F9FAFB]"
+                onClick={() => window.print()}
+                type="button"
+              >
+                พิมพ์/PDF
+              </button>
+              <a
+                href="#documents"
+                className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+              >
+                ดูรายละเอียดเอกสาร
+              </a>
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -469,44 +483,6 @@ function PremiumReportViewer({
       </div>
 
       <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
-        <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div>
-              <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
-                เลือกช่วงรายงาน
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <PresetButton label="เมื่อวาน" onClick={() => applyPreset("yesterday")} />
-                <PresetButton label="เดือนนี้" onClick={() => applyPreset("month")} />
-                <PresetButton label="ไตรมาสนี้" onClick={() => applyPreset("quarter")} />
-                <PresetButton label="ปีนี้" onClick={() => applyPreset("year")} />
-              </div>
-            </div>
-            <form
-              className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void runRange();
-              }}
-            >
-              <DateInput label="จากวันที่" value={dateFrom} onChange={setDateFrom} />
-              <DateInput label="ถึงวันที่" value={dateTo} onChange={setDateTo} />
-              <button
-                className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
-                disabled={rangeLoading}
-                type="submit"
-              >
-                {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
-              </button>
-            </form>
-          </div>
-          {rangeError && (
-            <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
-              {rangeError}
-            </p>
-          )}
-        </section>
-
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
           <div className="space-y-4">
             <ExecutiveInsights
@@ -544,6 +520,44 @@ function PremiumReportViewer({
             <TrustPanel snapshot={snapshot} />
           </aside>
         </div>
+
+        <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+                เลือกช่วงรายงาน
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <PresetButton label="เมื่อวาน" onClick={() => applyPreset("yesterday")} />
+                <PresetButton label="เดือนนี้" onClick={() => applyPreset("month")} />
+                <PresetButton label="ไตรมาสนี้" onClick={() => applyPreset("quarter")} />
+                <PresetButton label="ปีนี้" onClick={() => applyPreset("year")} />
+              </div>
+            </div>
+            <form
+              className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runRange();
+              }}
+            >
+              <DateInput label="จากวันที่" value={dateFrom} onChange={setDateFrom} />
+              <DateInput label="ถึงวันที่" value={dateTo} onChange={setDateTo} />
+              <button
+                className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
+                disabled={rangeLoading}
+                type="submit"
+              >
+                {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
+              </button>
+            </form>
+          </div>
+          {rangeError && (
+            <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
+              {rangeError}
+            </p>
+          )}
+        </section>
 
         <section
           id="documents"
@@ -788,29 +802,59 @@ function ChartPanel({
 }
 
 function ComparisonPanel({ snapshot }: { snapshot: ReportSnapshot }) {
+  const total = getSnapshotTotal(snapshot);
+  const dayCount = getInclusiveDayCount(
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
+  const averagePerDay = dayCount > 0 ? total / dayCount : total;
+  const averagePerDocument =
+    snapshot.summary.document_count > 0
+      ? total / snapshot.summary.document_count
+      : null;
   const comparison =
     snapshot.report_key === "sales_goods_services" ? snapshot.comparison : null;
+  const previousDay = comparison?.previous_day ?? null;
+  const sameWeekdayLastWeek = comparison?.same_weekday_last_week ?? null;
   return (
     <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
       <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
-        เทียบยอด
+        แนวโน้มและค่าเฉลี่ย
       </h2>
+      <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+        ใช้ช่วยอ่านภาพรวมเร็ว ๆ ก่อนลงรายละเอียดเอกสาร
+      </p>
       <div className="mt-3 space-y-2">
         <ComparisonRow
-          title="ช่วงก่อนหน้า"
+          title="เฉลี่ยต่อวัน"
+          value={`${formatMoney(averagePerDay)} บาท`}
+        />
+        <ComparisonRow
+          title="เฉลี่ยต่อเอกสาร"
           value={
-            comparison?.previous_day
-              ? `${formatSignedMoney(
-                  comparison.previous_day.difference_amount,
-                )} บาท`
-              : "ยังไม่มีข้อมูลอ้างอิง"
+            averagePerDocument === null
+              ? "ยังไม่มีเอกสาร"
+              : `${formatMoney(averagePerDocument)} บาท`
           }
         />
         <ComparisonRow
-          title="ช่วงเดียวกันปีก่อน"
-          value="กำลังเตรียมข้อมูลเปรียบเทียบรายปี"
+          title="ช่วงก่อนหน้า"
+          value={previousDay ? formatComparisonPoint(previousDay) : "ยังไม่มีข้อมูลอ้างอิง"}
+        />
+        <ComparisonRow
+          title="วันเดียวกันสัปดาห์ก่อน"
+          value={
+            sameWeekdayLastWeek
+              ? formatComparisonPoint(sameWeekdayLastWeek)
+              : snapshot.report_key === "sales_goods_services"
+                ? "ยังไม่มีข้อมูลอ้างอิง"
+                : "จะเปิดเมื่อเริ่มเก็บ baseline รายงานซื้อ"
+          }
         />
       </div>
+      <p className="mt-3 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-3 py-2 text-[12px] leading-[18px] text-[#667085]">
+        เทียบช่วงเดียวกันปีก่อนจะเปิดหลังมีข้อมูลย้อนหลังครบพอสำหรับแต่ละร้าน
+      </p>
     </section>
   );
 }
@@ -1403,4 +1447,52 @@ function formatSignedMoney(value: number) {
     return `-${formatted}`;
   }
   return formatted;
+}
+
+function formatComparisonPoint(point: SalesComparisonPoint) {
+  if (point.direction === "no_reference") {
+    return "ยังไม่มีข้อมูลอ้างอิง";
+  }
+
+  const directionText =
+    point.direction === "up"
+      ? "เพิ่มขึ้น"
+      : point.direction === "down"
+        ? "ลดลง"
+        : "ใกล้เคียงเดิม";
+  const percentText =
+    point.difference_percent === null
+      ? ""
+      : ` (${formatPercent(point.difference_percent)})`;
+
+  return `${directionText} ${formatSignedMoney(point.difference_amount)} บาท${percentText}`;
+}
+
+function formatPercent(value: number) {
+  const formatted = new Intl.NumberFormat("th-TH", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 0,
+  }).format(Math.abs(value));
+  return `${value > 0 ? "+" : value < 0 ? "-" : ""}${formatted}%`;
+}
+
+function getInclusiveDayCount(dateFrom: string, dateTo: string) {
+  const from = parseIsoDate(dateFrom);
+  const to = parseIsoDate(dateTo);
+  if (!from || !to) {
+    return 1;
+  }
+  const diffMs = to.getTime() - from.getTime();
+  if (diffMs < 0) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(diffMs / 86_400_000) + 1);
+}
+
+function parseIsoDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
 }
