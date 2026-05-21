@@ -12,7 +12,7 @@ import {
 } from "@ai-bcc/shared";
 import type { ReportPdfRows } from "./report-runner.js";
 
-export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v2";
+export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v3";
 export const REPORT_PDF_MAX_DOCUMENTS = 300;
 export const REPORT_PDF_MAX_DETAIL_ROWS = 5000;
 export const REPORT_PDF_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -331,6 +331,10 @@ export function renderReportPdfHtml(input: {
       break-before: page;
       page-break-before: always;
     }
+    .doc-row.page-start {
+      break-before: page;
+      page-break-before: always;
+    }
     .empty-row td {
       border-bottom: 0;
       color: #666666;
@@ -360,16 +364,17 @@ export function renderReportPdfHtml(input: {
       border-bottom: 0.7px solid #111111;
       font-weight: 700;
     }
-    .col-date { width: 6.6%; }
-    .col-doc { width: 7.2%; }
-    .col-time { width: 4.6%; }
-    .col-ref { width: 7.6%; }
-    .col-code { width: 6.6%; }
-    .col-name { width: 10.2%; }
-    .col-money { width: 7.2%; }
-    .col-rate { width: 4.3%; }
+    .col-date { width: 6%; }
+    .col-doc { width: 7%; }
+    .col-time { width: 4.2%; }
+    .col-ref-date { width: 6%; }
+    .col-ref { width: 6.3%; }
+    .col-code { width: 6%; }
+    .col-name { width: 11.5%; }
+    .col-money { width: 6.4%; }
+    .col-rate { width: 4%; }
     .col-tax { width: 4.5%; }
-    .col-user { width: 5.8%; }
+    .col-user { width: 6%; }
   </style>
 </head>
 <body>
@@ -383,6 +388,7 @@ export function renderReportPdfHtml(input: {
       <col class="col-date" />
       <col class="col-doc" />
       <col class="col-time" />
+      <col class="col-ref-date" />
       <col class="col-ref" />
       <col class="col-code" />
       <col class="col-name" />
@@ -401,6 +407,7 @@ export function renderReportPdfHtml(input: {
         <th>เอกสารวันที่</th>
         <th>เอกสารเลขที่</th>
         <th>เวลา</th>
+        <th>วันที่อ้างอิง</th>
         <th>เอกสารอ้างอิง</th>
         <th>รหัส${escapeHtml(copy.partyLabel)}</th>
         <th>ชื่อ${escapeHtml(copy.partyLabel)}</th>
@@ -417,7 +424,7 @@ export function renderReportPdfHtml(input: {
       <tr class="detail-head">
         <th></th>
         <th colspan="2">รหัสสินค้า</th>
-        <th colspan="3">ชื่อสินค้า</th>
+        <th colspan="4">ชื่อสินค้า</th>
         <th>คลัง</th>
         <th>พื้นที่เก็บ</th>
         <th>หน่วยนับ</th>
@@ -441,7 +448,7 @@ export function renderReportPdfHtml(input: {
         .join("")}
     <tbody class="report-total">
       <tr class="total-row">
-        <td colspan="6" class="numeric">รวมทั้งหมด</td>
+        <td colspan="7" class="numeric">รวมทั้งหมด</td>
         <td class="numeric">${escapeHtml(formatMoney(totals.totalValue))}</td>
         <td class="numeric">${escapeHtml(formatOptionalMoney(totals.totalDiscount))}</td>
         <td class="numeric">${escapeHtml(formatMoney(totals.totalExceptDiscount))}</td>
@@ -503,11 +510,14 @@ function renderDocumentRows(input: {
   partyLabel: string;
 }) {
   const party = input.document.cust_name || input.document.cust_code || "-";
-  const groupClass = input.lines.length <= 5 ? "document-group small" : "document-group";
-  const docRow = `<tr class="doc-row">
+  const isLargeDocument = input.lines.length > 5;
+  const groupClass = isLargeDocument ? "document-group large" : "document-group small";
+  const forcePageStart = isLargeDocument && input.index > 1;
+  const docRow = `<tr class="doc-row${forcePageStart ? " page-start" : ""}">
     <td>${escapeHtml(formatSmlDate(input.document.doc_date))}</td>
     <td>${escapeHtml(input.document.doc_no)}<span class="muted">#${escapeHtml(formatInteger(input.index))}</span></td>
     <td>${escapeHtml(input.document.doc_time ? formatTime(input.document.doc_time) : "")}</td>
+    <td>${escapeHtml(input.document.doc_ref_date ? formatSmlDate(input.document.doc_ref_date) : "")}</td>
     <td>${escapeHtml(input.document.doc_ref || "")}</td>
     <td>${escapeHtml(input.document.cust_code || "")}</td>
     <td>${escapeHtml(party)}</td>
@@ -523,7 +533,7 @@ function renderDocumentRows(input: {
   </tr>`;
 
   if (!input.lines.length) {
-    return `<tbody class="${groupClass}">${docRow}<tr class="empty-row"><td colspan="15">ไม่พบรายละเอียดสินค้าในเอกสารนี้</td></tr></tbody>`;
+    return `<tbody class="${groupClass}">${docRow}<tr class="empty-row"><td colspan="16">ไม่พบรายละเอียดสินค้าในเอกสารนี้</td></tr></tbody>`;
   }
 
   const detailRows = chunkDetailRows(input.lines, 24)
@@ -531,14 +541,14 @@ function renderDocumentRows(input: {
       const continuationRow =
         chunkIndex === 0
           ? ""
-          : `<tr class="continuation-row page-start"><td colspan="15">ต่อจากเอกสาร ${escapeHtml(input.document.doc_no)} / ${escapeHtml(party)}</td></tr>`;
+          : `<tr class="continuation-row page-start"><td colspan="16">ต่อจากเอกสาร ${escapeHtml(input.document.doc_no)} / ${escapeHtml(party)}</td></tr>`;
 
       return `${continuationRow}${chunk
         .map(
           (line) => `<tr class="detail-row">
     <td></td>
     <td class="item-code" colspan="2">${escapeHtml(line.item_code || "")}</td>
-    <td class="item-name" colspan="3">${escapeHtml(line.item_name || "")}</td>
+    <td class="item-name" colspan="4">${escapeHtml(line.item_name || "")}</td>
     <td>${escapeHtml(line.wh_code || "")}</td>
     <td>${escapeHtml(line.shelf_code || "")}</td>
     <td>${escapeHtml(line.unit_name || line.unit_code || "")}</td>

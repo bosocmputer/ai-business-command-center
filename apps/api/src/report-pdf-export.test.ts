@@ -10,8 +10,8 @@ import {
 import type { ReportPdfRows } from "./report-runner.js";
 
 describe("report PDF export", () => {
-  it("uses the SML row v2 layout version for cache invalidation", () => {
-    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v2");
+  it("uses the SML row v3 layout version for cache invalidation", () => {
+    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v3");
   });
 
   it("builds a cache key bound to tenant, report, run, date range, and layout", () => {
@@ -77,6 +77,7 @@ describe("report PDF export", () => {
           doc_date: "2026-05-20",
           doc_no: "SO-1",
           doc_time: "09:00:00",
+          doc_ref_date: "2026-05-19",
           doc_ref: "<script>alert(1)</script>",
           cust_code: "C001",
           cust_name: "ACME <Limited>",
@@ -173,6 +174,7 @@ describe("report PDF export", () => {
           doc_date: "2026-05-05",
           doc_no: "SO-1",
           doc_time: "09:00:00",
+          doc_ref_date: "2026-05-04",
           doc_ref: null,
           cust_code: "C001",
           cust_name: "ACME",
@@ -200,6 +202,7 @@ describe("report PDF export", () => {
 
     expect(html).toContain("จากวันที่ : 05/5/2569 ถึงวันที่ : 20/5/2569");
     expect(html).toContain("<td>05/5/2569</td>");
+    expect(html).toContain("<td>04/5/2569</td>");
     expect(html).toContain('<td class="numeric">7.00</td>');
     expect(html).not.toContain(">2026-05-05<");
     expect(html).not.toContain("2026-05-05 ถึงวันที่");
@@ -217,6 +220,7 @@ describe("report PDF export", () => {
           doc_date: "2026-05-20",
           doc_no: "SO-1",
           doc_time: "09:00:00",
+          doc_ref_date: "2026-05-19",
           doc_ref: null,
           cust_code: "C001",
           cust_name: "ACME",
@@ -265,11 +269,54 @@ describe("report PDF export", () => {
     });
 
     expect(html).toContain('<td class="item-code" colspan="2">SKU-1</td>');
-    expect(html).toContain('<td class="item-name" colspan="3">สินค้า</td>');
+    expect(html).toContain('<td class="item-name" colspan="4">สินค้า</td>');
     expect(html).toContain('<td class="numeric">1.00</td>');
     expect(html).not.toContain("<td>20/5/2569</td>\n    <td>ACME</td>");
     expect(html).not.toContain("รหัสสินค้า / Barcode");
     expect(html).not.toContain("Barcode:");
+  });
+
+  it("starts large document groups on a new page and marks continuation chunks", () => {
+    const snapshot = buildSnapshot();
+    const firstDocument = buildHeaderRow({
+      rownum: 1,
+      doc_date: "2026-05-19",
+      doc_no: "SO-0",
+      cust_name: "First customer",
+    });
+    const largeDocument = buildHeaderRow({
+      rownum: 2,
+      doc_date: "2026-05-20",
+      doc_no: "SO-LARGE",
+      cust_name: "Large customer",
+    });
+    const rows: ReportPdfRows = {
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+      params: snapshot.params,
+      documents: [firstDocument, largeDocument],
+      lines: [
+        buildDetailRow({ doc_date: "2026-05-19", doc_no: "SO-0", item_code: "SKU-0" }),
+        ...Array.from({ length: 25 }, (_, index) =>
+          buildDetailRow({
+            doc_date: "2026-05-20",
+            doc_no: "SO-LARGE",
+            item_code: `SKU-${index + 1}`,
+          }),
+        ),
+      ],
+    };
+
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows,
+      params: snapshot.params,
+    });
+
+    expect(html).toContain('<tr class="doc-row page-start">');
+    expect(html).toContain("ต่อจากเอกสาร SO-LARGE / Large customer");
+    expect(html).toContain('<td colspan="16">ต่อจากเอกสาร SO-LARGE / Large customer</td>');
   });
 });
 
@@ -307,5 +354,54 @@ function buildSnapshot(): ReportSnapshot {
       title: "Morning Brief",
       body: [],
     },
+  };
+}
+
+function buildHeaderRow(overrides: Partial<ReportPdfRows["documents"][number]> = {}) {
+  return {
+    rownum: 1,
+    doc_date: "2026-05-20",
+    doc_no: "SO-1",
+    doc_time: "09:00:00",
+    doc_ref_date: null,
+    doc_ref: null,
+    cust_code: "C001",
+    cust_name: "ACME",
+    branch_code: "00",
+    total_value: 100,
+    total_discount: 0,
+    total_except_discount: 100,
+    total_except_vat: 93.46,
+    vat_rate: 7,
+    total_vat_value: 6.54,
+    vat_type: "I",
+    total_amount: 100,
+    cashier_code: "U1",
+    ...overrides,
+  };
+}
+
+function buildDetailRow(overrides: Partial<ReportPdfRows["lines"][number]> = {}) {
+  return {
+    doc_date: "2026-05-20",
+    doc_no: "SO-1",
+    doc_time: "09:00:00",
+    cust_code: "C001",
+    cust_name: "ACME",
+    branch_code: "00",
+    item_code: "SKU-1",
+    barcode: "8850000000001",
+    item_name: "สินค้า",
+    wh_code: "WH",
+    shelf_code: "A1",
+    unit_code: "PCS",
+    unit_name: "ชิ้น",
+    qty: 1,
+    price: 100,
+    discount: null,
+    discount_amount: 0,
+    sum_amount: 100,
+    vat_type: "I",
+    ...overrides,
   };
 }

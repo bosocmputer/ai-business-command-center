@@ -71,7 +71,7 @@ const DETAILED_PRINT_PAGE_SIZE = 50;
 const DETAILED_PRINT_MAX_DOCUMENTS = 300;
 const DETAILED_PRINT_MAX_DETAIL_LINES = 5000;
 const DETAILED_PRINT_DETAIL_CONCURRENCY = 4;
-const REPORT_PDF_LAYOUT_VERSION = "sml-row-v2";
+const REPORT_PDF_LAYOUT_VERSION = "sml-row-v3";
 
 type DetailedPrintDocument = {
   document: SalesDocumentListItem;
