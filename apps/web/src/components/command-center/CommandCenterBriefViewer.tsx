@@ -67,6 +67,36 @@ type ViewerParams = {
   token: string;
 };
 
+const DETAILED_PRINT_PAGE_SIZE = 50;
+const DETAILED_PRINT_MAX_DOCUMENTS = 1000;
+const DETAILED_PRINT_DETAIL_CONCURRENCY = 4;
+
+type DetailedPrintDocument = {
+  document: SalesDocumentListItem;
+  detail: SalesDocumentDetail | null;
+  error: string | null;
+};
+
+type DetailedPrintState =
+  | { status: "idle" }
+  | {
+      status: "loading";
+      phase: "documents" | "details";
+      totalDocuments: number | null;
+      loadedDocuments: number;
+      loadedDetails: number;
+    }
+  | {
+      status: "ready";
+      generatedAt: string;
+      dateFrom: string;
+      dateTo: string;
+      reportKey: ReportKey;
+      totalDocuments: number;
+      documents: DetailedPrintDocument[];
+    }
+  | { status: "error"; message: string };
+
 type ReportCopy = {
   title: string;
   shortTitle: string;
@@ -252,6 +282,8 @@ function PremiumReportViewer({
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
+  const [detailedPrintState, setDetailedPrintState] =
+    useState<DetailedPrintState>({ status: "idle" });
 
   const copy = reportCopy[snapshot.report_key];
   const totalAmount = getSnapshotTotal(snapshot);
@@ -265,6 +297,15 @@ function PremiumReportViewer({
   useEffect(() => {
     document.title = `${copy.title} | AI Business Center`;
   }, [copy.title]);
+
+  useEffect(() => {
+    setDetailedPrintState({ status: "idle" });
+  }, [
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+    snapshot.report_key,
+    snapshot.run_id,
+  ]);
 
   const runRange = useCallback(
     async (nextDateFrom = dateFrom, nextDateTo = dateTo) => {
@@ -396,6 +437,182 @@ function PremiumReportViewer({
     }
   }
 
+  async function fetchPrintDocumentPage(nextPage: number) {
+    const params = new URLSearchParams({
+      token: viewer.token,
+      run_id: viewer.runId,
+      date_from: snapshot.params.date_from,
+      date_to: snapshot.params.date_to,
+      page: String(nextPage),
+      page_size: String(DETAILED_PRINT_PAGE_SIZE),
+      search: "",
+    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/reports/${encodeURIComponent(
+        viewer.tenantId,
+      )}/${encodeURIComponent(viewer.reportKey)}/viewer-documents?${params}`,
+    );
+    const payload = (await response.json()) as DocumentPageResponse;
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.error || "โหลดรายการเอกสารสำหรับ PDF ไม่สำเร็จ");
+    }
+    return payload.data;
+  }
+
+  async function fetchPrintDocumentDetail(document: SalesDocumentListItem) {
+    const params = new URLSearchParams({
+      token: viewer.token,
+      run_id: viewer.runId,
+      date_from: snapshot.params.date_from,
+      date_to: snapshot.params.date_to,
+      doc_no: document.doc_no,
+    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/reports/${encodeURIComponent(
+        viewer.tenantId,
+      )}/${encodeURIComponent(viewer.reportKey)}/viewer-document-detail?${params}`,
+    );
+    const payload = (await response.json()) as DocumentDetailResponse;
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.error || "โหลดรายละเอียดเอกสารไม่สำเร็จ");
+    }
+    return payload.data;
+  }
+
+  async function prepareDetailedPrint() {
+    if (
+      detailedPrintState.status === "ready" &&
+      detailedPrintState.reportKey === snapshot.report_key &&
+      detailedPrintState.dateFrom === snapshot.params.date_from &&
+      detailedPrintState.dateTo === snapshot.params.date_to
+    ) {
+      window.print();
+      return;
+    }
+
+    setDetailedPrintState({
+      status: "loading",
+      phase: "documents",
+      totalDocuments: null,
+      loadedDocuments: 0,
+      loadedDetails: 0,
+    });
+
+    try {
+      const firstPage = await fetchPrintDocumentPage(1);
+      const totalDocuments = firstPage.pagination.total_items;
+      if (totalDocuments > DETAILED_PRINT_MAX_DOCUMENTS) {
+        throw new Error(
+          `ช่วงนี้มี ${formatInteger(
+            totalDocuments,
+          )} เอกสาร ซึ่งมากเกินสำหรับ PDF รายละเอียดในเบราว์เซอร์ กรุณาเลือกช่วงวันที่ให้ไม่เกิน ${formatInteger(
+            DETAILED_PRINT_MAX_DOCUMENTS,
+          )} เอกสาร`,
+        );
+      }
+
+      const documents = [...firstPage.documents];
+      setDetailedPrintState({
+        status: "loading",
+        phase: "documents",
+        totalDocuments,
+        loadedDocuments: documents.length,
+        loadedDetails: 0,
+      });
+
+      for (let nextPage = 2; nextPage <= firstPage.pagination.total_pages; nextPage += 1) {
+        const pageResult = await fetchPrintDocumentPage(nextPage);
+        documents.push(...pageResult.documents);
+        setDetailedPrintState({
+          status: "loading",
+          phase: "documents",
+          totalDocuments,
+          loadedDocuments: documents.length,
+          loadedDetails: 0,
+        });
+      }
+
+      const detailedDocuments: DetailedPrintDocument[] = new Array(
+        documents.length,
+      );
+      let cursor = 0;
+      let loadedDetails = 0;
+
+      setDetailedPrintState({
+        status: "loading",
+        phase: "details",
+        totalDocuments,
+        loadedDocuments: documents.length,
+        loadedDetails: 0,
+      });
+
+      async function worker() {
+        for (;;) {
+          const currentIndex = cursor;
+          cursor += 1;
+          if (currentIndex >= documents.length) {
+            return;
+          }
+          const document = documents[currentIndex];
+          try {
+            detailedDocuments[currentIndex] = {
+              document,
+              detail: await fetchPrintDocumentDetail(document),
+              error: null,
+            };
+          } catch (error) {
+            detailedDocuments[currentIndex] = {
+              document,
+              detail: null,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "โหลดรายละเอียดเอกสารนี้ไม่สำเร็จ",
+            };
+          } finally {
+            loadedDetails += 1;
+            setDetailedPrintState({
+              status: "loading",
+              phase: "details",
+              totalDocuments,
+              loadedDocuments: documents.length,
+              loadedDetails,
+            });
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({
+          length: Math.min(
+            DETAILED_PRINT_DETAIL_CONCURRENCY,
+            Math.max(1, documents.length),
+          ),
+        }).map(() => worker()),
+      );
+
+      const readyState: DetailedPrintState = {
+        status: "ready",
+        generatedAt: new Date().toISOString(),
+        dateFrom: snapshot.params.date_from,
+        dateTo: snapshot.params.date_to,
+        reportKey: snapshot.report_key,
+        totalDocuments,
+        documents: detailedDocuments,
+      };
+      setDetailedPrintState(readyState);
+      window.setTimeout(() => window.print(), 350);
+    } catch (error) {
+      setDetailedPrintState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "เตรียมรายงาน PDF แบบละเอียดไม่สำเร็จ",
+      });
+    }
+  }
+
   function applyPreset(preset: "yesterday" | "month" | "quarter" | "year") {
     const range = buildPresetRange(preset);
     setDateFrom(range.date_from);
@@ -407,9 +624,16 @@ function PremiumReportViewer({
     documentsState.status === "ready" ? documentsState.page : null;
   const documents = documentPage?.documents ?? [];
   const totalPages = documentPage?.pagination.total_pages ?? 1;
+  const isDetailedPrintReady = detailedPrintState.status === "ready";
 
   return (
-    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+    <main
+      className={`min-h-screen bg-[#F6F7F9] text-[#101828] ${
+        isDetailedPrintReady ? "detailed-print-ready" : ""
+      }`}
+    >
+      <DetailedPrintStyles />
+      <div className="screen-report-viewer">
       <div className="border-b border-[#E4E7EC] bg-white">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -445,11 +669,16 @@ function PremiumReportViewer({
             </div>
             <div className="flex flex-wrap gap-2 print:hidden">
               <button
-                className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm transition hover:bg-[#F9FAFB]"
-                onClick={() => window.print()}
+                className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm transition hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={detailedPrintState.status === "loading"}
+                onClick={() => void prepareDetailedPrint()}
                 type="button"
               >
-                พิมพ์/PDF
+                {detailedPrintState.status === "ready"
+                  ? "พิมพ์/PDF อีกครั้ง"
+                  : detailedPrintState.status === "loading"
+                    ? "กำลังเตรียม PDF"
+                    : "พิมพ์/PDF แบบละเอียด"}
               </button>
               <a
                 href="#documents"
@@ -479,6 +708,10 @@ function PremiumReportViewer({
               value={formatQty(snapshot.summary.total_qty)}
             />
           </div>
+          <DetailedPrintNotice
+            state={detailedPrintState}
+            onPrintAgain={() => window.print()}
+          />
         </div>
       </div>
 
@@ -653,6 +886,12 @@ function PremiumReportViewer({
           )}
         </section>
       </div>
+      </div>
+      <DetailedPrintReport
+        copy={copy}
+        printState={detailedPrintState}
+        snapshot={snapshot}
+      />
     </main>
   );
 }
@@ -1116,6 +1355,470 @@ function LineItem({ index, line }: { index: number; line: SalesDetailRow }) {
   );
 }
 
+function DetailedPrintNotice({
+  state,
+  onPrintAgain,
+}: {
+  state: DetailedPrintState;
+  onPrintAgain: () => void;
+}) {
+  if (state.status === "idle") {
+    return null;
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="mt-4 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-4 py-3 text-[14px] leading-[22px] text-[#B42318] print:hidden">
+        {state.message}
+      </div>
+    );
+  }
+
+  if (state.status === "ready") {
+    const failedCount = state.documents.filter((item) => item.error).length;
+    return (
+      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-[#ABEFC6] bg-[#ECFDF3] px-4 py-3 text-[14px] leading-[22px] text-[#027A48] sm:flex-row sm:items-center sm:justify-between print:hidden">
+        <span>
+          รายงาน PDF แบบละเอียดพร้อมพิมพ์แล้ว ·{" "}
+          {formatInteger(state.totalDocuments)} เอกสาร
+          {failedCount ? ` · มี ${formatInteger(failedCount)} เอกสารที่โหลดรายละเอียดไม่ครบ` : ""}
+        </span>
+        <button
+          className="h-9 rounded-lg bg-[#027A48] px-4 text-[14px] font-semibold leading-[22px] text-white"
+          onClick={onPrintAgain}
+          type="button"
+        >
+          เปิดหน้าพิมพ์อีกครั้ง
+        </button>
+      </div>
+    );
+  }
+
+  const total = state.totalDocuments ?? state.loadedDocuments;
+  const loaded =
+    state.phase === "documents" ? state.loadedDocuments : state.loadedDetails;
+  const progress =
+    total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 12;
+  const label =
+    state.phase === "documents"
+      ? "กำลังโหลดหัวเอกสาร"
+      : "กำลังโหลดรายละเอียดสินค้าในเอกสาร";
+
+  return (
+    <div className="mt-4 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 print:hidden">
+      <div className="flex items-center justify-between gap-3 text-[14px] leading-[22px]">
+        <span className="font-semibold text-[#1D4ED8]">{label}</span>
+        <span className="text-[#475467]">
+          {formatInteger(loaded)}
+          {total ? ` / ${formatInteger(total)}` : ""} เอกสาร
+        </span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+        <div
+          className="h-full rounded-full bg-[#2563EB] transition-all"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="mt-2 text-[12px] leading-[18px] text-[#667085]">
+        รายงานละเอียดจะดึงข้อมูลจาก SML ตามช่วงวันที่นี้ แล้วจัดหน้าเป็นแนวนอนสำหรับพิมพ์/PDF
+      </p>
+    </div>
+  );
+}
+
+function DetailedPrintReport({
+  copy,
+  printState,
+  snapshot,
+}: {
+  copy: ReportCopy;
+  printState: DetailedPrintState;
+  snapshot: ReportSnapshot;
+}) {
+  if (printState.status !== "ready") {
+    return <section aria-hidden="true" className="detailed-print-report" />;
+  }
+
+  const totalLines = printState.documents.reduce(
+    (sum, item) => sum + (item.detail?.lines.length ?? 0),
+    0,
+  );
+  const failedCount = printState.documents.filter((item) => item.error).length;
+
+  return (
+    <section className="detailed-print-report bg-white text-[#101828]">
+      <div className="print-page">
+        <header className="print-report-header">
+          <div>
+            <p className="print-eyebrow">AI Business Center · รายงานละเอียดจาก SML</p>
+            <h1>{copy.title}</h1>
+            <p className="print-subtitle">
+              {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+              {formatReportPeriod(printState.dateFrom, printState.dateTo)}
+            </p>
+          </div>
+          <div className="print-header-meta">
+            <p>จัดทำเมื่อ {formatDateTime(printState.generatedAt)}</p>
+            <p>Run ID: {snapshot.run_id}</p>
+          </div>
+        </header>
+
+        <section className="print-summary-grid">
+          <PrintSummaryItem label={copy.totalLabel} value={`${formatMoney(getSnapshotTotal(snapshot))} บาท`} />
+          <PrintSummaryItem label={copy.documentLabel} value={`${formatInteger(snapshot.summary.document_count)} ใบ`} />
+          <PrintSummaryItem label={copy.lineLabel} value={`${formatInteger(snapshot.summary.line_count)} รายการ`} />
+          <PrintSummaryItem label={copy.qtyLabel} value={formatQty(snapshot.summary.total_qty)} />
+          <PrintSummaryItem label="เอกสารใน PDF" value={`${formatInteger(printState.totalDocuments)} ใบ`} />
+          <PrintSummaryItem label="แถวรายละเอียด" value={`${formatInteger(totalLines)} แถว`} />
+        </section>
+
+        {failedCount > 0 && (
+          <p className="print-warning">
+            หมายเหตุ: มี {formatInteger(failedCount)} เอกสารที่โหลดรายละเอียดไม่ครบ
+            กรุณาตรวจซ้ำในหน้ารายงานออนไลน์
+          </p>
+        )}
+
+        <table className="print-document-table">
+          <thead>
+            <tr>
+              <th>ลำดับ</th>
+              <th>วันที่/เวลา</th>
+              <th>เลขเอกสาร</th>
+              <th>{copy.partyLabel}</th>
+              <th>รหัส</th>
+              <th>ผู้ทำรายการ</th>
+              <th>สาขา</th>
+              <th className="numeric">ยอดก่อนลด</th>
+              <th className="numeric">ส่วนลด / VAT</th>
+              <th className="numeric">ยอดสุทธิ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {printState.documents.map((entry, index) => (
+              <DetailedPrintDocumentGroup
+                entry={entry}
+                index={index + 1}
+                key={`${entry.document.doc_date}-${entry.document.doc_no}`}
+              />
+            ))}
+          </tbody>
+        </table>
+
+        <footer className="print-footer">
+          รายงานนี้ใช้ยอดหัวเอกสารจาก SML เป็นยอดหลัก และแสดงรายละเอียดสินค้าเพื่ออธิบายที่มาของยอดเอกสาร
+        </footer>
+      </div>
+    </section>
+  );
+}
+
+function PrintSummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="print-summary-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function DetailedPrintDocumentGroup({
+  entry,
+  index,
+}: {
+  entry: DetailedPrintDocument;
+  index: number;
+}) {
+  const document = entry.detail?.document ?? entry.document;
+  const party = document.cust_name || document.cust_code || "-";
+  const branchLabel = getDocumentBranchLabel(entry.document, document);
+  const lines = entry.detail?.lines ?? [];
+  const discountAndVat = `${formatMoney(document.total_discount)} / ${formatMoney(
+    document.total_vat_value,
+  )}`;
+
+  return (
+    <>
+      <tr className="print-document-row">
+        <td>{formatInteger(index)}</td>
+        <td>
+          {formatThaiDate(document.doc_date)}
+          {document.doc_time ? ` ${formatTime(document.doc_time)}` : ""}
+        </td>
+        <td>
+          <strong>{document.doc_no}</strong>
+          {document.doc_ref ? <span className="print-muted">อ้างอิง {document.doc_ref}</span> : null}
+        </td>
+        <td>{party}</td>
+        <td>{document.cust_code || "-"}</td>
+        <td>{document.cashier_code || "-"}</td>
+        <td>{branchLabel}</td>
+        <td className="numeric">{formatMoney(document.total_value)}</td>
+        <td className="numeric">{discountAndVat}</td>
+        <td className="numeric">
+          <strong>{formatMoney(document.total_amount)}</strong>
+        </td>
+      </tr>
+      <tr className="print-detail-row">
+        <td colSpan={10}>
+          {entry.error ? (
+            <div className="print-detail-error">{entry.error}</div>
+          ) : (
+            <table className="print-line-table">
+              <thead>
+                <tr>
+                  <th>รายการ</th>
+                  <th>รหัสสินค้า</th>
+                  <th>Barcode</th>
+                  <th>ชื่อสินค้า</th>
+                  <th>คลัง</th>
+                  <th>ที่เก็บ</th>
+                  <th>หน่วย</th>
+                  <th className="numeric">จำนวน</th>
+                  <th className="numeric">ราคา</th>
+                  <th>ส่วนลด</th>
+                  <th className="numeric">ส่วนลดเงิน</th>
+                  <th>VAT/Tax</th>
+                  <th className="numeric">ยอดรายการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.length ? (
+                  lines.map((line, lineIndex) => (
+                    <tr key={`${line.doc_no}-${line.line_number ?? lineIndex}`}>
+                      <td>{formatInteger(lineIndex + 1)}</td>
+                      <td>{line.item_code || "-"}</td>
+                      <td>{line.barcode || "-"}</td>
+                      <td>{line.item_name || "-"}</td>
+                      <td>{line.wh_code || "-"}</td>
+                      <td>{line.shelf_code || "-"}</td>
+                      <td>{line.unit_name || line.unit_code || "-"}</td>
+                      <td className="numeric">{formatQty(line.qty)}</td>
+                      <td className="numeric">{formatMoney(line.price)}</td>
+                      <td>{line.discount || "-"}</td>
+                      <td className="numeric">{formatMoney(line.discount_amount)}</td>
+                      <td>{[line.vat_type, line.tax_type].filter(Boolean).join(" / ") || "-"}</td>
+                      <td className="numeric">{formatMoney(line.sum_amount)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="print-empty-line" colSpan={13}>
+                      ไม่พบรายละเอียดสินค้าในเอกสารนี้
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </td>
+      </tr>
+    </>
+  );
+}
+
+function DetailedPrintStyles() {
+  return (
+    <style>{`
+      @media screen {
+        .detailed-print-report {
+          display: none;
+        }
+      }
+
+      @media print {
+        @page {
+          size: A4 landscape;
+          margin: 8mm;
+        }
+
+        html,
+        body {
+          background: #ffffff !important;
+        }
+
+        .detailed-print-ready .screen-report-viewer {
+          display: none !important;
+        }
+
+        .detailed-print-ready .detailed-print-report {
+          display: block !important;
+        }
+
+        .detailed-print-report {
+          display: none;
+          color: #111827;
+          font-family: Arial, "Noto Sans Thai", "Tahoma", sans-serif;
+          font-size: 9px;
+          line-height: 1.35;
+        }
+
+        .print-page {
+          width: 100%;
+        }
+
+        .print-report-header {
+          align-items: flex-start;
+          border-bottom: 1px solid #d0d5dd;
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          padding-bottom: 8px;
+        }
+
+        .print-report-header h1 {
+          color: #101828;
+          font-size: 18px;
+          font-weight: 700;
+          line-height: 1.2;
+          margin: 2px 0 0;
+        }
+
+        .print-eyebrow,
+        .print-subtitle,
+        .print-header-meta,
+        .print-footer,
+        .print-muted {
+          color: #667085;
+        }
+
+        .print-eyebrow {
+          font-size: 8.5px;
+          font-weight: 700;
+          letter-spacing: 0;
+          margin: 0;
+        }
+
+        .print-subtitle,
+        .print-header-meta p {
+          font-size: 9px;
+          margin: 2px 0 0;
+        }
+
+        .print-header-meta {
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        .print-summary-grid {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 5px;
+          margin: 8px 0;
+        }
+
+        .print-summary-item {
+          border: 1px solid #e4e7ec;
+          border-radius: 4px;
+          padding: 5px 6px;
+        }
+
+        .print-summary-item span {
+          color: #667085;
+          display: block;
+          font-size: 8px;
+        }
+
+        .print-summary-item strong {
+          color: #101828;
+          display: block;
+          font-size: 10px;
+          margin-top: 2px;
+        }
+
+        .print-warning {
+          background: #fffaeb;
+          border: 1px solid #fedf89;
+          border-radius: 4px;
+          color: #93370d;
+          margin: 0 0 8px;
+          padding: 5px 6px;
+        }
+
+        .print-document-table,
+        .print-line-table {
+          border-collapse: collapse;
+          table-layout: fixed;
+          width: 100%;
+        }
+
+        .print-document-table thead {
+          display: table-header-group;
+        }
+
+        .print-document-table th,
+        .print-document-table td,
+        .print-line-table th,
+        .print-line-table td {
+          border: 1px solid #d0d5dd;
+          padding: 3px 4px;
+          text-align: left;
+          vertical-align: top;
+          word-break: break-word;
+        }
+
+        .print-document-table th,
+        .print-line-table th {
+          background: #f2f4f7;
+          color: #344054;
+          font-size: 8px;
+          font-weight: 700;
+        }
+
+        .print-document-row {
+          background: #f9fafb;
+          break-after: avoid;
+          page-break-after: avoid;
+        }
+
+        .print-document-row strong {
+          display: block;
+        }
+
+        .print-muted {
+          display: block;
+          font-size: 7.5px;
+          margin-top: 1px;
+        }
+
+        .print-detail-row > td {
+          background: #ffffff;
+          padding: 0;
+        }
+
+        .print-line-table th,
+        .print-line-table td {
+          border-left: 0;
+          border-right: 1px solid #e4e7ec;
+        }
+
+        .print-line-table tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .numeric {
+          text-align: right !important;
+          white-space: nowrap;
+        }
+
+        .print-detail-error,
+        .print-empty-line {
+          color: #b42318;
+          padding: 5px 6px;
+        }
+
+        .print-footer {
+          border-top: 1px solid #d0d5dd;
+          font-size: 8px;
+          margin-top: 8px;
+          padding-top: 5px;
+        }
+      }
+    `}</style>
+  );
+}
+
 function PremiumKpi({
   label,
   value,
@@ -1297,6 +2000,21 @@ function getPrimaryRanking(snapshot: ReportSnapshot) {
     meta: `${formatInteger(branch.document_count)} บิล`,
     value: branch.total_amount,
   }));
+}
+
+function getDocumentBranchLabel(
+  document: SalesDocumentListItem,
+  detailDocument?: SalesDocumentDetail["document"],
+) {
+  return (
+    document.resolved_branch_label ||
+    document.resolved_branch_name ||
+    formatSmlBranchLabel(
+      document.resolved_branch_code ||
+        detailDocument?.branch_code ||
+        document.branch_code,
+    )
+  );
 }
 
 function buildPresetRange(preset: "yesterday" | "month" | "quarter" | "year") {
