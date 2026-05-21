@@ -10,6 +10,10 @@ import {
 import type { ReportPdfRows } from "./report-runner.js";
 
 describe("report PDF export", () => {
+  it("uses the SML row v2 layout version for cache invalidation", () => {
+    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v2");
+  });
+
   it("builds a cache key bound to tenant, report, run, date range, and layout", () => {
     const base = {
       tenantId: "tenant_demo_remote",
@@ -27,6 +31,12 @@ describe("report PDF export", () => {
       buildReportPdfCacheKey({
         ...base,
         layoutVersion: `${REPORT_PDF_LAYOUT_VERSION}_next`,
+      }),
+    );
+    expect(buildReportPdfCacheKey(base)).not.toBe(
+      buildReportPdfCacheKey({
+        ...base,
+        layoutVersion: "sml-row-v1",
       }),
     );
   });
@@ -91,7 +101,7 @@ describe("report PDF export", () => {
           cust_name: "ACME <Limited>",
           branch_code: "00",
           item_code: "SKU-1",
-          barcode: null,
+          barcode: "8850000000001",
           item_name: "สินค้า <test>",
           wh_code: "WH",
           shelf_code: "A1",
@@ -117,6 +127,149 @@ describe("report PDF export", () => {
     expect(html).toContain("ACME &lt;Limited&gt;");
     expect(html).toContain("สินค้า &lt;test&gt;");
     expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).not.toContain("Barcode:");
+    expect(html).not.toContain("8850000000001");
+  });
+
+  it("renders customer-facing SML v2 PDF HTML without debug metadata", () => {
+    const snapshot = buildSnapshot();
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows: {
+        tenant_id: "tenant_demo_remote",
+        report_key: "sales_goods_services",
+        params: snapshot.params,
+        documents: [],
+        lines: [],
+      },
+      params: snapshot.params,
+    });
+
+    expect(html).toContain("Demo Shop");
+    expect(html).toContain("รายงานขายสินค้าและบริการ");
+    expect(html).not.toContain("Run ID");
+    expect(html).not.toContain("Layout:");
+    expect(html).not.toContain("Data source");
+    expect(html).not.toContain("sml_postgres");
+    expect(html).not.toContain("summary");
+  });
+
+  it("formats report dates as SML Buddhist dates instead of ISO dates", () => {
+    const snapshot = {
+      ...buildSnapshot(),
+      params: {
+        date_from: "2026-05-05",
+        date_to: "2026-05-20",
+      },
+    };
+    const rows: ReportPdfRows = {
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+      params: snapshot.params,
+      documents: [
+        {
+          rownum: 1,
+          doc_date: "2026-05-05",
+          doc_no: "SO-1",
+          doc_time: "09:00:00",
+          doc_ref: null,
+          cust_code: "C001",
+          cust_name: "ACME",
+          branch_code: "00",
+          total_value: 100,
+          total_discount: 0,
+          total_except_discount: 100,
+          total_except_vat: 93.46,
+          vat_rate: 7,
+          total_vat_value: 6.54,
+          vat_type: "I",
+          total_amount: 100,
+          cashier_code: "U1",
+        },
+      ],
+      lines: [],
+    };
+
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows,
+      params: snapshot.params,
+    });
+
+    expect(html).toContain("จากวันที่ : 05/5/2569 ถึงวันที่ : 20/5/2569");
+    expect(html).toContain("<td>05/5/2569</td>");
+    expect(html).toContain('<td class="numeric">7.00</td>');
+    expect(html).not.toContain(">2026-05-05<");
+    expect(html).not.toContain("2026-05-05 ถึงวันที่");
+  });
+
+  it("renders detail rows without repeating document date or customer name", () => {
+    const snapshot = buildSnapshot();
+    const rows: ReportPdfRows = {
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+      params: snapshot.params,
+      documents: [
+        {
+          rownum: 1,
+          doc_date: "2026-05-20",
+          doc_no: "SO-1",
+          doc_time: "09:00:00",
+          doc_ref: null,
+          cust_code: "C001",
+          cust_name: "ACME",
+          branch_code: "00",
+          total_value: 100,
+          total_discount: 0,
+          total_except_discount: 100,
+          total_except_vat: 93.46,
+          vat_rate: 7,
+          total_vat_value: 6.54,
+          vat_type: "I",
+          total_amount: 100,
+          cashier_code: "U1",
+        },
+      ],
+      lines: [
+        {
+          doc_date: "2026-05-20",
+          doc_no: "SO-1",
+          doc_time: "09:00:00",
+          cust_code: "C001",
+          cust_name: "ACME",
+          branch_code: "00",
+          item_code: "SKU-1",
+          barcode: "8850000000001",
+          item_name: "สินค้า",
+          wh_code: "WH",
+          shelf_code: "A1",
+          unit_code: "PCS",
+          unit_name: "ชิ้น",
+          qty: 1,
+          price: 100,
+          discount: null,
+          discount_amount: 0,
+          sum_amount: 100,
+          vat_type: "I",
+        },
+      ],
+    };
+
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows,
+      params: snapshot.params,
+    });
+
+    expect(html).toContain('<td class="item-code" colspan="2">SKU-1</td>');
+    expect(html).toContain('<td class="item-name" colspan="3">สินค้า</td>');
+    expect(html).toContain('<td class="numeric">1.00</td>');
+    expect(html).not.toContain("<td>20/5/2569</td>\n    <td>ACME</td>");
+    expect(html).not.toContain("รหัสสินค้า / Barcode");
+    expect(html).not.toContain("Barcode:");
   });
 });
 

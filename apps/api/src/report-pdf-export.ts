@@ -12,7 +12,7 @@ import {
 } from "@ai-bcc/shared";
 import type { ReportPdfRows } from "./report-runner.js";
 
-export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v1";
+export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v2";
 export const REPORT_PDF_MAX_DOCUMENTS = 300;
 export const REPORT_PDF_MAX_DETAIL_ROWS = 5000;
 export const REPORT_PDF_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -244,14 +244,8 @@ export function renderReportPdfHtml(input: {
   params: SalesGoodsServicesParams;
 }) {
   const copy = getReportCopy(input.snapshot.report_key);
-  const generatedAt = new Date().toISOString();
   const linesByDocument = groupLinesByDocument(input.rows.lines);
-  const totalAmount = input.rows.documents.reduce(
-    (sum, document) => sum + safeNumber(document.total_amount),
-    0,
-  );
-  const totalQty = input.rows.lines.reduce((sum, line) => sum + safeNumber(line.qty), 0);
-  const totalLineRows = input.rows.lines.length;
+  const totals = calculateDocumentTotals(input.rows.documents);
 
   return `<!doctype html>
 <html lang="th">
@@ -259,69 +253,30 @@ export function renderReportPdfHtml(input: {
   <meta charset="utf-8" />
   <title>${escapeHtml(copy.title)} ${escapeHtml(input.params.date_from)}</title>
   <style>
-    @page { size: A4 landscape; margin: 8mm; }
+    @page { size: A4 landscape; margin: 10mm 8mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      color: #101828;
-      font-family: "Noto Sans Thai", "Noto Sans", Tahoma, Arial, sans-serif;
-      font-size: 8px;
-      line-height: 1.35;
+      color: #111111;
+      font-family: "Noto Serif Thai", "Noto Sans Thai", Tahoma, Arial, sans-serif;
+      font-size: 7.2px;
+      line-height: 1.22;
       background: #ffffff;
     }
     .report-header {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      padding-bottom: 6px;
-      border-bottom: 1px solid #98a2b3;
-      margin-bottom: 6px;
-    }
-    .eyebrow {
-      margin: 0 0 2px;
-      color: #475467;
-      font-size: 7px;
-      font-weight: 700;
-      text-transform: uppercase;
+      margin-bottom: 5px;
+      text-align: center;
     }
     h1 {
-      margin: 0;
-      font-size: 13px;
-      line-height: 1.25;
+      margin: 0 0 1px;
+      font-size: 10px;
+      line-height: 1.15;
       font-weight: 700;
       letter-spacing: 0;
     }
-    .subtitle,
-    .meta p {
-      margin: 2px 0 0;
-      color: #475467;
-      font-size: 7.5px;
-    }
-    .meta {
-      min-width: 230px;
-      text-align: right;
-    }
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 5px;
-      margin-bottom: 6px;
-    }
-    .summary div {
-      border: 1px solid #d0d5dd;
-      padding: 4px 5px;
-      min-height: 30px;
-    }
-    .summary span {
-      display: block;
-      color: #667085;
-      font-size: 6.8px;
-    }
-    .summary strong {
-      display: block;
-      margin-top: 1px;
-      font-size: 9px;
-      color: #101828;
+    .subtitle {
+      margin: 0;
+      font-size: 7.2px;
     }
     table {
       width: 100%;
@@ -329,75 +284,100 @@ export function renderReportPdfHtml(input: {
       table-layout: fixed;
     }
     thead { display: table-header-group; }
-    tfoot { display: table-footer-group; }
     th,
     td {
-      border: 0.5px solid #98a2b3;
-      padding: 2px 3px;
+      border: 0;
+      border-bottom: 0.35px solid #d4d4d4;
+      padding: 1.35px 2px;
       vertical-align: top;
       overflow-wrap: anywhere;
     }
     th {
-      background: #eef2f6;
+      border-top: 0.6px solid #111111;
+      border-bottom: 0.6px solid #111111;
+      background: #ffffff;
       font-weight: 700;
       text-align: left;
     }
-    .detail-head th {
-      background: #f8fafc;
-      color: #344054;
+    .detail-head th,
+    .detail-head .numeric {
+      border-top: 0;
+      font-weight: 400;
     }
-    tr { page-break-inside: avoid; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    tbody.document-group.small {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
     .doc-row td {
+      border-top: 0.55px solid #8a8a8a;
+      border-bottom: 0;
       background: #ffffff;
       font-weight: 700;
     }
     .detail-row td {
-      color: #344054;
+      border-bottom: 0;
+      color: #111111;
       background: #ffffff;
     }
+    .continuation-row td {
+      border-top: 0.55px solid #8a8a8a;
+      border-bottom: 0;
+      padding-top: 3px;
+      color: #444444;
+      font-weight: 700;
+    }
+    .continuation-row.page-start {
+      break-before: page;
+      page-break-before: always;
+    }
     .empty-row td {
-      color: #667085;
+      border-bottom: 0;
+      color: #666666;
       font-style: italic;
     }
     .numeric { text-align: right; white-space: nowrap; }
+    .item-code {
+      padding-left: 12px;
+      font-style: italic;
+      white-space: nowrap;
+    }
+    .item-name {
+      font-style: italic;
+    }
     .muted {
       display: block;
-      color: #667085;
-      font-size: 6.5px;
+      color: #666666;
+      font-size: 6.4px;
       font-weight: 400;
     }
-    .col-date { width: 7%; }
-    .col-doc { width: 9%; }
-    .col-time { width: 5%; }
-    .col-ref { width: 8%; }
-    .col-code { width: 7%; }
-    .col-name { width: 15%; }
-    .col-money { width: 7%; }
-    .col-rate { width: 5%; }
-    .col-tax { width: 5%; }
-    .col-user { width: 6%; }
+    tbody.report-total {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .total-row td {
+      border-top: 0.7px solid #111111;
+      border-bottom: 0.7px solid #111111;
+      font-weight: 700;
+    }
+    .col-date { width: 6.6%; }
+    .col-doc { width: 7.2%; }
+    .col-time { width: 4.6%; }
+    .col-ref { width: 7.6%; }
+    .col-code { width: 6.6%; }
+    .col-name { width: 10.2%; }
+    .col-money { width: 7.2%; }
+    .col-rate { width: 4.3%; }
+    .col-tax { width: 4.5%; }
+    .col-user { width: 5.8%; }
   </style>
 </head>
 <body>
   <header class="report-header">
-    <div>
-      <p class="eyebrow">AI Business Center - SML Detailed Row Export</p>
-      <h1>${escapeHtml(copy.title)}</h1>
-      <p class="subtitle">${escapeHtml(input.tenantName)} - ${escapeHtml(formatReportPeriod(input.params))}</p>
-    </div>
-    <div class="meta">
-      <p>Generated: ${escapeHtml(formatDateTime(generatedAt))}</p>
-      <p>Run ID: ${escapeHtml(input.snapshot.run_id)}</p>
-      <p>Layout: ${REPORT_PDF_LAYOUT_VERSION}</p>
-    </div>
+    <h1>${escapeHtml(input.tenantName)}</h1>
+    <p class="subtitle">${escapeHtml(copy.title)}</p>
+    <p class="subtitle">${escapeHtml(formatReportPeriod(input.params))}</p>
   </header>
-  <section class="summary">
-    <div><span>${escapeHtml(copy.totalLabel)}</span><strong>${escapeHtml(formatMoney(totalAmount))} THB</strong></div>
-    <div><span>${escapeHtml(copy.documentLabel)}</span><strong>${escapeHtml(formatInteger(input.rows.documents.length))}</strong></div>
-    <div><span>${escapeHtml(copy.lineLabel)}</span><strong>${escapeHtml(formatInteger(totalLineRows))}</strong></div>
-    <div><span>${escapeHtml(copy.qtyLabel)}</span><strong>${escapeHtml(formatQty(totalQty))}</strong></div>
-    <div><span>Data source</span><strong>${escapeHtml(input.snapshot.source)}</strong></div>
-  </section>
   <table>
     <colgroup>
       <col class="col-date" />
@@ -435,10 +415,9 @@ export function renderReportPdfHtml(input: {
         <th>Cashier</th>
       </tr>
       <tr class="detail-head">
-        <th>เอกสารวันที่</th>
-        <th>ชื่อ${escapeHtml(copy.partyLabel)}</th>
-        <th colspan="2">รหัสสินค้า / Barcode</th>
-        <th colspan="2">ชื่อสินค้า</th>
+        <th></th>
+        <th colspan="2">รหัสสินค้า</th>
+        <th colspan="3">ชื่อสินค้า</th>
         <th>คลัง</th>
         <th>พื้นที่เก็บ</th>
         <th>หน่วยนับ</th>
@@ -450,7 +429,6 @@ export function renderReportPdfHtml(input: {
         <th>ประเภทภาษี</th>
       </tr>
     </thead>
-    <tbody>
       ${input.rows.documents
         .map((document, index) =>
           renderDocumentRows({
@@ -461,6 +439,19 @@ export function renderReportPdfHtml(input: {
           }),
         )
         .join("")}
+    <tbody class="report-total">
+      <tr class="total-row">
+        <td colspan="6" class="numeric">รวมทั้งหมด</td>
+        <td class="numeric">${escapeHtml(formatMoney(totals.totalValue))}</td>
+        <td class="numeric">${escapeHtml(formatOptionalMoney(totals.totalDiscount))}</td>
+        <td class="numeric">${escapeHtml(formatMoney(totals.totalExceptDiscount))}</td>
+        <td class="numeric">${escapeHtml(formatMoney(totals.totalExceptVat))}</td>
+        <td></td>
+        <td class="numeric">${escapeHtml(formatOptionalMoney(totals.totalVat))}</td>
+        <td></td>
+        <td class="numeric">${escapeHtml(formatMoney(totals.totalAmount))}</td>
+        <td></td>
+      </tr>
     </tbody>
   </table>
 </body>
@@ -472,14 +463,21 @@ async function renderHtmlToPdf(html: string) {
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: "load" });
+    const printDate = escapeHtml(formatPrintDateTime(new Date().toISOString()));
     return await page.pdf({
       format: "A4",
       landscape: true,
+      displayHeaderFooter: true,
+      headerTemplate: `<div style="width:100%; margin:0 8mm; font-family:'Noto Sans Thai', Tahoma, Arial, sans-serif; font-size:6px; color:#111;">
+        <span>Print Date : ${printDate}</span>
+        <span style="float:right;">Page No. : <span class="pageNumber"></span>/<span class="totalPages"></span></span>
+      </div>`,
+      footerTemplate: `<div></div>`,
       printBackground: true,
       margin: {
-        top: "8mm",
+        top: "10mm",
         right: "8mm",
-        bottom: "8mm",
+        bottom: "10mm",
         left: "8mm",
       },
       preferCSSPageSize: true,
@@ -505,6 +503,7 @@ function renderDocumentRows(input: {
   partyLabel: string;
 }) {
   const party = input.document.cust_name || input.document.cust_code || "-";
+  const groupClass = input.lines.length <= 5 ? "document-group small" : "document-group";
   const docRow = `<tr class="doc-row">
     <td>${escapeHtml(formatSmlDate(input.document.doc_date))}</td>
     <td>${escapeHtml(input.document.doc_no)}<span class="muted">#${escapeHtml(formatInteger(input.index))}</span></td>
@@ -524,16 +523,22 @@ function renderDocumentRows(input: {
   </tr>`;
 
   if (!input.lines.length) {
-    return `${docRow}<tr class="empty-row"><td colspan="15">ไม่พบรายละเอียดสินค้าในเอกสารนี้</td></tr>`;
+    return `<tbody class="${groupClass}">${docRow}<tr class="empty-row"><td colspan="15">ไม่พบรายละเอียดสินค้าในเอกสารนี้</td></tr></tbody>`;
   }
 
-  const detailRows = input.lines
-    .map(
-      (line) => `<tr class="detail-row">
-    <td>${escapeHtml(formatSmlDate(line.doc_date || input.document.doc_date))}</td>
-    <td>${escapeHtml(line.cust_name || party)}</td>
-    <td colspan="2">${escapeHtml(line.item_code || "")}${line.barcode ? `<span class="muted">Barcode: ${escapeHtml(line.barcode)}</span>` : ""}</td>
-    <td colspan="2">${escapeHtml(line.item_name || "")}</td>
+  const detailRows = chunkDetailRows(input.lines, 24)
+    .map((chunk, chunkIndex) => {
+      const continuationRow =
+        chunkIndex === 0
+          ? ""
+          : `<tr class="continuation-row page-start"><td colspan="15">ต่อจากเอกสาร ${escapeHtml(input.document.doc_no)} / ${escapeHtml(party)}</td></tr>`;
+
+      return `${continuationRow}${chunk
+        .map(
+          (line) => `<tr class="detail-row">
+    <td></td>
+    <td class="item-code" colspan="2">${escapeHtml(line.item_code || "")}</td>
+    <td class="item-name" colspan="3">${escapeHtml(line.item_name || "")}</td>
     <td>${escapeHtml(line.wh_code || "")}</td>
     <td>${escapeHtml(line.shelf_code || "")}</td>
     <td>${escapeHtml(line.unit_name || line.unit_code || "")}</td>
@@ -544,10 +549,42 @@ function renderDocumentRows(input: {
     <td class="numeric">${escapeHtml(formatMoney(line.sum_amount))}</td>
     <td>${escapeHtml([line.vat_type, line.tax_type].filter(Boolean).join(" / "))}</td>
   </tr>`,
-    )
+        )
+        .join("")}`;
+    })
     .join("");
 
-  return `${docRow}${detailRows}`;
+  return `<tbody class="${groupClass}">${docRow}${detailRows}</tbody>`;
+}
+
+function calculateDocumentTotals(documents: SalesHeaderRow[]) {
+  return documents.reduce(
+    (totals, document) => ({
+      totalValue: totals.totalValue + safeNumber(document.total_value),
+      totalDiscount: totals.totalDiscount + safeNumber(document.total_discount),
+      totalExceptDiscount:
+        totals.totalExceptDiscount + safeNumber(document.total_except_discount),
+      totalExceptVat: totals.totalExceptVat + safeNumber(document.total_except_vat),
+      totalVat: totals.totalVat + safeNumber(document.total_vat_value),
+      totalAmount: totals.totalAmount + safeNumber(document.total_amount),
+    }),
+    {
+      totalValue: 0,
+      totalDiscount: 0,
+      totalExceptDiscount: 0,
+      totalExceptVat: 0,
+      totalVat: 0,
+      totalAmount: 0,
+    },
+  );
+}
+
+function chunkDetailRows(lines: SalesDetailRow[], chunkSize: number) {
+  const chunks: SalesDetailRow[][] = [];
+  for (let index = 0; index < lines.length; index += chunkSize) {
+    chunks.push(lines.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 function groupLinesByDocument(lines: SalesDetailRow[]) {
@@ -589,20 +626,33 @@ function getReportCopy(reportKey: ReportKey) {
 
 function formatReportPeriod(params: SalesGoodsServicesParams) {
   return params.date_from === params.date_to
-    ? params.date_from
-    : `${params.date_from} to ${params.date_to}`;
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Bangkok",
-  }).format(new Date(value));
+    ? `วันที่ : ${formatSmlDate(params.date_from)}`
+    : `จากวันที่ : ${formatSmlDate(params.date_from)} ถึงวันที่ : ${formatSmlDate(params.date_to)}`;
 }
 
 function formatSmlDate(value: string) {
-  return value ? value.slice(0, 10) : "";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) {
+    return value ? value.slice(0, 10) : "";
+  }
+
+  return `${match[3]}/${Number(match[2])}/${Number(match[1]) + 543}`;
+}
+
+function formatPrintDateTime(value: string) {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Bangkok",
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const buddhistYear = String(Number(byType.year) + 543);
+  return `${byType.day}/${byType.month}/${buddhistYear} ${byType.hour}:${byType.minute}`;
 }
 
 function formatTime(value: string) {
@@ -622,8 +672,8 @@ function formatOptionalMoney(value: number) {
 
 function formatQty(value: number) {
   return safeNumber(value).toLocaleString("th-TH", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 3,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
