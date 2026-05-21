@@ -92,6 +92,7 @@ export function buildEnvFallbackLineTarget(input: {
 export function buildPendingWebhookLineTarget(input: {
   tenantId: TenantId;
   event: LineWebhookEventRecord;
+  lineChannelId?: string | null;
 }): StoredLineTargetRecord | null {
   if (
     !input.event.source_id ||
@@ -106,7 +107,7 @@ export function buildPendingWebhookLineTarget(input: {
   return {
     id: createLineTargetId(input.tenantId, input.event.source_id),
     tenant_id: input.tenantId,
-    line_channel_id: null,
+    line_channel_id: input.lineChannelId ?? null,
     display_name: `LINE ${input.event.source_type} ${maskLineTargetId(
       input.event.source_id,
     )}`,

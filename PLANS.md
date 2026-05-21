@@ -52,7 +52,11 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - Signed owner session cookie สำหรับ route protection
 - Lightweight admin token guard สำหรับ mutation endpoints ระหว่าง MVP transition
 - `/owner` มี pilot readiness checklist ต่อร้าน และคู่มือ LINE OA onboarding สำหรับให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`
-- Secret vault foundation สำหรับเข้ารหัส datasource/LINE secrets ด้วย AES-256-GCM และ system store `secrets` metadata โดยยังไม่เปิดช่องกรอก secret ดิบใน UI
+- Owner config secret workflow พร้อมใช้งานระดับ pilot:
+  - `/owner/tenants` บันทึก SML datasource password แบบ encrypted ผ่าน masked input
+  - `/owner/line` บันทึก LINE channel access token / channel secret แบบ encrypted ผ่าน masked input
+  - API/worker prefer encrypted secret จาก system store ก่อน fallback ไป `.env.server`
+  - LINE webhook สามารถ match stored channel secret เพื่อผูก pending group กับ tenant/LINE OA ที่ถูกต้อง
 - Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
 สิ่งที่ไม่มีแล้ว:

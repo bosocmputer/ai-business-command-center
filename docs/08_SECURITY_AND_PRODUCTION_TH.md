@@ -31,7 +31,10 @@
   - เข้ารหัสด้วย AES-256-GCM
   - ผูก associated data กับ tenant/scope/key เพื่อลดโอกาสนำ ciphertext ข้าม tenant ไปใช้ผิด
   - system store มี `secrets` metadata table แล้ว
-  - owner UI ยังไม่รับ password/token ดิบจนกว่าจะมี masked input + audit workflow
+  - `/owner/tenants` รับ SML datasource password ผ่าน masked input แล้วบันทึกเป็น encrypted envelope
+  - `/owner/line` รับ LINE channel access token / channel secret ผ่าน masked input แล้วบันทึกเป็น encrypted envelope
+  - audit log บันทึกเฉพาะ metadata เช่น host/database/user/channel id และสถานะ configured ไม่บันทึก secret plaintext
+  - runtime จะ prefer encrypted secret ใน system store ก่อน fallback ไป `.env.server` เพื่อรองรับช่วง migration
 
 Protected mutation endpoints:
 
@@ -43,6 +46,9 @@ POST /api/tenants/:tenantId/datasource/test
 POST /api/line-targets/:id/approve
 PATCH /api/line-targets/:id
 POST /api/line-targets/:id/test-send
+GET /api/owner/tenants/:tenantId/datasource/config
+PUT /api/owner/tenants/:tenantId/datasource/config
+PUT /api/owner/line-channels/:id/secrets
 ```
 
 Response policy:
@@ -150,7 +156,7 @@ Baseline สำหรับ pilot:
 
 Production ก่อนใช้กับลูกค้าจริง:
 
-- ย้าย LINE channel token ไป secret/encrypted store
+- ใช้ encrypted store สำหรับ datasource/LINE secret เป็น default และค่อยลดการพึ่ง `.env.server`
 - resolve tenant จาก channel/OA mapping ไม่ใช้ default webhook tenant
 - ทำ full login/role สำหรับ admin UI แทน shared admin token
 - เพิ่ม policy สำหรับราย user ถ้าลูกค้าต้องการให้คนในกลุ่มเดียวกันเห็นข้อมูลไม่เท่ากัน

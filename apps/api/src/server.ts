@@ -25,6 +25,8 @@ import {
   getTenantDefinition,
   getTenantSlug,
   listTenants,
+  type DatasourceConfig,
+  type LineChannelConfig,
   readDatasourceConfig,
   readLineChannelCredentials,
   readLineChannelConfig,
@@ -61,6 +63,15 @@ import {
   toSafeLineTargetRecord,
   type StoredLineTargetRecord,
 } from "./line-targets.js";
+import {
+  findLineChannelForWebhookSignature,
+  readDatasourceConfigStatus,
+  readSecretEncryptionSecret,
+  readStoredDatasourceConfig,
+  readStoredLineChannelCredentials,
+  saveLineChannelSecrets,
+  saveTenantDatasourceConfig,
+} from "./tenant-secret-config.js";
 
 const app = Fastify({
   logger: {
@@ -247,6 +258,104 @@ app.patch("/api/owner/tenants/:tenantId", async (request, reply) => {
   return { data: await buildOwnerTenantSummary(updated.id) };
 });
 
+app.get(
+  "/api/owner/tenants/:tenantId/datasource/config",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    return {
+      data: await readDatasourceConfigStatus({
+        store: systemStore,
+        tenantId: tenant.id,
+        envConfig: readDatasourceConfig(tenant.id),
+      }),
+    };
+  },
+);
+
+app.put(
+  "/api/owner/tenants/:tenantId/datasource/config",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = datasourceConfigUpdateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid datasource config request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    if (!readSecretEncryptionSecret()) {
+      return reply.status(503).send({
+        error:
+          "AI_BCC_SECRET_KEY is not configured. Set it on the server before saving secrets.",
+      });
+    }
+
+    const status = await saveTenantDatasourceConfig({
+      store: systemStore,
+      config: {
+        tenantId: tenant.id,
+        host: body.data.host,
+        port: body.data.port,
+        database: body.data.database,
+        user: body.data.user,
+        password: body.data.password,
+      },
+    });
+
+    await systemStore.upsertTenant({
+      ...tenant,
+      databaseName: body.data.database,
+      datasourceConfigured: true,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: tenant.id,
+      actor_id: null,
+      action: "datasource_config_updated",
+      target_type: "datasource",
+      target_id: tenant.id,
+      metadata_json: {
+        source: status.source,
+        host: body.data.host,
+        port: body.data.port,
+        database: body.data.database,
+        user: body.data.user,
+        password_configured: true,
+      },
+    });
+
+    return { data: status };
+  },
+);
+
 app.get("/api/owner/line-channels", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
   if (!adminAuth.ok) {
@@ -314,6 +423,73 @@ app.post("/api/owner/line-channels", async (request, reply) => {
   });
 
   return { data: saved };
+});
+
+app.put("/api/owner/line-channels/:id/secrets", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = lineChannelParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid LINE channel id" });
+  }
+
+  const body = lineChannelSecretsUpdateSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid LINE channel secrets request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  if (!readSecretEncryptionSecret()) {
+    return reply.status(503).send({
+      error:
+        "AI_BCC_SECRET_KEY is not configured. Set it on the server before saving secrets.",
+    });
+  }
+
+  const channels = await systemStore.listLineChannels();
+  const channel = channels.find((item) => item.id === routeParams.data.id);
+  if (!channel || channel.source === "env") {
+    return reply.status(404).send({ error: "LINE channel not found." });
+  }
+
+  const result = await saveLineChannelSecrets({
+    store: systemStore,
+    config: {
+      tenantId: channel.tenant_id,
+      lineChannelId: channel.id,
+      channelAccessToken: body.data.channel_access_token,
+      channelSecret: body.data.channel_secret,
+    },
+  });
+
+  const updated = await systemStore.upsertLineChannel({
+    ...channel,
+    channel_access_token_configured:
+      channel.channel_access_token_configured ||
+      result.channel_access_token_configured,
+    channel_secret_configured:
+      channel.channel_secret_configured || result.channel_secret_configured,
+    updated_at: new Date().toISOString(),
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: channel.tenant_id,
+    actor_id: null,
+    action: "line_channel_secrets_updated",
+    target_type: "line_channel",
+    target_id: channel.id,
+    metadata_json: {
+      token_configured: updated.channel_access_token_configured,
+      secret_configured: updated.channel_secret_configured,
+    },
+  });
+
+  return { data: updated };
 });
 
 app.post(
@@ -489,7 +665,7 @@ app.get(
       return reply.status(400).send({ error: rangeError });
     }
 
-    const datasource = readDatasourceConfig(session.tenant.id);
+    const datasource = await resolveTenantDatasourceConfig(session.tenant.id);
     if (!datasource) {
       return reply.status(400).send({
         error: "Datasource is not configured for this tenant.",
@@ -562,7 +738,7 @@ app.get(
       return reply.status(400).send({ error: rangeError });
     }
 
-    const datasource = readDatasourceConfig(session.tenant.id);
+    const datasource = await resolveTenantDatasourceConfig(session.tenant.id);
     if (!datasource) {
       return reply.status(400).send({
         error: "Datasource is not configured for this tenant.",
@@ -640,7 +816,7 @@ app.get(
     }
     const params = paramsFromQuery ?? snapshot!.params;
 
-    const datasource = readDatasourceConfig(session.tenant.id);
+    const datasource = await resolveTenantDatasourceConfig(session.tenant.id);
     if (!datasource) {
       return reply.status(400).send({
         error: "Datasource is not configured for this tenant.",
@@ -702,7 +878,7 @@ async function testTenantDatasource(
   }
 
   const tenantId = routeParams.data.tenantId;
-  const datasource = readDatasourceConfig(tenantId);
+  const datasource = await resolveTenantDatasourceConfig(tenantId);
   if (!datasource) {
     const checkedAt = new Date().toISOString();
     await systemStore.appendAuditLog({
@@ -811,32 +987,62 @@ app.post("/api/worker/heartbeat", async (request, reply) => {
 });
 
 app.post("/api/line/webhook", async (request, reply) => {
+  const rawBody = (request as FastifyRequestWithRawBody).rawBody ?? "";
+  const signature = request.headers["x-line-signature"];
+  const signatureValue = Array.isArray(signature) ? signature[0] : signature;
   const webhookConfig = readLineWebhookConfig();
-  if (!webhookConfig) {
-    request.log.warn("LINE webhook rejected because LINE_CHANNEL_SECRET is missing");
+
+  let webhookTenantId: TenantId | null = null;
+  let webhookLineChannelId: string | null = null;
+  let signatureVerified = false;
+
+  if (webhookConfig) {
+    signatureVerified = verifyLineSignature({
+      rawBody,
+      channelSecret: webhookConfig.channelSecret,
+      signature: signatureValue,
+    });
+    webhookTenantId = signatureVerified ? readWebhookDiscoveryTenantId() : null;
+  }
+
+  if (!signatureVerified) {
+    const storedMatch = await findLineChannelForWebhookSignature({
+      store: systemStore,
+      rawBody,
+      signature: signatureValue,
+      verify: verifyLineSignature,
+    }).catch((error) => {
+      request.log.warn(
+        { safe_error_message: toSafeErrorMessage(error) },
+        "LINE webhook stored secret verification failed",
+      );
+      return null;
+    });
+    if (storedMatch) {
+      signatureVerified = true;
+      webhookTenantId = storedMatch.channel.tenant_id;
+      webhookLineChannelId = storedMatch.channel.id;
+    }
+  }
+
+  if (!webhookConfig && !signatureVerified) {
+    request.log.warn("LINE webhook rejected because no channel secret is configured");
     return reply.status(503).send({
       error: "LINE webhook is not configured.",
     });
   }
 
-  const rawBody = (request as FastifyRequestWithRawBody).rawBody ?? "";
-  const signature = request.headers["x-line-signature"];
-  const signatureValue = Array.isArray(signature) ? signature[0] : signature;
-
-  if (
-    !verifyLineSignature({
-      rawBody,
-      channelSecret: webhookConfig.channelSecret,
-      signature: signatureValue,
-    })
-  ) {
+  if (!signatureVerified || !webhookTenantId) {
     request.log.warn("LINE webhook rejected because signature is invalid");
     return reply.status(401).send({ error: "Invalid LINE signature." });
   }
 
   const events = normalizeLineWebhookEvents(request.body as { events?: unknown[] });
   await systemStore.saveLineWebhookEvents(events);
-  const discoveredTargets = await registerWebhookLineTargets(events);
+  const discoveredTargets = await registerWebhookLineTargets(events, {
+    tenantId: webhookTenantId,
+    lineChannelId: webhookLineChannelId,
+  });
 
   for (const event of events) {
     await systemStore.appendAuditLog({
@@ -850,6 +1056,8 @@ app.post("/api/line/webhook", async (request, reply) => {
         source_type: event.source_type,
         source_id_masked: event.source_id_masked,
         message_text: event.message_text,
+        webhook_tenant_id: webhookTenantId,
+        line_channel_id: webhookLineChannelId,
       },
     });
   }
@@ -1102,7 +1310,7 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
       : null,
     tenantName: getTenantDefinition(target.tenant_id)?.name,
   });
-  const lineConfig = buildLineChannelConfigForTarget(target);
+  const lineConfig = await buildLineChannelConfigForTarget(target);
   const delivery = await sendLineBrief({
     tenantId: target.tenant_id,
     mode: body.data.mode,
@@ -1524,7 +1732,7 @@ app.post(
         tenantId,
         mode: body.data.mode,
         preview,
-        config: buildLineChannelConfigForTarget(target),
+        config: await buildLineChannelConfigForTarget(target),
         deliveryKey,
         deliveryType: "morning_brief",
         periodFrom: reportParams.date_from,
@@ -1677,7 +1885,7 @@ async function runAndPersistSalesGoodsServicesReport(input: {
       runRecord: ReportRunRecord;
     }
 > {
-  const datasource = readDatasourceConfig(input.tenantId);
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
   const runRecord: ReportRunRecord = {
     id: createRunId(input.tenantId),
     tenant_id: input.tenantId,
@@ -1780,7 +1988,7 @@ async function buildSalesComparison(input: {
   tenantId: TenantId;
   runId: string;
   params: SalesGoodsServicesParams;
-  datasource: NonNullable<ReturnType<typeof readDatasourceConfig>>;
+  datasource: DatasourceConfig;
   currentTotalSales: number;
 }): Promise<SalesGoodsServicesSnapshot["comparison"]> {
   if (input.params.date_from !== input.params.date_to) {
@@ -1912,6 +2120,30 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
     heartbeatAgeSeconds !== null &&
     heartbeatAgeSeconds >= 0 &&
     heartbeatAgeSeconds <= 120;
+  const tenantHealth = await Promise.all(
+    tenants.map(async (tenant) => {
+      const lineChannels = await listEffectiveLineChannels(tenant.id);
+      const lineTargets = await listEffectiveLineTargets(tenant.id);
+      const envLineConfig = readLineChannelConfig(tenant.id);
+      return {
+        id: tenant.id,
+        name: tenant.name,
+        database_name: tenant.databaseName,
+        status: tenant.status,
+        plan_code: tenant.planCode,
+        datasource_configured: tenant.datasourceConfigured,
+        line_configured:
+          lineChannels.some(
+            (channel) =>
+              channel.enabled && channel.channel_access_token_configured,
+          ) || Boolean(envLineConfig),
+        line_target_masked:
+          lineTargets.find((target) => target.enabled && target.approved)
+            ?.target_id_masked ??
+          (envLineConfig ? maskIdentifier(envLineConfig.targetId) : null),
+      };
+    }),
+  );
 
   return {
     api: {
@@ -1953,20 +2185,7 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
         "ก่อน production ควรตั้ง cron pg_dump, เก็บไฟล์นอกเครื่อง และทดสอบ restore รายสัปดาห์",
     },
     audit_logs: auditLogs,
-    tenants: tenants.map((tenant) => {
-      const lineCredentials = readLineChannelCredentials(tenant.id);
-      const lineConfig = readLineChannelConfig(tenant.id);
-      return {
-        id: tenant.id,
-        name: tenant.name,
-        database_name: tenant.databaseName,
-        status: tenant.status,
-        plan_code: tenant.planCode,
-        datasource_configured: tenant.datasourceConfigured,
-        line_configured: Boolean(lineCredentials),
-        line_target_masked: lineConfig ? maskIdentifier(lineConfig.targetId) : null,
-      };
-    }),
+    tenants: tenantHealth,
   };
 }
 
@@ -2126,6 +2345,14 @@ async function getTenantOrNull(tenantId: TenantId) {
   );
 }
 
+async function resolveTenantDatasourceConfig(tenantId: TenantId) {
+  const storedConfig = await readStoredDatasourceConfig({
+      store: systemStore,
+      tenantId,
+    }).catch(() => null);
+  return storedConfig ?? readDatasourceConfig(tenantId);
+}
+
 async function resolveCustomerSessionBySlug(params: unknown) {
   const parsed = tenantSlugParamsSchema.safeParse(params);
   if (!parsed.success) {
@@ -2199,7 +2426,7 @@ async function enrichLineTargetDisplayNames(
 
   for (const target of targets) {
     const displayName = await fetchLineTargetDisplayName({
-      config: buildLineChannelConfigForTarget(target),
+      config: await buildLineChannelConfigForTarget(target),
       target,
     });
 
@@ -2255,13 +2482,20 @@ async function getMutableLineTarget(id: string) {
   return systemStore.getLineTargetById(id);
 }
 
-async function registerWebhookLineTargets(events: ReturnType<typeof normalizeLineWebhookEvents>) {
-  const tenantId = readWebhookDiscoveryTenantId();
+async function registerWebhookLineTargets(
+  events: ReturnType<typeof normalizeLineWebhookEvents>,
+  input?: { tenantId?: TenantId; lineChannelId?: string | null },
+) {
+  const tenantId = input?.tenantId ?? readWebhookDiscoveryTenantId();
   const discovered: StoredLineTargetRecord[] = [];
   const seenHashes = new Set<string>();
 
   for (const event of events) {
-    const pendingTarget = buildPendingWebhookLineTarget({ tenantId, event });
+    const pendingTarget = buildPendingWebhookLineTarget({
+      tenantId,
+      event,
+      lineChannelId: input?.lineChannelId ?? null,
+    });
     if (!pendingTarget || seenHashes.has(pendingTarget.target_id_hash)) {
       continue;
     }
@@ -2276,7 +2510,7 @@ async function registerWebhookLineTargets(events: ReturnType<typeof normalizeLin
     }
 
     const displayName = await fetchLineTargetDisplayName({
-      config: buildLineChannelConfigForTarget(pendingTarget),
+      config: await buildLineChannelConfigForTarget(pendingTarget),
       target: pendingTarget,
     });
     const targetToSave = displayName
@@ -2308,7 +2542,22 @@ async function registerWebhookLineTargets(events: ReturnType<typeof normalizeLin
   return discovered;
 }
 
-function buildLineChannelConfigForTarget(target: StoredLineTargetRecord) {
+async function buildLineChannelConfigForTarget(
+  target: StoredLineTargetRecord,
+): Promise<LineChannelConfig | null> {
+  const storedCredentials = await readStoredLineChannelCredentials({
+    store: systemStore,
+    tenantId: target.tenant_id,
+    preferredLineChannelId: target.line_channel_id,
+  }).catch(() => null);
+  if (storedCredentials) {
+    return {
+      channelAccessToken: storedCredentials.channelAccessToken,
+      targetId: target.target_id,
+      targetType: target.target_type,
+    };
+  }
+
   const lineCredentials = readLineChannelCredentials(target.tenant_id);
   if (!lineCredentials) {
     return null;
@@ -2570,6 +2819,33 @@ const lineChannelCreateSchema = z.object({
   channel_access_token_configured: z.boolean().optional().default(false),
   channel_secret_configured: z.boolean().optional().default(false),
   enabled: z.boolean().optional().default(true),
+});
+
+const lineChannelParamsSchema = z.object({
+  id: z.string().trim().min(1).max(180),
+});
+
+const lineChannelSecretsUpdateSchema = z
+  .object({
+    channel_access_token: z.string().trim().min(1).max(4096).optional(),
+    channel_secret: z.string().trim().min(1).max(512).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.channel_access_token && !value.channel_secret) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one LINE secret must be provided",
+        path: ["channel_access_token"],
+      });
+    }
+  });
+
+const datasourceConfigUpdateSchema = z.object({
+  host: z.string().trim().min(1).max(255),
+  port: z.coerce.number().int().min(1).max(65535),
+  database: z.string().trim().min(1).max(120),
+  user: z.string().trim().min(1).max(120),
+  password: z.string().min(1).max(1024),
 });
 
 const reportValidationSignoffSchema = z.object({

@@ -10,6 +10,7 @@
 
 ```text
 วันที่บันทึก: 2026-05-20
+อัปเดตล่าสุด: 2026-05-21
 Timezone: Asia/Bangkok
 Latest deployed code commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
 SaaS pilot owner/customer portals: ready
@@ -89,6 +90,11 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - ระบบเทียบกับยอด snapshot (`ic_trans.total_amount`) และบอก `ยอดตรง` หรือ `มีส่วนต่าง`
   - ผลการรับรองถูกบันทึกใน `audit_logs` ด้วย `report_validation_signed_off`
 - `/owner/tenants` datasource test ตรวจ branch master `erp_branch_list` เพิ่มจากตารางรายงานหลัก เพื่อให้ชื่อสาขาแสดงเป็นชื่อจริงใน dashboard/LINE viewer
+- `/owner/tenants` มีฟอร์มตั้งค่า SML datasource จริง:
+  - owner กรอก host/port/database/user/password
+  - password ถูกเข้ารหัสด้วย `AI_BCC_SECRET_KEY` ก่อนเก็บใน system store
+  - runtime ใช้ encrypted datasource ก่อน fallback ไป `.env.server`
+  - audit log ไม่เก็บ password plaintext
 - Owner card/table มีปุ่ม `Dashboard` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
 - `/app` เป็น neutral state:
   - ไม่โชว์ข้อมูลร้านใดอัตโนมัติ
@@ -189,6 +195,10 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 - `/owner/line` มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
 - API พยายามดึงชื่อกลุ่ม LINE จาก group summary API แล้วบันทึกกลับเป็น `display_name`; ถ้าดึงไม่ได้จะ fallback เป็น masked id
 - `line_channels` registry เริ่มรองรับหลาย LINE OA ต่อ tenant ในระดับ metadata แล้ว
+- `/owner/line` มีฟอร์มบันทึก LINE channel access token และ channel secret แบบเข้ารหัส:
+  - owner สร้าง LINE OA metadata ก่อน แล้วค่อยใส่ token/secret
+  - webhook จะพยายาม verify ด้วย channel secret ที่เก็บไว้ และสร้าง pending target ใต้ tenant/LINE OA ที่ match
+  - ถ้ายังไม่มี stored secret จะ fallback ไป env webhook secret ชั่วคราวสำหรับ pilot
 - Env fallback target ยังปิดเป็นค่า default และไม่ถูกสร้างกลับมาอัตโนมัติ
 
 ### Security / Safety

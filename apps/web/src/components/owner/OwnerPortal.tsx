@@ -74,6 +74,17 @@ type DatasourceTestResult = {
   safe_error_message: string | null;
 };
 
+type DatasourceConfigStatus = {
+  source: "encrypted_store" | "env" | "missing";
+  host: string | null;
+  port: number | null;
+  database: string | null;
+  user: string | null;
+  password_configured: boolean;
+  encryption_configured: boolean;
+  updated_at: string | null;
+};
+
 type OwnerAuditLogEntry = {
   id?: number;
   tenant_id: string | null;
@@ -144,6 +155,13 @@ export default function OwnerPortal({
   const [datasourceTests, setDatasourceTests] = useState<
     Record<string, DatasourceTestResult>
   >({});
+  const [datasourceConfig, setDatasourceConfig] =
+    useState<DatasourceConfigStatus | null>(null);
+  const [datasourceHost, setDatasourceHost] = useState("");
+  const [datasourcePort, setDatasourcePort] = useState("5432");
+  const [datasourceDatabase, setDatasourceDatabase] = useState("");
+  const [datasourceUser, setDatasourceUser] = useState("");
+  const [datasourcePassword, setDatasourcePassword] = useState("");
   const [operationsStatus, setOperationsStatus] =
     useState<OwnerOperationsStatus | null>(null);
   const [dataStatus, setDataStatus] =
@@ -169,8 +187,11 @@ export default function OwnerPortal({
   const [validationSignoffResult, setValidationSignoffResult] =
     useState<ValidationSignoffResult | null>(null);
   const [lineChannelName, setLineChannelName] = useState("");
-  const [lineTokenConfigured, setLineTokenConfigured] = useState(true);
-  const [lineSecretConfigured, setLineSecretConfigured] = useState(true);
+  const [lineTokenConfigured, setLineTokenConfigured] = useState(false);
+  const [lineSecretConfigured, setLineSecretConfigured] = useState(false);
+  const [lineSecretChannelId, setLineSecretChannelId] = useState("");
+  const [lineAccessTokenInput, setLineAccessTokenInput] = useState("");
+  const [lineChannelSecretInput, setLineChannelSecretInput] = useState("");
   const [publicOrigin, setPublicOrigin] = useState("");
 
   const activeCount = useMemo(
@@ -210,6 +231,29 @@ export default function OwnerPortal({
       setSelectedTenantId(tenants[0].tenant.id);
     }
   }, [selectedTenantId, tenants]);
+
+  useEffect(() => {
+    if (selectedTenantId) {
+      void loadDatasourceConfig(selectedTenantId);
+    } else {
+      setDatasourceConfig(null);
+    }
+  }, [selectedTenantId]);
+
+  useEffect(() => {
+    if (
+      selectedTenantLineChannels.length &&
+      !selectedTenantLineChannels.some(
+        (channel) => channel.id === lineSecretChannelId,
+      )
+    ) {
+      setLineSecretChannelId(selectedTenantLineChannels[0].id);
+      return;
+    }
+    if (!selectedTenantLineChannels.length && lineSecretChannelId) {
+      setLineSecretChannelId("");
+    }
+  }, [lineSecretChannelId, selectedTenantLineChannels]);
 
   async function loadOwnerData({
     promptForToken = true,
@@ -283,6 +327,97 @@ export default function OwnerPortal({
           error instanceof Error ? error.message : "โหลด Owner Admin ไม่สำเร็จ",
       });
     }
+  }
+
+  async function loadDatasourceConfig(tenantId: string) {
+    const headers = buildRememberedAdminJsonHeaders();
+    if (!headers) {
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/config`,
+      { headers },
+    );
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      data: DatasourceConfigStatus;
+    };
+    setDatasourceConfig(payload.data);
+    setDatasourceHost(payload.data.host ?? "");
+    setDatasourcePort(String(payload.data.port ?? 5432));
+    setDatasourceDatabase(payload.data.database ?? "");
+    setDatasourceUser(payload.data.user ?? "");
+    setDatasourcePassword("");
+  }
+
+  async function saveDatasourceConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนบันทึก datasource" });
+      return;
+    }
+
+    await runOwnerAction(`datasource-save-${tenant.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันบันทึก SML datasource",
+        message:
+          "ระบบจะเข้ารหัส password ก่อนเก็บใน system store และบันทึก audit โดยไม่แสดง password เต็ม",
+        confirmLabel: "บันทึก datasource",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          { label: "Host", value: datasourceHost },
+          { label: "Database", value: datasourceDatabase },
+          { label: "User", value: datasourceUser },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `บันทึก datasource ของ ${tenant.name}`,
+        description:
+          "ใช้สำหรับให้ API/worker ต่อ SML PostgreSQL โดย password จะถูกเข้ารหัสฝั่ง server",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนบันทึก datasource");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenant.id}/datasource/config`,
+        {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            host: datasourceHost.trim(),
+            port: Number(datasourcePort),
+            database: datasourceDatabase.trim(),
+            user: datasourceUser.trim(),
+            password: datasourcePassword,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: DatasourceConfigStatus;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "บันทึก datasource ไม่สำเร็จ");
+      }
+
+      setDatasourceConfig(payload.data);
+      setDatasourcePassword("");
+      setResult({
+        tone: "success",
+        message: "บันทึก datasource แบบเข้ารหัสแล้ว",
+      });
+      await loadOwnerData();
+    });
   }
 
   async function createTenant(event: FormEvent<HTMLFormElement>) {
@@ -371,6 +506,80 @@ export default function OwnerPortal({
 
       setLineChannelName("");
       setResult({ tone: "success", message: "เพิ่ม LINE OA ให้ร้านค้าแล้ว" });
+      await loadOwnerData();
+    });
+  }
+
+  async function saveLineChannelSecretConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const channel = lineChannels.find((item) => item.id === lineSecretChannelId);
+    if (!channel) {
+      setResult({ tone: "warning", message: "กรุณาเลือก LINE OA ก่อนบันทึก secret" });
+      return;
+    }
+    if (!lineAccessTokenInput.trim() && !lineChannelSecretInput.trim()) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาใส่ Channel access token หรือ Channel secret อย่างน้อย 1 ค่า",
+      });
+      return;
+    }
+
+    await runOwnerAction(`line-secrets-${channel.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันบันทึก LINE OA secret",
+        message:
+          "ระบบจะเข้ารหัส token/secret ก่อนเก็บ และจะไม่แสดงค่าเต็มใน UI หรือ audit log",
+        confirmLabel: "บันทึก LINE secret",
+        details: [
+          { label: "ร้านค้า", value: selectedTenant?.name ?? channel.tenant_id },
+          { label: "LINE OA", value: channel.display_name },
+          {
+            label: "ข้อมูลที่จะบันทึก",
+            value: [
+              lineAccessTokenInput.trim() ? "Channel access token" : null,
+              lineChannelSecretInput.trim() ? "Channel secret" : null,
+            ]
+              .filter(Boolean)
+              .join(", "),
+          },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `บันทึก LINE secret ของ ${channel.display_name}`,
+        description:
+          "ใช้สำหรับส่ง Morning Brief และตรวจ webhook ของ LINE OA นี้",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนบันทึก LINE secret");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/line-channels/${channel.id}/secrets`,
+        {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            channel_access_token: lineAccessTokenInput.trim() || undefined,
+            channel_secret: lineChannelSecretInput.trim() || undefined,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: LineChannelRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "บันทึก LINE secret ไม่สำเร็จ");
+      }
+
+      setLineAccessTokenInput("");
+      setLineChannelSecretInput("");
+      setResult({ tone: "success", message: "บันทึก LINE secret แบบเข้ารหัสแล้ว" });
       await loadOwnerData();
     });
   }
@@ -916,18 +1125,29 @@ export default function OwnerPortal({
           busy={busy}
           createLineChannel={createLineChannel}
           createTenant={createTenant}
+          datasourceConfig={datasourceConfig}
+          datasourceDatabase={datasourceDatabase}
+          datasourceHost={datasourceHost}
+          datasourcePassword={datasourcePassword}
+          datasourcePort={datasourcePort}
+          datasourceUser={datasourceUser}
           datasourceTests={datasourceTests}
           lastManualRun={lastManualRun}
           lastManualSnapshot={lastManualSnapshot}
+          lineAccessTokenInput={lineAccessTokenInput}
           lineChannelName={lineChannelName}
+          lineChannelSecretInput={lineChannelSecretInput}
           lineChannels={lineChannels}
           lineTargets={lineTargets}
+          lineSecretChannelId={lineSecretChannelId}
           lineSecretConfigured={lineSecretConfigured}
           lineTokenConfigured={lineTokenConfigured}
           newTenantId={newTenantId}
           newTenantName={newTenantName}
           onApproveLineTarget={approveLineTarget}
           onSetLineTargetProfile={updateLineTargetProfile}
+          onSaveDatasourceConfig={saveDatasourceConfig}
+          onSaveLineChannelSecrets={saveLineChannelSecretConfig}
           onTestDatasource={testDatasource}
           onTestLineTarget={testLineTarget}
           onToggleLineTarget={toggleLineTarget}
@@ -943,7 +1163,15 @@ export default function OwnerPortal({
           selectedTenantLineChannels={selectedTenantLineChannels}
           selectedTenantLineTargets={selectedTenantLineTargets}
           selectedTenantSummary={selectedTenantSummary}
+          setDatasourceDatabase={setDatasourceDatabase}
+          setDatasourceHost={setDatasourceHost}
+          setDatasourcePassword={setDatasourcePassword}
+          setDatasourcePort={setDatasourcePort}
+          setDatasourceUser={setDatasourceUser}
+          setLineAccessTokenInput={setLineAccessTokenInput}
           setLineChannelName={setLineChannelName}
+          setLineChannelSecretInput={setLineChannelSecretInput}
+          setLineSecretChannelId={setLineSecretChannelId}
           setLineSecretConfigured={setLineSecretConfigured}
           setLineTokenConfigured={setLineTokenConfigured}
           setNewTenantId={setNewTenantId}
@@ -1006,12 +1234,21 @@ type OwnerSectionContentProps = {
   busy: string | null;
   createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
   createTenant: (event: FormEvent<HTMLFormElement>) => void;
+  datasourceConfig: DatasourceConfigStatus | null;
+  datasourceDatabase: string;
+  datasourceHost: string;
+  datasourcePassword: string;
+  datasourcePort: string;
+  datasourceUser: string;
   datasourceTests: Record<string, DatasourceTestResult>;
   lastManualRun: ReportRunRecord | null;
   lastManualSnapshot: SalesGoodsServicesSnapshot | null;
+  lineAccessTokenInput: string;
   lineChannelName: string;
+  lineChannelSecretInput: string;
   lineChannels: LineChannelRecord[];
   lineTargets: LineTargetRecord[];
+  lineSecretChannelId: string;
   lineSecretConfigured: boolean;
   lineTokenConfigured: boolean;
   newTenantId: string;
@@ -1025,6 +1262,8 @@ type OwnerSectionContentProps = {
     profileKey: LineAccessProfileKey,
   ) => Promise<void>;
   onRunSalesReport: () => Promise<void>;
+  onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
   onTestDatasource: (tenantId: string) => Promise<void>;
   onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
   onToggleLineTarget: (target: LineTargetRecord) => Promise<void>;
@@ -1043,7 +1282,15 @@ type OwnerSectionContentProps = {
   selectedTenantLineChannels: LineChannelRecord[];
   selectedTenantLineTargets: LineTargetRecord[];
   selectedTenantSummary?: TenantSummary;
+  setDatasourceDatabase: (value: string) => void;
+  setDatasourceHost: (value: string) => void;
+  setDatasourcePassword: (value: string) => void;
+  setDatasourcePort: (value: string) => void;
+  setDatasourceUser: (value: string) => void;
+  setLineAccessTokenInput: (value: string) => void;
   setLineChannelName: (value: string) => void;
+  setLineChannelSecretInput: (value: string) => void;
+  setLineSecretChannelId: (value: string) => void;
   setLineSecretConfigured: (value: boolean) => void;
   setLineTokenConfigured: (value: boolean) => void;
   setNewTenantId: (value: string) => void;
@@ -1406,13 +1653,25 @@ function OwnerRolloutBoard({ tenants }: { tenants: TenantSummary[] }) {
 function OwnerTenantsContent({
   busy,
   createTenant,
+  datasourceConfig,
+  datasourceDatabase,
+  datasourceHost,
+  datasourcePassword,
+  datasourcePort,
+  datasourceUser,
   datasourceTests,
   newTenantId,
   newTenantName,
+  onSaveDatasourceConfig,
   onTestDatasource,
   onUpdateStatus,
   selectedTenantId,
   selectedTenantSummary,
+  setDatasourceDatabase,
+  setDatasourceHost,
+  setDatasourcePassword,
+  setDatasourcePort,
+  setDatasourceUser,
   setNewTenantId,
   setNewTenantName,
   setSelectedTenantId,
@@ -1471,11 +1730,23 @@ function OwnerTenantsContent({
 
         <TenantDetailPanel
           busy={busy}
+          datasourceConfig={datasourceConfig}
+          datasourceDatabase={datasourceDatabase}
+          datasourceHost={datasourceHost}
+          datasourcePassword={datasourcePassword}
+          datasourcePort={datasourcePort}
+          datasourceUser={datasourceUser}
           datasourceTest={
             selectedTenantId ? datasourceTests[selectedTenantId] : undefined
           }
           item={selectedTenantSummary}
+          onSaveDatasourceConfig={onSaveDatasourceConfig}
           onTestDatasource={onTestDatasource}
+          setDatasourceDatabase={setDatasourceDatabase}
+          setDatasourceHost={setDatasourceHost}
+          setDatasourcePassword={setDatasourcePassword}
+          setDatasourcePort={setDatasourcePort}
+          setDatasourceUser={setDatasourceUser}
         />
       </section>
     </div>
@@ -1552,10 +1823,14 @@ function OwnerReportsContent({
 function OwnerLineContent({
   busy,
   createLineChannel,
+  lineAccessTokenInput,
   lineChannelName,
+  lineChannelSecretInput,
   lineSecretConfigured,
+  lineSecretChannelId,
   lineTokenConfigured,
   onApproveLineTarget,
+  onSaveLineChannelSecrets,
   onSetLineTargetProfile,
   onTestLineTarget,
   onToggleLineTarget,
@@ -1564,7 +1839,10 @@ function OwnerLineContent({
   selectedTenantId,
   selectedTenantLineChannels,
   selectedTenantLineTargets,
+  setLineAccessTokenInput,
   setLineChannelName,
+  setLineChannelSecretInput,
+  setLineSecretChannelId,
   setLineSecretConfigured,
   setLineTokenConfigured,
   setSelectedTenantId,
@@ -1609,13 +1887,20 @@ function OwnerLineContent({
         <LineChannelPanel
           busy={busy}
           createLineChannel={createLineChannel}
+          lineAccessTokenInput={lineAccessTokenInput}
           lineChannelName={lineChannelName}
+          lineChannelSecretInput={lineChannelSecretInput}
+          lineSecretChannelId={lineSecretChannelId}
           lineSecretConfigured={lineSecretConfigured}
           lineTokenConfigured={lineTokenConfigured}
+          onSaveLineChannelSecrets={onSaveLineChannelSecrets}
           selectedTenant={selectedTenant}
           selectedTenantId={selectedTenantId}
           selectedTenantLineChannels={selectedTenantLineChannels}
+          setLineAccessTokenInput={setLineAccessTokenInput}
           setLineChannelName={setLineChannelName}
+          setLineChannelSecretInput={setLineChannelSecretInput}
+          setLineSecretChannelId={setLineSecretChannelId}
           setLineSecretConfigured={setLineSecretConfigured}
           setLineTokenConfigured={setLineTokenConfigured}
           setSelectedTenantId={setSelectedTenantId}
@@ -2447,13 +2732,20 @@ function OwnerSetupPanel({
 function LineChannelPanel({
   busy,
   createLineChannel,
+  lineAccessTokenInput,
   lineChannelName,
+  lineChannelSecretInput,
+  lineSecretChannelId,
   lineSecretConfigured,
   lineTokenConfigured,
+  onSaveLineChannelSecrets,
   selectedTenant,
   selectedTenantId,
   selectedTenantLineChannels,
+  setLineAccessTokenInput,
   setLineChannelName,
+  setLineChannelSecretInput,
+  setLineSecretChannelId,
   setLineSecretConfigured,
   setLineTokenConfigured,
   setSelectedTenantId,
@@ -2461,13 +2753,20 @@ function LineChannelPanel({
 }: {
   busy: string | null;
   createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
+  lineAccessTokenInput: string;
   lineChannelName: string;
+  lineChannelSecretInput: string;
+  lineSecretChannelId: string;
   lineSecretConfigured: boolean;
   lineTokenConfigured: boolean;
+  onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
   selectedTenant?: Tenant;
   selectedTenantId: string;
   selectedTenantLineChannels: LineChannelRecord[];
+  setLineAccessTokenInput: (value: string) => void;
   setLineChannelName: (value: string) => void;
+  setLineChannelSecretInput: (value: string) => void;
+  setLineSecretChannelId: (value: string) => void;
   setLineSecretConfigured: (value: boolean) => void;
   setLineTokenConfigured: (value: boolean) => void;
   setSelectedTenantId: (value: string) => void;
@@ -2552,6 +2851,67 @@ function LineChannelPanel({
         </div>
       </form>
 
+      <form
+        className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
+        onSubmit={onSaveLineChannelSecrets}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              บันทึก token/secret แบบเข้ารหัส
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้เมื่อสร้าง LINE OA แล้ว ต้องการให้ระบบส่ง Morning Brief และรับ
+              webhook ของช่องทางนี้
+            </p>
+          </div>
+          <Badge color="light">masked</Badge>
+        </div>
+
+        <div className="mt-3 space-y-3">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            เลือก LINE OA
+            <select
+              className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) => setLineSecretChannelId(event.target.value)}
+              value={lineSecretChannelId}
+            >
+              {selectedTenantLineChannels.map((channel) => (
+                <option key={channel.id} value={channel.id}>
+                  {channel.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <OwnerTextInput
+            label="Channel access token"
+            onChange={setLineAccessTokenInput}
+            placeholder="ใส่ token ใหม่เฉพาะตอนตั้งค่าหรือเปลี่ยน token"
+            type="password"
+            value={lineAccessTokenInput}
+          />
+          <OwnerTextInput
+            label="Channel secret"
+            onChange={setLineChannelSecretInput}
+            placeholder="ใส่ secret ใหม่เฉพาะตอนตั้งค่าหรือเปลี่ยน secret"
+            type="password"
+            value={lineChannelSecretInput}
+          />
+          <Button
+            disabled={
+              busy === `line-secrets-${lineSecretChannelId}` ||
+              !lineSecretChannelId ||
+              (!lineAccessTokenInput.trim() && !lineChannelSecretInput.trim())
+            }
+            size="sm"
+          >
+            {busy === `line-secrets-${lineSecretChannelId}`
+              ? "กำลังบันทึก..."
+              : "บันทึก LINE secret"}
+          </Button>
+        </div>
+      </form>
+
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
         <p className="text-xs font-semibold uppercase text-gray-400">
           LINE OA ที่ผูกกับ {selectedTenant?.name ?? "ร้านนี้"}
@@ -2588,6 +2948,155 @@ function LineChannelPanel({
         </div>
       </div>
     </details>
+  );
+}
+
+function DatasourceConfigPanel({
+  busy,
+  config,
+  database,
+  host,
+  onDatabaseChange,
+  onHostChange,
+  onPasswordChange,
+  onPortChange,
+  onSubmit,
+  onUserChange,
+  password,
+  port,
+  user,
+}: {
+  busy: boolean;
+  config: DatasourceConfigStatus | null;
+  database: string;
+  host: string;
+  onDatabaseChange: (value: string) => void;
+  onHostChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onPortChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onUserChange: (value: string) => void;
+  password: string;
+  port: string;
+  user: string;
+}) {
+  const sourceLabel =
+    config?.source === "encrypted_store"
+      ? "บันทึกในระบบแล้ว"
+      : config?.source === "env"
+        ? "อ่านจาก env server"
+        : "ยังไม่ตั้งค่า";
+
+  return (
+    <details className="mt-4 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              ตั้งค่า SML datasource
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใส่ host/user/password เพื่อให้ระบบเก็บแบบเข้ารหัส ไม่ต้องแก้ .env
+              ทุกครั้ง
+            </p>
+          </div>
+          <Badge color={config?.password_configured ? "success" : "warning"}>
+            {sourceLabel}
+          </Badge>
+        </div>
+      </summary>
+
+      <form className="mt-4 space-y-3" onSubmit={onSubmit}>
+        {!config?.encryption_configured ? (
+          <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+            Server ยังไม่ได้ตั้ง AI_BCC_SECRET_KEY จึงยังบันทึก password/token
+            แบบเข้ารหัสไม่ได้
+          </p>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
+          <OwnerTextInput
+            label="Host"
+            onChange={onHostChange}
+            placeholder="demserver.3bbddns.com"
+            value={host}
+          />
+          <OwnerTextInput
+            label="Port"
+            onChange={onPortChange}
+            placeholder="5432"
+            value={port}
+          />
+        </div>
+        <OwnerTextInput
+          label="Database"
+          onChange={onDatabaseChange}
+          placeholder="demo"
+          value={database}
+        />
+        <OwnerTextInput
+          label="User"
+          onChange={onUserChange}
+          placeholder="sml_readonly"
+          value={user}
+        />
+        <OwnerTextInput
+          label="Password"
+          onChange={onPasswordChange}
+          placeholder={
+            config?.password_configured
+              ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน password"
+              : "ใส่ password ของ DB"
+          }
+          type="password"
+          value={password}
+        />
+
+        <div className="flex flex-col gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <span>
+            สถานะปัจจุบัน: {sourceLabel}
+            {config?.updated_at ? ` · ${formatDateTime(config.updated_at)}` : ""}
+          </span>
+          <span>
+            Audit จะเก็บ host/database/user เท่านั้น ไม่เก็บ password แบบอ่านได้
+          </span>
+        </div>
+
+        <Button
+          disabled={busy || !config?.encryption_configured || !password.trim()}
+          size="sm"
+        >
+          {busy ? "กำลังบันทึก..." : "บันทึก datasource แบบเข้ารหัส"}
+        </Button>
+      </form>
+    </details>
+  );
+}
+
+function OwnerTextInput({
+  label,
+  onChange,
+  placeholder,
+  type = "text",
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: "text" | "password";
+  value: string;
+}) {
+  return (
+    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+      {label}
+      <input
+        className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        type={type}
+        value={value}
+      />
+    </label>
   );
 }
 
@@ -2709,13 +3218,37 @@ function TenantCard({
 function TenantDetailPanel({
   item,
   busy,
+  datasourceConfig,
+  datasourceDatabase,
+  datasourceHost,
+  datasourcePassword,
+  datasourcePort,
+  datasourceUser,
   datasourceTest,
+  onSaveDatasourceConfig,
   onTestDatasource,
+  setDatasourceDatabase,
+  setDatasourceHost,
+  setDatasourcePassword,
+  setDatasourcePort,
+  setDatasourceUser,
 }: {
   item?: TenantSummary;
   busy: string | null;
+  datasourceConfig: DatasourceConfigStatus | null;
+  datasourceDatabase: string;
+  datasourceHost: string;
+  datasourcePassword: string;
+  datasourcePort: string;
+  datasourceUser: string;
   datasourceTest?: DatasourceTestResult;
+  onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
   onTestDatasource: (tenantId: string) => Promise<void>;
+  setDatasourceDatabase: (value: string) => void;
+  setDatasourceHost: (value: string) => void;
+  setDatasourcePassword: (value: string) => void;
+  setDatasourcePort: (value: string) => void;
+  setDatasourceUser: (value: string) => void;
 }) {
   if (!item) {
     return (
@@ -2807,9 +3340,21 @@ function TenantDetailPanel({
 
         <DatasourceTestSummary result={datasourceTest} />
 
-        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-          Secret readiness: รอบนี้วางฐาน encrypted secret store แล้ว แต่หน้า config ยังไม่รับ password/token ดิบจนกว่าจะเปิด workflow บันทึก secret แบบ masked + audited.
-        </div>
+        <DatasourceConfigPanel
+          busy={busy === `datasource-save-${tenant.id}`}
+          config={datasourceConfig}
+          database={datasourceDatabase}
+          host={datasourceHost}
+          onDatabaseChange={setDatasourceDatabase}
+          onHostChange={setDatasourceHost}
+          onPasswordChange={setDatasourcePassword}
+          onPortChange={setDatasourcePort}
+          onSubmit={onSaveDatasourceConfig}
+          password={datasourcePassword}
+          port={datasourcePort}
+          user={datasourceUser}
+          onUserChange={setDatasourceUser}
+        />
       </div>
     </div>
   );
