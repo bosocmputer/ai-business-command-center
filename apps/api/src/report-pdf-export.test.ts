@@ -14,8 +14,8 @@ import {
 import type { ReportPdfRows } from "./report-runner.js";
 
 describe("report PDF export", () => {
-  it("uses the SML row v4 layout version for cache invalidation", () => {
-    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v4");
+  it("uses the SML row v5 layout version for cache invalidation", () => {
+    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v5");
   });
 
   it("builds a cache key bound to tenant, report, run, date range, and layout", () => {
@@ -329,7 +329,7 @@ describe("report PDF export", () => {
     expect(html).not.toContain("Barcode:");
   });
 
-  it("starts large document groups on a new page and marks continuation chunks", () => {
+  it("does not push a large document to a new page while the current page has usable space", () => {
     const snapshot = buildSnapshot();
     const firstDocument = buildHeaderRow({
       rownum: 1,
@@ -373,9 +373,90 @@ describe("report PDF export", () => {
       params: snapshot.params,
     });
 
-    expect(html).toContain('<tr class="doc-row page-start">');
+    expect(html).not.toContain('<tr class="doc-row page-start">');
+    expect(html).toContain('<tbody class="document-group large flow">');
     expect(html).toContain("ต่อจากเอกสาร SO-LARGE / Large customer");
     expect(html).toContain('<td colspan="16">ต่อจากเอกสาร SO-LARGE / Large customer</td>');
+  });
+
+  it("does not force document page starts for crowded pages", () => {
+    const snapshot = buildSnapshot();
+    const precedingDocuments = Array.from({ length: 13 }, (_, index) =>
+      buildHeaderRow({
+        rownum: index + 1,
+        doc_no: `SO-${index + 1}`,
+        cust_name: `Customer ${index + 1}`,
+      }),
+    );
+    const largeDocument = buildHeaderRow({
+      rownum: 14,
+      doc_no: "SO-LARGE",
+      cust_name: "Large customer",
+    });
+    const rows: ReportPdfRows = {
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+      params: snapshot.params,
+      documents: [...precedingDocuments, largeDocument],
+      lines: Array.from({ length: 8 }, (_, index) =>
+        buildDetailRow({
+          doc_no: "SO-LARGE",
+          item_code: `SKU-${index + 1}`,
+        }),
+      ),
+    };
+
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows,
+      params: snapshot.params,
+    });
+
+    expect(html).not.toContain('<tr class="doc-row page-start">');
+  });
+
+  it("keeps only visually compact small document groups together", () => {
+    const snapshot = buildSnapshot();
+    const compactDocument = buildHeaderRow({
+      rownum: 1,
+      doc_no: "SO-COMPACT",
+      cust_name: "ACME",
+    });
+    const visuallyTallDocument = buildHeaderRow({
+      rownum: 2,
+      doc_no: "SO-TALL",
+      cust_name:
+        "บริษัท สไตรค์ ฟอร์ส จำกัด (สำนักงานใหญ่) เลขที่ 18 ซ. กรุงเทพกรีฑา 33 แยก 1 แขวงทับช้าง เขตสะพานสูง กรุงเทพฯ 10250",
+    });
+    const rows: ReportPdfRows = {
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+      params: snapshot.params,
+      documents: [compactDocument, visuallyTallDocument],
+      lines: [
+        buildDetailRow({
+          doc_no: "SO-COMPACT",
+          item_name: "สินค้า",
+        }),
+        buildDetailRow({
+          doc_no: "SO-TALL",
+          item_name:
+            "เบง เบง 22กรัม5บาทได้ครีมเคลือบไวท์ช็อกโกแลตและ มะพร้าวขาว สินค้าจัดชุด 1แพ็ค",
+        }),
+      ],
+    };
+
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows,
+      params: snapshot.params,
+    });
+
+    expect(html).toContain('<tbody class="document-group small compact">');
+    expect(html).toContain('<tbody class="document-group small flow">');
+    expect(html).toContain(".doc-row {\n      break-after: avoid;");
   });
 });
 

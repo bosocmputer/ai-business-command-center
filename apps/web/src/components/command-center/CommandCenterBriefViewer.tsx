@@ -97,7 +97,7 @@ const DETAILED_PRINT_PAGE_SIZE = 50;
 const DETAILED_PRINT_MAX_DOCUMENTS = 300;
 const DETAILED_PRINT_MAX_DETAIL_LINES = 5000;
 const DETAILED_PRINT_DETAIL_CONCURRENCY = 4;
-const REPORT_PDF_LAYOUT_VERSION = "sml-row-v4";
+const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 const PDF_PROGRESS_STAGES = [
   { delayMs: 0, progress: 5, stage: "ตรวจสิทธิ์ลิงก์รายงาน" },
   { delayMs: 250, progress: 15, stage: "เช็กไฟล์ PDF ใน cache" },

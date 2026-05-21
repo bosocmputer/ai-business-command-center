@@ -20,12 +20,11 @@ import {
 } from "@ai-bcc/shared";
 import type { ReportPdfRows } from "./report-runner.js";
 
-export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v4";
+export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 export const REPORT_PDF_MAX_DOCUMENTS = 300;
 export const REPORT_PDF_MAX_DETAIL_ROWS = 5000;
 export const REPORT_PDF_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REPORT_PDF_DETAIL_CHUNK_SIZE = 24;
-const REPORT_PDF_PAGE_START_ROW_THRESHOLD = 18;
 
 let browserPromise: Promise<Browser> | null = null;
 const buildInflightByCacheKey = new Map<string, Promise<ReportPdfBuildResult>>();
@@ -318,8 +317,6 @@ export function renderReportPdfHtml(input: {
   const copy = getReportCopy(input.snapshot.report_key);
   const linesByDocument = groupLinesByDocument(input.rows.lines);
   const totals = calculateDocumentTotals(input.rows.documents);
-  let estimatedRowsOnCurrentPage = 0;
-
   return `<!doctype html>
 <html lang="th">
 <head>
@@ -376,9 +373,13 @@ export function renderReportPdfHtml(input: {
       font-weight: 400;
     }
     tr { break-inside: avoid; page-break-inside: avoid; }
-    tbody.document-group.small {
+    tbody.document-group.compact {
       break-inside: avoid;
       page-break-inside: avoid;
+    }
+    .doc-row {
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .doc-row td {
       border-top: 0;
@@ -511,26 +512,12 @@ export function renderReportPdfHtml(input: {
       ${input.rows.documents
         .map((document, index) => {
           const lines = linesByDocument.get(documentKey(document)) ?? [];
-          const isLargeDocument = lines.length > 5;
-          const forcePageStart =
-            isLargeDocument &&
-            index > 0 &&
-            estimatedRowsOnCurrentPage >= REPORT_PDF_PAGE_START_ROW_THRESHOLD;
-          if (forcePageStart) {
-            estimatedRowsOnCurrentPage = 0;
-          }
-          const firstChunkRows = 1 + Math.min(Math.max(lines.length, 1), REPORT_PDF_DETAIL_CHUNK_SIZE);
-          estimatedRowsOnCurrentPage =
-            firstChunkRows >= REPORT_PDF_DETAIL_CHUNK_SIZE
-              ? firstChunkRows % REPORT_PDF_DETAIL_CHUNK_SIZE
-              : estimatedRowsOnCurrentPage + firstChunkRows;
-
           return renderDocumentRows({
             document,
             lines,
             index: index + 1,
             partyLabel: copy.partyLabel,
-            forcePageStart,
+            forcePageStart: false,
           });
         })
         .join("")}
@@ -614,7 +601,12 @@ function renderDocumentRows(input: {
 }) {
   const party = input.document.cust_name || input.document.cust_code || "-";
   const isLargeDocument = input.lines.length > 5;
-  const groupClass = isLargeDocument ? "document-group large" : "document-group small";
+  const isCompactDocument = isCompactDocumentGroup(input.document, input.lines, party);
+  const groupClass = [
+    "document-group",
+    isLargeDocument ? "large" : "small",
+    isCompactDocument ? "compact" : "flow",
+  ].join(" ");
   const docRow = `<tr class="doc-row${input.forcePageStart ? " page-start" : ""}">
     <td>${escapeHtml(formatSmlDate(input.document.doc_date))}</td>
     <td>${escapeHtml(input.document.doc_no)}<span class="muted">#${escapeHtml(formatInteger(input.index))}</span></td>
@@ -667,6 +659,56 @@ function renderDocumentRows(input: {
     .join("");
 
   return `<tbody class="${groupClass}">${docRow}${detailRows}</tbody>`;
+}
+
+function isCompactDocumentGroup(
+  document: SalesHeaderRow,
+  lines: SalesDetailRow[],
+  party: string,
+) {
+  if (lines.length > 3) {
+    return false;
+  }
+
+  return estimateVisualRows(document, lines, party) <= 5;
+}
+
+function estimateVisualRows(
+  document: SalesHeaderRow,
+  lines: SalesDetailRow[],
+  party: string,
+) {
+  const documentRows = Math.max(
+    1,
+    estimateWrappedLines(party, 30),
+    estimateWrappedLines(document.doc_ref || "", 22),
+  );
+
+  if (!lines.length) {
+    return documentRows + 1;
+  }
+
+  return (
+    documentRows +
+    lines.reduce(
+      (totalRows, line) =>
+        totalRows +
+        Math.max(
+          1,
+          estimateWrappedLines(line.item_code || "", 18),
+          estimateWrappedLines(line.item_name || "", 54),
+        ),
+      0,
+    )
+  );
+}
+
+function estimateWrappedLines(value: string, charsPerLine: number) {
+  const normalizedLength = value.replace(/\s+/g, " ").trim().length;
+  if (!normalizedLength) {
+    return 1;
+  }
+  return Math.ceil(normalizedLength / charsPerLine);
 }
 
 function calculateDocumentTotals(documents: SalesHeaderRow[]) {
