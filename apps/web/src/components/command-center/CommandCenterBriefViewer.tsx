@@ -135,12 +135,15 @@ const reportCopy: Record<ReportKey, ReportCopy> = {
 
 export function CommandCenterBriefFallback() {
   return (
-    <main className="min-h-screen bg-[#f5f7fb] px-4 py-4 text-gray-800">
+    <main className="min-h-screen bg-[#F6F7F9] px-4 py-4 text-[#101828]">
       <div className="mx-auto max-w-7xl space-y-4">
-        <div className="h-28 animate-pulse rounded-2xl bg-white" />
+        <div className="h-28 animate-pulse rounded-xl border border-[#E4E7EC] bg-white" />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-24 animate-pulse rounded-2xl bg-white" />
+            <div
+              key={item}
+              className="h-24 animate-pulse rounded-xl border border-[#E4E7EC] bg-white"
+            />
           ))}
         </div>
       </div>
@@ -401,30 +404,32 @@ function PremiumReportViewer({
   const totalPages = documentPage?.pagination.total_pages ?? 1;
 
   return (
-    <main className="min-h-screen bg-[#f4f6fb] text-slate-900">
-      <div className="border-b border-white/60 bg-[radial-gradient(circle_at_top_left,#e8efff,transparent_35%),linear-gradient(135deg,#071022,#172554_48%,#0f766e)] text-white">
-        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:py-7">
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="border-b border-[#E4E7EC] bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-cyan-100">
-                <span>AI Business Executive Viewer</span>
-                <span className="rounded-full bg-white/12 px-2 py-1 text-white/90">
+              <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                  รายงานผู้บริหาร
+                </span>
+                <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
                   {formatSource(snapshot.source)}
                 </span>
                 <span
-                  className={`rounded-full px-2 py-1 ${
+                  className={`rounded-full border px-2.5 py-1 ${
                     hasWarning
-                      ? "bg-amber-300/20 text-amber-100"
-                      : "bg-emerald-300/20 text-emerald-100"
+                      ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                      : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
                   }`}
                 >
                   {hasWarning ? "ควรตรวจยอด" : "พร้อมใช้"}
                 </span>
               </div>
-              <h1 className="mt-3 text-2xl font-semibold tracking-normal sm:text-3xl">
+              <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
                 {copy.title}
               </h1>
-              <p className="mt-2 text-sm leading-6 text-slate-200">
+              <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
                 {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
                 {formatReportPeriod(
                   snapshot.params.date_from,
@@ -435,7 +440,7 @@ function PremiumReportViewer({
             </div>
             <a
               href="#documents"
-              className="inline-flex h-11 w-fit items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-950/20 transition hover:bg-cyan-50"
+              className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
             >
               ดูรายละเอียดเอกสาร
             </a>
@@ -464,10 +469,10 @@ function PremiumReportViewer({
       </div>
 
       <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
-        <section className="rounded-2xl border border-white bg-white/90 p-3 shadow-sm shadow-slate-200/80 backdrop-blur sm:p-4">
+        <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
           <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
                 เลือกช่วงรายงาน
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -487,7 +492,7 @@ function PremiumReportViewer({
               <DateInput label="จากวันที่" value={dateFrom} onChange={setDateFrom} />
               <DateInput label="ถึงวันที่" value={dateTo} onChange={setDateTo} />
               <button
-                className="h-11 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
+                className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
                 disabled={rangeLoading}
                 type="submit"
               >
@@ -496,7 +501,7 @@ function PremiumReportViewer({
             </form>
           </div>
           {rangeError && (
-            <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
               {rangeError}
             </p>
           )}
@@ -542,17 +547,17 @@ function PremiumReportViewer({
 
         <section
           id="documents"
-          className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/80 sm:p-4"
+          className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
         >
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                Drilldown
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                รายละเอียดเอกสาร
               </p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-950">
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
                 {copy.detailsTitle}
               </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-500">
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
                 กดเอกสารเพื่อดูสินค้าและยอดที่ประกอบขึ้นมาในเอกสารนั้น
                 รายการโหลดจาก SML เฉพาะตอนเปิดดู
               </p>
@@ -566,13 +571,13 @@ function PremiumReportViewer({
               }}
             >
               <input
-                className="h-10 min-w-0 rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-10 min-w-0 rounded-lg border border-[#D0D5DD] px-3 text-[14px] leading-[22px] outline-none transition focus:border-[#2563EB] focus:ring-4 focus:ring-[#DBEAFE]"
                 placeholder={copy.searchPlaceholder}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
               <button
-                className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="h-10 rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] transition hover:bg-[#F9FAFB]"
                 type="submit"
               >
                 ค้นหา
@@ -582,17 +587,17 @@ function PremiumReportViewer({
 
           <div className="mt-4 space-y-2">
             {documentsState.status === "loading" && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              <div className="rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-6 text-center text-[14px] leading-[22px] text-[#667085]">
                 กำลังโหลดรายการเอกสาร...
               </div>
             )}
             {documentsState.status === "error" && (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              <div className="rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-4 py-3 text-[14px] leading-[22px] text-[#B42318]">
                 {documentsState.message}
               </div>
             )}
             {documentsState.status === "ready" && !documents.length && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              <div className="rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-6 text-center text-[14px] leading-[22px] text-[#667085]">
                 {copy.emptyDocuments}
               </div>
             )}
@@ -610,7 +615,7 @@ function PremiumReportViewer({
           </div>
 
           {documentPage && (
-            <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-4 flex flex-col gap-2 border-t border-[#EAECF0] pt-3 text-[14px] leading-[22px] text-[#667085] sm:flex-row sm:items-center sm:justify-between">
               <span>
                 หน้า {formatInteger(documentPage.pagination.page)} จาก{" "}
                 {formatInteger(totalPages)} · ทั้งหมด{" "}
@@ -659,21 +664,21 @@ function ExecutiveInsights({
       : "สาขาที่ทำยอดหลัก";
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
+    <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-            Executive Insight
+          <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+            สรุปผู้บริหาร
           </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">
+          <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
             ผู้บริหารควรรู้อะไร
           </h2>
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+          className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
             hasWarning
-              ? "bg-amber-50 text-amber-700"
-              : "bg-emerald-50 text-emerald-700"
+              ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+              : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
           }`}
         >
           {hasWarning ? "ควรตรวจยอด" : "พร้อมใช้"}
@@ -750,13 +755,17 @@ function ChartPanel({
   };
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
+    <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">{title}</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-500">{caption}</p>
+          <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
+            {title}
+          </h2>
+          <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+            {caption}
+          </p>
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+        <span className="rounded-full border border-[#E4E7EC] bg-[#F9FAFB] px-3 py-1 text-[12px] font-semibold leading-[18px] text-[#475467]">
           Top {chartData.length || 0}
         </span>
       </div>
@@ -770,7 +779,7 @@ function ChartPanel({
           />
         </div>
       ) : (
-        <div className="mt-4 rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+        <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
           ไม่มีข้อมูลเพียงพอสำหรับกราฟในช่วงวันที่นี้
         </div>
       )}
@@ -782,8 +791,10 @@ function ComparisonPanel({ snapshot }: { snapshot: ReportSnapshot }) {
   const comparison =
     snapshot.report_key === "sales_goods_services" ? snapshot.comparison : null;
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
-      <h2 className="text-base font-semibold text-slate-950">เทียบยอด</h2>
+    <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+      <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
+        เทียบยอด
+      </h2>
       <div className="mt-3 space-y-2">
         <ComparisonRow
           title="ช่วงก่อนหน้า"
@@ -807,25 +818,25 @@ function ComparisonPanel({ snapshot }: { snapshot: ReportSnapshot }) {
 function TrustPanel({ snapshot }: { snapshot: ReportSnapshot }) {
   const hasWarning = Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
-      <h2 className="text-base font-semibold text-slate-950">
+    <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+      <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
         ความน่าเชื่อถือข้อมูล
       </h2>
-      <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
+      <div className="mt-3 space-y-3 text-[14px] leading-[22px] text-[#475467]">
         <p>
           ระบบใช้ยอดหัวเอกสารจาก SML เป็นตัวเลขหลัก และใช้รายละเอียดสินค้าเพื่ออธิบายที่มา
         </p>
         {hasWarning && (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-amber-700">
+          <p className="rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[#B54708]">
             ยอดหัวเอกสารและยอดรายละเอียดต่างกัน{" "}
             {formatMoney(snapshot.reconciliation.difference_amount)} บาท
           </p>
         )}
-        <details className="rounded-xl border border-slate-200 bg-slate-50">
-          <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700">
+        <details className="rounded-lg border border-[#E4E7EC] bg-[#F9FAFB]">
+          <summary className="cursor-pointer px-3 py-2 font-semibold text-[#344054]">
             รายละเอียดเทคนิค
           </summary>
-          <dl className="grid gap-2 border-t border-slate-200 px-3 py-3 text-xs sm:grid-cols-2">
+          <dl className="grid gap-2 border-t border-[#E4E7EC] px-3 py-3 text-[12px] leading-[18px] sm:grid-cols-2">
             <Fact label="Run ID" value={snapshot.run_id} />
             <Fact
               label="ช่วงวันที่"
@@ -870,55 +881,57 @@ function DocumentCard({
   const party = document.cust_name || document.cust_code || "-";
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <article className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white">
       <button
-        className="grid w-full gap-3 px-3 py-3 text-left transition hover:bg-slate-50 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_120px_120px] sm:items-center"
+        className="grid w-full gap-3 px-3 py-3 text-left transition hover:bg-[#F9FAFB] sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_120px_120px] sm:items-center"
         onClick={onToggle}
         type="button"
       >
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-slate-950">
+          <p className="truncate text-[16px] font-semibold leading-6 text-[#101828]">
             {document.doc_no}
           </p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
             {formatThaiDate(document.doc_date)}
             {document.doc_time ? ` · ${formatTime(document.doc_time)}` : ""}
           </p>
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
             {copy.partyColumn}
           </p>
-          <p className="mt-1 truncate text-sm font-medium text-slate-700">
+          <p className="mt-1 truncate text-[14px] font-medium leading-[22px] text-[#344054]">
             {party}
           </p>
-          <p className="mt-0.5 truncate text-xs text-slate-500">{branchLabel}</p>
+          <p className="mt-0.5 truncate text-[12px] leading-[18px] text-[#667085]">
+            {branchLabel}
+          </p>
         </div>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
             {copy.amountColumn}
           </p>
-          <p className="mt-1 text-sm font-semibold text-slate-950">
+          <p className="mt-1 text-[14px] font-semibold leading-[22px] text-[#101828]">
             {formatMoney(document.total_amount)} บาท
           </p>
         </div>
         <div className="flex items-center justify-between gap-3 sm:justify-end">
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+          <span className="rounded-full border border-[#E4E7EC] bg-[#F9FAFB] px-3 py-1 text-[12px] font-semibold leading-[18px] text-[#475467]">
             {formatInteger(document.detail_line_count)} รายการ
           </span>
-          <span className="text-lg text-blue-600">{expanded ? "−" : "+"}</span>
+          <span className="text-lg text-[#2563EB]">{expanded ? "−" : "+"}</span>
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-100 bg-slate-50 px-3 py-3">
+        <div className="border-t border-[#EAECF0] bg-[#F9FAFB] px-3 py-3">
           {detailState.status === "loading" && detailState.docNo === document.doc_no && (
-            <div className="rounded-xl bg-white px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-lg border border-[#E4E7EC] bg-white px-4 py-6 text-center text-[14px] leading-[22px] text-[#667085]">
               กำลังโหลดรายละเอียด...
             </div>
           )}
           {detailState.status === "error" && detailState.docNo === document.doc_no && (
-            <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-4 py-3 text-[14px] leading-[22px] text-[#B42318]">
               {detailState.message}
             </div>
           )}
@@ -951,16 +964,16 @@ function DocumentDetailPanel({
 
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-      <section className="rounded-xl bg-white p-3">
+      <section className="rounded-lg border border-[#E4E7EC] bg-white p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+            <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
               {copy.itemSectionTitle}
             </p>
-            <h3 className="mt-1 text-base font-semibold text-slate-950">
+            <h3 className="mt-1 text-[16px] font-semibold leading-6 text-[#101828]">
               {detail.document.doc_no}
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
               {formatThaiDate(detail.document.doc_date)}
               {detail.document.doc_time
                 ? ` · ${formatTime(detail.document.doc_time)}`
@@ -968,9 +981,11 @@ function DocumentDetailPanel({
               · {party}
             </p>
           </div>
-          <div className="rounded-xl bg-slate-950 px-4 py-2 text-white">
-            <p className="text-xs text-slate-300">{copy.amountDetailLabel}</p>
-            <p className="text-lg font-semibold">
+          <div className="rounded-lg bg-[#101828] px-4 py-2 text-white">
+            <p className="text-[12px] leading-[18px] text-[#D0D5DD]">
+              {copy.amountDetailLabel}
+            </p>
+            <p className="text-[18px] font-semibold leading-7">
               {formatMoney(detail.document.total_amount)} บาท
             </p>
           </div>
@@ -985,16 +1000,18 @@ function DocumentDetailPanel({
             />
           ))}
           {!detail.lines.length && (
-            <div className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-6 text-center text-[14px] leading-[22px] text-[#667085]">
               ไม่พบรายการสินค้าในเอกสารนี้
             </div>
           )}
         </div>
       </section>
 
-      <aside className="rounded-xl bg-white p-3">
-        <h4 className="text-sm font-semibold text-slate-950">สรุปเอกสาร</h4>
-        <dl className="mt-3 grid gap-3 text-sm">
+      <aside className="rounded-lg border border-[#E4E7EC] bg-white p-3">
+        <h4 className="text-[14px] font-semibold leading-[22px] text-[#101828]">
+          สรุปเอกสาร
+        </h4>
+        <dl className="mt-3 grid gap-3 text-[14px] leading-[22px]">
           <Fact label={copy.partyLabel} value={party} />
           <Fact
             label="จำนวนรวม"
@@ -1023,22 +1040,24 @@ function DocumentDetailPanel({
 function LineItem({ index, line }: { index: number; line: SalesDetailRow }) {
   const branch = formatSmlBranchLabel(line.branch_code);
   return (
-    <div className="rounded-xl border border-slate-100 bg-white px-3 py-3">
+    <div className="rounded-lg border border-[#EAECF0] bg-white px-3 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-blue-600">รายการที่ {index}</p>
-          <p className="mt-1 line-clamp-2 font-semibold text-slate-950">
+          <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+            รายการที่ {index}
+          </p>
+          <p className="mt-1 line-clamp-2 font-semibold text-[#101828]">
             {line.item_name || line.item_code || "-"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-[12px] leading-[18px] text-[#667085]">
             {line.item_code || "-"} · {branch}
           </p>
         </div>
-        <p className="shrink-0 text-right text-sm font-semibold text-slate-950">
+        <p className="shrink-0 text-right text-[14px] font-semibold leading-[22px] text-[#101828]">
           {formatMoney(line.sum_amount)} บาท
         </p>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] leading-[18px] text-[#667085] sm:grid-cols-4">
         <Fact label="จำนวน" value={formatQty(line.qty)} />
         <Fact label="ราคา" value={formatMoney(line.price)} />
         <Fact
@@ -1063,11 +1082,15 @@ function PremiumKpi({
   emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/15 bg-white/12 p-3 shadow-lg shadow-slate-950/10 backdrop-blur">
-      <p className="text-xs font-medium text-slate-200">{label}</p>
+    <div className="rounded-xl border border-[#E4E7EC] bg-[#F9FAFB] p-3">
+      <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+        {label}
+      </p>
       <p
-        className={`mt-2 truncate font-semibold tracking-normal text-white ${
-          emphasis ? "text-xl sm:text-2xl" : "text-lg"
+        className={`mt-2 truncate font-semibold tracking-normal text-[#101828] ${
+          emphasis
+            ? "text-[28px] leading-9 sm:text-[32px] sm:leading-10"
+            : "text-[18px] leading-7"
         }`}
         title={value}
       >
@@ -1087,14 +1110,16 @@ function InsightCard({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+    <div className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3">
       <div className="flex gap-3">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-[12px] font-semibold leading-[18px] text-white">
           {index}
         </span>
         <div>
-          <p className="font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">{body}</p>
+          <p className="font-semibold text-[#101828]">{title}</p>
+          <p className="mt-1 text-[14px] leading-[22px] text-[#475467]">
+            {body}
+          </p>
         </div>
       </div>
     </div>
@@ -1103,9 +1128,9 @@ function InsightCard({
 
 function ComparisonRow({ title, value }: { title: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3 text-sm">
-      <span className="font-medium text-slate-600">{title}</span>
-      <span className="text-right font-semibold text-slate-950">{value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-[#EAECF0] bg-[#F9FAFB] px-3 py-3 text-[14px] leading-[22px]">
+      <span className="font-medium text-[#475467]">{title}</span>
+      <span className="text-right font-semibold text-[#101828]">{value}</span>
     </div>
   );
 }
@@ -1119,7 +1144,7 @@ function PresetButton({
 }) {
   return (
     <button
-      className="h-9 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+      className="h-9 rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] transition hover:border-[#93C5FD] hover:bg-[#EFF6FF] hover:text-[#1D4ED8]"
       onClick={onClick}
       type="button"
     >
@@ -1139,9 +1164,11 @@ function DateInput({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <span className="text-[12px] font-medium leading-[18px] text-[#667085]">
+        {label}
+      </span>
       <input
-        className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="mt-1 h-10 w-full rounded-lg border border-[#D0D5DD] px-3 text-[14px] leading-[22px] outline-none transition focus:border-[#2563EB] focus:ring-4 focus:ring-[#DBEAFE]"
         type="date"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1161,7 +1188,7 @@ function PagerButton({
 }) {
   return (
     <button
-      className="h-9 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+      className="h-9 rounded-lg border border-[#D0D5DD] px-4 text-[14px] font-semibold leading-[22px] text-[#344054] transition hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-45"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -1174,24 +1201,28 @@ function PagerButton({
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-xs font-semibold text-slate-400">{label}</dt>
-      <dd className="mt-1 break-words font-medium text-slate-800">{value}</dd>
+      <dt className="text-[12px] font-medium leading-[18px] text-[#667085]">
+        {label}
+      </dt>
+      <dd className="mt-1 break-words font-medium text-[#344054]">{value}</dd>
     </div>
   );
 }
 
 function BriefErrorState({ message }: { message: string }) {
   return (
-    <main className="min-h-screen bg-[#f4f6fb] px-4 py-6">
-      <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+    <main className="min-h-screen bg-[#F6F7F9] px-4 py-6">
+      <div className="mx-auto max-w-xl rounded-xl border border-[#E4E7EC] bg-white p-5 shadow-sm">
+        <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
           AI Business Center
         </p>
-        <h1 className="mt-2 text-xl font-semibold text-slate-950">
+        <h1 className="mt-2 text-[24px] font-semibold leading-8 text-[#101828]">
           เปิดรายงานไม่ได้
         </h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
-        <p className="mt-4 text-xs leading-5 text-slate-500">
+        <p className="mt-2 text-[14px] leading-[22px] text-[#475467]">
+          {message}
+        </p>
+        <p className="mt-4 text-[12px] leading-[18px] text-[#667085]">
           เพื่อความปลอดภัย ลิงก์รายงานจาก LINE จะผูกกับบริษัทและรายงานที่ส่งจริงเท่านั้น
         </p>
       </div>

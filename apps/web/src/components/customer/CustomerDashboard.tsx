@@ -468,8 +468,8 @@ function CustomerDashboardContent({
 
   return (
     <CustomerShell tenant={session.tenant} title="รายงานร้านค้า">
-      <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-100 px-4 py-4 sm:px-5">
+      <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
+        <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -477,16 +477,16 @@ function CustomerDashboardContent({
                 <Badge color="light">อ่านอย่างเดียว</Badge>
                 <Badge color="light">ข้อมูลเฉพาะร้านนี้</Badge>
               </div>
-              <h1 className="mt-3 text-xl font-semibold text-gray-900 sm:text-2xl">
+              <h1 className="mt-3 text-[24px] font-semibold leading-8 text-[#101828] sm:text-[28px] sm:leading-9">
                 รายงานขายสินค้าและบริการ
               </h1>
-              <p className="mt-1 text-sm leading-6 text-gray-500">
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
                 {session.tenant.name} · วันที่ข้อมูล {periodLabel} · อัปเดต{" "}
                 {formatDateTime(snapshot.generated_at)}
               </p>
             </div>
             <button
-              className="inline-flex h-9 w-fit items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] hover:bg-[#F9FAFB]"
               onClick={onRefresh}
               type="button"
             >
@@ -497,14 +497,18 @@ function CustomerDashboardContent({
 
         <div className="grid lg:grid-cols-[minmax(0,1.2fr)_380px]">
           <div className="px-4 py-4 sm:px-5">
-            <p className="text-xs font-medium text-gray-500">ยอดขายสุทธิ</p>
+            <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+              ยอดขายสุทธิ
+            </p>
             <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
-              <p className="text-4xl font-semibold tracking-normal text-gray-900">
+              <p className="text-[28px] font-semibold leading-9 tracking-normal text-[#101828] sm:text-[32px] sm:leading-10">
                 {formatCurrency(snapshot.summary.total_sales)}
               </p>
-              <p className="pb-1 text-lg font-semibold text-gray-700">บาท</p>
+              <p className="pb-1 text-[18px] font-semibold leading-7 text-[#344054]">
+                บาท
+              </p>
             </div>
-            <div className="mt-4 grid overflow-hidden rounded-lg border border-gray-100 sm:grid-cols-3">
+            <div className="mt-4 grid overflow-hidden rounded-lg border border-[#EAECF0] sm:grid-cols-3">
               <Kpi
                 label="บิลขาย"
                 value={`${formatNumber(snapshot.summary.document_count)} ใบ`}
@@ -544,8 +548,8 @@ function CustomerDashboardContent({
             </div>
           </div>
 
-          <aside className="border-t border-gray-100 bg-gray-50 px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
-            <h2 className="text-base font-semibold text-gray-900">
+          <aside className="border-t border-[#EAECF0] bg-[#F9FAFB] px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
+            <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
               วันนี้ควรรู้อะไร
             </h2>
             <div className="mt-3 space-y-2">
@@ -630,8 +634,8 @@ function CustomerDashboardContent({
         </aside>
       </section>
 
-      <details className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs leading-5 text-gray-500">
-        <summary className="cursor-pointer select-none font-semibold text-gray-700">
+      <details className="rounded-xl border border-[#E4E7EC] bg-white px-4 py-3 text-[12px] leading-[18px] text-[#667085]">
+        <summary className="cursor-pointer select-none font-semibold text-[#344054]">
           รายละเอียดแหล่งข้อมูล
         </summary>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -679,21 +683,20 @@ function CustomerReportToolbar({
   const quickRanges = useMemo(() => buildQuickRanges(), []);
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
+    <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
-          <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+          <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
             เลือกช่วงรายงาน
           </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            ลูกค้าดูรายงานได้อย่างเดียว ระบบจะรัน approved SQL ตามช่วงวันที่ที่เลือก
-            และจำกัดไม่เกิน 31 วันต่อครั้งใน pilot
+          <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+            เลือกช่วงวันที่เพื่อดูรายงานย้อนหลัง ระบบอ่านข้อมูลจาก approved SQL แบบ read-only
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {quickRanges.map((item) => (
             <button
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-theme-xs font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-3 text-[12px] font-semibold leading-[18px] text-[#344054] shadow-sm hover:bg-[#F9FAFB]"
               key={item.label}
               onClick={() => {
                 setDateFrom(item.range.date_from);
@@ -707,7 +710,7 @@ function CustomerReportToolbar({
           ))}
           {activeRange ? (
             <button
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-theme-xs font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-3 text-[12px] font-semibold leading-[18px] text-[#344054] shadow-sm hover:bg-[#F9FAFB]"
               onClick={onUseLatest}
               type="button"
             >
@@ -752,7 +755,7 @@ function CustomerReportToolbar({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-col gap-1 text-xs leading-5 text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-3 flex flex-col gap-1 text-[12px] leading-[18px] text-[#667085] sm:flex-row sm:items-center sm:justify-between">
         <p>
           ช่วงที่แสดงอยู่: {formatThaiDate(snapshot.params.date_from)} ถึง{" "}
           {formatThaiDate(snapshot.params.date_to)}
@@ -774,7 +777,7 @@ function CustomerPurchaseSummary({
 }) {
   if (state.status === "loading") {
     return (
-      <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+      <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm sm:p-5">
         <div className="h-5 w-48 rounded bg-gray-100" />
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
           {["purchase", "docs", "lines", "supplier"].map((item) => (
@@ -787,9 +790,11 @@ function CustomerPurchaseSummary({
 
   if (state.status === "error") {
     return (
-      <section className="rounded-xl border border-warning-200 bg-warning-50 p-4 sm:p-5">
+      <section className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-4 sm:p-5">
         <Badge color="warning">รายงานซื้อยังไม่พร้อม</Badge>
-        <p className="mt-2 text-sm leading-6 text-gray-700">{state.message}</p>
+        <p className="mt-2 text-[14px] leading-[22px] text-[#475467]">
+          {state.message}
+        </p>
       </section>
     );
   }
@@ -800,8 +805,8 @@ function CustomerPurchaseSummary({
   const maxProductTotal = topProduct?.sum_amount ?? 0;
 
   return (
-    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div className="border-b border-gray-100 px-4 py-4 sm:px-5">
+    <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
+      <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -816,17 +821,17 @@ function CustomerPurchaseSummary({
               </Badge>
               <Badge color="light">รายงานตัวที่ 2</Badge>
             </div>
-            <h2 className="mt-3 text-xl font-semibold text-gray-900">
+            <h2 className="mt-3 text-[24px] font-semibold leading-8 text-[#101828]">
               รายงานซื้อ/ตั้งหนี้
             </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500">
+            <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
               ช่วงข้อมูล {formatThaiDate(snapshot.params.date_from)} ถึง{" "}
               {formatThaiDate(snapshot.params.date_to)} · ใช้ยอดหัวเอกสาร SML
               เป็นยอดซื้อหลัก
             </p>
           </div>
           <a
-            className="inline-flex h-9 w-fit items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] hover:bg-[#F9FAFB]"
             href={`/app/${tenantSlug}`}
           >
             อ่านอย่างเดียว
@@ -836,14 +841,18 @@ function CustomerPurchaseSummary({
 
       <div className="grid lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="px-4 py-4 sm:px-5">
-          <p className="text-xs font-medium text-gray-500">ยอดซื้อ/ตั้งหนี้</p>
+          <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+            ยอดซื้อ/ตั้งหนี้
+          </p>
           <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
-            <p className="text-3xl font-semibold tracking-normal text-gray-900 sm:text-4xl">
+            <p className="text-[28px] font-semibold leading-9 tracking-normal text-[#101828] sm:text-[32px] sm:leading-10">
               {formatCurrency(snapshot.summary.total_purchase)}
             </p>
-            <p className="pb-1 text-lg font-semibold text-gray-700">บาท</p>
+            <p className="pb-1 text-[18px] font-semibold leading-7 text-[#344054]">
+              บาท
+            </p>
           </div>
-          <div className="mt-4 grid overflow-hidden rounded-lg border border-gray-100 sm:grid-cols-3">
+          <div className="mt-4 grid overflow-hidden rounded-lg border border-[#EAECF0] sm:grid-cols-3">
             <Kpi
               label="เอกสารซื้อ"
               value={`${formatNumber(snapshot.summary.document_count)} ใบ`}
@@ -879,8 +888,8 @@ function CustomerPurchaseSummary({
           </div>
         </div>
 
-        <aside className="border-t border-gray-100 bg-gray-50 px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
-          <h3 className="text-base font-semibold text-gray-900">
+        <aside className="border-t border-[#EAECF0] bg-[#F9FAFB] px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
+          <h3 className="text-[18px] font-semibold leading-7 text-[#101828]">
             สิ่งที่ควรดู
           </h3>
           <div className="mt-3 space-y-3">
@@ -1135,13 +1144,13 @@ function CustomerDetailDrilldown({
   );
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+    <section className="min-w-0 overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
+      <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
         <div>
-          <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+          <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
             {copy.title}
           </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
             {copy.description}
           </p>
         </div>
@@ -1151,14 +1160,14 @@ function CustomerDetailDrilldown({
               ? copy.loadingDocumentsLabel
               : `${formatNumber(totalItems)} ${copy.documentNoun}${activeSearch ? "ที่ค้นพบ" : ""}`}
           </Badge>
-          <p className="text-xs text-gray-500">
+          <p className="text-[12px] leading-[18px] text-[#667085]">
             รายงานนี้มีทั้งหมด {formatNumber(totalDocumentCount)}{" "}
             {copy.documentNoun}
           </p>
         </div>
       </div>
 
-      <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6">
+      <div className="border-t border-[#EAECF0] px-4 py-4 sm:px-5">
         <form
           className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]"
           onSubmit={(event) => {
@@ -1184,7 +1193,7 @@ function CustomerDetailDrilldown({
             </Button>
             {draftSearch || searchTerm ? (
               <button
-                className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 sm:w-auto"
+                className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-3 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm hover:bg-[#F9FAFB] sm:w-auto"
                 onClick={clearSearch}
                 type="button"
               >
@@ -1194,16 +1203,16 @@ function CustomerDetailDrilldown({
           </div>
         </form>
         {activeSearch ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] leading-[18px] text-[#667085]">
             <span>กำลังค้นหา:</span>
-            <span className="inline-flex max-w-full items-center rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-700">
+            <span className="inline-flex max-w-full items-center rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1 font-medium text-[#1D4ED8]">
               {activeSearch}
             </span>
           </div>
         ) : null}
       </div>
 
-      <div className="border-t border-gray-100 dark:border-gray-800">
+      <div className="border-t border-[#EAECF0]">
         {documentPageState.status === "loading" ? (
           <DocumentTableLoading />
         ) : documentPageState.status === "error" ? (
@@ -1230,7 +1239,7 @@ function CustomerDetailDrilldown({
                   <div
                     className={
                       isExpanded
-                        ? "bg-brand-50/30 px-4 py-3"
+                        ? "bg-[#EFF6FF]/50 px-4 py-3"
                         : "bg-white px-4 py-3 dark:bg-transparent"
                     }
                     key={`${document.doc_date}-${document.doc_no}`}
@@ -1255,40 +1264,40 @@ function CustomerDetailDrilldown({
 
             <div className="hidden md:block">
                 <Table>
-                  <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
+                  <TableHeader className="border-b border-[#EAECF0]">
                     <TableRow>
                       <TableCell
-                        className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        className="px-5 py-3 text-start text-[12px] font-medium leading-[18px] text-[#667085]"
                         isHeader
                       >
 	                        {copy.documentHeader}
                       </TableCell>
                       <TableCell
-                        className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        className="px-5 py-3 text-start text-[12px] font-medium leading-[18px] text-[#667085]"
                         isHeader
                       >
 	                        {copy.partyHeader}
                       </TableCell>
                       <TableCell
-                        className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        className="px-5 py-3 text-start text-[12px] font-medium leading-[18px] text-[#667085]"
                         isHeader
                       >
                         สาขา
                       </TableCell>
                       <TableCell
-                        className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        className="px-5 py-3 text-right text-[12px] font-medium leading-[18px] text-[#667085]"
                         isHeader
                       >
 	                        {copy.amountHeader}
                       </TableCell>
                       <TableCell
-                        className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        className="px-5 py-3 text-right text-[12px] font-medium leading-[18px] text-[#667085]"
                         isHeader
                       >
                         รายการ
                       </TableCell>
                       <TableCell
-                        className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        className="px-5 py-3 text-right text-[12px] font-medium leading-[18px] text-[#667085]"
                         isHeader
                       >
                         เปิดดู
@@ -1738,17 +1747,23 @@ function CustomerShell({
   title: string;
 }) {
   return (
-    <main className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="border-b border-gray-200 bg-white">
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="border-b border-[#E4E7EC] bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div>
-            <p className="text-xs font-semibold text-brand-500">AI Business</p>
-            <h1 className="text-lg font-semibold">{title}</h1>
+            <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+              AI Business
+            </p>
+            <h1 className="text-[18px] font-semibold leading-7">{title}</h1>
           </div>
           {tenant ? (
             <div className="text-right">
-              <p className="text-sm font-semibold">{tenant.name}</p>
-              <p className="text-xs text-gray-500">อ่านรายงานอย่างเดียว</p>
+              <p className="text-[14px] font-semibold leading-[22px]">
+                {tenant.name}
+              </p>
+              <p className="text-[12px] leading-[18px] text-[#667085]">
+                อ่านรายงานอย่างเดียว
+              </p>
             </div>
           ) : null}
         </div>
@@ -1762,9 +1777,13 @@ function CustomerShell({
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-b border-gray-100 bg-gray-50 p-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-gray-900">{value}</p>
+    <div className="border-b border-[#EAECF0] bg-[#F9FAFB] p-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+      <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+        {label}
+      </p>
+      <p className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+        {value}
+      </p>
     </div>
   );
 }
@@ -1779,12 +1798,16 @@ function MiniSummary({
   value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-gray-100 bg-white p-3">
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+    <div className="min-w-0 rounded-lg border border-[#EAECF0] bg-[#F9FAFB] p-3">
+      <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-[14px] font-semibold leading-[22px] text-[#101828]">
         {value}
       </p>
-      <p className="mt-1 text-xs leading-5 text-gray-500">{detail}</p>
+      <p className="mt-1 text-[12px] leading-[18px] text-[#667085]">
+        {detail}
+      </p>
     </div>
   );
 }
@@ -1799,10 +1822,14 @@ function InfoPanel({
   title: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
-      <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+    <div className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
+        {title}
+      </h2>
       {subtitle ? (
-        <p className="mt-1 text-xs leading-5 text-gray-500">{subtitle}</p>
+        <p className="mt-1 text-[12px] leading-[18px] text-[#667085]">
+          {subtitle}
+        </p>
       ) : null}
       <div className="mt-4 space-y-3">{children}</div>
     </div>
