@@ -1,17 +1,21 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ReportSnapshot } from "@ai-bcc/shared";
 import {
   REPORT_PDF_LAYOUT_VERSION,
   buildReportPdfCacheKey,
   buildReportPdfFilename,
+  readCachedReportPdf,
   renderReportPdfHtml,
   validateReportPdfLimits,
 } from "./report-pdf-export.js";
 import type { ReportPdfRows } from "./report-runner.js";
 
 describe("report PDF export", () => {
-  it("uses the SML row v3 layout version for cache invalidation", () => {
-    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v3");
+  it("uses the SML row v4 layout version for cache invalidation", () => {
+    expect(REPORT_PDF_LAYOUT_VERSION).toBe("sml-row-v4");
   });
 
   it("builds a cache key bound to tenant, report, run, date range, and layout", () => {
@@ -36,9 +40,35 @@ describe("report PDF export", () => {
     expect(buildReportPdfCacheKey(base)).not.toBe(
       buildReportPdfCacheKey({
         ...base,
-        layoutVersion: "sml-row-v1",
+        layoutVersion: "sml-row-v3",
       }),
     );
+  });
+
+  it("ignores corrupt cached PDFs instead of returning a broken file", async () => {
+    const cacheDir = await mkdtemp(path.join(tmpdir(), "ai-bcc-pdf-cache-"));
+    const cacheKey = buildReportPdfCacheKey({
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_demo_1",
+      dateFrom: "2026-05-20",
+      dateTo: "2026-05-20",
+    });
+    const cachePath = path.join(cacheDir, `${cacheKey}.pdf`);
+    await writeFile(cachePath, "not a pdf");
+
+    await expect(
+      readCachedReportPdf({
+        cacheDir,
+        tenantId: "tenant_demo_remote",
+        tenantSlug: "demo-shop",
+        reportKey: "sales_goods_services",
+        runId: "run_demo_1",
+        dateFrom: "2026-05-20",
+        dateTo: "2026-05-20",
+      }),
+    ).resolves.toBeNull();
+    await expect(readFile(cachePath)).rejects.toThrow();
   });
 
   it("uses a safe English filename for download headers", () => {
@@ -132,7 +162,7 @@ describe("report PDF export", () => {
     expect(html).not.toContain("8850000000001");
   });
 
-  it("renders customer-facing SML v2 PDF HTML without debug metadata", () => {
+  it("renders customer-facing SML PDF HTML without debug metadata", () => {
     const snapshot = buildSnapshot();
     const html = renderReportPdfHtml({
       tenantName: "Demo Shop",
@@ -154,6 +184,29 @@ describe("report PDF export", () => {
     expect(html).not.toContain("Data source");
     expect(html).not.toContain("sml_postgres");
     expect(html).not.toContain("summary");
+  });
+
+  it("keeps body rows free of document separator grid lines", () => {
+    const snapshot = buildSnapshot();
+    const html = renderReportPdfHtml({
+      tenantName: "Demo Shop",
+      snapshot,
+      rows: {
+        tenant_id: "tenant_demo_remote",
+        report_key: "sales_goods_services",
+        params: snapshot.params,
+        documents: [buildHeaderRow()],
+        lines: [buildDetailRow()],
+      },
+      params: snapshot.params,
+    });
+
+    expect(html).toContain(".doc-row td");
+    expect(html).toContain("border-top: 0;");
+    expect(html).toContain(".total-row td");
+    expect(html).toContain("border-top: 0.7px solid #111111;");
+    expect(html).not.toContain("border-top: 0.55px solid #8a8a8a");
+    expect(html).not.toContain("border-bottom: 0.35px solid #d4d4d4");
   });
 
   it("formats report dates as SML Buddhist dates instead of ISO dates", () => {
@@ -296,7 +349,13 @@ describe("report PDF export", () => {
       params: snapshot.params,
       documents: [firstDocument, largeDocument],
       lines: [
-        buildDetailRow({ doc_date: "2026-05-19", doc_no: "SO-0", item_code: "SKU-0" }),
+        ...Array.from({ length: 18 }, (_, index) =>
+          buildDetailRow({
+            doc_date: "2026-05-19",
+            doc_no: "SO-0",
+            item_code: `SKU-0-${index + 1}`,
+          }),
+        ),
         ...Array.from({ length: 25 }, (_, index) =>
           buildDetailRow({
             doc_date: "2026-05-20",

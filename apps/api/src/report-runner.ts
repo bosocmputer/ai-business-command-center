@@ -4,11 +4,13 @@ import {
   buildSalesDocumentPageQuery,
   buildSalesDetailQuery,
   buildSalesHeaderQuery,
+  buildSalesPdfCountQuery,
   buildSmlBranchListQuery,
   buildPurchaseDetailQuery,
   buildPurchaseDocumentDetailQuery,
   buildPurchaseDocumentPageQuery,
   buildPurchaseHeaderQuery,
+  buildPurchasePdfCountQuery,
   summarizePurchaseGoodsPayables,
   summarizeSalesGoodsServices,
   validatePurchaseGoodsPayablesParams,
@@ -52,6 +54,11 @@ export type ReportPdfRows = {
   params: SalesGoodsServicesParams;
   documents: SalesHeaderRow[];
   lines: SalesDetailRow[];
+};
+
+export type ReportPdfPreflightCount = {
+  documentCount: number;
+  detailRowCount: number;
 };
 
 export async function runSalesGoodsServicesReport(input: {
@@ -274,6 +281,42 @@ export async function fetchSalesGoodsServicesPdfRows(input: {
   }
 }
 
+export async function countSalesGoodsServicesPdfRows(input: {
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+}): Promise<ReportPdfPreflightCount> {
+  const params = validateSalesGoodsServicesParams(input.params);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 15000,
+    query_timeout: 20000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 15000");
+      const query = buildSalesPdfCountQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+      return mapPdfPreflightCountRow(result.rows[0] ?? {});
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
 export async function runPurchaseGoodsPayablesReport(input: {
   tenant_id: TenantId;
   run_id: string;
@@ -486,6 +529,42 @@ export async function fetchPurchaseGoodsPayablesPdfRows(input: {
         documents: headerResult.rows.map(mapHeaderRow),
         lines: detailResult.rows.map(mapDetailRow),
       };
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function countPurchaseGoodsPayablesPdfRows(input: {
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+}): Promise<ReportPdfPreflightCount> {
+  const params = validatePurchaseGoodsPayablesParams(input.params);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 15000,
+    query_timeout: 20000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 15000");
+      const query = buildPurchasePdfCountQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+      return mapPdfPreflightCountRow(result.rows[0] ?? {});
     } finally {
       client.release();
     }
@@ -756,6 +835,15 @@ function mapDocumentDetailLineRow(row: Record<string, unknown>): SalesDetailRow 
     temp_float_1: toNullableNumber(row.temp_float_1),
     temp_float_2: toNullableNumber(row.temp_float_2),
     line_number: toNullableNumber(row.line_number),
+  };
+}
+
+function mapPdfPreflightCountRow(
+  row: Record<string, unknown>,
+): ReportPdfPreflightCount {
+  return {
+    documentCount: toNumber(row.document_count),
+    detailRowCount: toNumber(row.detail_row_count),
   };
 }
 

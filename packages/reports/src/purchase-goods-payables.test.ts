@@ -4,6 +4,7 @@ import {
   buildPurchaseDocumentDetailQuery,
   buildPurchaseDocumentPageQuery,
   buildPurchaseHeaderQuery,
+  buildPurchasePdfCountQuery,
   renderPurchaseGoodsPayablesLinePreview,
   summarizePurchaseGoodsPayables,
   validatePurchaseGoodsPayablesParams,
@@ -46,6 +47,20 @@ describe("purchase_goods_payables contract", () => {
     expect(query.text).toContain("and h.trans_flag = d.trans_flag");
     expect(query.text).toContain("left join ic_inventory");
     expect(query.text).toContain("left join ic_unit");
+    expect(query.values).toEqual(["2026-05-01", "2026-05-21"]);
+  });
+
+  it("builds a PDF preflight count query before loading full purchase rows", () => {
+    const query = buildPurchasePdfCountQuery({
+      date_from: "2026-05-01",
+      date_to: "2026-05-21",
+    });
+
+    expect(query.text).toContain("count(*)::int as document_count");
+    expect(query.text).toContain("detail_row_count");
+    expect(query.text).toContain("left join lateral");
+    expect(query.text).toContain("h.trans_flag in (12)");
+    expect(query.text).toContain("h.is_doc_copy <> 1");
     expect(query.values).toEqual(["2026-05-01", "2026-05-21"]);
   });
 

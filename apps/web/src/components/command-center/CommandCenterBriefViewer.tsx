@@ -44,6 +44,19 @@ type DocumentDetailResponse = {
   error?: string;
 };
 
+type PdfPrepareResponse = {
+  data?: {
+    ready: boolean;
+    filename: string;
+    cache_hit: boolean;
+    document_count: number;
+    detail_row_count: number;
+    pdf_bytes: number;
+    layout_version: string;
+  };
+  error?: string;
+};
+
 type LoadState =
   | { status: "loading" }
   | { status: "ready"; snapshot: ReportSnapshot }
@@ -60,6 +73,19 @@ type DetailState =
   | { status: "ready"; detail: SalesDocumentDetail }
   | { status: "error"; docNo: string; message: string };
 
+type PdfDownloadState =
+  | { status: "idle" }
+  | { status: "preparing"; progress: number; stage: string }
+  | {
+      status: "ready";
+      filename: string;
+      cacheHit: boolean;
+      documentCount: number;
+      detailRowCount: number;
+      pdfBytes: number;
+    }
+  | { status: "error"; message: string };
+
 type ViewerParams = {
   tenantId: string;
   reportKey: ReportKey;
@@ -71,7 +97,15 @@ const DETAILED_PRINT_PAGE_SIZE = 50;
 const DETAILED_PRINT_MAX_DOCUMENTS = 300;
 const DETAILED_PRINT_MAX_DETAIL_LINES = 5000;
 const DETAILED_PRINT_DETAIL_CONCURRENCY = 4;
-const REPORT_PDF_LAYOUT_VERSION = "sml-row-v3";
+const REPORT_PDF_LAYOUT_VERSION = "sml-row-v4";
+const PDF_PROGRESS_STAGES = [
+  { delayMs: 0, progress: 5, stage: "ตรวจสิทธิ์ลิงก์รายงาน" },
+  { delayMs: 250, progress: 15, stage: "เช็กไฟล์ PDF ใน cache" },
+  { delayMs: 700, progress: 30, stage: "ตรวจจำนวนเอกสารและรายการ" },
+  { delayMs: 1300, progress: 50, stage: "ดึงข้อมูลจาก SML" },
+  { delayMs: 2400, progress: 80, stage: "สร้างไฟล์ PDF" },
+  { delayMs: 3800, progress: 95, stage: "บันทึกไฟล์ลง cache" },
+] as const;
 
 type DetailedPrintDocument = {
   document: SalesDocumentListItem;
@@ -288,6 +322,9 @@ function PremiumReportViewer({
   const [detailedPrintState, setDetailedPrintState] =
     useState<DetailedPrintState>({ status: "idle" });
   const [showDetailedPrintView, setShowDetailedPrintView] = useState(false);
+  const [pdfDownloadState, setPdfDownloadState] = useState<PdfDownloadState>({
+    status: "idle",
+  });
 
   const copy = reportCopy[snapshot.report_key];
   const totalAmount = getSnapshotTotal(snapshot);
@@ -305,6 +342,7 @@ function PremiumReportViewer({
   useEffect(() => {
     setDetailedPrintState({ status: "idle" });
     setShowDetailedPrintView(false);
+    setPdfDownloadState({ status: "idle" });
   }, [
     snapshot.params.date_from,
     snapshot.params.date_to,
@@ -650,6 +688,82 @@ function PremiumReportViewer({
     }
   }
 
+  async function handleDownloadPdf() {
+    if (pdfDownloadState.status === "preparing") {
+      return;
+    }
+
+    const prepareUrl = buildViewerPdfPrepareUrl({
+      viewer,
+      dateFrom: snapshot.params.date_from,
+      dateTo: snapshot.params.date_to,
+    });
+    const downloadUrl = buildViewerPdfUrl({
+      viewer,
+      dateFrom: snapshot.params.date_from,
+      dateTo: snapshot.params.date_to,
+    });
+    const timers: number[] = [];
+
+    try {
+      setPdfDownloadState({
+        status: "preparing",
+        progress: PDF_PROGRESS_STAGES[0].progress,
+        stage: PDF_PROGRESS_STAGES[0].stage,
+      });
+      for (const stage of PDF_PROGRESS_STAGES.slice(1)) {
+        timers.push(
+          window.setTimeout(() => {
+            setPdfDownloadState({
+              status: "preparing",
+              progress: stage.progress,
+              stage: stage.stage,
+            });
+          }, stage.delayMs),
+        );
+      }
+
+      const response = await fetch(prepareUrl, {
+        method: "GET",
+        headers: { accept: "application/json" },
+      });
+      const payload = (await response.json().catch(() => ({}))) as PdfPrepareResponse;
+      if (!response.ok || !payload.data?.ready) {
+        throw new Error(
+          payload.error ||
+            "สร้างไฟล์ PDF ไม่สำเร็จ กรุณาลองใหม่หรือเลือกช่วงวันที่สั้นลง",
+        );
+      }
+
+      timers.forEach((timer) => window.clearTimeout(timer));
+      setPdfDownloadState({
+        status: "preparing",
+        progress: 100,
+        stage: "พร้อมดาวน์โหลด",
+      });
+      window.setTimeout(() => {
+        setPdfDownloadState({
+          status: "ready",
+          filename: payload.data!.filename,
+          cacheHit: payload.data!.cache_hit,
+          documentCount: payload.data!.document_count,
+          detailRowCount: payload.data!.detail_row_count,
+          pdfBytes: payload.data!.pdf_bytes,
+        });
+      }, 180);
+      openPdfDownloadUrl(downloadUrl);
+    } catch (error) {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      setPdfDownloadState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "สร้างไฟล์ PDF ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+      });
+    }
+  }
+
   function applyPreset(preset: "yesterday" | "month" | "quarter" | "year") {
     const range = buildPresetRange(preset);
     setDateFrom(range.date_from);
@@ -711,14 +825,16 @@ function PremiumReportViewer({
               </p>
             </div>
             <div className="flex flex-wrap gap-2 print:hidden">
-              <a
+              <button
                 className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm transition hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-60"
-                href={detailedPdfUrl}
-                rel="noreferrer"
-                target="_blank"
+                disabled={pdfDownloadState.status === "preparing"}
+                onClick={handleDownloadPdf}
+                type="button"
               >
-                ดาวน์โหลด PDF
-              </a>
+                {pdfDownloadState.status === "preparing"
+                  ? "กำลังสร้าง PDF..."
+                  : "ดาวน์โหลด PDF"}
+              </button>
               <a
                 href="#documents"
                 className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
@@ -750,6 +866,11 @@ function PremiumReportViewer({
           <DetailedPrintNotice
             state={detailedPrintState}
             onOpenDetailed={() => setShowDetailedPrintView(true)}
+          />
+          <PdfDownloadProgressDialog
+            downloadUrl={detailedPdfUrl}
+            onClose={() => setPdfDownloadState({ status: "idle" })}
+            state={pdfDownloadState}
           />
         </div>
       </div>
@@ -1154,7 +1275,6 @@ function TrustPanel({ snapshot }: { snapshot: ReportSnapshot }) {
             รายละเอียดเทคนิค
           </summary>
           <dl className="grid gap-2 border-t border-[#E4E7EC] px-3 py-3 text-[12px] leading-[18px] sm:grid-cols-2">
-            <Fact label="Run ID" value={snapshot.run_id} />
             <Fact
               label="ช่วงวันที่"
               value={formatReportPeriod(
@@ -1413,7 +1533,7 @@ function DetailedPrintNotice({
     return (
       <div className="mt-4 flex flex-col gap-3 rounded-lg border border-[#ABEFC6] bg-[#ECFDF3] px-4 py-3 text-[14px] leading-[22px] text-[#027A48] sm:flex-row sm:items-center sm:justify-between print:hidden">
         <span>
-          รายงาน PDF แบบละเอียดพร้อมพิมพ์แล้ว ·{" "}
+          รายงานละเอียดพร้อมเปิดดูแล้ว ·{" "}
           {formatInteger(state.totalDocuments)} เอกสาร
           {failedCount ? ` · มี ${formatInteger(failedCount)} เอกสารที่โหลดรายละเอียดไม่ครบ` : ""}
         </span>
@@ -1457,10 +1577,107 @@ function DetailedPrintNotice({
         />
       </div>
       <p className="mt-2 text-[12px] leading-[18px] text-[#667085]">
-        รายงานละเอียดจะดึงข้อมูลจาก SML ตามช่วงวันที่นี้ จำกัดไม่เกิน{" "}
+        รายงานออนไลน์จะดึงข้อมูลจาก SML ตามช่วงวันที่นี้ จำกัดไม่เกิน{" "}
         {formatInteger(DETAILED_PRINT_MAX_DOCUMENTS)} เอกสาร และ{" "}
         {formatInteger(DETAILED_PRINT_MAX_DETAIL_LINES)} แถวรายละเอียด
       </p>
+    </div>
+  );
+}
+
+function PdfDownloadProgressDialog({
+  downloadUrl,
+  onClose,
+  state,
+}: {
+  downloadUrl: string;
+  onClose: () => void;
+  state: PdfDownloadState;
+}) {
+  if (state.status === "idle") {
+    return null;
+  }
+
+  const progress =
+    state.status === "preparing"
+      ? state.progress
+      : state.status === "ready"
+        ? 100
+        : 0;
+  const title =
+    state.status === "error"
+      ? "สร้าง PDF ไม่สำเร็จ"
+      : state.status === "ready"
+        ? "PDF พร้อมดาวน์โหลด"
+        : "กำลังสร้าง PDF";
+  const description =
+    state.status === "preparing"
+      ? state.stage
+      : state.status === "ready"
+        ? `${state.documentCount.toLocaleString("th-TH")} เอกสาร · ${state.detailRowCount.toLocaleString("th-TH")} แถวรายละเอียด`
+        : state.message;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#101828]/45 px-4 py-6 print:hidden">
+      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
+              {title}
+            </h2>
+            <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+              {description}
+            </p>
+          </div>
+          {state.status !== "preparing" && (
+            <button
+              className="rounded-md px-2 py-1 text-[14px] font-semibold text-[#475467] hover:bg-[#F2F4F7]"
+              onClick={onClose}
+              type="button"
+            >
+              ปิด
+            </button>
+          )}
+        </div>
+
+        {state.status !== "error" && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-[12px] font-medium leading-[18px] text-[#475467]">
+              <span>{state.status === "ready" ? "พร้อมแล้ว" : "กำลังดำเนินการ"}</span>
+              <span>{formatInteger(progress)}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#EAECF0]">
+              <div
+                className="h-full rounded-full bg-[#2563EB] transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {state.status === "error" && (
+            <a
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] hover:bg-[#F9FAFB]"
+              href={downloadUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              เปิด PDF โดยตรง
+            </a>
+          )}
+          {state.status === "ready" && (
+            <a
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white hover:bg-[#1D4ED8]"
+              href={downloadUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              เปิด PDF อีกครั้ง
+            </a>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1493,11 +1710,10 @@ function DetailedPrintReport({
       <div className="print-screen-toolbar">
         <div>
           <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
-            รายงานละเอียดสำหรับพิมพ์/PDF
+            รายงานละเอียดออนไลน์
           </p>
           <p className="mt-1 text-[14px] leading-[22px] text-[#475467]">
-            ถ้าใช้ LINE browser แล้วปุ่มพิมพ์ไม่เปิด ให้เปิดลิงก์นี้ใน Safari/Chrome
-            แล้วบันทึกเป็น PDF จากเมนูพิมพ์ของเครื่อง
+            ใช้หน้านี้สำหรับตรวจรายละเอียดเอกสาร ส่วนไฟล์ PDF ให้ดาวน์โหลดจากปุ่มหลักด้านบน
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1513,7 +1729,7 @@ function DetailedPrintReport({
             onClick={onPrint}
             type="button"
           >
-            พิมพ์/บันทึก PDF
+            เปิดหน้าต่างพิมพ์
           </button>
         </div>
       </div>
@@ -1529,7 +1745,7 @@ function DetailedPrintReport({
           </div>
           <div className="print-header-meta">
             <p>จัดทำเมื่อ {formatDateTime(printState.generatedAt)}</p>
-            <p>Run ID: {snapshot.run_id}</p>
+            <p>{formatReportPeriod(printState.dateFrom, printState.dateTo)}</p>
           </div>
         </header>
 
@@ -2778,6 +2994,33 @@ function buildViewerPdfUrl(input: {
   return `${API_BASE_URL}/api/reports/${encodeURIComponent(
     input.viewer.tenantId,
   )}/${encodeURIComponent(input.viewer.reportKey)}/pdf?${params}`;
+}
+
+function buildViewerPdfPrepareUrl(input: {
+  viewer: ViewerParams;
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const params = new URLSearchParams({
+    token: input.viewer.token,
+    run_id: input.viewer.runId,
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+    pdf_layout: REPORT_PDF_LAYOUT_VERSION,
+  });
+  return `${API_BASE_URL}/api/reports/${encodeURIComponent(
+    input.viewer.tenantId,
+  )}/${encodeURIComponent(input.viewer.reportKey)}/pdf/prepare?${params}`;
+}
+
+function openPdfDownloadUrl(downloadUrl: string) {
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.target = "_blank";
+  anchor.rel = "noreferrer";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function truncateLabel(value: string) {

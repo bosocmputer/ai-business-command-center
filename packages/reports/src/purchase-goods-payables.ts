@@ -145,6 +145,40 @@ order by d.doc_date, d.doc_no, d.line_number
   };
 }
 
+export function buildPurchasePdfCountQuery(params: SalesGoodsServicesParams) {
+  validatePurchaseGoodsPayablesParams(params);
+
+  return {
+    text: `
+with filtered_headers as (
+  select
+    h.doc_no,
+    h.doc_date,
+    h.trans_flag
+  from ic_trans h
+  where h.trans_flag in (12)
+    and h.last_status = 0
+    and h.doc_date between $1::date and $2::date
+    and h.is_doc_copy <> 1
+)
+select
+  count(*)::int as document_count,
+  coalesce(sum(detail_stats.detail_line_count), 0)::int as detail_row_count
+from filtered_headers h
+left join lateral (
+  select count(*)::int as detail_line_count
+  from ic_trans_detail d
+  where d.doc_no = h.doc_no
+    and d.doc_date = h.doc_date
+    and d.trans_flag = h.trans_flag
+    and d.last_status = 0
+    and d.doc_date between $1::date and $2::date
+) detail_stats on true
+`,
+    values: [params.date_from, params.date_to],
+  };
+}
+
 export function buildPurchaseDocumentDetailQuery(
   params: SalesGoodsServicesParams,
   docNo: string,

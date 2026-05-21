@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import {
@@ -12,12 +20,15 @@ import {
 } from "@ai-bcc/shared";
 import type { ReportPdfRows } from "./report-runner.js";
 
-export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v3";
+export const REPORT_PDF_LAYOUT_VERSION = "sml-row-v4";
 export const REPORT_PDF_MAX_DOCUMENTS = 300;
 export const REPORT_PDF_MAX_DETAIL_ROWS = 5000;
 export const REPORT_PDF_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const REPORT_PDF_DETAIL_CHUNK_SIZE = 24;
+const REPORT_PDF_PAGE_START_ROW_THRESHOLD = 18;
 
 let browserPromise: Promise<Browser> | null = null;
+const buildInflightByCacheKey = new Map<string, Promise<ReportPdfBuildResult>>();
 
 export type ReportPdfCacheIdentity = {
   tenantId: TenantId;
@@ -167,7 +178,7 @@ export async function buildReportPdf(input: {
     dateFrom: input.params.date_from,
     dateTo: input.params.date_to,
   });
-  const cachedPdf = await readFile(cachePath).catch(() => null);
+  const cachedPdf = await readValidCachedPdf(cachePath);
   if (cachedPdf) {
     return {
       pdf: cachedPdf,
@@ -177,21 +188,53 @@ export async function buildReportPdf(input: {
     };
   }
 
-  const html = renderReportPdfHtml({
-    tenantName: input.tenantName ?? input.snapshot.tenant_id,
-    snapshot: input.snapshot,
-    rows: input.rows,
-    params: input.params,
-  });
-  const pdf = await renderHtmlToPdf(html);
-  await writeFile(cachePath, pdf);
+  const inflight = buildInflightByCacheKey.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
 
-  return {
-    pdf,
-    filename,
-    cacheHit: false,
-    cachePath,
-  };
+  const buildPromise = (async () => {
+    const cacheFromPeer = await readValidCachedPdf(cachePath);
+    if (cacheFromPeer) {
+      return {
+        pdf: cacheFromPeer,
+        filename,
+        cacheHit: true,
+        cachePath,
+      };
+    }
+
+    const tenantName = input.tenantName ?? input.snapshot.tenant_id;
+    const copy = getReportCopy(input.snapshot.report_key);
+    const html = renderReportPdfHtml({
+      tenantName,
+      snapshot: input.snapshot,
+      rows: input.rows,
+      params: input.params,
+    });
+    const pdf = await renderHtmlToPdf(html, {
+      tenantName,
+      reportTitle: copy.title,
+      reportPeriod: formatReportPeriod(input.params),
+    });
+    await writePdfCacheAtomically(cachePath, pdf);
+
+    return {
+      pdf,
+      filename,
+      cacheHit: false,
+      cachePath,
+    };
+  })();
+
+  buildInflightByCacheKey.set(cacheKey, buildPromise);
+  try {
+    return await buildPromise;
+  } finally {
+    if (buildInflightByCacheKey.get(cacheKey) === buildPromise) {
+      buildInflightByCacheKey.delete(cacheKey);
+    }
+  }
 }
 
 export async function readCachedReportPdf(input: {
@@ -213,7 +256,7 @@ export async function readCachedReportPdf(input: {
     dateTo: input.dateTo,
   });
   const cachePath = path.join(cacheDir, `${cacheKey}.pdf`);
-  const pdf = await readFile(cachePath).catch(() => null);
+  const pdf = await readValidCachedPdf(cachePath);
   if (!pdf) {
     return null;
   }
@@ -237,6 +280,35 @@ export async function closeReportPdfBrowser() {
   await browser?.close().catch(() => undefined);
 }
 
+async function readValidCachedPdf(cachePath: string) {
+  const pdf = await readFile(cachePath).catch(() => null);
+  if (!pdf) {
+    return null;
+  }
+
+  if (isValidPdfBuffer(pdf)) {
+    return pdf;
+  }
+
+  await unlink(cachePath).catch(() => undefined);
+  return null;
+}
+
+function isValidPdfBuffer(pdf: Buffer) {
+  return pdf.length > 1024 && pdf.subarray(0, 5).toString("utf8") === "%PDF-";
+}
+
+async function writePdfCacheAtomically(cachePath: string, pdf: Buffer) {
+  const tempPath = `${cachePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await writeFile(tempPath, pdf);
+    await rename(tempPath, cachePath);
+  } catch (error) {
+    await unlink(tempPath).catch(() => undefined);
+    throw error;
+  }
+}
+
 export function renderReportPdfHtml(input: {
   tenantName: string;
   snapshot: ReportSnapshot;
@@ -246,6 +318,7 @@ export function renderReportPdfHtml(input: {
   const copy = getReportCopy(input.snapshot.report_key);
   const linesByDocument = groupLinesByDocument(input.rows.lines);
   const totals = calculateDocumentTotals(input.rows.documents);
+  let estimatedRowsOnCurrentPage = 0;
 
   return `<!doctype html>
 <html lang="th">
@@ -253,7 +326,7 @@ export function renderReportPdfHtml(input: {
   <meta charset="utf-8" />
   <title>${escapeHtml(copy.title)} ${escapeHtml(input.params.date_from)}</title>
   <style>
-    @page { size: A4 landscape; margin: 10mm 8mm; }
+    @page { size: A4 landscape; margin: 14mm 8mm 10mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -264,8 +337,7 @@ export function renderReportPdfHtml(input: {
       background: #ffffff;
     }
     .report-header {
-      margin-bottom: 5px;
-      text-align: center;
+      display: none;
     }
     h1 {
       margin: 0 0 1px;
@@ -287,7 +359,6 @@ export function renderReportPdfHtml(input: {
     th,
     td {
       border: 0;
-      border-bottom: 0.35px solid #d4d4d4;
       padding: 1.35px 2px;
       vertical-align: top;
       overflow-wrap: anywhere;
@@ -310,10 +381,11 @@ export function renderReportPdfHtml(input: {
       page-break-inside: avoid;
     }
     .doc-row td {
-      border-top: 0.55px solid #8a8a8a;
+      border-top: 0;
       border-bottom: 0;
       background: #ffffff;
       font-weight: 700;
+      padding-top: 3px;
     }
     .detail-row td {
       border-bottom: 0;
@@ -321,7 +393,7 @@ export function renderReportPdfHtml(input: {
       background: #ffffff;
     }
     .continuation-row td {
-      border-top: 0.55px solid #8a8a8a;
+      border-top: 0;
       border-bottom: 0;
       padding-top: 3px;
       color: #444444;
@@ -437,14 +509,30 @@ export function renderReportPdfHtml(input: {
       </tr>
     </thead>
       ${input.rows.documents
-        .map((document, index) =>
-          renderDocumentRows({
+        .map((document, index) => {
+          const lines = linesByDocument.get(documentKey(document)) ?? [];
+          const isLargeDocument = lines.length > 5;
+          const forcePageStart =
+            isLargeDocument &&
+            index > 0 &&
+            estimatedRowsOnCurrentPage >= REPORT_PDF_PAGE_START_ROW_THRESHOLD;
+          if (forcePageStart) {
+            estimatedRowsOnCurrentPage = 0;
+          }
+          const firstChunkRows = 1 + Math.min(Math.max(lines.length, 1), REPORT_PDF_DETAIL_CHUNK_SIZE);
+          estimatedRowsOnCurrentPage =
+            firstChunkRows >= REPORT_PDF_DETAIL_CHUNK_SIZE
+              ? firstChunkRows % REPORT_PDF_DETAIL_CHUNK_SIZE
+              : estimatedRowsOnCurrentPage + firstChunkRows;
+
+          return renderDocumentRows({
             document,
-            lines: linesByDocument.get(documentKey(document)) ?? [],
+            lines,
             index: index + 1,
             partyLabel: copy.partyLabel,
-          }),
-        )
+            forcePageStart,
+          });
+        })
         .join("")}
     <tbody class="report-total">
       <tr class="total-row">
@@ -465,24 +553,38 @@ export function renderReportPdfHtml(input: {
 </html>`;
 }
 
-async function renderHtmlToPdf(html: string) {
+async function renderHtmlToPdf(
+  html: string,
+  header: {
+    tenantName: string;
+    reportTitle: string;
+    reportPeriod: string;
+  },
+) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: "load" });
     const printDate = escapeHtml(formatPrintDateTime(new Date().toISOString()));
+    const tenantName = escapeHtml(header.tenantName);
+    const reportTitle = escapeHtml(header.reportTitle);
+    const reportPeriod = escapeHtml(header.reportPeriod);
     return await page.pdf({
       format: "A4",
       landscape: true,
       displayHeaderFooter: true,
-      headerTemplate: `<div style="width:100%; margin:0 8mm; font-family:'Noto Sans Thai', Tahoma, Arial, sans-serif; font-size:6px; color:#111;">
-        <span>Print Date : ${printDate}</span>
-        <span style="float:right;">Page No. : <span class="pageNumber"></span>/<span class="totalPages"></span></span>
+      headerTemplate: `<div style="width:100%; margin:0 8mm; font-family:'Noto Sans Thai', Tahoma, Arial, sans-serif; font-size:5.8px; line-height:1.18; color:#111;">
+        <div>
+          <span>Print Date : ${printDate}</span>
+          <span style="float:right;">Page No. : <span class="pageNumber"></span>/<span class="totalPages"></span></span>
+        </div>
+        <div style="text-align:center; font-size:7px; font-weight:700;">${tenantName}</div>
+        <div style="text-align:center; font-size:6.2px;">${reportTitle} · ${reportPeriod}</div>
       </div>`,
       footerTemplate: `<div></div>`,
       printBackground: true,
       margin: {
-        top: "10mm",
+        top: "14mm",
         right: "8mm",
         bottom: "10mm",
         left: "8mm",
@@ -505,6 +607,7 @@ async function getBrowser() {
 
 function renderDocumentRows(input: {
   document: SalesHeaderRow;
+  forcePageStart: boolean;
   lines: SalesDetailRow[];
   index: number;
   partyLabel: string;
@@ -512,8 +615,7 @@ function renderDocumentRows(input: {
   const party = input.document.cust_name || input.document.cust_code || "-";
   const isLargeDocument = input.lines.length > 5;
   const groupClass = isLargeDocument ? "document-group large" : "document-group small";
-  const forcePageStart = isLargeDocument && input.index > 1;
-  const docRow = `<tr class="doc-row${forcePageStart ? " page-start" : ""}">
+  const docRow = `<tr class="doc-row${input.forcePageStart ? " page-start" : ""}">
     <td>${escapeHtml(formatSmlDate(input.document.doc_date))}</td>
     <td>${escapeHtml(input.document.doc_no)}<span class="muted">#${escapeHtml(formatInteger(input.index))}</span></td>
     <td>${escapeHtml(input.document.doc_time ? formatTime(input.document.doc_time) : "")}</td>
@@ -536,7 +638,7 @@ function renderDocumentRows(input: {
     return `<tbody class="${groupClass}">${docRow}<tr class="empty-row"><td colspan="16">ไม่พบรายละเอียดสินค้าในเอกสารนี้</td></tr></tbody>`;
   }
 
-  const detailRows = chunkDetailRows(input.lines, 24)
+  const detailRows = chunkDetailRows(input.lines, REPORT_PDF_DETAIL_CHUNK_SIZE)
     .map((chunk, chunkIndex) => {
       const continuationRow =
         chunkIndex === 0

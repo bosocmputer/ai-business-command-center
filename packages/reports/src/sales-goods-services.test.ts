@@ -4,6 +4,7 @@ import {
   buildSalesDocumentDetailQuery,
   buildSalesDocumentPageQuery,
   buildSalesHeaderQuery,
+  buildSalesPdfCountQuery,
   buildSmlBranchListQuery,
   createEmptySalesGoodsServicesSnapshot,
   normalizeBranchCode,
@@ -68,6 +69,20 @@ describe("sales_goods_services contract", () => {
     expect(query.text).toContain("coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch')");
     expect(query.text).toContain("left join ic_inventory");
     expect(query.text).toContain("left join ic_unit");
+  });
+
+  it("builds a PDF preflight count query before loading full report rows", () => {
+    const query = buildSalesPdfCountQuery({
+      date_from: "2026-05-10",
+      date_to: "2026-05-19",
+    });
+
+    expect(query.text).toContain("count(*)::int as document_count");
+    expect(query.text).toContain("detail_row_count");
+    expect(query.text).toContain("left join lateral");
+    expect(query.text).toContain("h.trans_flag in (44)");
+    expect(query.text).toContain("h.is_doc_copy <> 1");
+    expect(query.values).toEqual(["2026-05-10", "2026-05-19"]);
   });
 
   it("builds a parameterized document detail query scoped by date and doc_no", () => {
