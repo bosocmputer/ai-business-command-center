@@ -722,6 +722,8 @@ function CustomerExecutiveCockpit({
   const netMovement = purchaseSnapshot
     ? salesSnapshot.summary.total_sales - purchaseSnapshot.summary.total_purchase
     : null;
+  const netMovementTone =
+    netMovement === null ? "neutral" : netMovement >= 0 ? "success" : "warning";
   const watchItems = [
     `${formatCurrency(salesSnapshot.summary.total_sales)} บาท จาก ${formatNumber(
       salesSnapshot.summary.document_count,
@@ -739,71 +741,103 @@ function CustomerExecutiveCockpit({
   ];
 
   return (
-    <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
+    <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.05)]">
       <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill tone={trust.color === "warning" ? "warning" : "success"}>
-                {trust.label}
-              </StatusPill>
-              <StatusPill tone="neutral">อ่านอย่างเดียว</StatusPill>
-              <StatusPill tone="neutral">ข้อมูลเฉพาะร้านนี้</StatusPill>
-            </div>
-            <h1 className="mt-3 text-[24px] font-semibold leading-8 text-[#101828] sm:text-[28px] sm:leading-9">
-              ภาพรวมผู้บริหาร
+            <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+              Dashboard ผู้บริหาร
+            </p>
+            <h1 className="mt-1 text-[24px] font-semibold leading-8 text-[#101828] sm:text-[28px] sm:leading-9">
+              ภาพรวมร้านค้า
             </h1>
             <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
-              {tenant.name} · ช่วงข้อมูล {periodLabel}
+              {tenant.name} · ช่วงข้อมูล {periodLabel} · อัปเดต{" "}
+              {formatDateTime(salesSnapshot.generated_at)}
             </p>
           </div>
-          <div className="rounded-lg border border-[#EAECF0] bg-[#F9FAFB] px-3 py-2 text-[12px] leading-[18px] text-[#667085]">
-            แหล่งข้อมูล: SML PostgreSQL
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <StatusPill tone={trust.color === "warning" ? "warning" : "success"}>
+              {trust.label}
+            </StatusPill>
+            <StatusPill tone="neutral">อ่านอย่างเดียว</StatusPill>
+            <StatusPill tone="neutral">เฉพาะร้านนี้</StatusPill>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px]">
+      <div className="grid grid-cols-2 border-b border-[#EAECF0] lg:grid-cols-4">
         <ExecutiveMetricBlock
           label="ยอดขายสุทธิ"
-          meta={`${formatNumber(salesSnapshot.summary.document_count)} บิล · ${
-            topProductLabel ?? "ยังไม่มีสินค้าหลัก"
-          }`}
+          meta={`${formatNumber(salesSnapshot.summary.document_count)} บิลขาย`}
           value={`${formatCurrency(salesSnapshot.summary.total_sales)} บาท`}
         />
         <ExecutiveMetricBlock
           label="ยอดซื้อ/ตั้งหนี้"
           meta={
             purchaseSnapshot
-              ? `${formatNumber(purchaseSnapshot.summary.document_count)} เอกสาร · ${
-                  purchaseSnapshot.top_suppliers[0]?.supplier_name ?? "ยังไม่มีผู้จำหน่ายหลัก"
-                }`
-              : "โหลดแยกจากรายงานซื้อ"
+              ? `${formatNumber(purchaseSnapshot.summary.document_count)} เอกสารซื้อ`
+              : "รอข้อมูลรายงานซื้อ"
           }
           value={purchaseLabel}
         />
-        <div className="border-t border-[#EAECF0] bg-[#F9FAFB] px-4 py-4 lg:border-l lg:border-t-0">
+        <ExecutiveMetricBlock
+          label="ส่วนต่างขาย-ซื้อ"
+          meta={
+            netMovement === null
+              ? "จะคำนวณเมื่อรายงานซื้อพร้อม"
+              : netMovement >= 0
+                ? "ยอดขายมากกว่ายอดซื้อ"
+                : "ยอดซื้อมากกว่ายอดขาย"
+          }
+          tone={netMovementTone}
+          value={netMovement === null ? "-" : `${formatCurrency(netMovement)} บาท`}
+        />
+        <ExecutiveMetricBlock
+          label="สัญญาณหลัก"
+          meta={topProductLabel ?? "ยังไม่มีสินค้าหลักในช่วงนี้"}
+          value={topBranchLabel ?? "ยังไม่มีสาขาหลัก"}
+        />
+      </div>
+
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="px-4 py-4 sm:px-5">
           <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
             สิ่งที่ควรดูตอนนี้
           </p>
-          <ul className="mt-3 space-y-2">
+          <ul className="mt-3 grid gap-2 sm:grid-cols-3">
             {watchItems.map((item, index) => (
-              <li className="flex gap-2 text-[14px] leading-[22px]" key={item}>
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-[11px] font-semibold text-white">
+              <li
+                className="flex min-w-0 gap-2 rounded-lg border border-[#EAECF0] bg-[#FCFCFD] px-3 py-2 text-[13px] leading-5"
+                key={item}
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-[11px] font-semibold text-white">
                   {index + 1}
                 </span>
-                <span className="text-[#344054]">{item}</span>
+                <span className="min-w-0 text-[#344054]">{item}</span>
               </li>
             ))}
           </ul>
-          {netMovement !== null ? (
-            <p className="mt-3 rounded-lg border border-[#EAECF0] bg-white px-3 py-2 text-[12px] leading-[18px] text-[#667085]">
-              ส่วนต่างขาย-ซื้อในช่วงนี้:{" "}
-              <span className="font-semibold text-[#101828]">
-                {formatCurrency(netMovement)} บาท
-              </span>
-            </p>
-          ) : null}
+        </div>
+        <div className="border-t border-[#EAECF0] bg-[#F9FAFB] px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
+          <p className="text-[12px] font-semibold leading-[18px] text-[#667085]">
+            สรุปสำหรับตัดสินใจ
+          </p>
+          <p className="mt-2 text-[14px] leading-[22px] text-[#344054]">
+            ยอดขายหลักมาจาก{" "}
+            <span className="font-semibold text-[#101828]">
+              {topBranchLabel ?? "ยังไม่มีข้อมูลสาขา"}
+            </span>
+            {topProductLabel ? (
+              <>
+                {" "}
+                และสินค้าหลักคือ{" "}
+                <span className="font-semibold text-[#101828]">
+                  {topProductLabel}
+                </span>
+              </>
+            ) : null}
+          </p>
         </div>
       </div>
     </section>
@@ -813,18 +847,30 @@ function CustomerExecutiveCockpit({
 function ExecutiveMetricBlock({
   label,
   meta,
+  tone = "neutral",
   value,
 }: {
   label: string;
   meta: string;
+  tone?: "neutral" | "success" | "warning";
   value: string;
 }) {
+  const valueClass =
+    tone === "success"
+      ? "text-[#027A48]"
+      : tone === "warning"
+        ? "text-[#B54708]"
+        : "text-[#101828]";
+
   return (
-    <div className="border-t border-[#EAECF0] px-4 py-4 first:border-t-0 lg:border-r lg:border-t-0">
+    <div className="min-w-0 border-r border-t border-[#EAECF0] px-4 py-4 [&:nth-child(-n+2)]:border-t-0 lg:border-t-0">
       <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
         {label}
       </p>
-      <p className="mt-2 text-[28px] font-semibold leading-9 text-[#101828] sm:text-[32px] sm:leading-10">
+      <p
+        className={`mt-1 truncate text-[22px] font-semibold leading-8 tracking-normal sm:text-[28px] sm:leading-9 ${valueClass}`}
+        title={value}
+      >
         {value}
       </p>
       <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-[#667085]">
