@@ -893,6 +893,7 @@ function CustomerPurchaseSummary({
                 share: formatShare(
                   supplier.total_amount,
                   snapshot.summary.total_purchase,
+                  "ยอดซื้อ",
                 ),
               }))}
               title="ผู้จำหน่ายหลัก"
@@ -910,6 +911,7 @@ function CustomerPurchaseSummary({
                     ? formatShare(
                         product.sum_amount,
                         snapshot.summary.total_purchase,
+                        "ยอดซื้อ",
                       )
                     : null,
               }))}
@@ -2338,7 +2340,7 @@ function roundQty(value: number) {
   return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
 
-function formatShare(value: number, total: number) {
+function formatShare(value: number, total: number, denominatorLabel = "ยอดขาย") {
   if (total <= 0) {
     return null;
   }
@@ -2346,7 +2348,7 @@ function formatShare(value: number, total: number) {
   return `${new Intl.NumberFormat("th-TH", {
     maximumFractionDigits: 1,
     minimumFractionDigits: 1,
-  }).format((value / total) * 100)}% ของยอดขาย`;
+  }).format((value / total) * 100)}% ของ${denominatorLabel}`;
 }
 
 function formatNumber(value: number) {
