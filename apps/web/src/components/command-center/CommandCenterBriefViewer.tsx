@@ -453,7 +453,7 @@ function BranchRow({
       <div className="flex items-center justify-between gap-3 text-sm">
         <div className="min-w-0">
           <p className="font-semibold text-gray-900 dark:text-white">
-            {formatBranchLabel(branch.branch_code)}
+            {formatBranchDisplay(branch)}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {formatInteger(branch.document_count)} บิล · {formatInteger(branch.line_count)} รายการ
@@ -587,6 +587,7 @@ type BillPreview = {
   totalQty: number;
   topItem: SalesDetailRow | null;
   branchCode: string;
+  branchLabel: string;
   hasDifference: boolean;
 };
 
@@ -661,7 +662,7 @@ function ExecutiveBillList({
               />
               <BillListMeta
                 label="สาขา"
-                value={formatBranchLabel(bill.branchCode)}
+                value={formatBillBranchDisplay(bill)}
               />
             </div>
           </button>
@@ -774,7 +775,7 @@ function BillDetailDrawer({
               <BillMetric label="จำนวนรวม" value={formatQty(bill.totalQty)} />
               <BillMetric
                 label="สาขา"
-                value={formatBranchLabel(bill.branchCode)}
+                value={formatBillBranchDisplay(bill)}
                 helper="รหัสสาขาจาก SML"
               />
             </div>
@@ -933,6 +934,12 @@ function BillLineStat({ label, value }: { label: string; value: string }) {
 
 function buildBillPreviews(snapshot: SalesGoodsServicesSnapshot): BillPreview[] {
   const linesByDocument = new Map<string, SalesDetailRow[]>();
+  const branchLabelByCode = new Map(
+    snapshot.branch_sales.map((branch) => [
+      branch.branch_code,
+      branch.branch_label ?? formatBranchLabel(branch.branch_code),
+    ]),
+  );
 
   for (const line of snapshot.lines) {
     const key = buildBillKey(line.doc_date, line.doc_no);
@@ -963,6 +970,7 @@ function buildBillPreviews(snapshot: SalesGoodsServicesSnapshot): BillPreview[] 
       totalQty,
       topItem,
       branchCode,
+      branchLabel: branchLabelByCode.get(branchCode) ?? formatBranchLabel(branchCode),
       hasDifference: Math.abs(document.total_amount - detailTotal) > 0.01,
     };
   });
@@ -995,7 +1003,7 @@ function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
       ? (topBranch.total_amount / snapshot.summary.total_sales) * 100
       : 0;
     insights.push({
-      title: `ยอดหลักอยู่ที่ ${formatBranchLabel(topBranch.branch_code)}`,
+      title: `ยอดหลักอยู่ที่ ${formatBranchDisplay(topBranch)}`,
       body:
         share >= 99
           ? `ยอดขายอยู่ที่สาขานี้เกือบทั้งหมด อาจเป็นร้านสาขาเดียว หรือยังไม่ได้ map สาขาใน SML`
@@ -1071,6 +1079,17 @@ function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
 
 function formatBranchLabel(branchCode: string) {
   return formatSmlBranchLabel(branchCode);
+}
+
+function formatBranchDisplay(branch: {
+  branch_code: string;
+  branch_label?: string;
+}) {
+  return branch.branch_label ?? formatBranchLabel(branch.branch_code);
+}
+
+function formatBillBranchDisplay(bill: BillPreview) {
+  return bill.branchLabel;
 }
 
 function formatCashierLabel(value: string | null) {

@@ -175,6 +175,16 @@ System DB ต้อง backup:
 - restore test เป็นระยะ
 - retention ตาม package/operation policy
 
+Pilot owner portal แสดง backup/monitoring visibility แล้วที่ `/owner/audit`:
+
+- API/system store status
+- scheduler time/mode
+- worker heartbeat freshness
+- backup configured / last backup time
+- latest audit logs สำหรับ report, LINE, datasource และ validation sign-off
+
+ถ้า `SYSTEM_BACKUP_CONFIGURED` ยังไม่ถูกตั้ง ค่าใน UI ต้องขึ้นเป็น warning และ owner ต้องถือว่ายังไม่ production-ready แม้ dashboard/LINE จะใช้งานได้แล้ว
+
 สิ่งที่สำคัญ:
 
 - tenant config
@@ -195,11 +205,12 @@ System DB ต้อง backup:
 - [x] signed customer report link พร้อม
 - [x] admin mutation token guard สำหรับ MVP พร้อม
 - [ ] error alert พร้อม
-- [ ] backup/restore test สำหรับ system DB พร้อม
+- [x] backup/monitoring visibility ใน owner พร้อม
+- [ ] backup/restore automation และ restore test สำหรับ system DB พร้อม
 - [ ] staging/prod env แยก
 - [ ] dashboard มี login/role permission เต็ม
 - [x] ไม่มี credential จริงใน repo/docs
-- [ ] manual run เทียบกับรายงาน SML เดิมแบบ customer sign-off แล้ว
+- [x] manual run มี workflow เทียบรายงาน SML เดิมและบันทึก customer sign-off ใน audit log
 
 ## Incident Scenarios
 

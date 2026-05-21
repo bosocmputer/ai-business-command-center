@@ -651,7 +651,7 @@ function BusinessHealthStrip({
       <HealthMetricCard
         icon={<GroupIcon className="size-6 text-brand-600 dark:text-brand-400" />}
         label="ความเข้มข้นของสาขา"
-        value={topBranch ? `${formatBranchLabel(topBranch.branch_code)} · ${formatPercent(topBranchShare)}` : "-"}
+        value={topBranch ? `${formatBranchDisplay(topBranch)} · ${formatPercent(topBranchShare)}` : "-"}
         detail={
           topBranchShare >= 90
             ? "ยอดขายอยู่ที่สาขาเดียวสูง อาจเป็นร้านสาขาเดียวหรือยังไม่ได้ map สาขา"
@@ -2109,4 +2109,11 @@ function formatSource(value: SalesGoodsServicesSnapshot["source"]) {
 
 function formatBranchLabel(branchCode: string) {
   return formatSmlBranchLabel(branchCode);
+}
+
+function formatBranchDisplay(branch: {
+  branch_code: string;
+  branch_label?: string;
+}) {
+  return branch.branch_label ?? formatBranchLabel(branch.branch_code);
 }

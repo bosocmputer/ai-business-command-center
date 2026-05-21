@@ -4,6 +4,7 @@ import {
   buildSalesDocumentDetailQuery,
   buildSalesDocumentPageQuery,
   buildSalesHeaderQuery,
+  buildSmlBranchListQuery,
   createEmptySalesGoodsServicesSnapshot,
   normalizeBranchCode,
   renderSalesGoodsServicesLinePreview,
@@ -113,6 +114,15 @@ describe("sales_goods_services contract", () => {
       25,
       25,
     ]);
+  });
+
+  it("builds the approved SML branch master query", () => {
+    const query = buildSmlBranchListQuery();
+
+    expect(query.text).toContain("from erp_branch_list");
+    expect(query.text).toContain("code");
+    expect(query.text).toContain("name_1");
+    expect(query.values).toEqual([]);
   });
 
   it("returns valid zero summary for empty results", () => {
@@ -247,6 +257,7 @@ describe("sales_goods_services contract", () => {
         },
       ],
       details: [],
+      branches: [{ code: "0000", name_1: "สำนักงาน" }],
     });
 
     expect(snapshot.financial_breakdown).toEqual({
@@ -262,8 +273,9 @@ describe("sales_goods_services contract", () => {
     });
     expect(snapshot.branch_sales[0]).toMatchObject({
       branch_code: "0000",
-      branch_label: "สาขาหลัก (0000)",
-      branch_name: "สาขาหลัก",
+      branch_label: "สำนักงาน",
+      branch_name: "สำนักงาน",
+      branch_note: "ชื่อสาขาจาก erp_branch_list (0000)",
     });
   });
 

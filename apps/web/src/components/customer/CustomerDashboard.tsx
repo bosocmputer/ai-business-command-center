@@ -317,7 +317,7 @@ function CustomerDashboardContent({
       ? formatThaiDate(snapshot.params.date_from)
       : `${formatThaiDate(snapshot.params.date_from)} ถึง ${formatThaiDate(snapshot.params.date_to)}`;
   const branchItems = snapshot.branch_sales.slice(0, 5).map((branch) => ({
-    label: formatBranchLabel(branch.branch_code),
+    label: formatBranchDisplay(branch),
     value: `${formatCurrency(branch.total_amount)} บาท`,
     meta: `${formatNumber(branch.document_count)} บิล · ${formatNumber(
       branch.line_count,
@@ -389,7 +389,7 @@ function CustomerDashboardContent({
                 label="สาขาหลัก"
                 value={
                   topBranch
-                    ? formatBranchLabel(topBranch.branch_code)
+                    ? formatBranchDisplay(topBranch)
                     : "ไม่มีข้อมูล"
                 }
                 detail={
@@ -1009,7 +1009,7 @@ function CustomerDetailDrilldown({
                             {document.cust_name || document.cust_code || "-"}
                           </TableCell>
                           <TableCell className="px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
-                            {formatBranchLabel(document.resolved_branch_code)}
+                            {formatDocumentBranchDisplay(document)}
                           </TableCell>
                           <TableCell className="px-5 py-4 text-right text-theme-sm font-medium text-gray-800 dark:text-white/90">
                             {formatCurrency(document.total_amount)} บาท
@@ -1214,7 +1214,7 @@ function DocumentMobileCard({
           ลูกค้า: {document.cust_name || document.cust_code || "ไม่ระบุลูกค้า"}
         </p>
         <p>
-          สาขา: {formatBranchLabel(document.resolved_branch_code)}{" "}
+          สาขา: {formatDocumentBranchDisplay(document)}{" "}
           <span className="text-xs text-gray-400">(รหัสจาก SML)</span>
         </p>
       </div>
@@ -1788,7 +1788,7 @@ function buildExecutiveNotes(
     {
       title: "สาขาที่ทำยอดหลัก",
       description: topBranch
-        ? `${formatBranchLabel(topBranch.branch_code)} ทำยอด ${formatCurrency(
+        ? `${formatBranchDisplay(topBranch)} ทำยอด ${formatCurrency(
             topBranch.total_amount,
           )} บาท`
         : "ยังไม่มีข้อมูลสาขาสำหรับช่วงวันที่นี้",
@@ -1827,6 +1827,23 @@ function formatTenantStatus(status: string) {
 
 function formatBranchLabel(value: string) {
   return formatSmlBranchLabel(value);
+}
+
+function formatBranchDisplay(branch: {
+  branch_code: string;
+  branch_label?: string;
+}) {
+  return branch.branch_label ?? formatBranchLabel(branch.branch_code);
+}
+
+function formatDocumentBranchDisplay(document: {
+  resolved_branch_code: string;
+  resolved_branch_label?: string;
+}) {
+  return (
+    document.resolved_branch_label ??
+    formatBranchLabel(document.resolved_branch_code)
+  );
 }
 
 function formatThaiDate(value: string) {

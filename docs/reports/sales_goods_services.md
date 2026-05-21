@@ -50,10 +50,24 @@ detail.branch_code -> header.branch_code -> no_branch
 
 Branch meaning for business UI:
 
+- ระบบพยายามอ่าน `erp_branch_list.code` + `erp_branch_list.name_1` ก่อน เพื่อแสดงชื่อสาขาจริงของแต่ละ tenant เช่น `0000 = สำนักงาน`
 - `0000`, `000`, `00`, `0` แสดงเป็น `สาขาหลัก (รหัส)` เพื่อไม่ให้ผู้บริหารเห็นรหัสลอย ๆ
 - `no_branch` แสดงเป็น `ไม่ระบุสาขา` และถือเป็น data-quality signal ว่าหัวบิล/รายการสินค้าไม่มีรหัสสาขา
-- รหัสอื่นยังแสดงเป็น `สาขา <code>` จนกว่าจะมี master mapping เป็นชื่อสาขาจริงของแต่ละ tenant
+- รหัสอื่นยังแสดงเป็น `สาขา <code>` ถ้าไม่มีชื่อใน `erp_branch_list`
 - ทุก label ต้องยังเก็บรหัสเดิมไว้เพื่อ trace กลับ SML ได้
+
+Branch master query:
+
+```sql
+select
+  code,
+  name_1
+from erp_branch_list
+where coalesce(code, '') <> ''
+order by code;
+```
+
+ถ้า tenant ไม่มีข้อมูลใน `erp_branch_list` หรือ query branch master ล้มเหลว report ยังรันต่อได้ด้วย fallback ด้านบน แต่ owner dashboard จะถือว่าเป็นจุดที่ควรตรวจในการ readiness checklist
 
 Financial meaning:
 
@@ -222,9 +236,9 @@ Rules:
   "branch_sales": [
     {
       "branch_code": "0000",
-      "branch_label": "สาขาหลัก (0000)",
-      "branch_name": "สาขาหลัก",
-      "branch_note": "ตีความจากรหัสสาขา SML ยังไม่ได้ map เป็นชื่อสาขาจริง",
+      "branch_label": "สำนักงาน",
+      "branch_name": "สำนักงาน",
+      "branch_note": "ชื่อสาขาจาก erp_branch_list (0000)",
       "total_amount": 126148.78,
       "document_count": 68,
       "line_count": 139

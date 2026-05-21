@@ -11,6 +11,7 @@ import {
   type SalesGoodsServicesSnapshot,
   salesGoodsServicesParamsSchema,
   type SalesHeaderRow,
+  type SmlBranchRecord,
   type TenantId,
   type TopProduct,
 } from "@ai-bcc/shared";
@@ -362,6 +363,20 @@ order by h.doc_date desc, h.doc_no desc, h.doc_time desc nulls last
   };
 }
 
+export function buildSmlBranchListQuery() {
+  return {
+    text: `
+select
+  code,
+  name_1
+from erp_branch_list
+where coalesce(code, '') <> ''
+order by code
+`,
+    values: [],
+  };
+}
+
 export function normalizeBranchCode(
   detailBranch: string | null | undefined,
   headerBranch?: string | null,
@@ -387,6 +402,18 @@ function resolveDocumentBranch(
   }
 
   return headerBranch || detailBranches[0] || "no_branch";
+}
+
+function buildBranchNameMap(branches: SmlBranchRecord[] | undefined) {
+  const map = new Map<string, string>();
+  for (const branch of branches ?? []) {
+    const code = branch.code.trim();
+    const name = branch.name_1.trim();
+    if (code && name) {
+      map.set(code, name);
+    }
+  }
+  return map;
 }
 
 function buildFinancialBreakdown(
@@ -451,6 +478,7 @@ export function summarizeSalesGoodsServices(input: {
   source: SalesGoodsServicesSnapshot["source"];
   headers: SalesHeaderRow[];
   details: SalesDetailRow[];
+  branches?: SmlBranchRecord[];
 }): SalesGoodsServicesSnapshot {
   const headerTotal = roundMoney(
     input.headers.reduce((sum, row) => sum + safeNumber(row.total_amount), 0),
@@ -476,10 +504,14 @@ export function summarizeSalesGoodsServices(input: {
 
   const branchMap = new Map<string, BranchSales>();
   const headerBranchByDoc = new Map<string, string>();
+  const branchNameByCode = buildBranchNameMap(input.branches);
 
   for (const header of input.headers) {
     const branchCode = resolveDocumentBranch(header, detailsByDoc);
-    const branchMeaning = getSmlBranchMeaning(branchCode);
+    const branchMeaning = getSmlBranchMeaning(
+      branchCode,
+      branchNameByCode.get(branchCode),
+    );
     headerBranchByDoc.set(header.doc_no, branchCode);
     const current =
       branchMap.get(branchCode) ??
@@ -504,7 +536,10 @@ export function summarizeSalesGoodsServices(input: {
       detail.branch_code,
       headerBranchByDoc.get(detail.doc_no),
     );
-    const branchMeaning = getSmlBranchMeaning(branchCode);
+    const branchMeaning = getSmlBranchMeaning(
+      branchCode,
+      branchNameByCode.get(branchCode),
+    );
     const current =
       branchMap.get(branchCode) ??
       ({
@@ -619,7 +654,7 @@ export function renderSalesGoodsServicesLinePreview(input: {
   const dashboardUrl = input.dashboardUrl ?? null;
   const useFlexMessage = isValidLineUri(dashboardUrl);
   const branchLines = snapshot.branch_sales.slice(0, 3).map((branch, index) => {
-    return `${index + 1}. ${formatBranchLabel(branch.branch_code)}: ${formatMoney(branch.total_amount)} บาท`;
+    return `${index + 1}. ${branch.branch_label ?? formatBranchLabel(branch.branch_code)}: ${formatMoney(branch.total_amount)} บาท`;
   });
   const topProductLines = snapshot.top_products.slice(0, 3).map((product, index) => {
     return `${index + 1}. ${product.item_name}: ${formatMoney(product.sum_amount)} บาท`;
@@ -839,7 +874,7 @@ function buildSalesGoodsServicesFlexMessage(input: {
           buildFlexInfoBlock(
             "ยอดหลัก",
             firstBranch
-              ? `${formatBranchLabel(firstBranch.branch_code)} ${formatMoney(
+              ? `${firstBranch.branch_label ?? formatBranchLabel(firstBranch.branch_code)} ${formatMoney(
                   firstBranch.total_amount,
                 )} บาท`
               : "ยังไม่มีข้อมูลสาขา",

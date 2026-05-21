@@ -194,6 +194,11 @@ export type BranchMeaning = {
   is_unmapped: boolean;
 };
 
+export type SmlBranchRecord = {
+  code: string;
+  name_1: string;
+};
+
 export type SalesFinancialBreakdown = {
   gross_sales: number;
   total_discount: number;
@@ -266,8 +271,10 @@ export type SalesGoodsServicesSnapshot = {
 
 export function getSmlBranchMeaning(
   branchCode: string | null | undefined,
+  branchName?: string | null,
 ): BranchMeaning {
   const code = branchCode?.trim() || "no_branch";
+  const mappedName = branchName?.trim();
 
   if (code === "no_branch") {
     return {
@@ -276,6 +283,16 @@ export function getSmlBranchMeaning(
       name: "ไม่ระบุสาขา",
       note: "ไม่พบรหัสสาขาในหัวบิลหรือรายการสินค้า",
       is_unmapped: true,
+    };
+  }
+
+  if (mappedName) {
+    return {
+      code,
+      label: mappedName,
+      name: mappedName,
+      note: `ชื่อสาขาจาก erp_branch_list (${code})`,
+      is_unmapped: false,
     };
   }
 
@@ -300,8 +317,9 @@ export function getSmlBranchMeaning(
 
 export function formatSmlBranchLabel(
   branchCode: string | null | undefined,
+  branchName?: string | null,
 ): string {
-  return getSmlBranchMeaning(branchCode).label;
+  return getSmlBranchMeaning(branchCode, branchName).label;
 }
 
 export type LineFlexMessage = {

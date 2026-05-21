@@ -127,12 +127,15 @@ unknown:
 
 `branch_code` ไม่ควรเป็น required field สำหรับทุก tenant แต่ถ้ามีควรใช้เป็น dimension หลัก
 
-Phase 1 ใช้ branch meaning helper กลางก่อนมี master mapping:
+Phase 1 ใช้ branch master จาก SML ก่อน แล้วค่อย fallback เป็น helper กลาง:
 
+- ถ้ามีข้อมูล `erp_branch_list.code` + `erp_branch_list.name_1` ระบบใช้ `name_1` เป็นชื่อสาขาใน dashboard, LINE viewer และ document drilldown
 - `0000`, `000`, `00`, `0` = `สาขาหลัก (รหัส)` เพราะร้าน SML จำนวนมากใช้เป็นสาขาหลักหรือสำนักงานใหญ่
 - ค่าว่าง/ไม่มีข้อมูล = `ไม่ระบุสาขา` และใช้เป็นสัญญาณให้ owner ตรวจ mapping
 - รหัสอื่น = `สาขา <code>` จนกว่า owner จะ map เป็นชื่อจริง เช่น `สาขาบางนา`
 - UI ต้องแสดงชื่ออ่านง่าย แต่เก็บรหัสเดิมไว้เสมอเพื่อ audit และ reconcile กับ SML
+
+Owner readiness ต้องตรวจ `erp_branch_list` ด้วย เพราะถ้ามีชื่อสาขาจริงแต่ไม่ถูกอ่าน ผู้บริหารจะเห็นรหัสสาขาแทนชื่อร้าน/สาขาและอาจเข้าใจผิดได้
 
 ## Shared vs Tenant-Specific
 

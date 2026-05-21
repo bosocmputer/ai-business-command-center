@@ -32,13 +32,14 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `/owner/tenants` ใช้เพิ่มร้าน, คุม subscription status, ดู datasource และเปิดลิงก์ Dashboard ลูกค้า
 - `/owner/reports` ใช้ติดตาม report snapshot ล่าสุดต่อร้าน และรันรายงานขายสินค้าและบริการแบบ manual จาก Owner Portal โดยตรง
 - `/owner/line` ใช้ดู LINE OA readiness, onboarding guide, อนุมัติ/เปลี่ยนสิทธิ์กลุ่ม LINE และส่ง test เฉพาะกลุ่ม
-- `/owner/audit` ใช้ดู latest report run และ latest LINE delivery ต่อ tenant
+- `/owner/audit` ใช้ดู latest report run, latest LINE delivery, audit log ล่าสุด, worker/scheduler health และ backup readiness
 - `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
 - `/app/248-shop` Customer Viewer read-only ของ 248 SHOP
 - `/app/:tenantSlug` ใช้ compact executive report layout แล้ว: ยอดขายหลัก, KPI, insight, comparison, trust note, branch/product ranking และรายละเอียดแหล่งข้อมูลแบบ collapsed
 - `/app/:tenantSlug` เพิ่มชั้นความหมายธุรกิจของรายงานขาย: แสดง `ยอดก่อนส่วนลด`, `ส่วนลดรวม`, `ยอดก่อน VAT`, `VAT`, `ยอดขายสุทธิ` แยกจากกัน และใช้คำอธิบายว่า KPI หลักมาจากหัวบิล SML
-- รหัสสาขา SML ถูกแปลงเป็น business label กลาง เช่น `0000`/`000` เป็น `สาขาหลัก (0000)`/`สาขาหลัก (000)` และ `no_branch` เป็น `ไม่ระบุสาขา` เพื่อไม่ให้ผู้บริหารเห็นรหัสลอย ๆ
+- รหัสสาขา SML ใช้ชื่อจริงจาก `erp_branch_list.name_1` ก่อน ถ้าไม่มี mapping จึง fallback เป็น business label กลาง เช่น `0000`/`000` เป็น `สาขาหลัก (0000)`/`สาขาหลัก (000)` และ `no_branch` เป็น `ไม่ระบุสาขา`
+- `/owner/reports` มี validation sign-off สำหรับเทียบยอดกับรายงาน SML เดิม และบันทึก audit ว่า “ยอดตรง” หรือมีส่วนต่างก่อน rollout ลูกค้าจริง
 - `/app/:tenantSlug` มี date filter/quick range สำหรับดูรายงานช่วงที่เลือกแบบ read-only โดยจำกัดช่วงไม่เกิน 31 วันใน pilot
 - `/app/:tenantSlug` มี server-side search + pagination ในรายการบิล และ drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ด้วย approved SQL ตามช่วงวันที่ที่กำลังดู
 - `/app/:tenantSlug` ใช้ UX แบบ responsive: desktop เป็น TailAdmin-style table สำหรับรายการบิล, mobile เป็น bill cards ที่กดง่าย และรายการสินค้าในบิลเป็น item cards แทนตารางแนวนอนทุก viewport
@@ -197,6 +198,7 @@ Minimum behavior:
 - LINE OA หลายตัวต่อ tenant มี registry metadata แล้ว
 - seed `sales_goods_services` definition after contract ready
 - datasource secret ยังเป็น env/deployment-level สำหรับ pilot; รอบนี้มี encrypted secret store foundation แล้ว แต่ owner datasource config UI ยังไม่บันทึก password/token จริง
+- owner datasource test ตรวจ `ic_trans`, `ic_trans_detail`, `ar_customer`, และ `erp_branch_list` เพื่อยืนยันทั้ง report truth และ branch naming พร้อมใช้งาน
 - every customer-facing table has `tenant_id`
 
 Acceptance:

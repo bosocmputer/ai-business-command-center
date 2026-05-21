@@ -4,6 +4,7 @@ import {
   buildSalesDocumentPageQuery,
   buildSalesDetailQuery,
   buildSalesHeaderQuery,
+  buildSmlBranchListQuery,
   summarizeSalesGoodsServices,
   validateSalesGoodsServicesParams,
 } from "@ai-bcc/reports";
@@ -16,6 +17,7 @@ import {
   type SalesGoodsServicesParams,
   type SalesGoodsServicesSnapshot,
   type SalesHeaderRow,
+  type SmlBranchRecord,
   type TenantId,
 } from "@ai-bcc/shared";
 import type { DatasourceConfig } from "./config.js";
@@ -30,6 +32,7 @@ export type DatasourceConnectionTestResult = {
     ic_trans: boolean;
     ic_trans_detail: boolean;
     ar_customer: boolean;
+    erp_branch_list: boolean;
   };
   safe_error_message: string | null;
 };
@@ -60,9 +63,13 @@ export async function runSalesGoodsServicesReport(input: {
       await client.query("set statement_timeout = 30000");
       const headerQuery = buildSalesHeaderQuery(params);
       const detailQuery = buildSalesDetailQuery(params);
-      const [headerResult, detailResult] = await Promise.all([
+      const branchQuery = buildSmlBranchListQuery();
+      const [headerResult, detailResult, branchResult] = await Promise.all([
         client.query(headerQuery.text, headerQuery.values),
         client.query(detailQuery.text, detailQuery.values),
+        client
+          .query(branchQuery.text, branchQuery.values)
+          .catch(() => ({ rows: [] as Record<string, unknown>[] })),
       ]);
 
       return summarizeSalesGoodsServices({
@@ -73,6 +80,7 @@ export async function runSalesGoodsServicesReport(input: {
         source: "sml_postgres",
         headers: headerResult.rows.map(mapHeaderRow),
         details: detailResult.rows.map(mapDetailRow),
+        branches: branchResult.rows.map(mapBranchRow),
       });
     } finally {
       client.release();
@@ -168,9 +176,15 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
     const client = await pool.connect();
     try {
       await client.query("set statement_timeout = 15000");
-      const result = await client.query<Record<string, unknown>>(
-        query.text,
-        query.values,
+      const branchQuery = buildSmlBranchListQuery();
+      const [result, branchResult] = await Promise.all([
+        client.query<Record<string, unknown>>(query.text, query.values),
+        client
+          .query(branchQuery.text, branchQuery.values)
+          .catch(() => ({ rows: [] as Record<string, unknown>[] })),
+      ]);
+      const branchNameByCode = buildBranchNameMap(
+        branchResult.rows.map(mapBranchRow),
       );
       const documents = result.rows.map(mapDocumentPageRow);
       const totalItems = toNumber(result.rows[0]?.total_count);
@@ -179,7 +193,9 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
         tenant_id: input.tenant_id,
         report_key: "sales_goods_services",
         params,
-        documents,
+        documents: documents.map((document) =>
+          enrichDocumentBranch(document, branchNameByCode),
+        ),
         pagination: {
           page,
           page_size: pageSize,
@@ -224,13 +240,15 @@ export async function testDatasourceConnection(
         has_ic_trans: boolean;
         has_ic_trans_detail: boolean;
         has_ar_customer: boolean;
+        has_erp_branch_list: boolean;
       }>(`
 select
   current_database() as database_name,
   current_user as user_name,
   to_regclass('public.ic_trans') is not null as has_ic_trans,
   to_regclass('public.ic_trans_detail') is not null as has_ic_trans_detail,
-  to_regclass('public.ar_customer') is not null as has_ar_customer
+  to_regclass('public.ar_customer') is not null as has_ar_customer,
+  to_regclass('public.erp_branch_list') is not null as has_erp_branch_list
 `);
       const row = result.rows[0];
 
@@ -238,7 +256,8 @@ select
         ok: Boolean(
           row?.has_ic_trans &&
             row.has_ic_trans_detail &&
-            row.has_ar_customer,
+            row.has_ar_customer &&
+            row.has_erp_branch_list,
         ),
         checked_at: checkedAt,
         latency_ms: Date.now() - startedAt,
@@ -248,9 +267,13 @@ select
           ic_trans: Boolean(row?.has_ic_trans),
           ic_trans_detail: Boolean(row?.has_ic_trans_detail),
           ar_customer: Boolean(row?.has_ar_customer),
+          erp_branch_list: Boolean(row?.has_erp_branch_list),
         },
         safe_error_message:
-          row?.has_ic_trans && row.has_ic_trans_detail && row.has_ar_customer
+          row?.has_ic_trans &&
+          row.has_ic_trans_detail &&
+          row.has_ar_customer &&
+          row.has_erp_branch_list
             ? null
             : "Datasource connected, but required SML tables are missing.",
       };
@@ -268,6 +291,7 @@ select
         ic_trans: false,
         ic_trans_detail: false,
         ar_customer: false,
+        erp_branch_list: false,
       },
       safe_error_message: toSafeDatasourceErrorMessage(error),
     };
@@ -348,6 +372,41 @@ function mapDocumentPageRow(row: Record<string, unknown>): SalesDocumentListItem
     detail_total_amount: toNumber(row.detail_total_amount),
     detail_total_qty: toNumber(row.detail_total_qty),
     resolved_branch_code: resolvedBranchCode,
+    resolved_branch_label: branchMeaning.label,
+    resolved_branch_name: branchMeaning.name,
+    resolved_branch_note: branchMeaning.note,
+  };
+}
+
+function mapBranchRow(row: Record<string, unknown>): SmlBranchRecord {
+  return {
+    code: toStringValue(row.code),
+    name_1: toStringValue(row.name_1),
+  };
+}
+
+function buildBranchNameMap(branches: SmlBranchRecord[]) {
+  const map = new Map<string, string>();
+  for (const branch of branches) {
+    const code = branch.code.trim();
+    const name = branch.name_1.trim();
+    if (code && name) {
+      map.set(code, name);
+    }
+  }
+  return map;
+}
+
+function enrichDocumentBranch(
+  document: SalesDocumentListItem,
+  branchNameByCode: Map<string, string>,
+): SalesDocumentListItem {
+  const branchMeaning = getSmlBranchMeaning(
+    document.resolved_branch_code,
+    branchNameByCode.get(document.resolved_branch_code),
+  );
+  return {
+    ...document,
     resolved_branch_label: branchMeaning.label,
     resolved_branch_name: branchMeaning.name,
     resolved_branch_note: branchMeaning.note,

@@ -69,8 +69,61 @@ type DatasourceTestResult = {
     ic_trans: boolean;
     ic_trans_detail: boolean;
     ar_customer: boolean;
+    erp_branch_list: boolean;
   };
   safe_error_message: string | null;
+};
+
+type OwnerAuditLogEntry = {
+  id?: number;
+  tenant_id: string | null;
+  actor_id: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+type OwnerOperationsStatus = {
+  api: {
+    ok: boolean;
+    service: string;
+    system_store: "postgres" | "local-json";
+    time: string;
+  };
+  dashboard: {
+    app_base_url_configured: boolean;
+    dashboard_url: string | null;
+    public_api_base_url_configured: boolean;
+  };
+  scheduler: {
+    enabled: boolean;
+    tenant_ids: string[];
+    time: string;
+    timezone: string;
+    mode: "dry_run" | "send";
+    force: boolean;
+  };
+  worker: {
+    heartbeat_configured: boolean;
+    latest_heartbeat: unknown | null;
+    age_seconds: number | null;
+    status: string;
+  };
+  backup: {
+    system_store: "postgres" | "local-json";
+    configured: boolean;
+    last_backup_at: string | null;
+    recommendation: string;
+  };
+  audit_logs: OwnerAuditLogEntry[];
+};
+
+type ValidationSignoffResult = {
+  status: "accepted" | "difference_found";
+  accepted: boolean;
+  difference_amount: number;
 };
 
 export type OwnerPortalSection =
@@ -91,6 +144,8 @@ export default function OwnerPortal({
   const [datasourceTests, setDatasourceTests] = useState<
     Record<string, DatasourceTestResult>
   >({});
+  const [operationsStatus, setOperationsStatus] =
+    useState<OwnerOperationsStatus | null>(null);
   const [dataStatus, setDataStatus] =
     useState<OwnerDataStatus>("checking");
   const [busy, setBusy] = useState<string | null>(null);
@@ -108,6 +163,11 @@ export default function OwnerPortal({
     useState<ReportRunRecord | null>(null);
   const [lastManualSnapshot, setLastManualSnapshot] =
     useState<SalesGoodsServicesSnapshot | null>(null);
+  const [validationReferenceTotal, setValidationReferenceTotal] = useState("");
+  const [validationSignedBy, setValidationSignedBy] = useState("");
+  const [validationNote, setValidationNote] = useState("");
+  const [validationSignoffResult, setValidationSignoffResult] =
+    useState<ValidationSignoffResult | null>(null);
   const [lineChannelName, setLineChannelName] = useState("");
   const [lineTokenConfigured, setLineTokenConfigured] = useState(true);
   const [lineSecretConfigured, setLineSecretConfigured] = useState(true);
@@ -168,11 +228,17 @@ export default function OwnerPortal({
         return;
       }
 
-      const [tenantsResponse, channelsResponse, lineTargetsResponse] =
+      const [
+        tenantsResponse,
+        channelsResponse,
+        lineTargetsResponse,
+        operationsResponse,
+      ] =
         await Promise.all([
           fetch(`${API_BASE_URL}/api/owner/tenants`, { headers }),
           fetch(`${API_BASE_URL}/api/owner/line-channels`, { headers }),
           fetch(`${API_BASE_URL}/api/line-targets`),
+          fetch(`${API_BASE_URL}/api/owner/operations/status`, { headers }),
         ]);
 
       if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
@@ -201,9 +267,13 @@ export default function OwnerPortal({
       const lineTargetsPayload = lineTargetsResponse.ok
         ? ((await lineTargetsResponse.json()) as { data: LineTargetRecord[] })
         : { data: [] };
+      const operationsPayload = operationsResponse.ok
+        ? ((await operationsResponse.json()) as { data: OwnerOperationsStatus })
+        : { data: null };
       setTenants(tenantsPayload.data);
       setLineChannels(channelsPayload.data);
       setLineTargets(lineTargetsPayload.data);
+      setOperationsStatus(operationsPayload.data);
       setDataStatus("ready");
     } catch (error) {
       setDataStatus("error");
@@ -654,9 +724,119 @@ export default function OwnerPortal({
 
       setLastManualSnapshot(payload.data);
       setLastManualRun(payload.run ?? null);
+      setValidationSignoffResult(null);
       setResult({
         tone: "success",
         message: `${tenant.name}: รันรายงานสำเร็จ ยอดขาย ${formatCurrency(payload.data.summary.total_sales)} จาก ${payload.data.summary.document_count.toLocaleString("th-TH")} บิล`,
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function saveValidationSignoff() {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant || !lastManualSnapshot) {
+      setResult({
+        tone: "warning",
+        message: "กรุณารันรายงานให้สำเร็จก่อนบันทึกการรับรองยอด",
+      });
+      return;
+    }
+    if (
+      lastManualSnapshot.tenant_id !== tenant.id ||
+      lastManualSnapshot.params.date_from !== reportDateFrom ||
+      lastManualSnapshot.params.date_to !== reportDateTo
+    ) {
+      setResult({
+        tone: "warning",
+        message:
+          "snapshot ล่าสุดในหน้านี้ไม่ตรงกับร้านหรือช่วงวันที่ กรุณารันรายงานใหม่ก่อนรับรองยอด",
+      });
+      return;
+    }
+
+    const referenceTotal = Number(validationReferenceTotal);
+    if (!Number.isFinite(referenceTotal)) {
+      setResult({
+        tone: "warning",
+        message: "กรุณากรอกยอดจากรายงาน SML เดิมเป็นตัวเลข",
+      });
+      return;
+    }
+    if (validationSignedBy.trim().length < 2) {
+      setResult({
+        tone: "warning",
+        message: "กรุณากรอกชื่อผู้ตรวจ/ผู้รับรองยอด",
+      });
+      return;
+    }
+
+    await runOwnerAction(`validation-signoff-${tenant.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันบันทึกการรับรองยอด",
+        message:
+          "ระบบจะบันทึกหลักฐานว่า owner/ลูกค้าตรวจเทียบยอดกับรายงาน SML เดิมแล้ว รายการนี้จะถูกเก็บใน audit log",
+        confirmLabel: "บันทึกการรับรอง",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          {
+            label: "ช่วงวันที่",
+            value: formatReportPeriod(reportDateFrom, reportDateTo),
+          },
+          {
+            label: "ยอดระบบ",
+            value: `${formatCurrency(lastManualSnapshot.summary.total_sales)} บาท`,
+          },
+          {
+            label: "ยอด SML เดิม",
+            value: `${formatCurrency(referenceTotal)} บาท`,
+          },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "บันทึกการรับรองยอด",
+        description:
+          "ใช้ยืนยันว่า report snapshot รอบนี้ถูกเทียบกับรายงาน SML เดิมแล้ว",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนบันทึกการรับรองยอด");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenant.id}/reports/sales_goods_services/validation-signoff`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            run_id: lastManualSnapshot.run_id,
+            date_from: reportDateFrom,
+            date_to: reportDateTo,
+            system_total: lastManualSnapshot.summary.total_sales,
+            reference_total: referenceTotal,
+            signed_by: validationSignedBy.trim(),
+            note: validationNote.trim() || undefined,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: ValidationSignoffResult;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "บันทึกการรับรองยอดไม่สำเร็จ");
+      }
+
+      setValidationSignoffResult(payload.data);
+      setResult({
+        tone: payload.data.accepted ? "success" : "warning",
+        message: payload.data.accepted
+          ? "บันทึกการรับรองยอดแล้ว: ยอดตรง"
+          : `บันทึกแล้ว แต่พบส่วนต่าง ${formatCurrency(payload.data.difference_amount)} บาท`,
       });
       await loadOwnerData();
     });
@@ -752,6 +932,8 @@ export default function OwnerPortal({
           onTestLineTarget={testLineTarget}
           onToggleLineTarget={toggleLineTarget}
           onUpdateStatus={updateTenantStatus}
+          onSaveValidationSignoff={saveValidationSignoff}
+          operationsStatus={operationsStatus}
           publicOrigin={publicOrigin}
           reportDateFrom={reportDateFrom}
           reportDateTo={reportDateTo}
@@ -770,6 +952,13 @@ export default function OwnerPortal({
           setReportDateTo={setReportDateTo}
           setSelectedTenantId={setSelectedTenantId}
           tenants={tenants}
+          validationNote={validationNote}
+          validationReferenceTotal={validationReferenceTotal}
+          validationSignedBy={validationSignedBy}
+          validationSignoffResult={validationSignoffResult}
+          setValidationNote={setValidationNote}
+          setValidationReferenceTotal={setValidationReferenceTotal}
+          setValidationSignedBy={setValidationSignedBy}
           onRunSalesReport={runSalesReport}
         />
       ) : null}
@@ -843,6 +1032,8 @@ type OwnerSectionContentProps = {
     tenant: Tenant,
     status: Tenant["status"],
   ) => Promise<void>;
+  onSaveValidationSignoff: () => Promise<void>;
+  operationsStatus: OwnerOperationsStatus | null;
   publicOrigin: string;
   reportDateFrom: string;
   reportDateTo: string;
@@ -860,7 +1051,14 @@ type OwnerSectionContentProps = {
   setReportDateFrom: (value: string) => void;
   setReportDateTo: (value: string) => void;
   setSelectedTenantId: (value: string) => void;
+  setValidationNote: (value: string) => void;
+  setValidationReferenceTotal: (value: string) => void;
+  setValidationSignedBy: (value: string) => void;
   tenants: TenantSummary[];
+  validationNote: string;
+  validationReferenceTotal: string;
+  validationSignedBy: string;
+  validationSignoffResult: ValidationSignoffResult | null;
 };
 
 function OwnerSectionContent(props: OwnerSectionContentProps) {
@@ -874,7 +1072,12 @@ function OwnerSectionContent(props: OwnerSectionContentProps) {
     return <OwnerLineContent {...props} />;
   }
   if (props.section === "audit") {
-    return <OwnerAuditContent tenants={props.tenants} />;
+    return (
+      <OwnerAuditContent
+        operationsStatus={props.operationsStatus}
+        tenants={props.tenants}
+      />
+    );
   }
   return <OwnerOverviewContent {...props} />;
 }
@@ -1284,6 +1487,7 @@ function OwnerReportsContent({
   lastManualRun,
   lastManualSnapshot,
   onRunSalesReport,
+  onSaveValidationSignoff,
   reportDateFrom,
   reportDateTo,
   selectedTenantId,
@@ -1291,7 +1495,14 @@ function OwnerReportsContent({
   setReportDateFrom,
   setReportDateTo,
   setSelectedTenantId,
+  setValidationNote,
+  setValidationReferenceTotal,
+  setValidationSignedBy,
   tenants,
+  validationNote,
+  validationReferenceTotal,
+  validationSignedBy,
+  validationSignoffResult,
 }: OwnerSectionContentProps) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
@@ -1321,10 +1532,18 @@ function OwnerReportsContent({
         onDateFromChange={setReportDateFrom}
         onDateToChange={setReportDateTo}
         onRun={onRunSalesReport}
+        onSaveValidationSignoff={onSaveValidationSignoff}
         selectedTenant={selectedTenantSummary}
         selectedTenantId={selectedTenantId}
         setSelectedTenantId={setSelectedTenantId}
+        setValidationNote={setValidationNote}
+        setValidationReferenceTotal={setValidationReferenceTotal}
+        setValidationSignedBy={setValidationSignedBy}
         tenants={tenants}
+        validationNote={validationNote}
+        validationReferenceTotal={validationReferenceTotal}
+        validationSignedBy={validationSignedBy}
+        validationSignoffResult={validationSignoffResult}
       />
     </div>
   );
@@ -1407,19 +1626,153 @@ function OwnerLineContent({
   );
 }
 
-function OwnerAuditContent({ tenants }: { tenants: TenantSummary[] }) {
+function OwnerAuditContent({
+  operationsStatus,
+  tenants,
+}: {
+  operationsStatus: OwnerOperationsStatus | null;
+  tenants: TenantSummary[];
+}) {
+  return (
+    <div className="space-y-4">
+      <OperationsStatusPanel operationsStatus={operationsStatus} />
+
+      <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <OwnerPanelHeader
+          title="ประวัติระบบล่าสุด"
+          description="มุมมอง audit แบบ owner: รอบรายงานและการส่ง LINE ล่าสุดต่อร้าน"
+          actionHref="/command-center#run-history"
+          actionLabel="เปิด run history"
+        />
+        <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+          {tenants.map((item) => (
+            <AuditTenantRow item={item} key={item.tenant.id} />
+          ))}
+        </div>
+      </section>
+
+      <AuditLogPanel auditLogs={operationsStatus?.audit_logs ?? []} />
+    </div>
+  );
+}
+
+function OperationsStatusPanel({
+  operationsStatus,
+}: {
+  operationsStatus: OwnerOperationsStatus | null;
+}) {
+  if (!operationsStatus) {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+        ยังโหลด monitoring status ไม่สำเร็จ กดรีเฟรชอีกครั้งหรือตรวจ API owner token
+      </section>
+    );
+  }
+
+  const workerTone =
+    operationsStatus.worker.status === "ok"
+      ? "success"
+      : operationsStatus.worker.status === "missing"
+        ? "warning"
+        : "warning";
+  const backupTone = operationsStatus.backup.configured ? "success" : "warning";
+
   return (
     <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <OwnerPanelHeader
-        title="ประวัติระบบล่าสุด"
-        description="มุมมอง audit แบบ owner: รอบรายงานและการส่ง LINE ล่าสุดต่อร้าน"
-        actionHref="/command-center#run-history"
-        actionLabel="เปิด run history"
+        title="Monitoring / Backup readiness"
+        description="ดูสถานะ API, worker, scheduler และแผน backup ในหน้าเดียว ก่อนเรียกว่าพร้อม production"
+      />
+      <div className="grid gap-3 border-t border-gray-100 p-4 dark:border-gray-800 md:grid-cols-2 xl:grid-cols-4">
+        <HealthFact
+          label="System store"
+          value={
+            operationsStatus.api.system_store === "postgres"
+              ? "PostgreSQL"
+              : "Local JSON"
+          }
+        />
+        <HealthFact
+          label="Scheduler"
+          value={
+            operationsStatus.scheduler.enabled
+              ? `${operationsStatus.scheduler.time} ${operationsStatus.scheduler.timezone}`
+              : "ปิดอยู่"
+          }
+        />
+        <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Worker</p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+              {formatWorkerStatus(operationsStatus.worker.status)}
+            </span>
+            <Badge color={workerTone}>{operationsStatus.worker.age_seconds ?? "-"}s</Badge>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Backup</p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+              {operationsStatus.backup.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
+            </span>
+            <Badge color={backupTone}>
+              {operationsStatus.backup.last_backup_at
+                ? formatDateTime(operationsStatus.backup.last_backup_at)
+                : "ไม่มีเวลา backup"}
+            </Badge>
+          </div>
+        </div>
+      </div>
+      {!operationsStatus.backup.configured ? (
+        <p className="border-t border-warning-100 bg-warning-50 px-4 py-3 text-sm leading-6 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">
+          {operationsStatus.backup.recommendation}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function AuditLogPanel({ auditLogs }: { auditLogs: OwnerAuditLogEntry[] }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <OwnerPanelHeader
+        title="Audit log ล่าสุด"
+        description="หลักฐานการรันรายงาน การส่ง LINE การอนุมัติกลุ่ม และการรับรองยอด"
       />
       <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
-        {tenants.map((item) => (
-          <AuditTenantRow item={item} key={item.tenant.id} />
-        ))}
+        {auditLogs.length ? (
+          auditLogs.slice(0, 12).map((entry) => (
+            <div
+              className="grid gap-3 p-4 lg:grid-cols-[180px_minmax(0,1fr)_170px]"
+              key={`${entry.id ?? entry.created_at}-${entry.action}-${entry.target_id ?? ""}`}
+            >
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {formatAuditAction(entry.action)}
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {formatDateTime(entry.created_at)}
+                </p>
+              </div>
+              <div className="min-w-0 text-sm leading-6 text-gray-600 dark:text-gray-400">
+                <p className="truncate">
+                  tenant: {entry.tenant_id ?? "-"} · {entry.target_type}:{" "}
+                  {entry.target_id ?? "-"}
+                </p>
+                <p className="truncate text-xs text-gray-500 dark:text-gray-500">
+                  {formatAuditMetadata(entry.metadata_json)}
+                </p>
+              </div>
+              <Badge color={auditActionTone(entry.action)}>
+                {entry.action}
+              </Badge>
+            </div>
+          ))
+        ) : (
+          <p className="p-5 text-sm text-gray-500 dark:text-gray-400">
+            ยังไม่มี audit log ล่าสุดให้แสดง
+          </p>
+        )}
       </div>
     </section>
   );
@@ -1434,10 +1787,18 @@ function OwnerReportRunnerPanel({
   onDateFromChange,
   onDateToChange,
   onRun,
+  onSaveValidationSignoff,
   selectedTenant,
   selectedTenantId,
   setSelectedTenantId,
+  setValidationNote,
+  setValidationReferenceTotal,
+  setValidationSignedBy,
   tenants,
+  validationNote,
+  validationReferenceTotal,
+  validationSignedBy,
+  validationSignoffResult,
 }: {
   busy: string | null;
   dateFrom: string;
@@ -1447,10 +1808,18 @@ function OwnerReportRunnerPanel({
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
   onRun: () => Promise<void>;
+  onSaveValidationSignoff: () => Promise<void>;
   selectedTenant?: TenantSummary;
   selectedTenantId: string;
   setSelectedTenantId: (value: string) => void;
+  setValidationNote: (value: string) => void;
+  setValidationReferenceTotal: (value: string) => void;
+  setValidationSignedBy: (value: string) => void;
   tenants: TenantSummary[];
+  validationNote: string;
+  validationReferenceTotal: string;
+  validationSignedBy: string;
+  validationSignoffResult: ValidationSignoffResult | null;
 }) {
   const isRunning = busy === `report-run-${selectedTenantId}`;
   const selectedSnapshotMatches =
@@ -1584,8 +1953,151 @@ function OwnerReportRunnerPanel({
             หลังรันสำเร็จ ระบบจะแสดงยอดขายและจำนวนบิลของช่วงวันที่นี้ตรงนี้ทันที
           </p>
         )}
+
+        <ValidationSignoffPanel
+          busy={busy === `validation-signoff-${selectedTenantId}`}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          lastSnapshot={selectedSnapshotMatches ? lastSnapshot : null}
+          onSave={onSaveValidationSignoff}
+          referenceTotal={validationReferenceTotal}
+          result={validationSignoffResult}
+          signedBy={validationSignedBy}
+          note={validationNote}
+          setNote={setValidationNote}
+          setReferenceTotal={setValidationReferenceTotal}
+          setSignedBy={setValidationSignedBy}
+        />
       </div>
     </section>
+  );
+}
+
+function ValidationSignoffPanel({
+  busy,
+  dateFrom,
+  dateTo,
+  lastSnapshot,
+  note,
+  onSave,
+  referenceTotal,
+  result,
+  signedBy,
+  setNote,
+  setReferenceTotal,
+  setSignedBy,
+}: {
+  busy: boolean;
+  dateFrom: string;
+  dateTo: string;
+  lastSnapshot: SalesGoodsServicesSnapshot | null;
+  note: string;
+  onSave: () => Promise<void>;
+  referenceTotal: string;
+  result: ValidationSignoffResult | null;
+  signedBy: string;
+  setNote: (value: string) => void;
+  setReferenceTotal: (value: string) => void;
+  setSignedBy: (value: string) => void;
+}) {
+  const systemTotal = lastSnapshot?.summary.total_sales ?? null;
+  const referenceValue = Number(referenceTotal);
+  const hasReference = Number.isFinite(referenceValue);
+  const difference =
+    systemTotal !== null && hasReference
+      ? Math.round((systemTotal - referenceValue + Number.EPSILON) * 100) / 100
+      : null;
+  const isAccepted = difference !== null && Math.abs(difference) <= 0.01;
+
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-gray-400">
+            Validation sign-off
+          </p>
+          <h3 className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+            รับรองยอดเทียบกับรายงาน SML เดิม
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            ใช้เป็นหลักฐาน pilot ว่าลูกค้า/owner ตรวจยอดแล้ว ก่อนเปิดใช้รายเดือน
+          </p>
+        </div>
+        <Badge color={isAccepted ? "success" : result ? "warning" : "light"}>
+          {isAccepted ? "ยอดตรง" : result ? "มีส่วนต่าง" : "รอรับรอง"}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <HealthFact
+          label="ยอดจาก AI Business"
+          value={
+            systemTotal !== null
+              ? `${formatCurrency(systemTotal)} บาท`
+              : "รันรายงานก่อน"
+          }
+        />
+        <HealthFact
+          label="ช่วงวันที่"
+          value={formatReportPeriod(dateFrom, dateTo)}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          ยอดจากรายงาน SML เดิม
+          <input
+            className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            inputMode="decimal"
+            onChange={(event) => setReferenceTotal(event.target.value)}
+            placeholder="เช่น 87106503.67"
+            value={referenceTotal}
+          />
+        </label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          ผู้ตรวจ/ผู้รับรองยอด
+          <input
+            className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            onChange={(event) => setSignedBy(event.target.value)}
+            placeholder="ชื่อผู้ตรวจ หรือชื่อลูกค้าที่รับรอง"
+            value={signedBy}
+          />
+        </label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          หมายเหตุ
+          <textarea
+            className="mt-1 min-h-20 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="เช่น เทียบกับรายงานขายสินค้าและบริการเดิมแล้ว"
+            value={note}
+          />
+        </label>
+      </div>
+
+      {difference !== null ? (
+        <p
+          className={`mt-3 rounded-lg border p-3 text-sm ${
+            isAccepted
+              ? "border-success-100 bg-success-50 text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-300"
+              : "border-warning-100 bg-warning-50 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300"
+          }`}
+        >
+          {isAccepted
+            ? "ยอดตรงตามรายงาน SML เดิม สามารถบันทึกการรับรองได้"
+            : `พบส่วนต่าง ${formatCurrency(difference)} บาท ควรตรวจช่วงวันที่หรือเงื่อนไขรายงานก่อนเซ็นรับ`}
+        </p>
+      ) : null}
+
+      <Button
+        className="mt-3 w-full"
+        disabled={busy || !lastSnapshot}
+        onClick={() => void onSave()}
+        size="sm"
+        variant={isAccepted ? "primary" : "outline"}
+      >
+        {busy ? "กำลังบันทึก..." : "บันทึกการรับรองยอด"}
+      </Button>
+    </div>
   );
 }
 
@@ -1803,6 +2315,73 @@ function formatRunStatus(status: string | null) {
     return "กำลังรัน";
   }
   return "ยังไม่มี";
+}
+
+function formatWorkerStatus(status: string) {
+  if (status === "ok") {
+    return "ปกติ";
+  }
+  if (status === "stale") {
+    return "heartbeat เก่า";
+  }
+  if (status === "missing") {
+    return "ยังไม่พบ heartbeat";
+  }
+  if (status === "warning") {
+    return "ควรตรวจ";
+  }
+  if (status === "error") {
+    return "ผิดพลาด";
+  }
+  return status;
+}
+
+function formatAuditAction(action: string) {
+  const labels: Record<string, string> = {
+    datasource_test_succeeded: "ทดสอบ SML สำเร็จ",
+    datasource_test_failed: "ทดสอบ SML ไม่สำเร็จ",
+    line_target_approved: "อนุมัติกลุ่ม LINE",
+    line_target_updated: "แก้สิทธิ์กลุ่ม LINE",
+    line_delivery_succeeded: "ส่ง LINE สำเร็จ",
+    line_delivery_failed: "ส่ง LINE ไม่สำเร็จ",
+    morning_brief_report_run_requested: "รัน Morning Brief",
+    report_run_requested: "รันรายงาน",
+    report_run_succeeded: "รันรายงานสำเร็จ",
+    report_run_failed: "รันรายงานไม่สำเร็จ",
+    report_validation_signed_off: "รับรองยอดรายงาน",
+    owner_tenant_created: "เพิ่มร้านค้า",
+    owner_tenant_updated: "แก้ไขร้านค้า",
+  };
+  return labels[action] ?? action;
+}
+
+function auditActionTone(action: string): "success" | "warning" | "error" | "light" {
+  if (action.includes("failed")) {
+    return "error";
+  }
+  if (action.includes("signed_off") || action.includes("succeeded")) {
+    return "success";
+  }
+  if (action.includes("updated") || action.includes("requested")) {
+    return "warning";
+  }
+  return "light";
+}
+
+function formatAuditMetadata(metadata: Record<string, unknown>) {
+  const keys = [
+    "safe_error_message",
+    "date_from",
+    "date_to",
+    "difference_amount",
+    "accepted",
+    "access_profile_key",
+    "enabled",
+  ];
+  const parts = keys
+    .filter((key) => metadata[key] !== undefined && metadata[key] !== null)
+    .map((key) => `${key}: ${String(metadata[key])}`);
+  return parts.length ? parts.join(" · ") : "ไม่มี metadata เพิ่มเติม";
 }
 
 function OwnerSetupPanel({
@@ -2339,7 +2918,7 @@ function DatasourceTestSummary({
           value={result.user_name_masked ?? "ไม่เปิดเผย"}
         />
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {Object.entries(result.required_tables).map(([table, ok]) => (
           <div
             className="rounded-lg border border-gray-100 bg-white p-3 text-sm dark:border-gray-800 dark:bg-gray-900"
@@ -2443,6 +3022,17 @@ function getTenantReadiness(
         : item.health.datasource_configured
           ? "มี datasource config แล้ว ควรกดทดสอบก่อน rollout"
           : "ยังไม่ได้ตั้งค่า datasource สำหรับร้านนี้",
+    },
+    {
+      ok: datasourceTest
+        ? datasourceTest.required_tables.erp_branch_list
+        : item.health.datasource_configured,
+      label: "มี branch master",
+      detail: datasourceTest
+        ? datasourceTest.required_tables.erp_branch_list
+          ? "พบ erp_branch_list สำหรับแปลงรหัสสาขาเป็นชื่อสาขา"
+          : "ไม่พบ erp_branch_list ระบบจะ fallback เป็นรหัสสาขาจาก SML"
+        : "กดทดสอบ SML เพื่อยืนยันตาราง erp_branch_list",
     },
     {
       ok: Boolean(item.health.latest_snapshot_at),

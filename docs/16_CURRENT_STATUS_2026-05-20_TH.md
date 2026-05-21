@@ -56,7 +56,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Query ใช้ parameter binding ไม่ใช้ string replace
 - Summary ใช้ `ic_trans.total_amount` เป็น financial truth
 - Detail analytics ใช้ `ic_trans_detail.sum_amount`, `qty`, product fields
-- Branch fallback: `detail.branch_code -> header.branch_code -> no_branch`
+- Branch display ใช้ `erp_branch_list.name_1` ก่อน ถ้าไม่มีชื่อสาขาจึง fallback เป็น `detail.branch_code -> header.branch_code -> no_branch`
 - Header query ใช้ SML sales report filter รุ่นใหม่: `trans_flag in (44)`, `last_status = 0`, date range, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
 - Detail query join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag` และ enrich ด้วย `ic_inventory`, `ic_unit`
 - Customer bill table ใช้ server-side pagination/search จาก SML ผ่าน approved SQL และ bill drilldown ดึงรายละเอียดสินค้าในบิลแบบ on-demand ไม่ยัด detail ทุกแถวของช่วงใหญ่ลง snapshot
@@ -79,11 +79,16 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - `/owner/tenants`: ร้านค้าและการใช้งาน เพิ่ม tenant, เปลี่ยน subscription status, ดู datasource/customer dashboard slug
   - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ manual report runner สำหรับรายงานขายสินค้าและบริการโดยตรง
   - `/owner/line`: LINE OA และกลุ่มรับรายงาน, onboarding guide ให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน
-  - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run และ latest LINE delivery ต่อ tenant
+  - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run, latest LINE delivery, audit log, worker/scheduler status และ backup readiness
 - `/owner` มี Pilot rollout board:
   - แสดง progress ต่อร้านจาก checklist subscription, SML datasource, snapshot, LINE OA, approved target, LINE delivery
   - บอก next action และพาไปหน้าที่เกี่ยวข้อง เช่น `/owner/tenants`, `/owner/reports`, `/owner/line`
   - ใช้สำหรับปิดงาน setup ก่อนส่งให้ลูกค้า ไม่ต้องเดาว่าร้านไหนติดขั้นตอนไหน
+- `/owner/reports` มี validation sign-off:
+  - owner กรอกยอดจากรายงาน SML เดิมและชื่อผู้รับรอง
+  - ระบบเทียบกับยอด snapshot (`ic_trans.total_amount`) และบอก `ยอดตรง` หรือ `มีส่วนต่าง`
+  - ผลการรับรองถูกบันทึกใน `audit_logs` ด้วย `report_validation_signed_off`
+- `/owner/tenants` datasource test ตรวจ branch master `erp_branch_list` เพิ่มจากตารางรายงานหลัก เพื่อให้ชื่อสาขาแสดงเป็นชื่อจริงใน dashboard/LINE viewer
 - Owner card/table มีปุ่ม `Dashboard` ไปยังลิงก์ร้าน เช่น `/app/demo-shop` หรือ `/app/248-shop`
 - `/app` เป็น neutral state:
   - ไม่โชว์ข้อมูลร้านใดอัตโนมัติ
@@ -141,8 +146,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - จัดลำดับข้อมูลแบบผู้บริหาร: สรุปยอดสั้น ๆ → `สินค้าในบิลนี้` → หมายเหตุยอด → `ข้อมูลบิล`
   - ซ่อนค่าแคชเชียร์ที่เป็น system account เช่น `SUPERADMIN` ไม่ให้ดูเหมือนชื่อผู้ขายจริง
   - ย้าย VAT/ส่วนลด/ยอดรวมสินค้าไว้ใน section collapsed `ข้อมูลภาษี/ส่วนลด`
-  - แสดงสาขาพร้อม helper ว่าเป็น `รหัสสาขาจาก SML` จนกว่าจะมี branch mapping เป็นชื่อสาขา
-  - รหัสสาขาใน report/customer UI ใช้ helper กลาง: `0000`/`000` เป็น `สาขาหลัก (รหัส)`, `no_branch` เป็น `ไม่ระบุสาขา`, รหัสอื่นเป็น `สาขา <code>` เพื่อให้ผู้บริหารอ่านง่ายแต่ยัง trace กลับ SML ได้
+  - แสดงสาขาเป็นชื่อจาก `erp_branch_list.name_1` ถ้ามี เช่น `สำนักงาน`; ถ้าไม่มี mapping จึงแสดง fallback เช่น `สาขาหลัก (0000)`, `ไม่ระบุสาขา`, หรือ `สาขา <code>`
   - Customer dashboard เพิ่ม panel `ความหมายยอดขาย` แยก `ยอดก่อนส่วนลด`, `ส่วนลดรวม`, `ยอดก่อน VAT`, `VAT`, และ `ยอดขายสุทธิ` จาก `financial_breakdown` ใน snapshot โดย fallback จากเอกสารเดิมได้สำหรับ snapshot เก่า
   - ไม่ใช้ตารางดิบแนวนอนในพื้นที่หลักของ brief viewer เพื่อลดความงงบนมือถือ
 

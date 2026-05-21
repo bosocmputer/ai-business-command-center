@@ -321,6 +321,91 @@ app.post(
   async (request, reply) => testTenantDatasource(request, reply),
 );
 
+app.post(
+  "/api/owner/tenants/:tenantId/reports/sales_goods_services/validation-signoff",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = reportValidationSignoffSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid validation sign-off request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenantId = routeParams.data.tenantId;
+    const tenant = await getTenantOrNull(tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const snapshot = await systemStore.getSnapshotByRunId(
+      tenantId,
+      body.data.run_id,
+    );
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Report snapshot not found." });
+    }
+
+    if (
+      snapshot.params.date_from !== body.data.date_from ||
+      snapshot.params.date_to !== body.data.date_to
+    ) {
+      return reply.status(409).send({
+        error: "Sign-off period does not match the report snapshot.",
+      });
+    }
+
+    const submittedSystemTotal = roundMoney(body.data.system_total);
+    const systemTotal = roundMoney(snapshot.summary.total_sales);
+    if (Math.abs(submittedSystemTotal - systemTotal) > 0.01) {
+      return reply.status(409).send({
+        error: "Submitted system total does not match the report snapshot.",
+      });
+    }
+
+    const referenceTotal = roundMoney(body.data.reference_total);
+    const differenceAmount = roundMoney(systemTotal - referenceTotal);
+    const accepted = Math.abs(differenceAmount) <= 0.01;
+
+    await systemStore.appendAuditLog({
+      tenant_id: tenantId,
+      actor_id: null,
+      action: "report_validation_signed_off",
+      target_type: "report_snapshot",
+      target_id: snapshot.run_id,
+      metadata_json: {
+        report_key: "sales_goods_services",
+        date_from: body.data.date_from,
+        date_to: body.data.date_to,
+        system_total: systemTotal,
+        reference_total: referenceTotal,
+        difference_amount: differenceAmount,
+        accepted,
+        signed_by: body.data.signed_by,
+        note: body.data.note ?? null,
+      },
+    });
+
+    return {
+      data: {
+        status: accepted ? "accepted" : "difference_found",
+        accepted,
+        difference_amount: differenceAmount,
+      },
+    };
+  },
+);
+
 app.get("/api/app/:tenantSlug/session", async (request, reply) => {
   const session = await resolveCustomerSessionBySlug(request.params);
   if (!session.ok) {
@@ -644,6 +729,7 @@ async function testTenantDatasource(
           ic_trans: false,
           ic_trans_detail: false,
           ar_customer: false,
+          erp_branch_list: false,
         },
         safe_error_message: "Datasource is not configured.",
       },
@@ -675,63 +761,18 @@ async function testTenantDatasource(
   return response;
 }
 
-app.get("/api/operations/status", async () => {
-  const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
-    "morning_brief_scheduler",
-  );
-  const tenants = await systemStore.listTenants();
-  const heartbeatAgeSeconds = latestHeartbeat
-    ? Math.floor((Date.now() - new Date(latestHeartbeat.checked_at).getTime()) / 1000)
-    : null;
-  const heartbeatFresh =
-    heartbeatAgeSeconds !== null &&
-    heartbeatAgeSeconds >= 0 &&
-    heartbeatAgeSeconds <= 120;
+app.get("/api/operations/status", async () => ({
+  data: await buildOperationsStatus({ includeAuditLogs: false }),
+}));
+
+app.get("/api/owner/operations/status", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
 
   return {
-    data: {
-      api: {
-        ok: true,
-        service: "ai-business-command-center-api",
-        system_store: systemStore.kind,
-        time: new Date().toISOString(),
-      },
-      dashboard: {
-        app_base_url_configured: Boolean(process.env.APP_BASE_URL?.trim()),
-        dashboard_url: buildDashboardUrl(),
-        public_api_base_url_configured: Boolean(
-          process.env.NEXT_PUBLIC_API_BASE_URL?.trim(),
-        ),
-      },
-      scheduler: {
-        enabled: readBoolean(process.env.MORNING_BRIEF_ENABLED, true),
-        tenant_ids: readSchedulerTenantIds(),
-        time: process.env.MORNING_BRIEF_TIME || "08:00",
-        timezone: process.env.MORNING_BRIEF_TIMEZONE || "Asia/Bangkok",
-        mode: process.env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send",
-        force: readBoolean(process.env.MORNING_BRIEF_FORCE, false),
-      },
-      worker: {
-        heartbeat_configured: Boolean(process.env.WORKER_HEARTBEAT_TOKEN?.trim()),
-        latest_heartbeat: latestHeartbeat,
-        age_seconds: heartbeatAgeSeconds,
-        status: latestHeartbeat ? (heartbeatFresh ? latestHeartbeat.status : "stale") : "missing",
-      },
-      tenants: tenants.map((tenant) => {
-        const lineCredentials = readLineChannelCredentials(tenant.id);
-        const lineConfig = readLineChannelConfig(tenant.id);
-        return {
-          id: tenant.id,
-          name: tenant.name,
-          database_name: tenant.databaseName,
-          status: tenant.status,
-          plan_code: tenant.planCode,
-          datasource_configured: tenant.datasourceConfigured,
-          line_configured: Boolean(lineCredentials),
-          line_target_masked: lineConfig ? maskIdentifier(lineConfig.targetId) : null,
-        };
-      }),
-    },
+    data: await buildOperationsStatus({ includeAuditLogs: true }),
   };
 });
 
@@ -1854,6 +1895,81 @@ function buildDashboardUrl() {
   return `${baseUrl.replace(/\/$/, "")}/command-center`;
 }
 
+async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
+  const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
+    "morning_brief_scheduler",
+  );
+  const tenants = await systemStore.listTenants();
+  const auditLogs = input.includeAuditLogs
+    ? await systemStore.listAuditLogs(30)
+    : [];
+  const heartbeatAgeSeconds = latestHeartbeat
+    ? Math.floor(
+        (Date.now() - new Date(latestHeartbeat.checked_at).getTime()) / 1000,
+      )
+    : null;
+  const heartbeatFresh =
+    heartbeatAgeSeconds !== null &&
+    heartbeatAgeSeconds >= 0 &&
+    heartbeatAgeSeconds <= 120;
+
+  return {
+    api: {
+      ok: true,
+      service: "ai-business-command-center-api",
+      system_store: systemStore.kind,
+      time: new Date().toISOString(),
+    },
+    dashboard: {
+      app_base_url_configured: Boolean(process.env.APP_BASE_URL?.trim()),
+      dashboard_url: buildDashboardUrl(),
+      public_api_base_url_configured: Boolean(
+        process.env.NEXT_PUBLIC_API_BASE_URL?.trim(),
+      ),
+    },
+    scheduler: {
+      enabled: readBoolean(process.env.MORNING_BRIEF_ENABLED, true),
+      tenant_ids: readSchedulerTenantIds(),
+      time: process.env.MORNING_BRIEF_TIME || "08:00",
+      timezone: process.env.MORNING_BRIEF_TIMEZONE || "Asia/Bangkok",
+      mode: process.env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send",
+      force: readBoolean(process.env.MORNING_BRIEF_FORCE, false),
+    },
+    worker: {
+      heartbeat_configured: Boolean(process.env.WORKER_HEARTBEAT_TOKEN?.trim()),
+      latest_heartbeat: latestHeartbeat,
+      age_seconds: heartbeatAgeSeconds,
+      status: latestHeartbeat
+        ? heartbeatFresh
+          ? latestHeartbeat.status
+          : "stale"
+        : "missing",
+    },
+    backup: {
+      system_store: systemStore.kind,
+      configured: readBoolean(process.env.SYSTEM_BACKUP_CONFIGURED, false),
+      last_backup_at: process.env.SYSTEM_LAST_BACKUP_AT?.trim() || null,
+      recommendation:
+        "ก่อน production ควรตั้ง cron pg_dump, เก็บไฟล์นอกเครื่อง และทดสอบ restore รายสัปดาห์",
+    },
+    audit_logs: auditLogs,
+    tenants: tenants.map((tenant) => {
+      const lineCredentials = readLineChannelCredentials(tenant.id);
+      const lineConfig = readLineChannelConfig(tenant.id);
+      return {
+        id: tenant.id,
+        name: tenant.name,
+        database_name: tenant.databaseName,
+        status: tenant.status,
+        plan_code: tenant.planCode,
+        datasource_configured: tenant.datasourceConfigured,
+        line_configured: Boolean(lineCredentials),
+        line_target_masked: lineConfig ? maskIdentifier(lineConfig.targetId) : null,
+      };
+    }),
+  };
+}
+
 function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
   const baseUrl = process.env.APP_BASE_URL?.trim();
   const signingSecret = readReportViewerSigningSecret();
@@ -2454,6 +2570,16 @@ const lineChannelCreateSchema = z.object({
   channel_access_token_configured: z.boolean().optional().default(false),
   channel_secret_configured: z.boolean().optional().default(false),
   enabled: z.boolean().optional().default(true),
+});
+
+const reportValidationSignoffSchema = z.object({
+  run_id: z.string().trim().min(1).max(160),
+  date_from: isoDateSchema,
+  date_to: isoDateSchema,
+  system_total: z.coerce.number().finite(),
+  reference_total: z.coerce.number().finite(),
+  signed_by: z.string().trim().min(2).max(120),
+  note: z.string().trim().max(500).optional(),
 });
 
 const lineTargetParamsSchema = z.object({
