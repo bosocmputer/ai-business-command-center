@@ -1628,6 +1628,7 @@ function OwnerFlowCard() {
 function OwnerOverviewContent({
   tenants,
   lineChannels,
+  operationsStatus,
 }: OwnerSectionContentProps) {
   const activeTenants = tenants.filter((item) => item.access.enabled);
   const readyTenants = tenants.filter(
@@ -1645,6 +1646,11 @@ function OwnerOverviewContent({
       </section>
 
       <OwnerRolloutBoard tenants={tenants} />
+
+      <OwnerProductionReadinessBoard
+        operationsStatus={operationsStatus}
+        tenants={tenants}
+      />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
@@ -1777,6 +1783,80 @@ function OwnerRolloutBoard({ tenants }: { tenants: TenantSummary[] }) {
             </div>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+function OwnerProductionReadinessBoard({
+  operationsStatus,
+  tenants,
+}: {
+  operationsStatus: OwnerOperationsStatus | null;
+  tenants: TenantSummary[];
+}) {
+  const readiness = buildProductionReadiness(operationsStatus, tenants);
+  const scoreTone =
+    readiness.score >= 90 ? "success" : readiness.score >= 70 ? "warning" : "error";
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <OwnerPanelHeader
+        title="Production readiness"
+        description="เช็คความพร้อมก่อนเปิดให้ลูกค้าใช้จริง: ระบบ, worker, backup, datasource, LINE และรายงานล่าสุด"
+        actionHref="/owner/audit"
+        actionLabel="ดู Monitoring"
+      />
+      <div className="grid gap-4 border-t border-gray-100 p-4 dark:border-gray-800 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            Readiness score
+          </p>
+          <div className="mt-2 flex items-end gap-2">
+            <p className="text-4xl font-semibold text-gray-900 dark:text-white">
+              {readiness.score}
+            </p>
+            <p className="pb-1 text-sm font-semibold text-gray-500 dark:text-gray-400">
+              /100
+            </p>
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
+            <div
+              className={`h-full rounded-full ${
+                scoreTone === "success"
+                  ? "bg-success-500"
+                  : scoreTone === "warning"
+                    ? "bg-warning-500"
+                    : "bg-error-500"
+              }`}
+              style={{ width: `${readiness.score}%` }}
+            />
+          </div>
+          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-400">
+            {readiness.summary}
+          </p>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          {readiness.items.map((item) => (
+            <div
+              className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
+              key={`${item.title}-${item.description}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {item.title}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {item.description}
+                  </p>
+                </div>
+                <Badge color={item.tone}>{item.label}</Badge>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -2737,6 +2817,149 @@ function buildOwnerActionItems(tenants: TenantSummary[]) {
 
     return actions;
   });
+}
+
+type ProductionReadinessItem = {
+  description: string;
+  label: "พร้อม" | "ต้องทำ" | "ตรวจ";
+  ok: boolean;
+  title: string;
+  tone: "success" | "warning" | "error" | "light";
+};
+
+function buildProductionReadiness(
+  operationsStatus: OwnerOperationsStatus | null,
+  tenants: TenantSummary[],
+) {
+  const activeTenants = tenants.filter((item) => item.access.enabled);
+  const items: ProductionReadinessItem[] = [];
+
+  items.push({
+    description: operationsStatus?.api.ok
+      ? `API online · system store ${
+          operationsStatus.api.system_store === "postgres" ? "PostgreSQL" : "Local JSON"
+        }`
+      : "ยังโหลดสถานะ API/operations ไม่สำเร็จ",
+    label: operationsStatus?.api.ok ? "พร้อม" : "ต้องทำ",
+    ok: Boolean(operationsStatus?.api.ok),
+    title: "API และ system store",
+    tone: operationsStatus?.api.ok ? "success" : "error",
+  });
+
+  const storeIsPostgres = operationsStatus?.api.system_store === "postgres";
+  items.push({
+    description: storeIsPostgres
+      ? "เก็บ audit, snapshot และ delivery ใน PostgreSQL แล้ว"
+      : "ยังเป็น Local JSON หรือยังไม่รู้สถานะ เสี่ยงเรื่อง backup/restore",
+    label: storeIsPostgres ? "พร้อม" : "ตรวจ",
+    ok: storeIsPostgres,
+    title: "ฐานข้อมูลระบบ",
+    tone: storeIsPostgres ? "success" : "warning",
+  });
+
+  const schedulerEnabled = Boolean(operationsStatus?.scheduler.enabled);
+  items.push({
+    description: schedulerEnabled
+      ? `ส่งอัตโนมัติ ${operationsStatus?.scheduler.time} ${operationsStatus?.scheduler.timezone}`
+      : "Morning Brief scheduler ยังปิดอยู่หรืออ่านสถานะไม่ได้",
+    label: schedulerEnabled ? "พร้อม" : "ต้องทำ",
+    ok: schedulerEnabled,
+    title: "Morning Brief scheduler",
+    tone: schedulerEnabled ? "success" : "error",
+  });
+
+  const workerOk = operationsStatus?.worker.status === "ok";
+  items.push({
+    description: workerOk
+      ? `heartbeat ล่าสุด ${operationsStatus?.worker.age_seconds ?? "-"} วินาที`
+      : `worker ${formatWorkerStatus(operationsStatus?.worker.status ?? "missing")}`,
+    label: workerOk ? "พร้อม" : "ตรวจ",
+    ok: workerOk,
+    title: "Worker heartbeat",
+    tone: workerOk ? "success" : "warning",
+  });
+
+  const backupConfigured = Boolean(operationsStatus?.backup.configured);
+  items.push({
+    description: backupConfigured
+      ? `backup ล่าสุด ${
+          operationsStatus?.backup.last_backup_at
+            ? formatDateTime(operationsStatus.backup.last_backup_at)
+            : "มี config แล้ว"
+        }`
+      : operationsStatus?.backup.recommendation ??
+        "ควรตั้ง backup ก่อนใช้งานจริงกับลูกค้า",
+    label: backupConfigured ? "พร้อม" : "ตรวจ",
+    ok: backupConfigured,
+    title: "Backup readiness",
+    tone: backupConfigured ? "success" : "warning",
+  });
+
+  const datasourceReady = activeTenants.every(
+    (item) => item.health.datasource_configured,
+  );
+  items.push({
+    description: datasourceReady
+      ? "ร้านที่เปิดใช้งานมี datasource config ครบ"
+      : "มีร้านที่เปิดใช้งานแล้วยังไม่ได้ตั้งค่า SML datasource",
+    label: datasourceReady ? "พร้อม" : "ต้องทำ",
+    ok: datasourceReady,
+    title: "SML datasource ต่อร้าน",
+    tone: datasourceReady ? "success" : "error",
+  });
+
+  const reportReady = activeTenants.every((item) =>
+    Boolean(item.health.latest_snapshot_at),
+  );
+  items.push({
+    description: reportReady
+      ? "ร้านที่เปิดใช้งานมี snapshot ล่าสุดให้ลูกค้าดู"
+      : "มีร้านที่ยังไม่มี snapshot ล่าสุด ต้องรันรายงานก่อนส่งลิงก์ให้ลูกค้า",
+    label: reportReady ? "พร้อม" : "ต้องทำ",
+    ok: reportReady,
+    title: "Report snapshot",
+    tone: reportReady ? "success" : "warning",
+  });
+
+  const lineReady = activeTenants.every(
+    (item) =>
+      item.health.line_channels > 0 && item.health.line_targets_enabled > 0,
+  );
+  items.push({
+    description: lineReady
+      ? "ร้านที่เปิดใช้งานมี LINE OA และผู้รับที่อนุมัติแล้ว"
+      : "มีร้านที่ยังไม่มี LINE OA หรือยังไม่มีผู้รับ Morning Brief",
+    label: lineReady ? "พร้อม" : "ตรวจ",
+    ok: lineReady,
+    title: "LINE delivery path",
+    tone: lineReady ? "success" : "warning",
+  });
+
+  const noRecentFailures = activeTenants.every(
+    (item) =>
+      item.health.latest_report_status !== "failed" &&
+      item.health.latest_line_delivery_status !== "failed",
+  );
+  items.push({
+    description: noRecentFailures
+      ? "ไม่พบ run หรือ LINE delivery ล่าสุดที่ล้มเหลว"
+      : "มี run หรือ LINE delivery ล่าสุดล้มเหลว ต้องเปิดประวัติระบบเพื่อตรวจต่อ",
+    label: noRecentFailures ? "พร้อม" : "ตรวจ",
+    ok: noRecentFailures,
+    title: "Recent failures",
+    tone: noRecentFailures ? "success" : "error",
+  });
+
+  const okCount = items.filter((item) => item.ok).length;
+  const score = Math.round((okCount / items.length) * 100);
+  const summary =
+    score >= 90
+      ? "พร้อมสำหรับ pilot ที่มีลูกค้าใช้งานจริง โดยยังควรติดตาม monitoring ต่อเนื่อง"
+      : score >= 70
+        ? "พร้อมทดลองใช้งาน แต่ยังมีจุดที่ควรแก้ก่อน scale หลายร้าน"
+        : "ยังไม่ควร rollout เพิ่ม จัดการรายการเสี่ยงก่อน";
+
+  return { items, score, summary };
 }
 
 function formatRunStatus(status: string | null) {
