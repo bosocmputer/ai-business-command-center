@@ -8,7 +8,7 @@ Professional pilot สำหรับลูกค้า SML: approved report run
 - Viewer: compact signed report viewer ที่ `/command-center/brief`
 - API: Fastify report API + signed viewer API + LINE endpoints ใน `apps/api`
 - Worker: Morning Brief scheduler ใน `apps/worker`
-- Report: `sales_goods_services` ใน `packages/reports` พร้อม bill detail drilldown แบบ read-only
+- Reports: `sales_goods_services` และ `purchase_goods_payables` ใน `packages/reports` พร้อม document detail drilldown แบบ read-only
 - Shared schemas: `packages/shared`
 - Latest deployed commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
 
@@ -59,6 +59,7 @@ GET /api/reports/:tenantId/sales_goods_services/line-preview
 GET /api/reports/:tenantId/sales_goods_services/line-deliveries
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+GET /api/reports/:tenantId/purchase_goods_payables/line-preview
 ```
 
 Customer viewer read-only ใช้ tenant slug และ derive tenant ฝั่ง server:
@@ -67,6 +68,8 @@ Customer viewer read-only ใช้ tenant slug และ derive tenant ฝั�
 GET /api/app/:tenantSlug/session
 GET /api/app/:tenantSlug/reports/sales_goods_services/latest
 GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail?doc_no=...
+GET /api/app/:tenantSlug/reports/purchase_goods_payables?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+GET /api/app/:tenantSlug/reports/purchase_goods_payables/document-detail?doc_no=...
 ```
 
 Morning Brief ใช้:
@@ -103,6 +106,7 @@ Protected endpoints:
 
 ```text
 POST /api/reports/:tenantId/sales_goods_services/run
+POST /api/reports/:tenantId/purchase_goods_payables/run
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 POST /api/tenants/:tenantId/datasource/test

@@ -11,6 +11,10 @@ import {
   morningBriefRequestSchema,
   planCodeSchema,
   reportKeySchema,
+  type PurchaseGoodsPayablesSnapshot,
+  type ReportKey,
+  type ReportLinePreview,
+  type ReportSnapshot,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
@@ -36,11 +40,17 @@ import {
 import {
   fetchSalesGoodsServicesDocumentDetail,
   fetchSalesGoodsServicesDocumentPage,
+  fetchPurchaseGoodsPayablesDocumentDetail,
+  fetchPurchaseGoodsPayablesDocumentPage,
+  runPurchaseGoodsPayablesReport,
   runSalesGoodsServicesReport,
   testDatasourceConnection,
   toSafeErrorMessage,
 } from "./report-runner.js";
-import { renderSalesGoodsServicesLinePreview } from "@ai-bcc/reports";
+import {
+  renderPurchaseGoodsPayablesLinePreview,
+  renderSalesGoodsServicesLinePreview,
+} from "@ai-bcc/reports";
 import { createSystemStore } from "./system-store.js";
 import { fetchLineTargetDisplayName, sendLineBrief } from "./line-client.js";
 import {
@@ -527,8 +537,9 @@ app.post(
     const snapshot = await systemStore.getSnapshotByRunId(
       tenantId,
       body.data.run_id,
+      "sales_goods_services",
     );
-    if (!snapshot) {
+    if (!snapshot || snapshot.report_key !== "sales_goods_services") {
       return reply.status(404).send({ error: "Report snapshot not found." });
     }
 
@@ -852,6 +863,239 @@ app.get(
   },
 );
 
+app.get(
+  "/api/app/:tenantSlug/reports/purchase_goods_payables/latest",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const snapshot = await systemStore.getLatestSnapshot(
+      session.tenant.id,
+      "purchase_goods_payables",
+    );
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Purchase snapshot not found" });
+    }
+
+    return {
+      data: snapshot,
+      tenant: session.tenant,
+      tenant_slug: session.tenantSlug,
+    };
+  },
+);
+
+app.get(
+  "/api/app/:tenantSlug/reports/purchase_goods_payables",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const query = customerReportRangeQuerySchema.safeParse(
+      request.query ?? {},
+    );
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid purchase report date range",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const rangeError = validateCustomerReportRange(query.data);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = await resolveTenantDatasourceConfig(session.tenant.id);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const snapshot = await runPurchaseGoodsPayablesReport({
+        tenant_id: session.tenant.id,
+        run_id: createCustomerPreviewRunId(session.tenant.id),
+        params: query.data,
+        datasource,
+      });
+
+      return {
+        data: snapshot,
+        tenant: session.tenant,
+        tenant_slug: session.tenantSlug,
+        mode: "ad_hoc",
+      };
+    } catch (error) {
+      request.log.error({ error }, "customer purchase report range fetch failed");
+      return reply.status(500).send({
+        error: toSafeErrorMessage(error),
+      });
+    }
+  },
+);
+
+app.get(
+  "/api/app/:tenantSlug/reports/purchase_goods_payables/documents",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const query = customerDocumentsPageQuerySchema.safeParse(
+      request.query ?? {},
+    );
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid purchase document page request",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const params = {
+      date_from: query.data.date_from,
+      date_to: query.data.date_to,
+    };
+    const rangeError = validateCustomerReportRange(params);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = await resolveTenantDatasourceConfig(session.tenant.id);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const page = await fetchPurchaseGoodsPayablesDocumentPage({
+        tenant_id: session.tenant.id,
+        params,
+        datasource,
+        page: query.data.page,
+        page_size: query.data.page_size,
+        search: query.data.search,
+      });
+
+      return {
+        data: page,
+        tenant: session.tenant,
+        tenant_slug: session.tenantSlug,
+        mode: "documents",
+      };
+    } catch (error) {
+      request.log.error({ error }, "customer purchase document page fetch failed");
+      return reply.status(500).send({
+        error: toSafeErrorMessage(error),
+      });
+    }
+  },
+);
+
+app.get(
+  "/api/app/:tenantSlug/reports/purchase_goods_payables/document-detail",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const query = documentDetailQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid purchase document detail request",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    if (!query.data.date_from || !query.data.date_to) {
+      return reply.status(400).send({
+        error: "date_from and date_to are required for purchase document detail.",
+      });
+    }
+    const params = {
+      date_from: query.data.date_from,
+      date_to: query.data.date_to,
+    };
+    const rangeError = validateCustomerReportRange(params);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = await resolveTenantDatasourceConfig(session.tenant.id);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const detail = await fetchPurchaseGoodsPayablesDocumentDetail({
+        tenant_id: session.tenant.id,
+        params,
+        datasource,
+        doc_no: query.data.doc_no,
+      });
+
+      if (!detail) {
+        return reply.status(404).send({
+          error: "Purchase document not found in the selected period.",
+        });
+      }
+
+      return {
+        data: detail,
+        tenant: session.tenant,
+        tenant_slug: session.tenantSlug,
+      };
+    } catch (error) {
+      request.log.error({ error }, "customer purchase document detail fetch failed");
+      return reply.status(500).send({
+        error: toSafeErrorMessage(error),
+      });
+    }
+  },
+);
+
 app.get("/api/app/reports/sales_goods_services/latest", async (_request, reply) =>
   reply.status(400).send({
     error:
@@ -905,6 +1149,7 @@ async function testTenantDatasource(
           ic_trans: false,
           ic_trans_detail: false,
           ar_customer: false,
+          ap_supplier: false,
           erp_branch_list: false,
         },
         safe_error_message: "Datasource is not configured.",
@@ -1302,10 +1547,13 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     });
   }
 
-  const snapshot = await systemStore.getLatestSnapshot(target.tenant_id);
-  if (!snapshot) {
-    return reply.status(404).send({ error: "Snapshot not found" });
-  }
+    const snapshot = await systemStore.getLatestSnapshot(
+      target.tenant_id,
+      "sales_goods_services",
+    );
+    if (!snapshot || snapshot.report_key !== "sales_goods_services") {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
 
   const openViewerPermission = canAccessLineReport({
     tenantId: target.tenant_id,
@@ -1376,8 +1624,11 @@ app.get(
       return reply.status(400).send({ error: "Invalid tenant_id" });
     }
 
-    const snapshot = await systemStore.getLatestSnapshot(params.data.tenantId);
-    if (!snapshot) {
+    const snapshot = await systemStore.getLatestSnapshot(
+      params.data.tenantId,
+      "sales_goods_services",
+    );
+    if (!snapshot || snapshot.report_key !== "sales_goods_services") {
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
@@ -1449,6 +1700,70 @@ app.get(
 );
 
 app.get(
+  "/api/reports/:tenantId/purchase_goods_payables/snapshots/:runId",
+  async (request, reply) => {
+    const params = signedSnapshotParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "Invalid report viewer link." });
+    }
+
+    const query = signedSnapshotQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "Invalid report viewer link." });
+    }
+
+    const signingSecret = readReportViewerSigningSecret();
+    if (!signingSecret) {
+      return reply.status(503).send({
+        error: "Report viewer signing is not configured.",
+      });
+    }
+
+    const verification = verifyReportViewerToken({
+      token: query.data.token,
+      secret: signingSecret,
+      tenantId: params.data.tenantId,
+      reportKey: "purchase_goods_payables",
+      runId: params.data.runId,
+    });
+    if (!verification.ok) {
+      const statusCode =
+        verification.reason === "missing" || verification.reason === "malformed"
+          ? 400
+          : 403;
+      const errorMessage =
+        verification.reason === "expired"
+          ? "Report viewer link has expired."
+          : "Invalid report viewer link.";
+      return reply.status(statusCode).send({ error: errorMessage });
+    }
+
+    const tenant = await getTenantOrNull(params.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+    const access = tenantAccessStatus(tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: tenant.status,
+      });
+    }
+
+    const snapshot = await systemStore.getSnapshotByRunId(
+      params.data.tenantId,
+      params.data.runId,
+      "purchase_goods_payables",
+    );
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+
+    return { data: snapshot };
+  },
+);
+
+app.get(
   "/api/reports/:tenantId/sales_goods_services/runs",
   async (request, reply) => {
     const params = tenantParamsSchema.safeParse(request.params);
@@ -1467,8 +1782,11 @@ app.get(
       return reply.status(400).send({ error: "Invalid tenant_id" });
     }
 
-    const snapshot = await systemStore.getLatestSnapshot(params.data.tenantId);
-    if (!snapshot) {
+    const snapshot = await systemStore.getLatestSnapshot(
+      params.data.tenantId,
+      "sales_goods_services",
+    );
+    if (!snapshot || snapshot.report_key !== "sales_goods_services") {
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
@@ -1491,6 +1809,52 @@ app.get(
     }
 
     return { data: await systemStore.listLineDeliveries(params.data.tenantId) };
+  },
+);
+
+app.get(
+  "/api/reports/:tenantId/purchase_goods_payables/latest",
+  async (request, reply) => {
+    const params = tenantParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const snapshot = await systemStore.getLatestSnapshot(
+      params.data.tenantId,
+      "purchase_goods_payables",
+    );
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Purchase snapshot not found" });
+    }
+
+    return { data: snapshot };
+  },
+);
+
+app.get(
+  "/api/reports/:tenantId/purchase_goods_payables/line-preview",
+  async (request, reply) => {
+    const params = tenantParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const snapshot = await systemStore.getLatestSnapshot(
+      params.data.tenantId,
+      "purchase_goods_payables",
+    );
+    if (!snapshot || snapshot.report_key !== "purchase_goods_payables") {
+      return reply.status(404).send({ error: "Purchase snapshot not found" });
+    }
+
+    return {
+      data: renderPurchaseGoodsPayablesLinePreview({
+        snapshot,
+        dashboardUrl: buildReportViewerUrl(snapshot),
+        tenantName: getTenantDefinition(params.data.tenantId)?.name,
+      }),
+    };
   },
 );
 
@@ -1528,8 +1892,11 @@ app.post(
       });
     }
 
-    const snapshot = await systemStore.getLatestSnapshot(tenantId);
-    if (!snapshot) {
+    const snapshot = await systemStore.getLatestSnapshot(
+      tenantId,
+      "sales_goods_services",
+    );
+    if (!snapshot || snapshot.report_key !== "sales_goods_services") {
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
@@ -1634,6 +2001,7 @@ app.post(
       period: body.data.period,
       timeZone: "Asia/Bangkok",
     });
+    const purchaseReportParams = derivePurchaseMorningBriefDateRange();
     const targets = await listEffectiveLineTargets(tenantId);
 
     const runResult = await runAndPersistSalesGoodsServicesReport({
@@ -1648,6 +2016,15 @@ app.post(
         run: runResult.runRecord,
       });
     }
+
+    const purchaseRunResult = await runAndPersistPurchaseGoodsPayablesReport({
+      tenantId,
+      params: purchaseReportParams,
+      requestAction: "morning_brief_purchase_report_run_requested",
+    });
+    const purchaseSnapshot = purchaseRunResult.ok
+      ? purchaseRunResult.snapshot
+      : null;
 
     const deliveries = [];
     let preview = renderSalesGoodsServicesLinePreview({
@@ -1690,20 +2067,26 @@ app.post(
         }
       }
 
-      const receivePermission = canAccessLineReport({
+      const receiveSalesPermission = canAccessLineReport({
         tenantId,
         target,
         reportKey: "sales_goods_services",
         action: "receive_morning_brief",
       });
-      if (!receivePermission.allowed) {
+      const receivePurchasePermission = canAccessLineReport({
+        tenantId,
+        target,
+        reportKey: "purchase_goods_payables",
+        action: "receive_morning_brief",
+      });
+      if (!receiveSalesPermission.allowed && !receivePurchasePermission.allowed) {
         const skippedDelivery = createSkippedLineDelivery({
           tenantId,
           snapshot: runResult.snapshot,
           target,
           deliveryKey,
           reportParams,
-          safeErrorMessage: receivePermission.message,
+          safeErrorMessage: receiveSalesPermission.message,
         });
         deliveries.push(skippedDelivery);
         await systemStore.saveLineDelivery(skippedDelivery);
@@ -1714,29 +2097,51 @@ app.post(
           target_type: "line_target",
           target_id: target.id,
           metadata_json: {
-            report_key: "sales_goods_services",
-            delivery_key: deliveryKey,
-            reason: receivePermission.reason,
-            period: reportParams,
-            target_id_masked: target.target_id_masked,
-            target_id_hash: target.target_id_hash,
+              report_key: "sales_goods_services",
+              delivery_key: deliveryKey,
+              reason: receiveSalesPermission.reason,
+              period: reportParams,
+              target_id_masked: target.target_id_masked,
+              target_id_hash: target.target_id_hash,
           },
         });
         continue;
       }
 
-      const openViewerPermission = canAccessLineReport({
+      const openSalesViewerPermission = canAccessLineReport({
         tenantId,
         target,
         reportKey: "sales_goods_services",
         action: "open_signed_viewer",
       });
-      preview = renderSalesGoodsServicesLinePreview({
-        snapshot: runResult.snapshot,
-        dashboardUrl: openViewerPermission.allowed
-          ? buildReportViewerUrl(runResult.snapshot)
-          : null,
-        tenantName: getTenantDefinition(tenantId)?.name,
+      const salesPreview = receiveSalesPermission.allowed
+        ? renderSalesGoodsServicesLinePreview({
+            snapshot: runResult.snapshot,
+            dashboardUrl: openSalesViewerPermission.allowed
+              ? buildReportViewerUrl(runResult.snapshot)
+              : null,
+            tenantName: getTenantDefinition(tenantId)?.name,
+          })
+        : null;
+      const openPurchaseViewerPermission = canAccessLineReport({
+        tenantId,
+        target,
+        reportKey: "purchase_goods_payables",
+        action: "open_signed_viewer",
+      });
+      const purchasePreview =
+        purchaseSnapshot && receivePurchasePermission.allowed
+          ? renderPurchaseGoodsPayablesLinePreview({
+              snapshot: purchaseSnapshot,
+              dashboardUrl: openPurchaseViewerPermission.allowed
+                ? buildReportViewerUrl(purchaseSnapshot)
+                : null,
+              tenantName: getTenantDefinition(tenantId)?.name,
+            })
+          : null;
+      preview = buildMorningBriefCarouselPreview({
+        salesPreview,
+        purchasePreview,
       });
       const delivery = await sendLineBrief({
         tenantId,
@@ -1878,6 +2283,52 @@ app.post(
   },
 );
 
+app.post(
+  "/api/reports/:tenantId/purchase_goods_payables/run",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = salesGoodsServicesParamsSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid purchase report params",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenantId = routeParams.data.tenantId;
+    const runResult = await runAndPersistPurchaseGoodsPayablesReport({
+      tenantId,
+      params: body.data,
+      requestAction: "purchase_report_run_requested",
+    });
+
+    if (runResult.ok) {
+      return { data: runResult.snapshot, run: runResult.runRecord };
+    }
+
+    if (runResult.statusCode === 500) {
+      request.log.error(
+        { safe_error_message: runResult.runRecord.safe_error_message },
+        "purchase_goods_payables run failed",
+      );
+    }
+
+    return reply.status(runResult.statusCode).send({
+      error: runResult.error,
+      run: runResult.runRecord,
+    });
+  },
+);
+
 async function runAndPersistSalesGoodsServicesReport(input: {
   tenantId: TenantId;
   params: SalesGoodsServicesParams;
@@ -1994,6 +2445,115 @@ async function runAndPersistSalesGoodsServicesReport(input: {
   }
 }
 
+async function runAndPersistPurchaseGoodsPayablesReport(input: {
+  tenantId: TenantId;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      snapshot: PurchaseGoodsPayablesSnapshot;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 424 | 500;
+      error: string;
+      runRecord: ReportRunRecord;
+    }
+> {
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, "purchase"),
+    tenant_id: input.tenantId,
+    report_key: "purchase_goods_payables",
+    params: input.params,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: "purchase_goods_payables",
+      params: input.params,
+    },
+  });
+
+  if (!datasource) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message =
+      "Datasource is not configured. Add tenant DB settings to .env.local.";
+    await systemStore.upsertRun(runRecord);
+    return {
+      ok: false,
+      statusCode: 424,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+
+  try {
+    const snapshot = await runPurchaseGoodsPayablesReport({
+      tenant_id: input.tenantId,
+      run_id: runRecord.id,
+      params: input.params,
+      datasource,
+    });
+    runRecord.status = "success";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.row_count =
+      snapshot.summary.document_count + snapshot.summary.line_count;
+    await systemStore.upsertRun(runRecord);
+    await systemStore.saveSnapshot(snapshot);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "purchase_report_run_succeeded",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "purchase_goods_payables",
+        row_count: runRecord.row_count,
+        quality_status: snapshot.quality_status,
+      },
+    });
+
+    return { ok: true, snapshot, runRecord };
+  } catch (error) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message = toSafeErrorMessage(error);
+    await systemStore.upsertRun(runRecord);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "purchase_report_run_failed",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "purchase_goods_payables",
+        safe_error_message: runRecord.safe_error_message,
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 500,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+}
+
 async function buildSalesComparison(input: {
   tenantId: TenantId;
   runId: string;
@@ -2096,8 +2656,10 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-function createRunId(tenantId: string) {
-  return `run_${tenantId}_${Date.now()}`;
+function createRunId(tenantId: string, reportSlug = "sales") {
+  return reportSlug === "sales"
+    ? `run_${tenantId}_${Date.now()}`
+    : `run_${tenantId}_${reportSlug}_${Date.now()}`;
 }
 
 function createCustomerPreviewRunId(tenantId: string) {
@@ -2199,7 +2761,7 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
   };
 }
 
-function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
+function buildReportViewerUrl(snapshot: ReportSnapshot) {
   const baseUrl = process.env.APP_BASE_URL?.trim();
   const signingSecret = readReportViewerSigningSecret();
   if (!baseUrl || !signingSecret) {
@@ -2216,12 +2778,52 @@ function buildReportViewerUrl(snapshot: SalesGoodsServicesSnapshot) {
   try {
     const url = new URL("/command-center/brief", baseUrl.replace(/\/$/, ""));
     url.searchParams.set("tenant_id", snapshot.tenant_id);
+    url.searchParams.set("report_key", snapshot.report_key);
     url.searchParams.set("run_id", snapshot.run_id);
     url.searchParams.set("token", token);
     return url.toString();
   } catch {
     return null;
   }
+}
+
+function buildMorningBriefCarouselPreview(input: {
+  salesPreview: ReportLinePreview | null;
+  purchasePreview: ReportLinePreview | null;
+}): ReportLinePreview {
+  const previews = [input.salesPreview, input.purchasePreview].filter(
+    (preview): preview is ReportLinePreview => Boolean(preview),
+  );
+  const primaryPreview = previews[0];
+  if (!primaryPreview) {
+    throw new Error("At least one report preview is required.");
+  }
+  const flexBubbles = previews
+    .map((preview) => preview.flex_message?.contents)
+    .filter((contents): contents is Record<string, unknown> => Boolean(contents));
+  const flexMessage =
+    flexBubbles.length === previews.length && flexBubbles.length > 1
+      ? {
+          type: "flex" as const,
+          altText: "AI Business Morning Brief: รายงานขายและรายงานซื้อ",
+          contents: {
+            type: "carousel",
+            contents: flexBubbles,
+          },
+        }
+      : primaryPreview.flex_message;
+
+  return {
+    ...primaryPreview,
+    line_message_type: flexMessage ? "flex" : "text",
+    title: "AI Business Morning Brief",
+    text: previews.map((preview) => preview.text).join("\n\n---\n\n"),
+    lines: previews.flatMap((preview, index) =>
+      index === 0 ? preview.lines : ["", "---", "", ...preview.lines],
+    ),
+    flex_message: flexMessage,
+    warnings: previews.flatMap((preview) => preview.warnings),
+  };
 }
 
 async function buildOwnerTenantSummary(tenantId: TenantId) {
@@ -2651,8 +3253,28 @@ function buildMorningBriefDeliveryKey(
   params: SalesGoodsServicesParams,
   targetIdHash?: string,
 ) {
-  const base = `${tenantId}:sales_goods_services:morning_brief:${params.date_from}:${params.date_to}`;
+  const base = `${tenantId}:morning_brief:v2:${params.date_from}:${params.date_to}`;
   return targetIdHash ? `${base}:${targetIdHash.slice(0, 16)}` : base;
+}
+
+function derivePurchaseMorningBriefDateRange(input?: { now?: Date }) {
+  const currentYmd = formatDateInBangkok(input?.now ?? new Date());
+  const yesterday = addDays(currentYmd, -1);
+  return {
+    date_from: `${yesterday.slice(0, 8)}01`,
+    date_to: yesterday,
+  };
+}
+
+function formatDateInBangkok(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function readWebhookDiscoveryTenantId() {

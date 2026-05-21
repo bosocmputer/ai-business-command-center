@@ -7,13 +7,15 @@ import {
   type LineTargetRecord,
   type LineWebhookEventRecord,
   type PlanCode,
+  type ReportKey,
   type ReportRunRecord,
-  type SalesGoodsServicesSnapshot,
+  type ReportSnapshot,
   type Tenant,
   type TenantId,
   type TenantStatus,
   type UserRecord,
   type WorkerHeartbeatRecord,
+  reportKeySchema,
 } from "@ai-bcc/shared";
 import type { StoredLineTargetRecord } from "./line-targets.js";
 import { createSampleSnapshot } from "./sample-data.js";
@@ -30,7 +32,7 @@ export type AuditLogEntry = {
 };
 
 export type ReportDefinitionSeed = {
-  report_key: "sales_goods_services";
+  report_key: ReportKey;
   name: string;
   version: string;
   contract_json: Record<string, unknown>;
@@ -76,13 +78,15 @@ export type SystemStore = {
   listSecretMetadata(tenantId?: TenantId): Promise<SecretMetadataRecord[]>;
   getLatestSnapshot(
     tenantId: TenantId,
-  ): Promise<SalesGoodsServicesSnapshot | null>;
+    reportKey?: ReportKey,
+  ): Promise<ReportSnapshot | null>;
   getSnapshotByRunId(
     tenantId: TenantId,
     runId: string,
-  ): Promise<SalesGoodsServicesSnapshot | null>;
-  saveSnapshot(snapshot: SalesGoodsServicesSnapshot): Promise<void>;
-  listRuns(tenantId: TenantId): Promise<ReportRunRecord[]>;
+    reportKey?: ReportKey,
+  ): Promise<ReportSnapshot | null>;
+  saveSnapshot(snapshot: ReportSnapshot): Promise<void>;
+  listRuns(tenantId: TenantId, reportKey?: ReportKey): Promise<ReportRunRecord[]>;
   upsertRun(run: ReportRunRecord): Promise<void>;
   saveLineDelivery(delivery: LineDeliveryRecord): Promise<void>;
   findSuccessfulLineDeliveryByKey(input: {
@@ -115,7 +119,7 @@ type StoreFile = {
   tenants: Tenant[];
   reportDefinitions: ReportDefinitionSeed[];
   runs: ReportRunRecord[];
-  snapshots: SalesGoodsServicesSnapshot[];
+  snapshots: ReportSnapshot[];
   lineDeliveries: LineDeliveryRecord[];
   lineTargets: StoredLineTargetRecord[];
   lineWebhookEvents: LineWebhookEventRecord[];
@@ -260,28 +264,38 @@ class LocalJsonSystemStore implements SystemStore {
       .map(toSecretMetadata);
   }
 
-  async getLatestSnapshot(tenantId: TenantId) {
+  async getLatestSnapshot(
+    tenantId: TenantId,
+    reportKey: ReportKey = "sales_goods_services",
+  ) {
     const data = this.requireData();
     return (
       data.snapshots
-        .filter((snapshot) => snapshot.tenant_id === tenantId)
+        .filter(
+          (snapshot) =>
+            snapshot.tenant_id === tenantId && snapshot.report_key === reportKey,
+        )
         .sort((a, b) => b.generated_at.localeCompare(a.generated_at))[0] ?? null
     );
   }
 
-  async getSnapshotByRunId(tenantId: TenantId, runId: string) {
+  async getSnapshotByRunId(
+    tenantId: TenantId,
+    runId: string,
+    reportKey: ReportKey = "sales_goods_services",
+  ) {
     const data = this.requireData();
     return (
       data.snapshots.find(
         (snapshot) =>
           snapshot.tenant_id === tenantId &&
-          snapshot.report_key === "sales_goods_services" &&
+          snapshot.report_key === reportKey &&
           snapshot.run_id === runId,
       ) ?? null
     );
   }
 
-  async saveSnapshot(snapshot: SalesGoodsServicesSnapshot) {
+  async saveSnapshot(snapshot: ReportSnapshot) {
     const data = this.requireData();
     data.snapshots = [
       snapshot,
@@ -297,10 +311,12 @@ class LocalJsonSystemStore implements SystemStore {
     await this.persist();
   }
 
-  async listRuns(tenantId: TenantId) {
+  async listRuns(tenantId: TenantId, reportKey?: ReportKey) {
     const data = this.requireData();
     return data.runs
-      .filter((run) => run.tenant_id === tenantId)
+      .filter(
+        (run) => run.tenant_id === tenantId && (!reportKey || run.report_key === reportKey),
+      )
       .sort((a, b) => b.started_at.localeCompare(a.started_at))
       .slice(0, 50);
   }
@@ -920,44 +936,51 @@ order by updated_at desc
     return result.rows.map((row) => toSecretMetadata(mapSecretRow(row)));
   }
 
-  async getLatestSnapshot(tenantId: TenantId) {
+  async getLatestSnapshot(
+    tenantId: TenantId,
+    reportKey: ReportKey = "sales_goods_services",
+  ) {
     const result = await this.pool.query(
       `
 select snapshot_json
 from report_snapshots
-where tenant_id = $1 and report_key = 'sales_goods_services'
+where tenant_id = $1 and report_key = $2
 order by created_at desc
 limit 1
 `,
-      [tenantId],
+      [tenantId, reportKey],
     );
 
     return (
-      (result.rows[0]?.snapshot_json as SalesGoodsServicesSnapshot | undefined) ??
+      (result.rows[0]?.snapshot_json as ReportSnapshot | undefined) ??
       null
     );
   }
 
-  async getSnapshotByRunId(tenantId: TenantId, runId: string) {
+  async getSnapshotByRunId(
+    tenantId: TenantId,
+    runId: string,
+    reportKey: ReportKey = "sales_goods_services",
+  ) {
     const result = await this.pool.query(
       `
 select snapshot_json
 from report_snapshots
 where tenant_id = $1
-  and report_key = 'sales_goods_services'
-  and report_run_id = $2
+  and report_key = $2
+  and report_run_id = $3
 limit 1
 `,
-      [tenantId, runId],
+      [tenantId, reportKey, runId],
     );
 
     return (
-      (result.rows[0]?.snapshot_json as SalesGoodsServicesSnapshot | undefined) ??
+      (result.rows[0]?.snapshot_json as ReportSnapshot | undefined) ??
       null
     );
   }
 
-  async saveSnapshot(snapshot: SalesGoodsServicesSnapshot) {
+  async saveSnapshot(snapshot: ReportSnapshot) {
     await this.pool.query(
       `
 insert into report_snapshots (
@@ -984,7 +1007,7 @@ set snapshot_json = excluded.snapshot_json,
     );
   }
 
-  async listRuns(tenantId: TenantId) {
+  async listRuns(tenantId: TenantId, reportKey?: ReportKey) {
     const result = await this.pool.query(
       `
 select
@@ -998,11 +1021,12 @@ select
   row_count,
   safe_error_message
 from report_runs
-where tenant_id = $1 and report_key = 'sales_goods_services'
+where tenant_id = $1
+  and ($2::text is null or report_key = $2)
 order by started_at desc
 limit 50
 `,
-      [tenantId],
+      [tenantId, reportKey ?? null],
     );
 
     return result.rows.map((row) => ({
@@ -1132,7 +1156,6 @@ select
   created_at
 from line_deliveries
 where tenant_id = $1
-  and report_key = 'sales_goods_services'
   and delivery_key = $2
   and status = 'success'
 order by created_at desc
@@ -1164,7 +1187,7 @@ select
   safe_error_message,
   created_at
 from line_deliveries
-where tenant_id = $1 and report_key = 'sales_goods_services'
+where tenant_id = $1
 order by created_at desc
 limit 50
 `,
@@ -1630,9 +1653,7 @@ limit $1
   }
 }
 
-function snapshotToRunRecord(
-  snapshot: SalesGoodsServicesSnapshot,
-): ReportRunRecord {
+function snapshotToRunRecord(snapshot: ReportSnapshot): ReportRunRecord {
   return {
     id: snapshot.run_id,
     tenant_id: snapshot.tenant_id,
@@ -1677,7 +1698,7 @@ function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
   return {
     id: String(row.id),
     tenant_id: row.tenant_id as TenantId,
-    report_key: "sales_goods_services",
+    report_key: row.report_key as ReportKey,
     report_run_id: String(row.report_run_id),
     delivery_key: typeof row.delivery_key === "string" ? row.delivery_key : null,
     delivery_type:
@@ -1921,7 +1942,9 @@ function normalizeReportKeys(value: unknown): LineTargetRecord["allowed_report_k
     return [];
   }
 
-  return value.filter((item): item is "sales_goods_services" => item === "sales_goods_services");
+  return value.filter((item): item is ReportKey =>
+    reportKeySchema.safeParse(item).success,
+  );
 }
 
 function normalizeLineActions(value: unknown): LineTargetRecord["allowed_actions"] {

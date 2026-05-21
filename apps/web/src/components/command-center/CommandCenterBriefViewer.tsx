@@ -6,6 +6,9 @@ import { useSearchParams } from "next/navigation";
 import {
   formatSmlBranchLabel,
   type BranchSales,
+  type PurchaseGoodsPayablesSnapshot,
+  type ReportKey,
+  type ReportSnapshot,
   type SalesComparisonPoint,
   type SalesDetailRow,
   type SalesGoodsServicesSnapshot,
@@ -17,13 +20,13 @@ import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 const API_BASE_URL = getCommandCenterApiBaseUrl();
 
 type SnapshotResponse = {
-  data?: SalesGoodsServicesSnapshot;
+  data?: ReportSnapshot;
   error?: string;
 };
 
 type LoadState =
   | { status: "loading" }
-  | { status: "ready"; snapshot: SalesGoodsServicesSnapshot }
+  | { status: "ready"; snapshot: ReportSnapshot }
   | { status: "error"; message: string };
 
 export function CommandCenterBriefFallback() {
@@ -47,6 +50,8 @@ export function CommandCenterBriefFallback() {
 export default function CommandCenterBriefViewer() {
   const searchParams = useSearchParams();
   const tenantId = searchParams.get("tenant_id");
+  const reportKey = (searchParams.get("report_key") ||
+    "sales_goods_services") as ReportKey;
   const runId = searchParams.get("run_id");
   const token = searchParams.get("token");
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -70,7 +75,7 @@ export default function CommandCenterBriefViewer() {
         const response = await fetch(
           `${API_BASE_URL}/api/reports/${encodeURIComponent(
             safeTenantId,
-          )}/sales_goods_services/snapshots/${encodeURIComponent(
+          )}/${encodeURIComponent(reportKey)}/snapshots/${encodeURIComponent(
             safeRunId,
           )}?token=${encodeURIComponent(safeToken)}`,
           { signal: controller.signal },
@@ -96,7 +101,7 @@ export default function CommandCenterBriefViewer() {
 
     void loadSnapshot();
     return () => controller.abort();
-  }, [runId, tenantId, token]);
+  }, [reportKey, runId, tenantId, token]);
 
   if (state.status === "loading") {
     return <CommandCenterBriefFallback />;
@@ -104,6 +109,10 @@ export default function CommandCenterBriefViewer() {
 
   if (state.status === "error") {
     return <BriefErrorState message={state.message} />;
+  }
+
+  if (state.snapshot.report_key === "purchase_goods_payables") {
+    return <PurchaseBriefReport snapshot={state.snapshot} />;
   }
 
   return <BriefReport snapshot={state.snapshot} />;
@@ -284,6 +293,220 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
         onClose={() => setSelectedBillKey(null)}
         hasReportWarning={hasWarning}
       />
+    </main>
+  );
+}
+
+function PurchaseBriefReport({
+  snapshot,
+}: {
+  snapshot: PurchaseGoodsPayablesSnapshot;
+}) {
+  const topSupplier = snapshot.top_suppliers[0] ?? null;
+  const topProduct = snapshot.top_products[0] ?? null;
+  const maxSupplierTotal = topSupplier?.total_amount ?? 0;
+  const maxProductTotal = topProduct?.sum_amount ?? 0;
+  const hasWarning =
+    snapshot.quality_status === "reconciled_with_warning" ||
+    Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
+
+  return (
+    <main className="min-h-screen bg-gray-50 text-gray-800 dark:bg-gray-950 dark:text-gray-100">
+      <div className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
+              AI Business Center
+            </p>
+            <h1 className="mt-1 truncate text-xl font-semibold text-gray-900 dark:text-white">
+              รายงานซื้อ/ตั้งหนี้
+            </h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+              {formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <StatusPill tone={hasWarning ? "warning" : "success"}>
+              {formatPurchaseTrustStatus(snapshot)}
+            </StatusPill>
+            <StatusPill tone={snapshot.source === "sml_postgres" ? "success" : "warning"}>
+              {snapshot.source === "sml_postgres" ? "ข้อมูลจากระบบซื้อ SML" : "ข้อมูลตัวอย่าง"}
+            </StatusPill>
+            <StatusPill tone="neutral">
+              อัปเดต {formatDateTime(snapshot.generated_at)}
+            </StatusPill>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-6xl space-y-4 px-4 py-4 md:px-6">
+        <section aria-label="ภาพรวม" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiBlock
+            label="ยอดซื้อ/ตั้งหนี้"
+            value={`${formatMoney(snapshot.summary.total_purchase)} บาท`}
+            emphasis
+          />
+          <KpiBlock
+            label="เอกสารซื้อ"
+            value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
+          />
+          <KpiBlock
+            label="รายการสินค้า"
+            value={`${formatInteger(snapshot.summary.line_count)} รายการ`}
+          />
+          <KpiBlock
+            label="จำนวนซื้อรวม"
+            value={formatQty(snapshot.summary.total_qty)}
+          />
+        </section>
+
+        <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+          <SectionTitle
+            title="วันนี้ควรรู้อะไร"
+            caption="สรุปยอดซื้อ ผู้จำหน่าย และสินค้าที่รับเข้ามากที่สุด"
+          />
+          <div className="mt-3 grid gap-2 lg:grid-cols-3">
+            <InsightItem
+              index={1}
+              title={
+                snapshot.summary.document_count
+                  ? "มีเอกสารซื้อในช่วงนี้"
+                  : "ยังไม่พบเอกสารซื้อ"
+              }
+              body={
+                snapshot.summary.document_count
+                  ? `ยอดซื้อ/ตั้งหนี้ ${formatMoney(
+                      snapshot.summary.total_purchase,
+                    )} บาท จาก ${formatInteger(
+                      snapshot.summary.document_count,
+                    )} เอกสาร`
+                  : "หากมีการรับสินค้าแล้วควรตรวจการบันทึกเอกสารซื้อ/ตั้งหนี้ใน SML"
+              }
+              tone={snapshot.summary.document_count ? "success" : "warning"}
+            />
+            <InsightItem
+              index={2}
+              title="ผู้จำหน่ายหลัก"
+              body={
+                topSupplier
+                  ? `${topSupplier.supplier_name} มียอด ${formatMoney(
+                      topSupplier.total_amount,
+                    )} บาท จาก ${formatInteger(topSupplier.document_count)} เอกสาร`
+                  : "ยังไม่มีข้อมูลผู้จำหน่ายในช่วงนี้"
+              }
+              tone="neutral"
+            />
+            <InsightItem
+              index={3}
+              title="สินค้าที่ซื้อสูงสุด"
+              body={
+                topProduct
+                  ? `${topProduct.item_name} มียอด ${formatMoney(
+                      topProduct.sum_amount,
+                    )} บาท จำนวน ${formatQty(topProduct.qty)}`
+                  : "ยังไม่มีสินค้าในช่วงนี้"
+              }
+              tone="neutral"
+            />
+          </div>
+        </section>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+            <SectionTitle
+              title="ผู้จำหน่ายหลัก"
+              caption="เรียงตามยอดซื้อ/ตั้งหนี้จากหัวเอกสาร"
+            />
+            <div className="mt-4 space-y-3">
+              {snapshot.top_suppliers.slice(0, 6).map((supplier) => (
+                <PurchaseRankRow
+                  key={supplier.supplier_code}
+                  label={supplier.supplier_name}
+                  meta={`${formatInteger(supplier.document_count)} เอกสาร`}
+                  value={supplier.total_amount}
+                  maxTotal={maxSupplierTotal}
+                />
+              ))}
+              {!snapshot.top_suppliers.length && (
+                <EmptyInline text="ไม่มีข้อมูลผู้จำหน่ายในช่วงวันที่นี้" />
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+            <SectionTitle
+              title="สินค้าที่ซื้อสูงสุด"
+              caption="สินค้าที่มียอดซื้อสูงสุดจากรายละเอียดเอกสาร"
+            />
+            <div className="mt-4 space-y-3">
+              {snapshot.top_products.slice(0, 6).map((product) => (
+                <ProductRow
+                  key={`${product.item_code}-${product.item_name}`}
+                  product={product}
+                  maxTotal={maxProductTotal}
+                />
+              ))}
+              {!snapshot.top_products.length && (
+                <EmptyInline text="ไม่มีสินค้าในช่วงวันที่นี้" />
+              )}
+            </div>
+          </section>
+        </div>
+
+        <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+          <SectionTitle
+            title="เอกสารซื้อ/ตั้งหนี้"
+            caption="แสดงตัวอย่างเอกสารแรกจาก snapshot รอบนี้"
+          />
+          {hasWarning && (
+            <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
+              หมายเหตุ: ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount
+              เป็นยอดซื้อ/ตั้งหนี้หลัก
+            </p>
+          )}
+          <div className="mt-4 space-y-2">
+            {snapshot.documents.slice(0, 20).map((document) => (
+              <div
+                className="rounded-lg border border-gray-200 bg-white px-3 py-3 dark:border-gray-800 dark:bg-white/[0.03]"
+                key={`${document.doc_date}-${document.doc_no}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                      {document.doc_no}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {formatThaiDate(document.doc_date)}
+                      {document.doc_time ? ` · ${formatTime(document.doc_time)}` : ""} ·{" "}
+                      {document.cust_name || document.cust_code || "ไม่ระบุผู้จำหน่าย"}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold text-gray-900 dark:text-white">
+                    {formatMoney(document.total_amount)} บาท
+                  </p>
+                </div>
+              </div>
+            ))}
+            {!snapshot.documents.length && (
+              <EmptyInline text="ไม่มีเอกสารซื้อ/ตั้งหนี้ในช่วงวันที่นี้" />
+            )}
+          </div>
+
+          <BriefDetails
+            title="ข้อมูลเทคนิค/ที่มา"
+            count={4}
+            caption="เปิดเฉพาะเมื่อต้อง trace รอบรันหรือเช็คความถูกต้องของยอด"
+          >
+            <div className="grid gap-3 text-sm md:grid-cols-4">
+              <Fact label="เลขอ้างอิง" value={snapshot.run_id} />
+              <Fact label="ช่วงวันที่" value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)} />
+              <Fact label="ยอดหัวเอกสาร" value={`${formatMoney(snapshot.reconciliation.header_total_amount)} บาท`} />
+              <Fact label="ส่วนต่าง" value={`${formatMoney(snapshot.reconciliation.difference_amount)} บาท`} />
+            </div>
+          </BriefDetails>
+        </section>
+      </div>
     </main>
   );
 }
@@ -499,6 +722,43 @@ function ProductRow({
       <div className="mt-2 h-2 rounded-full bg-gray-100 dark:bg-white/10">
         <div
           className="h-2 rounded-full bg-success-500"
+          style={{ width: `${width}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PurchaseRankRow({
+  label,
+  meta,
+  value,
+  maxTotal,
+}: {
+  label: string;
+  meta: string;
+  value: number;
+  maxTotal: number;
+}) {
+  const width = maxTotal > 0 ? Math.max(8, (value / maxTotal) * 100) : 0;
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-3 text-sm">
+        <div className="min-w-0">
+          <p className="line-clamp-2 font-semibold text-gray-900 dark:text-white">
+            {label}
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {meta}
+          </p>
+        </div>
+        <p className="shrink-0 font-semibold text-gray-900 dark:text-white">
+          {formatMoney(value)}
+        </p>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-gray-100 dark:bg-white/10">
+        <div
+          className="h-2 rounded-full bg-brand-500"
           style={{ width: `${width}%` }}
         />
       </div>
@@ -1062,6 +1322,22 @@ function formatSource(source: SalesGoodsServicesSnapshot["source"]) {
 }
 
 function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
+  if (snapshot.summary.document_count === 0) {
+    return "ไม่มีข้อมูล";
+  }
+  if (snapshot.quality_status === "stale" || snapshot.source === "sample_snapshot") {
+    return "ข้อมูลเก่า";
+  }
+  if (
+    snapshot.quality_status === "reconciled_with_warning" ||
+    Math.abs(snapshot.reconciliation.difference_amount) > 0.01
+  ) {
+    return "ควรตรวจยอด";
+  }
+  return "พร้อมใช้";
+}
+
+function formatPurchaseTrustStatus(snapshot: PurchaseGoodsPayablesSnapshot) {
   if (snapshot.summary.document_count === 0) {
     return "ไม่มีข้อมูล";
   }

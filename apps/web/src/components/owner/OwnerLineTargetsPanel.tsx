@@ -36,7 +36,7 @@ export function OwnerLineTargetsPanel({
   targets: LineTargetRecord[];
   tenantName: string;
 }) {
-  const readyTargets = targets.filter(canReceiveSalesMorningBrief);
+  const readyTargets = targets.filter(canReceiveMorningBrief);
   const personalTargets = targets.filter(
     (target) => target.target_type === "user" && target.approved,
   );
@@ -264,16 +264,18 @@ function LineTargetCard({
     target.recipient_count_estimate?.toString() ?? "",
   );
   const isEnvFallback = target.source === "env_fallback";
-  const ready = canReceiveSalesMorningBrief(target);
+  const ready = canReceiveMorningBrief(target);
   const profileKeys: LineAccessProfileKey[] = [
     "executive",
     "sales_manager",
     "operations",
     "staff",
   ];
-  const showsSalesToGroup =
+  const showsSensitiveReportToGroup =
     target.target_type !== "user" &&
-    target.allowed_report_keys.includes("sales_goods_services") &&
+    target.allowed_report_keys.some((reportKey) =>
+      ["sales_goods_services", "purchase_goods_payables"].includes(reportKey),
+    ) &&
     target.allowed_actions.includes("receive_morning_brief");
 
   return (
@@ -288,7 +290,7 @@ function LineTargetCard({
               {formatLineTargetType(target.target_type)}
             </Badge>
             <Badge color={ready ? "success" : "warning"}>
-              {ready ? "รับรายงานขายได้" : "ยังไม่พร้อมรับ"}
+              {ready ? "รับ Morning Brief ได้" : "ยังไม่พร้อมรับ"}
             </Badge>
             <Badge color={target.approved ? "success" : "warning"}>
               {target.approved ? "อนุมัติแล้ว" : "รออนุมัติ"}
@@ -327,9 +329,9 @@ function LineTargetCard({
             {formatAllowedActions(target)}
           </p>
 
-          {showsSalesToGroup ? (
+          {showsSensitiveReportToGroup ? (
             <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
-              ปลายทางนี้เป็นกลุ่ม/ห้องแชท: ข้อมูลยอดขายที่ส่งไปทุกคนในปลายทางนี้จะเห็นได้
+              ปลายทางนี้เป็นกลุ่ม/ห้องแชท: ข้อมูลยอดขายหรือยอดซื้อที่ส่งไปทุกคนในปลายทางนี้จะเห็นได้
             </p>
           ) : null}
 
@@ -432,12 +434,12 @@ function LineTargetCard({
   );
 }
 
-function canReceiveSalesMorningBrief(target: LineTargetRecord) {
+function canReceiveMorningBrief(target: LineTargetRecord) {
   return (
     target.approved &&
     target.enabled &&
     target.allowed_actions.includes("receive_morning_brief") &&
-    target.allowed_report_keys.includes("sales_goods_services")
+    target.allowed_report_keys.length > 0
   );
 }
 
@@ -540,6 +542,8 @@ function formatAllowedReports(target: LineTargetRecord) {
     .map((reportKey) =>
       reportKey === "sales_goods_services"
         ? "รายงานขายสินค้าและบริการ"
+        : reportKey === "purchase_goods_payables"
+          ? "รายงานซื้อสินค้า/ตั้งหนี้"
         : reportKey,
     )
     .join(", ");

@@ -10,9 +10,10 @@
 2. [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) - ภาพรวมสินค้า, ลูกค้าเป้าหมาย, subscription model
 3. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ SML DB ถึง Dashboard และ LINE OA
 4. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report หนึ่งตัว ซึ่งเป็นแกนหลักของระบบ
-5. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานแรกที่ใช้ implement จริง
-6. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
-7. [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) - ลำดับ implementation
+5. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานขายสินค้าและบริการ
+6. [reports/purchase_goods_payables.md](./reports/purchase_goods_payables.md) - contract รายงานซื้อสินค้า/ตั้งหนี้
+7. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
+8. [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) - ลำดับ implementation
 
 ## เอกสารทั้งหมด
 
@@ -35,6 +36,7 @@
 | [15_UX_UI_AUDIT_TH.md](./15_UX_UI_AUDIT_TH.md) | UX/UI audit และ TailAdmin alignment checklist |
 | [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) | สถานะล่าสุด, deploy, validation, next steps สำหรับเริ่มงานวันถัดไป |
 | [reports/sales_goods_services.md](./reports/sales_goods_services.md) | Report contract แรก: รายงานขายสินค้าและบริการ |
+| [reports/purchase_goods_payables.md](./reports/purchase_goods_payables.md) | Report contract ที่ 2: รายงานซื้อสินค้า/ตั้งหนี้ |
 
 ## Product Direction
 
@@ -59,7 +61,7 @@
 | Phase 1C | Done | scheduler 08:00, system PostgreSQL, signed brief viewer, admin mutation token |
 | Phase 1D | Done | professional LINE brief, signed viewer, permission profiles |
 | Phase 1E | Current | SaaS pilot portal: Owner Admin + Customer Viewer per tenant slug |
-| Phase 2 | Future | report library เพิ่มเติมและ multi-tenant subscription |
+| Phase 2 | Current | report library เพิ่มเติม เริ่มที่ `purchase_goods_payables` และ multi-tenant subscription |
 | Phase 3 | Future | LINE/Web chatbot over approved reports |
 | Phase 4 | Future | AI business copilot, anomaly, recommendation |
 

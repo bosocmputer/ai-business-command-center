@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import type {
   LineDeliveryRecord,
   LineMessageType,
+  ReportLinePreview,
   LineSendMode,
-  SalesGoodsServicesLinePreview,
   TenantId,
 } from "@ai-bcc/shared";
 import type { LineChannelConfig } from "./config.js";
@@ -15,7 +15,7 @@ const LINE_GROUP_SUMMARY_ENDPOINT = "https://api.line.me/v2/bot/group";
 export type SendLineBriefInput = {
   tenantId: TenantId;
   mode: LineSendMode;
-  preview: SalesGoodsServicesLinePreview;
+  preview: ReportLinePreview;
   config: LineChannelConfig | null;
   deliveryKey?: string | null;
   deliveryType?: LineDeliveryRecord["delivery_type"];

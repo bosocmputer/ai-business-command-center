@@ -8,6 +8,7 @@ import {
   type LineChannelRecord,
   type LineDeliveryRecord,
   type LineTargetRecord,
+  type PurchaseGoodsPayablesSnapshot,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type Tenant,
@@ -69,6 +70,7 @@ type DatasourceTestResult = {
     ic_trans: boolean;
     ic_trans_detail: boolean;
     ar_customer: boolean;
+    ap_supplier: boolean;
     erp_branch_list: boolean;
   };
   safe_error_message: string | null;
@@ -983,6 +985,86 @@ export default function OwnerPortal({
     });
   }
 
+  async function runPurchaseReport() {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนรันรายงาน" });
+      return;
+    }
+    if (!reportDateFrom || !reportDateTo || reportDateFrom > reportDateTo) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาเลือกช่วงวันที่ให้ถูกต้อง",
+      });
+      return;
+    }
+
+    await runOwnerAction(`purchase-report-run-${tenant.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันรันรายงานซื้อ/ตั้งหนี้",
+        message:
+          "ระบบจะ query ฐานข้อมูล SML ของร้านนี้และบันทึก snapshot รายงานซื้อ/ตั้งหนี้ล่าสุด",
+        confirmLabel: "รันรายงานซื้อ",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          { label: "รายงาน", value: "รายงานซื้อสินค้า/ตั้งหนี้" },
+          {
+            label: "ช่วงวันที่",
+            value: formatReportPeriod(reportDateFrom, reportDateTo),
+          },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "รันรายงานซื้อสินค้า/ตั้งหนี้",
+        description:
+          "ระบบจะ query ฐาน SML ของ tenant นี้และบันทึก snapshot รายงานซื้อ",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/reports/${tenant.id}/purchase_goods_payables/run`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            date_from: reportDateFrom,
+            date_to: reportDateTo,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: PurchaseGoodsPayablesSnapshot;
+        run?: ReportRunRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
+        if (payload.run) {
+          setLastManualRun(payload.run);
+        }
+        throw new Error(payload.error || "รันรายงานซื้อ/ตั้งหนี้ไม่สำเร็จ");
+      }
+
+      setLastManualSnapshot(null);
+      setLastManualRun(payload.run ?? null);
+      setValidationSignoffResult(null);
+      setResult({
+        tone: "success",
+        message: `${tenant.name}: รันรายงานซื้อสำเร็จ ยอดซื้อ ${formatCurrency(payload.data.summary.total_purchase)} จาก ${payload.data.summary.document_count.toLocaleString("th-TH")} เอกสาร`,
+      });
+      await loadOwnerData();
+    });
+  }
+
   async function saveValidationSignoff() {
     const tenant = selectedTenantSummary?.tenant;
     if (!tenant || !lastManualSnapshot) {
@@ -1232,6 +1314,7 @@ export default function OwnerPortal({
           setValidationReferenceTotal={setValidationReferenceTotal}
           setValidationSignedBy={setValidationSignedBy}
           onRunSalesReport={runSalesReport}
+          onRunPurchaseReport={runPurchaseReport}
         />
       ) : null}
 
@@ -1305,6 +1388,7 @@ type OwnerSectionContentProps = {
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
   ) => Promise<void>;
+  onRunPurchaseReport: () => Promise<void>;
   onRunSalesReport: () => Promise<void>;
   onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
   onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
@@ -1805,6 +1889,7 @@ function OwnerReportsContent({
   busy,
   lastManualRun,
   lastManualSnapshot,
+  onRunPurchaseReport,
   onRunSalesReport,
   onSaveValidationSignoff,
   reportDateFrom,
@@ -1827,8 +1912,8 @@ function OwnerReportsContent({
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
       <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
         <OwnerPanelHeader
-          title="รายงานขายสินค้าและบริการ"
-          description="ดูสถานะ snapshot ล่าสุดต่อร้าน และรัน approved report ได้จาก Owner Portal"
+          title="รายงานที่เปิดใช้ใน pilot"
+          description="รอบนี้มีรายงานขายสินค้าและบริการ และรายงานซื้อสินค้า/ตั้งหนี้ เพื่อรองรับการคิดเงินเพิ่มตาม report ในอนาคต"
         />
         <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
           {tenants.map((item) => (
@@ -1851,6 +1936,7 @@ function OwnerReportsContent({
         onDateFromChange={setReportDateFrom}
         onDateToChange={setReportDateTo}
         onRun={onRunSalesReport}
+        onRunPurchase={onRunPurchaseReport}
         onSaveValidationSignoff={onSaveValidationSignoff}
         selectedTenant={selectedTenantSummary}
         selectedTenantId={selectedTenantId}
@@ -2122,6 +2208,7 @@ function OwnerReportRunnerPanel({
   onDateFromChange,
   onDateToChange,
   onRun,
+  onRunPurchase,
   onSaveValidationSignoff,
   selectedTenant,
   selectedTenantId,
@@ -2143,6 +2230,7 @@ function OwnerReportRunnerPanel({
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
   onRun: () => Promise<void>;
+  onRunPurchase: () => Promise<void>;
   onSaveValidationSignoff: () => Promise<void>;
   selectedTenant?: TenantSummary;
   selectedTenantId: string;
@@ -2157,6 +2245,7 @@ function OwnerReportRunnerPanel({
   validationSignoffResult: ValidationSignoffResult | null;
 }) {
   const isRunning = busy === `report-run-${selectedTenantId}`;
+  const isPurchaseRunning = busy === `purchase-report-run-${selectedTenantId}`;
   const selectedSnapshotMatches =
     lastSnapshot?.tenant_id === selectedTenantId &&
     lastSnapshot.params.date_from === dateFrom &&
@@ -2218,14 +2307,25 @@ function OwnerReportRunnerPanel({
           </label>
         </div>
 
-        <Button
-          className="w-full"
-          disabled={isRunning || !selectedTenantId}
-          onClick={() => void onRun()}
-          size="sm"
-        >
-          {isRunning ? "กำลังรันรายงาน..." : "รันรายงาน"}
-        </Button>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button
+            className="w-full"
+            disabled={isRunning || isPurchaseRunning || !selectedTenantId}
+            onClick={() => void onRun()}
+            size="sm"
+          >
+            {isRunning ? "กำลังรันรายงานขาย..." : "รันรายงานขาย"}
+          </Button>
+          <Button
+            className="w-full"
+            disabled={isRunning || isPurchaseRunning || !selectedTenantId}
+            onClick={() => void onRunPurchase()}
+            size="sm"
+            variant="outline"
+          >
+            {isPurchaseRunning ? "กำลังรันรายงานซื้อ..." : "รันรายงานซื้อ/ตั้งหนี้"}
+          </Button>
+        </div>
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
           <p className="text-xs font-semibold uppercase text-gray-400">

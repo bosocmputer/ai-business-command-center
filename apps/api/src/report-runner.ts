@@ -5,11 +5,18 @@ import {
   buildSalesDetailQuery,
   buildSalesHeaderQuery,
   buildSmlBranchListQuery,
+  buildPurchaseDetailQuery,
+  buildPurchaseDocumentDetailQuery,
+  buildPurchaseDocumentPageQuery,
+  buildPurchaseHeaderQuery,
+  summarizePurchaseGoodsPayables,
   summarizeSalesGoodsServices,
+  validatePurchaseGoodsPayablesParams,
   validateSalesGoodsServicesParams,
 } from "@ai-bcc/reports";
 import {
   getSmlBranchMeaning,
+  type PurchaseGoodsPayablesSnapshot,
   type SalesDocumentDetail,
   type SalesDocumentListItem,
   type SalesDocumentPage,
@@ -32,6 +39,7 @@ export type DatasourceConnectionTestResult = {
     ic_trans: boolean;
     ic_trans_detail: boolean;
     ar_customer: boolean;
+    ap_supplier: boolean;
     erp_branch_list: boolean;
   };
   safe_error_message: string | null;
@@ -212,6 +220,181 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
   }
 }
 
+export async function runPurchaseGoodsPayablesReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+}): Promise<PurchaseGoodsPayablesSnapshot> {
+  const params = validatePurchaseGoodsPayablesParams(input.params);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 30000,
+    query_timeout: 35000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 30000");
+      const headerQuery = buildPurchaseHeaderQuery(params);
+      const detailQuery = buildPurchaseDetailQuery(params);
+      const branchQuery = buildSmlBranchListQuery();
+      const [headerResult, detailResult, branchResult] = await Promise.all([
+        client.query(headerQuery.text, headerQuery.values),
+        client.query(detailQuery.text, detailQuery.values),
+        client
+          .query(branchQuery.text, branchQuery.values)
+          .catch(() => ({ rows: [] as Record<string, unknown>[] })),
+      ]);
+
+      return summarizePurchaseGoodsPayables({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: "sml_postgres",
+        headers: headerResult.rows.map(mapHeaderRow),
+        details: detailResult.rows.map(mapDetailRow),
+        branches: branchResult.rows.map(mapBranchRow),
+      });
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function fetchPurchaseGoodsPayablesDocumentDetail(input: {
+  tenant_id: TenantId;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+  doc_no: string;
+}): Promise<SalesDocumentDetail | null> {
+  const params = validatePurchaseGoodsPayablesParams(input.params);
+  const query = buildPurchaseDocumentDetailQuery(params, input.doc_no);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 15000,
+    query_timeout: 20000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 15000");
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+      if (!result.rows[0]) {
+        return null;
+      }
+
+      const document = mapHeaderRow(result.rows[0]);
+      const lines = result.rows
+        .filter((row) => row.line_number != null || row.item_code != null)
+        .map(mapDocumentDetailLineRow);
+
+      return {
+        tenant_id: input.tenant_id,
+        report_key: "purchase_goods_payables",
+        params,
+        document,
+        lines,
+      };
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
+  tenant_id: TenantId;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+  page: number;
+  page_size: number;
+  search?: string | null;
+}): Promise<SalesDocumentPage> {
+  const params = validatePurchaseGoodsPayablesParams(input.params);
+  const page = Math.max(1, Math.floor(input.page));
+  const pageSize = Math.min(50, Math.max(1, Math.floor(input.page_size)));
+  const query = buildPurchaseDocumentPageQuery(params, {
+    page,
+    pageSize,
+    search: input.search,
+  });
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 15000,
+    query_timeout: 20000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 15000");
+      const branchQuery = buildSmlBranchListQuery();
+      const [result, branchResult] = await Promise.all([
+        client.query<Record<string, unknown>>(query.text, query.values),
+        client
+          .query(branchQuery.text, branchQuery.values)
+          .catch(() => ({ rows: [] as Record<string, unknown>[] })),
+      ]);
+      const branchNameByCode = buildBranchNameMap(
+        branchResult.rows.map(mapBranchRow),
+      );
+      const documents = result.rows.map(mapDocumentPageRow);
+      const totalItems = toNumber(result.rows[0]?.total_count);
+
+      return {
+        tenant_id: input.tenant_id,
+        report_key: "purchase_goods_payables",
+        params,
+        documents: documents.map((document) =>
+          enrichDocumentBranch(document, branchNameByCode),
+        ),
+        pagination: {
+          page,
+          page_size: pageSize,
+          total_items: totalItems,
+          total_pages: Math.max(1, Math.ceil(totalItems / pageSize)),
+          search: input.search?.trim() || null,
+        },
+      };
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
 export async function testDatasourceConnection(
   datasource: DatasourceConfig,
 ): Promise<DatasourceConnectionTestResult> {
@@ -240,6 +423,7 @@ export async function testDatasourceConnection(
         has_ic_trans: boolean;
         has_ic_trans_detail: boolean;
         has_ar_customer: boolean;
+        has_ap_supplier: boolean;
         has_erp_branch_list: boolean;
       }>(`
 select
@@ -248,6 +432,7 @@ select
   to_regclass('public.ic_trans') is not null as has_ic_trans,
   to_regclass('public.ic_trans_detail') is not null as has_ic_trans_detail,
   to_regclass('public.ar_customer') is not null as has_ar_customer,
+  to_regclass('public.ap_supplier') is not null as has_ap_supplier,
   to_regclass('public.erp_branch_list') is not null as has_erp_branch_list
 `);
       const row = result.rows[0];
@@ -257,6 +442,7 @@ select
           row?.has_ic_trans &&
             row.has_ic_trans_detail &&
             row.has_ar_customer &&
+            row.has_ap_supplier &&
             row.has_erp_branch_list,
         ),
         checked_at: checkedAt,
@@ -267,12 +453,14 @@ select
           ic_trans: Boolean(row?.has_ic_trans),
           ic_trans_detail: Boolean(row?.has_ic_trans_detail),
           ar_customer: Boolean(row?.has_ar_customer),
+          ap_supplier: Boolean(row?.has_ap_supplier),
           erp_branch_list: Boolean(row?.has_erp_branch_list),
         },
         safe_error_message:
           row?.has_ic_trans &&
           row.has_ic_trans_detail &&
           row.has_ar_customer &&
+          row.has_ap_supplier &&
           row.has_erp_branch_list
             ? null
             : "Datasource connected, but required SML tables are missing.",
@@ -291,6 +479,7 @@ select
         ic_trans: false,
         ic_trans_detail: false,
         ar_customer: false,
+        ap_supplier: false,
         erp_branch_list: false,
       },
       safe_error_message: toSafeDatasourceErrorMessage(error),

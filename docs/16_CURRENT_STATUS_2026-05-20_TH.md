@@ -19,7 +19,7 @@ Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
 System store: PostgreSQL
 Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
-Current report: sales_goods_services
+Current reports: sales_goods_services, purchase_goods_payables
 ```
 
 ## URL ที่ใช้ตรวจระบบ
@@ -54,6 +54,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 ### Report Platform
 
 - ใช้ approved report contract `sales_goods_services`
+- เพิ่ม approved report contract `purchase_goods_payables` สำหรับรายงานซื้อสินค้า/ตั้งหนี้
 - Query ใช้ parameter binding ไม่ใช้ string replace
 - Summary ใช้ `ic_trans.total_amount` เป็น financial truth
 - Detail analytics ใช้ `ic_trans_detail.sum_amount`, `qty`, product fields
@@ -61,6 +62,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Header query ใช้ SML sales report filter รุ่นใหม่: `trans_flag in (44)`, `last_status = 0`, date range, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
 - Detail query join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag` และ enrich ด้วย `ic_inventory`, `ic_unit`
 - Customer bill table ใช้ server-side pagination/search จาก SML ผ่าน approved SQL และ bill drilldown ดึงรายละเอียดสินค้าในบิลแบบ on-demand ไม่ยัด detail ทุกแถวของช่วงใหญ่ลง snapshot
+- Customer viewer เพิ่ม section รายงานซื้อ/ตั้งหนี้:
+  - DEMO SHOP ช่วง `2026-05-01` ถึง `2026-05-21` เคยตรวจได้ header 27, detail 57, header total 63,864.35 บาท
+  - 248 SHOP ช่วงเดียวกันยังไม่มี purchase data และต้องแสดง empty state แบบธุรกิจ
+  - เอกสารซื้อใช้ server-side pagination/search และ detail drilldown แบบเดียวกับรายงานขาย แต่ wording เป็น `ผู้จำหน่าย`, `ยอดซื้อเอกสารนี้`, `เอกสารซื้อ`
 - Snapshot มี comparison สำหรับ single-day report:
   - เมื่อวานเทียบกับวันก่อนหน้า
   - เมื่อวานเทียบกับวันเดียวกันสัปดาห์ก่อน
@@ -78,7 +83,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Owner Admin แยกเป็น section/page ตามงานจริงเพื่อลด noise:
   - `/owner`: ภาพรวมเจ้าของ เห็น readiness ของทุกร้าน, งานที่ต้องทำต่อ, flow เปิดร้านใหม่
   - `/owner/tenants`: ร้านค้าและการใช้งาน เพิ่ม tenant, เปลี่ยน subscription status, ดู datasource/customer dashboard slug
-  - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ manual report runner สำหรับรายงานขายสินค้าและบริการโดยตรง
+  - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ manual report runner สำหรับรายงานขายสินค้าและบริการกับรายงานซื้อสินค้า/ตั้งหนี้
   - `/owner/line`: LINE OA และผู้รับรายงาน, onboarding guide ให้ผู้บริหาร add OA เป็นเพื่อนแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน; group ใช้เป็น optional สำหรับทีมงาน
   - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run, latest LINE delivery, audit log, worker/scheduler status และ backup readiness
 - `/owner` มี Pilot rollout board:
@@ -89,6 +94,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - owner กรอกยอดจากรายงาน SML เดิมและชื่อผู้รับรอง
   - ระบบเทียบกับยอด snapshot (`ic_trans.total_amount`) และบอก `ยอดตรง` หรือ `มีส่วนต่าง`
   - ผลการรับรองถูกบันทึกใน `audit_logs` ด้วย `report_validation_signed_off`
+- `/owner/reports` รัน manual report ได้ 2 ตัว:
+  - `sales_goods_services`
+  - `purchase_goods_payables`
+  - validation sign-off ยังผูกกับรายงานขายเท่านั้นในรอบนี้
 - `/owner/tenants` datasource test ตรวจ branch master `erp_branch_list` เพิ่มจากตารางรายงานหลัก เพื่อให้ชื่อสาขาแสดงเป็นชื่อจริงใน dashboard/LINE viewer
 - `/owner/tenants` มีฟอร์มตั้งค่า SML datasource จริง:
   - owner กรอก host/port/database/user/password

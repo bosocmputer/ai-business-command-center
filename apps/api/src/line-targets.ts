@@ -25,7 +25,7 @@ export const lineAccessProfileDefaults: Record<
 > = {
   executive: {
     label: "ผู้บริหาร",
-    allowed_report_keys: ["sales_goods_services"],
+    allowed_report_keys: ["sales_goods_services", "purchase_goods_payables"],
     allowed_actions: [
       "receive_morning_brief",
       "ask_report",
@@ -43,7 +43,7 @@ export const lineAccessProfileDefaults: Record<
   },
   operations: {
     label: "ปฏิบัติการ/คลังสินค้า",
-    allowed_report_keys: [],
+    allowed_report_keys: ["purchase_goods_payables"],
     allowed_actions: [
       "receive_morning_brief",
       "ask_report",

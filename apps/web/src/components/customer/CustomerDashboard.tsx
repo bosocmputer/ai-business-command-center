@@ -3,6 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatSmlBranchLabel,
+  type PurchaseGoodsPayablesSnapshot,
+  type ReportKey,
   type SalesComparisonPoint,
   type SalesDetailRow,
   type SalesDocumentDetail,
@@ -57,6 +59,90 @@ type ExecutiveNoteModel = {
   description: string;
   title: string;
   tone?: "neutral" | "warning" | "success";
+};
+
+type DocumentDrilldownCopy = {
+  amountHeader: string;
+  description: string;
+  detailReadyText: string;
+  documentHeader: string;
+  documentNoun: string;
+  emptyDetailLabel: string;
+  emptyListLabel: string;
+  emptySearchLabel: string;
+  footnote: string;
+  lineEmptyLabel: string;
+  loadDetailError: string;
+  loadDocumentsError: string;
+  loadFailedBadge: string;
+  loadingDocumentsLabel: string;
+  notFoundMessage: string;
+  partyFallback: string;
+  partyHeader: string;
+  searchLabel: string;
+  searchPlaceholder: string;
+  summaryDetailTotalLabel: string;
+  summaryPrefix: string;
+  title: string;
+  viewButtonLabel: string;
+};
+
+const salesDrilldownCopy: DocumentDrilldownCopy = {
+  amountHeader: "ยอดขายบิลนี้",
+  description:
+    "เลือกบิลเพื่อเปิดรายการสินค้าใต้บิลนั้น ข้อมูล detail จะโหลดจาก SML เฉพาะตอนกดดู",
+  detailReadyText: "ระบบพร้อมโหลดรายการสินค้า/บริการจาก SML เมื่อเปิดบิลนี้",
+  documentHeader: "บิลขาย",
+  documentNoun: "บิล",
+  emptyDetailLabel: "บิลนี้ไม่มีรายการสินค้าในช่วงข้อมูลล่าสุด",
+  emptyListLabel: "ไม่มีบิลขายในช่วงวันที่นี้",
+  emptySearchLabel: "ไม่พบบิลที่ตรงกับคำค้นหาในช่วงวันที่นี้",
+  footnote:
+    "ตารางบิลใช้ server-side pagination/search จาก SML ตามช่วงวันที่ที่เลือก ส่วนรายการสินค้าในบิลดึงแบบ read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้",
+  lineEmptyLabel: "ไม่ระบุสินค้า",
+  loadDetailError: "โหลดรายละเอียดบิลไม่สำเร็จ",
+  loadDocumentsError: "โหลดรายการบิลไม่สำเร็จ",
+  loadFailedBadge: "โหลดบิลไม่สำเร็จ",
+  loadingDocumentsLabel: "กำลังโหลดบิล",
+  notFoundMessage:
+    "ไม่พบบิลนี้ในช่วงวันที่ของรายงานล่าสุด อาจมีการรันรายงานใหม่แล้ว",
+  partyFallback: "ไม่ระบุลูกค้า",
+  partyHeader: "ลูกค้า",
+  searchLabel: "ค้นหาบิลจาก SML",
+  searchPlaceholder: "เลขบิล, ลูกค้า, วันที่, ยอดขาย",
+  summaryDetailTotalLabel: "รายละเอียดยอด",
+  summaryPrefix: "บิล",
+  title: "รายละเอียดบิล/สินค้า",
+  viewButtonLabel: "ดูรายการ",
+};
+
+const purchaseDrilldownCopy: DocumentDrilldownCopy = {
+  amountHeader: "ยอดซื้อเอกสารนี้",
+  description:
+    "เลือกเอกสารซื้อเพื่อตรวจสินค้า ผู้จำหน่าย และยอดตั้งหนี้ รายการจะโหลดจาก SML เฉพาะตอนกดดู",
+  detailReadyText: "ระบบพร้อมโหลดสินค้าในเอกสารซื้อจาก SML เมื่อเปิดเอกสารนี้",
+  documentHeader: "เอกสารซื้อ",
+  documentNoun: "เอกสาร",
+  emptyDetailLabel: "เอกสารนี้ไม่มีรายการสินค้าในช่วงข้อมูลล่าสุด",
+  emptyListLabel: "ไม่มีเอกสารซื้อ/ตั้งหนี้ในช่วงวันที่นี้",
+  emptySearchLabel: "ไม่พบเอกสารซื้อที่ตรงกับคำค้นหาในช่วงวันที่นี้",
+  footnote:
+    "ตารางเอกสารซื้อใช้ server-side pagination/search จาก SML ตามช่วงวันที่ที่เลือก ส่วนรายการสินค้าโหลดแบบ read-only เฉพาะเอกสารที่เลือก",
+  lineEmptyLabel: "ไม่ระบุสินค้า",
+  loadDetailError: "โหลดรายละเอียดเอกสารซื้อไม่สำเร็จ",
+  loadDocumentsError: "โหลดรายการเอกสารซื้อไม่สำเร็จ",
+  loadFailedBadge: "โหลดเอกสารซื้อไม่สำเร็จ",
+  loadingDocumentsLabel: "กำลังโหลดเอกสาร",
+  notFoundMessage:
+    "ไม่พบเอกสารซื้อนี้ในช่วงวันที่ที่เลือก อาจมีการรันรายงานใหม่แล้ว",
+  partyFallback: "ไม่ระบุผู้จำหน่าย",
+  partyHeader: "ผู้จำหน่าย",
+  searchLabel: "ค้นหาเอกสารซื้อจาก SML",
+  searchPlaceholder: "เลขเอกสาร, ผู้จำหน่าย, วันที่, ยอดซื้อ",
+  summaryDetailTotalLabel: "ยอดรวมสินค้า",
+  summaryPrefix: "เอกสาร",
+  title: "รายละเอียดเอกสารซื้อ/สินค้า",
+  viewButtonLabel: "ดูสินค้า",
 };
 
 export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps) {
@@ -331,6 +417,54 @@ function CustomerDashboardContent({
       product.line_count,
     )} รายการ`,
   }));
+  const [purchaseState, setPurchaseState] = useState<PurchasePanelState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadPurchaseReport() {
+      setPurchaseState({ status: "loading" });
+      try {
+        const params = new URLSearchParams({
+          date_from: snapshot.params.date_from,
+          date_to: snapshot.params.date_to,
+        });
+        const response = await fetch(
+          `${API_BASE_URL}/api/app/${encodeURIComponent(
+            session.tenant_slug,
+          )}/reports/purchase_goods_payables?${params.toString()}`,
+          { signal: controller.signal },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: PurchaseGoodsPayablesSnapshot;
+          error?: string;
+        };
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "โหลดรายงานซื้อ/ตั้งหนี้ไม่สำเร็จ");
+        }
+        setPurchaseState({ status: "ready", snapshot: payload.data });
+      } catch (error) {
+        if ((error as { name?: string }).name === "AbortError") {
+          return;
+        }
+        setPurchaseState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดรายงานซื้อ/ตั้งหนี้ไม่สำเร็จ",
+        });
+      }
+    }
+
+    void loadPurchaseReport();
+    return () => controller.abort();
+  }, [
+    session.tenant_slug,
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  ]);
 
   return (
     <CustomerShell tenant={session.tenant} title="รายงานร้านค้า">
@@ -430,9 +564,26 @@ function CustomerDashboardContent({
         snapshot={snapshot}
       />
 
+      <CustomerPurchaseSummary
+        state={purchaseState}
+        tenantSlug={session.tenant_slug}
+      />
+
+      {purchaseState.status === "ready" ? (
+        <CustomerDetailDrilldown
+          copy={purchaseDrilldownCopy}
+          params={purchaseState.snapshot.params}
+          reportPath="purchase_goods_payables"
+          summaryDocumentCount={purchaseState.snapshot.summary.document_count}
+          tenantSlug={session.tenant_slug}
+        />
+      ) : null}
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <CustomerDetailDrilldown
+          copy={salesDrilldownCopy}
           params={snapshot.params}
+          reportPath="sales_goods_services"
           snapshot={snapshot}
           tenantSlug={session.tenant_slug}
         />
@@ -614,13 +765,176 @@ function CustomerReportToolbar({
   );
 }
 
-function CustomerDetailDrilldown({
-  params,
-  snapshot,
+function CustomerPurchaseSummary({
+  state,
   tenantSlug,
 }: {
+  state: PurchasePanelState;
+  tenantSlug: string;
+}) {
+  if (state.status === "loading") {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="h-5 w-48 rounded bg-gray-100" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          {["purchase", "docs", "lines", "supplier"].map((item) => (
+            <div className="h-20 rounded-lg bg-gray-100" key={item} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <section className="rounded-xl border border-warning-200 bg-warning-50 p-4 sm:p-5">
+        <Badge color="warning">รายงานซื้อยังไม่พร้อม</Badge>
+        <p className="mt-2 text-sm leading-6 text-gray-700">{state.message}</p>
+      </section>
+    );
+  }
+
+  const snapshot = state.snapshot;
+  const topSupplier = snapshot.top_suppliers[0] ?? null;
+  const topProduct = snapshot.top_products[0] ?? null;
+  const maxProductTotal = topProduct?.sum_amount ?? 0;
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="border-b border-gray-100 px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                color={
+                  snapshot.summary.document_count > 0 ? "success" : "warning"
+                }
+              >
+                {snapshot.summary.document_count > 0
+                  ? "มีข้อมูลซื้อ"
+                  : "ยังไม่มีข้อมูลซื้อ"}
+              </Badge>
+              <Badge color="light">รายงานตัวที่ 2</Badge>
+            </div>
+            <h2 className="mt-3 text-xl font-semibold text-gray-900">
+              รายงานซื้อ/ตั้งหนี้
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500">
+              ช่วงข้อมูล {formatThaiDate(snapshot.params.date_from)} ถึง{" "}
+              {formatThaiDate(snapshot.params.date_to)} · ใช้ยอดหัวเอกสาร SML
+              เป็นยอดซื้อหลัก
+            </p>
+          </div>
+          <a
+            className="inline-flex h-9 w-fit items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            href={`/app/${tenantSlug}`}
+          >
+            อ่านอย่างเดียว
+          </a>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="px-4 py-4 sm:px-5">
+          <p className="text-xs font-medium text-gray-500">ยอดซื้อ/ตั้งหนี้</p>
+          <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+            <p className="text-3xl font-semibold tracking-normal text-gray-900 sm:text-4xl">
+              {formatCurrency(snapshot.summary.total_purchase)}
+            </p>
+            <p className="pb-1 text-lg font-semibold text-gray-700">บาท</p>
+          </div>
+          <div className="mt-4 grid overflow-hidden rounded-lg border border-gray-100 sm:grid-cols-3">
+            <Kpi
+              label="เอกสารซื้อ"
+              value={`${formatNumber(snapshot.summary.document_count)} ใบ`}
+            />
+            <Kpi
+              label="รายการสินค้า"
+              value={`${formatNumber(snapshot.summary.line_count)} รายการ`}
+            />
+            <Kpi
+              label="จำนวนซื้อรวม"
+              value={formatNumber(snapshot.summary.total_qty)}
+            />
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <MiniSummary
+              label="ผู้จำหน่ายหลัก"
+              value={topSupplier?.supplier_name ?? "ไม่มีข้อมูล"}
+              detail={
+                topSupplier
+                  ? `${formatCurrency(topSupplier.total_amount)} บาท`
+                  : "ยังไม่มีเอกสารซื้อในช่วงนี้"
+              }
+            />
+            <MiniSummary
+              label="สินค้าที่ซื้อสูงสุด"
+              value={topProduct?.item_name ?? "ไม่มีข้อมูล"}
+              detail={
+                topProduct
+                  ? `${formatCurrency(topProduct.sum_amount)} บาท`
+                  : "ยังไม่มีสินค้าในช่วงนี้"
+              }
+            />
+          </div>
+        </div>
+
+        <aside className="border-t border-gray-100 bg-gray-50 px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
+          <h3 className="text-base font-semibold text-gray-900">
+            สิ่งที่ควรดู
+          </h3>
+          <div className="mt-3 space-y-3">
+            <RankPanel
+              emptyLabel="ไม่มีข้อมูลผู้จำหน่ายในช่วงวันที่นี้"
+              items={snapshot.top_suppliers.slice(0, 5).map((supplier) => ({
+                label: supplier.supplier_name,
+                value: `${formatCurrency(supplier.total_amount)} บาท`,
+                meta: `${formatNumber(supplier.document_count)} เอกสาร`,
+                share: formatShare(
+                  supplier.total_amount,
+                  snapshot.summary.total_purchase,
+                ),
+              }))}
+              title="ผู้จำหน่ายหลัก"
+            />
+            <RankPanel
+              emptyLabel="ไม่มีข้อมูลสินค้าในช่วงวันที่นี้"
+              items={snapshot.top_products.slice(0, 5).map((product) => ({
+                label: product.item_name,
+                value: `${formatCurrency(product.sum_amount)} บาท`,
+                meta: `${formatNumber(product.qty)} หน่วย · ${formatNumber(
+                  product.line_count,
+                )} รายการ`,
+                share:
+                  maxProductTotal > 0
+                    ? formatShare(
+                        product.sum_amount,
+                        snapshot.summary.total_purchase,
+                      )
+                    : null,
+              }))}
+              title="สินค้าที่ซื้อสูงสุด"
+            />
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function CustomerDetailDrilldown({
+  copy,
+  params,
+  reportPath,
+  snapshot,
+  summaryDocumentCount,
+  tenantSlug,
+}: {
+  copy: DocumentDrilldownCopy;
   params: SalesGoodsServicesParams;
-  snapshot: SalesGoodsServicesSnapshot;
+  reportPath: ReportKey;
+  snapshot?: SalesGoodsServicesSnapshot;
+  summaryDocumentCount?: number;
   tenantSlug: string;
 }) {
   const pageSize = 10;
@@ -638,7 +952,10 @@ function CustomerDetailDrilldown({
       ? documentPageState.page
       : null;
   const documents: SalesDocumentListItem[] = documentPage?.documents ?? [];
-  const totalItems = documentPage?.pagination.total_items ?? snapshot.summary.document_count;
+  const searchInputId = `${reportPath}-document-search`;
+  const totalDocumentCount =
+    summaryDocumentCount ?? snapshot?.summary.document_count ?? 0;
+  const totalItems = documentPage?.pagination.total_items ?? totalDocumentCount;
   const activeSearch = documentPage?.pagination.search ?? (searchTerm || null);
 
   useEffect(() => {
@@ -647,7 +964,7 @@ function CustomerDetailDrilldown({
     setDraftSearch("");
     setSearchTerm("");
     setCurrentPage(1);
-  }, [params.date_from, params.date_to, snapshot.run_id]);
+  }, [params.date_from, params.date_to, reportPath, snapshot?.run_id]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -668,7 +985,7 @@ function CustomerDetailDrilldown({
         const response = await fetch(
           `${API_BASE_URL}/api/app/${encodeURIComponent(
             tenantSlug,
-          )}/reports/sales_goods_services/documents?${pageParams.toString()}`,
+          )}/reports/${reportPath}/documents?${pageParams.toString()}`,
           { signal: controller.signal },
         );
         const payload = (await response.json().catch(() => ({}))) as {
@@ -677,7 +994,7 @@ function CustomerDetailDrilldown({
         };
 
         if (!response.ok || !payload.data) {
-          throw new Error(payload.error || "โหลดรายการบิลไม่สำเร็จ");
+          throw new Error(payload.error || copy.loadDocumentsError);
         }
 
         if (
@@ -698,17 +1015,25 @@ function CustomerDetailDrilldown({
         }
         setDocumentPageState({
           status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "โหลดรายการบิลไม่สำเร็จ",
-        });
+              message:
+                error instanceof Error
+                  ? error.message
+                  : copy.loadDocumentsError,
+          });
       }
     }
 
     void loadDocumentPage();
     return () => controller.abort();
-  }, [currentPage, params.date_from, params.date_to, searchTerm, tenantSlug]);
+  }, [
+    copy.loadDocumentsError,
+    currentPage,
+    params.date_from,
+    params.date_to,
+    reportPath,
+    searchTerm,
+    tenantSlug,
+  ]);
 
   const loadDocumentDetail = useCallback(
     async (docNo: string) => {
@@ -725,7 +1050,7 @@ function CustomerDetailDrilldown({
         const response = await fetch(
           `${API_BASE_URL}/api/app/${encodeURIComponent(
             tenantSlug,
-          )}/reports/sales_goods_services/document-detail?${detailParams.toString()}`,
+          )}/reports/${reportPath}/document-detail?${detailParams.toString()}`,
         );
         const payload = (await response.json().catch(() => ({}))) as {
           data?: SalesDocumentDetail;
@@ -738,16 +1063,14 @@ function CustomerDetailDrilldown({
             [docNo]: {
               status: "empty",
               docNo,
-              message:
-                payload.error ||
-                "ไม่พบบิลนี้ในช่วงวันที่ของรายงานล่าสุด อาจมีการรันรายงานใหม่แล้ว",
+              message: payload.error || copy.notFoundMessage,
             },
           }));
           return;
         }
 
         if (!response.ok || !payload.data) {
-          throw new Error(payload.error || "โหลดรายละเอียดบิลไม่สำเร็จ");
+          throw new Error(payload.error || copy.loadDetailError);
         }
 
         const detailData = payload.data;
@@ -764,12 +1087,19 @@ function CustomerDetailDrilldown({
             message:
               error instanceof Error
                 ? error.message
-                : "โหลดรายละเอียดบิลไม่สำเร็จ",
+                : copy.loadDetailError,
           },
         }));
       }
     },
-    [params.date_from, params.date_to, tenantSlug],
+    [
+      copy.loadDetailError,
+      copy.notFoundMessage,
+      params.date_from,
+      params.date_to,
+      reportPath,
+      tenantSlug,
+    ],
   );
 
   const applySearch = useCallback(() => {
@@ -807,21 +1137,21 @@ function CustomerDetailDrilldown({
       <div className="flex flex-col gap-3 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div>
           <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
-            รายละเอียดบิล/สินค้า
+            {copy.title}
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            เลือกบิลเพื่อเปิดรายการสินค้าใต้บิลนั้น ข้อมูล detail จะโหลดจาก SML
-            เฉพาะตอนกดดู
+            {copy.description}
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
           <Badge color="light">
             {documentPageState.status === "loading"
-              ? "กำลังโหลดบิล"
-              : `${formatNumber(totalItems)} บิล${activeSearch ? "ที่ค้นพบ" : ""}`}
+              ? copy.loadingDocumentsLabel
+              : `${formatNumber(totalItems)} ${copy.documentNoun}${activeSearch ? "ที่ค้นพบ" : ""}`}
           </Badge>
           <p className="text-xs text-gray-500">
-            รายงานนี้มีทั้งหมด {formatNumber(snapshot.summary.document_count)} บิล
+            รายงานนี้มีทั้งหมด {formatNumber(totalDocumentCount)}{" "}
+            {copy.documentNoun}
           </p>
         </div>
       </div>
@@ -835,13 +1165,13 @@ function CustomerDetailDrilldown({
           }}
         >
           <div className="max-w-xl">
-            <Label htmlFor="sales-document-search" className="mb-2">
-              ค้นหาบิลจาก SML
+            <Label htmlFor={searchInputId} className="mb-2">
+              {copy.searchLabel}
             </Label>
             <Input
-              id="sales-document-search"
+              id={searchInputId}
               onChange={(event) => setDraftSearch(event.target.value)}
-              placeholder="เลขบิล, ลูกค้า, วันที่, ยอดขาย"
+              placeholder={copy.searchPlaceholder}
               type="text"
               value={draftSearch}
             />
@@ -876,7 +1206,7 @@ function CustomerDetailDrilldown({
           <DocumentTableLoading />
         ) : documentPageState.status === "error" ? (
           <div className="px-5 py-8 text-center">
-            <Badge color="error">โหลดบิลไม่สำเร็จ</Badge>
+            <Badge color="error">{copy.loadFailedBadge}</Badge>
             <p className="mt-3 text-sm leading-6 text-gray-600">
               {documentPageState.message}
             </p>
@@ -903,7 +1233,8 @@ function CustomerDetailDrilldown({
                     }
                     key={`${document.doc_date}-${document.doc_no}`}
                   >
-                    <DocumentMobileCard
+                      <DocumentMobileCard
+                      copy={copy}
                       document={document}
                       isExpanded={isExpanded}
                       lineCount={cachedLineCount}
@@ -912,7 +1243,7 @@ function CustomerDetailDrilldown({
                     />
                     {isExpanded ? (
                       <div className="mt-3">
-                        <DocumentDetailResult state={detailState} />
+                        <DocumentDetailResult copy={copy} state={detailState} />
                       </div>
                     ) : null}
                   </div>
@@ -928,13 +1259,13 @@ function CustomerDetailDrilldown({
                         className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
                         isHeader
                       >
-                        บิลขาย
+	                        {copy.documentHeader}
                       </TableCell>
                       <TableCell
                         className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
                         isHeader
                       >
-                        ลูกค้า
+	                        {copy.partyHeader}
                       </TableCell>
                       <TableCell
                         className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
@@ -946,7 +1277,7 @@ function CustomerDetailDrilldown({
                         className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
                         isHeader
                       >
-                        ยอดขายบิลนี้
+	                        {copy.amountHeader}
                       </TableCell>
                       <TableCell
                         className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
@@ -1032,19 +1363,19 @@ function CustomerDetailDrilldown({
                               onClick={() => toggleDocument(document.doc_no)}
                               type="button"
                             >
-                              {detailState.status === "loading" &&
-                              detailState.docNo === document.doc_no
-                                ? "กำลังโหลด"
-                                : isExpanded
-                                  ? "ซ่อน"
-                                  : "ดูรายการ"}
+	                            {detailState.status === "loading" &&
+	                              detailState.docNo === document.doc_no
+	                                ? "กำลังโหลด"
+	                                : isExpanded
+	                                  ? "ซ่อน"
+	                                  : copy.viewButtonLabel}
                             </button>
                           </TableCell>
                         </TableRow>
                         {isExpanded ? (
                           <TableRow className="bg-gray-50/80 dark:bg-white/[0.02]">
                             <TableCell className="px-5 py-4" colSpan={6}>
-                              <DocumentDetailResult state={detailState} />
+	                              <DocumentDetailResult copy={copy} state={detailState} />
                             </TableCell>
                           </TableRow>
                         ) : null}
@@ -1058,8 +1389,8 @@ function CustomerDetailDrilldown({
         ) : (
           <div className="px-5 py-8 text-center text-sm text-gray-500">
             {searchTerm
-              ? "ไม่พบบิลที่ตรงกับคำค้นหาในช่วงวันที่นี้"
-              : "ไม่มีบิลขายในช่วงวันที่นี้"}
+              ? copy.emptySearchLabel
+              : copy.emptyListLabel}
           </div>
         )}
       </div>
@@ -1070,7 +1401,7 @@ function CustomerDetailDrilldown({
             หน้า {formatNumber(documentPage.pagination.page)} จาก{" "}
             {formatNumber(documentPage.pagination.total_pages)} · แสดง{" "}
             {formatNumber(documents.length)} จาก{" "}
-            {formatNumber(documentPage.pagination.total_items)} บิล
+            {formatNumber(documentPage.pagination.total_items)} {copy.documentNoun}
           </p>
           <div className="max-w-full overflow-x-auto pb-1">
             <Pagination
@@ -1085,8 +1416,7 @@ function CustomerDetailDrilldown({
       ) : null}
 
       <p className="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-gray-500 dark:border-gray-800">
-        ตารางบิลใช้ server-side pagination/search จาก SML ตามช่วงวันที่ที่เลือก
-        ส่วนรายการสินค้าในบิลดึงแบบ read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
+        {copy.footnote}
       </p>
     </section>
   );
@@ -1104,6 +1434,11 @@ type DocumentDetailState =
   | { status: "ready"; data: SalesDocumentDetail }
   | { status: "empty"; docNo: string; message: string }
   | { status: "error"; docNo: string; message: string };
+
+type PurchasePanelState =
+  | { status: "loading" }
+  | { status: "ready"; snapshot: PurchaseGoodsPayablesSnapshot }
+  | { status: "error"; message: string };
 
 function DocumentTableLoading() {
   return (
@@ -1157,12 +1492,14 @@ function DocumentTableLoading() {
 }
 
 function DocumentMobileCard({
+  copy,
   document,
   isExpanded,
   lineCount,
   onToggle,
   state,
 }: {
+  copy: DocumentDrilldownCopy;
   document: SalesDocumentListItem;
   isExpanded: boolean;
   lineCount: number;
@@ -1190,13 +1527,13 @@ function DocumentMobileCard({
           </p>
         </div>
         <Badge color={isExpanded ? "primary" : "light"} size="sm">
-          {isLoading ? "กำลังโหลด" : isExpanded ? "เปิดอยู่" : "ดูสินค้า"}
+          {isLoading ? "กำลังโหลด" : isExpanded ? "เปิดอยู่" : copy.viewButtonLabel}
         </Badge>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
-          <p className="text-xs text-gray-500">ยอดขายบิลนี้</p>
+          <p className="text-xs text-gray-500">{copy.amountHeader}</p>
           <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
             {formatCurrency(document.total_amount)} บาท
           </p>
@@ -1211,7 +1548,8 @@ function DocumentMobileCard({
 
       <div className="mt-3 space-y-1 text-sm text-gray-600 dark:text-gray-400">
         <p className="truncate">
-          ลูกค้า: {document.cust_name || document.cust_code || "ไม่ระบุลูกค้า"}
+          {copy.partyHeader}:{" "}
+          {document.cust_name || document.cust_code || copy.partyFallback}
         </p>
         <p>
           สาขา: {formatDocumentBranchDisplay(document)}{" "}
@@ -1222,11 +1560,17 @@ function DocumentMobileCard({
   );
 }
 
-function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
+function DocumentDetailResult({
+  copy,
+  state,
+}: {
+  copy: DocumentDrilldownCopy;
+  state: DocumentDetailState;
+}) {
   if (state.status === "idle") {
     return (
       <p className="rounded-lg border border-gray-100 bg-white p-3 text-sm leading-6 text-gray-500">
-        ระบบพร้อมโหลดรายการสินค้า/บริการจาก SML เมื่อเปิดบิลนี้
+        {copy.detailReadyText}
       </p>
     );
   }
@@ -1251,7 +1595,7 @@ function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
     return (
       <div className="rounded-lg border border-warning-100 bg-warning-50 p-3">
         <p className="text-sm font-semibold text-gray-900">
-          เปิดรายละเอียดบิล {state.docNo} ไม่สำเร็จ
+          เปิดรายละเอียด {state.docNo} ไม่สำเร็จ
         </p>
         <p className="mt-1 text-xs leading-5 text-gray-600">
           {state.message}
@@ -1264,19 +1608,20 @@ function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <DocumentSummaryCard document={document} lines={lines} />
+      <DocumentSummaryCard copy={copy} document={document} lines={lines} />
       {lines.length ? (
         <div className="grid gap-3 p-3 lg:grid-cols-2">
           {lines.map((line, index) => (
             <DocumentLineCard
               key={`${line.doc_no}-${line.line_number ?? index}-${line.item_code ?? "item-card"}`}
+              emptyLabel={copy.lineEmptyLabel}
               line={line}
             />
           ))}
         </div>
       ) : (
         <p className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-500">
-          บิลนี้ไม่มีรายการสินค้าในช่วงข้อมูลล่าสุด
+          {copy.emptyDetailLabel}
         </p>
       )}
     </div>
@@ -1284,9 +1629,11 @@ function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
 }
 
 function DocumentSummaryCard({
+  copy,
   document,
   lines,
 }: {
+  copy: DocumentDrilldownCopy;
   document: SalesHeaderRow;
   lines: SalesDetailRow[];
 }) {
@@ -1297,11 +1644,11 @@ function DocumentSummaryCard({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">
-            บิล {document.doc_no}
+            {copy.summaryPrefix} {document.doc_no}
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-500">
             {formatThaiDate(document.doc_date)} ·{" "}
-            {document.cust_name || document.cust_code || "ไม่ระบุลูกค้า"}
+            {document.cust_name || document.cust_code || copy.partyFallback}
           </p>
         </div>
         <div className="text-left sm:text-right">
@@ -1309,7 +1656,7 @@ function DocumentSummaryCard({
             {formatCurrency(document.total_amount)} บาท
           </p>
           <p className="text-xs text-gray-500">
-            {formatNumber(lines.length)} รายการ · รายละเอียดยอด{" "}
+            {formatNumber(lines.length)} รายการ · {copy.summaryDetailTotalLabel}{" "}
             {formatCurrency(detailTotal)} บาท
           </p>
         </div>
@@ -1318,7 +1665,13 @@ function DocumentSummaryCard({
   );
 }
 
-function DocumentLineCard({ line }: { line: SalesDetailRow }) {
+function DocumentLineCard({
+  emptyLabel,
+  line,
+}: {
+  emptyLabel: string;
+  line: SalesDetailRow;
+}) {
   const unitLabel = line.unit_name || line.unit_code || "-";
   const discountLabel =
     line.discount || line.discount_amount
@@ -1332,7 +1685,7 @@ function DocumentLineCard({ line }: { line: SalesDetailRow }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold leading-6 text-gray-900 dark:text-white">
-            {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
+            {line.item_name || line.item_code || emptyLabel}
           </p>
           <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
             {line.item_code || "-"} · {formatBranchLabel(line.branch_code)}

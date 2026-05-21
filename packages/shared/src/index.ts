@@ -9,7 +9,10 @@ export const tenantIdSchema = z
     "tenant_id must use lowercase letters, numbers, underscores, or hyphens",
   );
 
-export const reportKeySchema = z.literal("sales_goods_services");
+export const reportKeySchema = z.enum([
+  "sales_goods_services",
+  "purchase_goods_payables",
+]);
 
 export const tenantStatusSchema = z.enum([
   "trial",
@@ -58,6 +61,7 @@ export type UserRole = z.infer<typeof userRoleSchema>;
 export type SalesGoodsServicesParams = z.infer<
   typeof salesGoodsServicesParamsSchema
 >;
+export type ReportParams = SalesGoodsServicesParams;
 export type DataQualityStatus = z.infer<typeof dataQualityStatusSchema>;
 
 export type Tenant = {
@@ -219,6 +223,13 @@ export type TopProduct = {
   line_count: number;
 };
 
+export type TopSupplier = {
+  supplier_code: string;
+  supplier_name: string;
+  total_amount: number;
+  document_count: number;
+};
+
 export type ReconciliationSummary = {
   header_total_amount: number;
   detail_sum_amount: number;
@@ -240,7 +251,7 @@ export type SalesComparisonPoint = {
 
 export type SalesGoodsServicesSnapshot = {
   tenant_id: TenantId;
-  report_key: ReportKey;
+  report_key: "sales_goods_services";
   run_id: string;
   params: SalesGoodsServicesParams;
   generated_at: string;
@@ -268,6 +279,39 @@ export type SalesGoodsServicesSnapshot = {
     body: string[];
   };
 };
+
+export type PurchaseGoodsPayablesSnapshot = {
+  tenant_id: TenantId;
+  report_key: "purchase_goods_payables";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  summary: {
+    total_purchase: number;
+    document_count: number;
+    line_count: number;
+    total_qty: number;
+    top_supplier_name: string | null;
+    top_product_name: string | null;
+  };
+  financial_breakdown?: SalesFinancialBreakdown;
+  top_suppliers: TopSupplier[];
+  branch_purchases: BranchSales[];
+  top_products: TopProduct[];
+  documents: SalesHeaderRow[];
+  lines: SalesDetailRow[];
+  reconciliation: ReconciliationSummary;
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
+export type ReportSnapshot =
+  | SalesGoodsServicesSnapshot
+  | PurchaseGoodsPayablesSnapshot;
 
 export function getSmlBranchMeaning(
   branchCode: string | null | undefined,
@@ -418,6 +462,25 @@ export type SalesGoodsServicesLinePreview = {
   dashboard_url: string | null;
 };
 
+export type PurchaseGoodsPayablesLinePreview = {
+  tenant_id: TenantId;
+  report_key: "purchase_goods_payables";
+  run_id: string;
+  generated_at: string;
+  source: PurchaseGoodsPayablesSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
+export type ReportLinePreview =
+  | SalesGoodsServicesLinePreview
+  | PurchaseGoodsPayablesLinePreview;
+
 export type LineDeliveryStatus =
   | "dry_run"
   | "success"
@@ -535,7 +598,7 @@ export type ReportRunRecord = {
   id: string;
   tenant_id: TenantId;
   report_key: ReportKey;
-  params: SalesGoodsServicesParams;
+  params: ReportParams;
   status: ReportRunStatus;
   started_at: string;
   finished_at: string | null;
