@@ -98,8 +98,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
     - insight `วันนี้ควรรู้อะไร` อยู่คู่กับยอดขายหลัก ไม่แยกเป็น card dump
     - comparison และ data trust ใช้ภาษาธุรกิจ ไม่ใช้ wording แบบ debug
     - เลือกช่วงรายงานเองได้จาก customer viewer ด้วย date filter/quick range โดยจำกัดไม่เกิน 31 วันต่อครั้งใน pilot
-    - ตารางบิลมี server-side search และ pagination เพื่อค้นหาเลขบิล, ลูกค้า, วันที่ หรือยอดขาย โดยยังเป็น read-only
+    - รายการบิลมี server-side search และ pagination เพื่อค้นหาเลขบิล, ลูกค้า, วันที่ หรือยอดขาย โดยยังเป็น read-only
+    - รายการบิลเป็น responsive UX: desktop แสดงเป็น TailAdmin-style table ส่วน mobile แสดงเป็น bill cards ที่แตะง่ายกว่าและไม่เกิด horizontal overflow
     - มี drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ใน tenant scope เดิม
+    - รายการสินค้าในบิลแสดงเป็น item cards ทุก viewport พร้อมยอดขาย, จำนวน, ราคา, ส่วนลด และ barcode แทนตารางแนวนอน
     - ตารางบิลใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/documents`
     - รายการ detail ใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/document-detail`
     - รายละเอียด source/run id อยู่ใน collapsed section

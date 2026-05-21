@@ -824,7 +824,7 @@ function CustomerDetailDrilldown({
             applySearch();
           }}
         >
-          <div className="max-w-md">
+          <div className="max-w-xl">
             <Label htmlFor="sales-document-search" className="mb-2">
               ค้นหาบิลจาก SML
             </Label>
@@ -836,13 +836,13 @@ function CustomerDetailDrilldown({
               value={draftSearch}
             />
           </div>
-          <div className="flex items-end gap-2">
-            <Button className="h-11" size="sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <Button className="h-11 w-full sm:w-auto" size="sm">
               ค้นหา
             </Button>
             {draftSearch || searchTerm ? (
               <button
-                className="inline-flex h-11 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50"
+                className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 sm:w-auto"
                 onClick={clearSearch}
                 type="button"
               >
@@ -851,6 +851,14 @@ function CustomerDetailDrilldown({
             ) : null}
           </div>
         </form>
+        {activeSearch ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <span>กำลังค้นหา:</span>
+            <span className="inline-flex max-w-full items-center rounded-full bg-brand-50 px-3 py-1 font-medium text-brand-700">
+              {activeSearch}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="border-t border-gray-100 dark:border-gray-800">
@@ -864,62 +872,99 @@ function CustomerDetailDrilldown({
             </p>
           </div>
         ) : documents.length ? (
-          <div className="max-w-full overflow-x-auto">
-            <div className="min-w-[1080px]">
-              <Table>
-                <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
-                  <TableRow>
-                    <TableCell
-                      className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
-                      isHeader
-                    >
-                      บิลขาย
-                    </TableCell>
-                    <TableCell
-                      className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
-                      isHeader
-                    >
-                      ลูกค้า
-                    </TableCell>
-                    <TableCell
-                      className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
-                      isHeader
-                    >
-                      สาขา
-                    </TableCell>
-                    <TableCell
-                      className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
-                      isHeader
-                    >
-                      ยอดขายบิลนี้
-                    </TableCell>
-                    <TableCell
-                      className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
-                      isHeader
-                    >
-                      รายการ
-                    </TableCell>
-                    <TableCell
-                      className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
-                      isHeader
-                    >
-                      เปิดดู
-                    </TableCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
-                  {documents.map((document) => {
-                    const isExpanded = expandedDocNo === document.doc_no;
-                    const detailState = detailsByDoc[document.doc_no] ?? {
-                      status: "idle" as const,
-                    };
-                    const cachedLineCount =
-                      detailState.status === "ready"
-                        ? detailState.data.lines.length
-                        : document.detail_line_count;
+          <>
+            <div className="divide-y divide-gray-100 md:hidden">
+              {documents.map((document) => {
+                const isExpanded = expandedDocNo === document.doc_no;
+                const detailState = detailsByDoc[document.doc_no] ?? {
+                  status: "idle" as const,
+                };
+                const cachedLineCount =
+                  detailState.status === "ready"
+                    ? detailState.data.lines.length
+                    : document.detail_line_count;
 
-                    return (
-                      <Fragment key={`${document.doc_date}-${document.doc_no}`}>
+                return (
+                  <div
+                    className={
+                      isExpanded
+                        ? "bg-brand-50/30 px-4 py-3"
+                        : "bg-white px-4 py-3 dark:bg-transparent"
+                    }
+                    key={`${document.doc_date}-${document.doc_no}`}
+                  >
+                    <DocumentMobileCard
+                      document={document}
+                      isExpanded={isExpanded}
+                      lineCount={cachedLineCount}
+                      onToggle={() => toggleDocument(document.doc_no)}
+                      state={detailState}
+                    />
+                    {isExpanded ? (
+                      <div className="mt-3">
+                        <DocumentDetailResult state={detailState} />
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden md:block">
+                <Table>
+                  <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
+                    <TableRow>
+                      <TableCell
+                        className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        isHeader
+                      >
+                        บิลขาย
+                      </TableCell>
+                      <TableCell
+                        className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        isHeader
+                      >
+                        ลูกค้า
+                      </TableCell>
+                      <TableCell
+                        className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        isHeader
+                      >
+                        สาขา
+                      </TableCell>
+                      <TableCell
+                        className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        isHeader
+                      >
+                        ยอดขายบิลนี้
+                      </TableCell>
+                      <TableCell
+                        className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        isHeader
+                      >
+                        รายการ
+                      </TableCell>
+                      <TableCell
+                        className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                        isHeader
+                      >
+                        เปิดดู
+                      </TableCell>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
+                    {documents.map((document) => {
+                      const isExpanded = expandedDocNo === document.doc_no;
+                      const detailState = detailsByDoc[document.doc_no] ?? {
+                        status: "idle" as const,
+                      };
+                      const cachedLineCount =
+                        detailState.status === "ready"
+                          ? detailState.data.lines.length
+                          : document.detail_line_count;
+
+                      return (
+                        <Fragment key={`${document.doc_date}-${document.doc_no}`}>
                         <TableRow
                           className={
                             isExpanded
@@ -999,7 +1044,7 @@ function CustomerDetailDrilldown({
                 </TableBody>
               </Table>
             </div>
-          </div>
+          </>
         ) : (
           <div className="px-5 py-8 text-center text-sm text-gray-500">
             {searchTerm
@@ -1017,13 +1062,15 @@ function CustomerDetailDrilldown({
             {formatNumber(documents.length)} จาก{" "}
             {formatNumber(documentPage.pagination.total_items)} บิล
           </p>
-          <Pagination
-            currentPage={documentPage.pagination.page}
-            nextLabel="ถัดไป"
-            onPageChange={setCurrentPage}
-            previousLabel="ก่อนหน้า"
-            totalPages={documentPage.pagination.total_pages}
-          />
+          <div className="max-w-full overflow-x-auto pb-1">
+            <Pagination
+              currentPage={documentPage.pagination.page}
+              nextLabel="ถัดไป"
+              onPageChange={setCurrentPage}
+              previousLabel="ก่อนหน้า"
+              totalPages={documentPage.pagination.total_pages}
+            />
+          </div>
         </div>
       ) : null}
 
@@ -1050,8 +1097,23 @@ type DocumentDetailState =
 
 function DocumentTableLoading() {
   return (
-    <div className="max-w-full overflow-x-auto">
-      <div className="min-w-[1080px]">
+    <div>
+      <div className="space-y-3 px-4 py-4 md:hidden">
+        {["card-1", "card-2", "card-3"].map((row) => (
+          <div
+            className="rounded-xl border border-gray-100 bg-white p-4"
+            key={row}
+          >
+            <div className="h-4 w-32 rounded bg-gray-100" />
+            <div className="mt-3 h-3 w-48 rounded bg-gray-100" />
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="h-12 rounded-lg bg-gray-100" />
+              <div className="h-12 rounded-lg bg-gray-100" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="hidden md:block">
         <Table>
           <TableBody>
             {["row-1", "row-2", "row-3", "row-4"].map((row) => (
@@ -1081,6 +1143,72 @@ function DocumentTableLoading() {
         </Table>
       </div>
     </div>
+  );
+}
+
+function DocumentMobileCard({
+  document,
+  isExpanded,
+  lineCount,
+  onToggle,
+  state,
+}: {
+  document: SalesDocumentListItem;
+  isExpanded: boolean;
+  lineCount: number;
+  onToggle: () => void;
+  state: DocumentDetailState;
+}) {
+  const isLoading =
+    state.status === "loading" && state.docNo === document.doc_no;
+
+  return (
+    <button
+      aria-expanded={isExpanded}
+      className="block w-full rounded-xl border border-gray-200 bg-white p-4 text-left shadow-theme-xs transition hover:border-brand-200 hover:bg-brand-50/20 dark:border-gray-800 dark:bg-white/[0.03]"
+      onClick={onToggle}
+      type="button"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold text-gray-900 dark:text-white">
+            {document.doc_no}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            {formatThaiDate(document.doc_date)}
+            {document.doc_time ? ` · ${document.doc_time}` : ""}
+          </p>
+        </div>
+        <Badge color={isExpanded ? "primary" : "light"} size="sm">
+          {isLoading ? "กำลังโหลด" : isExpanded ? "เปิดอยู่" : "ดูสินค้า"}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+          <p className="text-xs text-gray-500">ยอดขายบิลนี้</p>
+          <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+            {formatCurrency(document.total_amount)} บาท
+          </p>
+        </div>
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+          <p className="text-xs text-gray-500">จำนวนรายการ</p>
+          <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+            {formatNumber(lineCount)} รายการ
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1 text-sm text-gray-600 dark:text-gray-400">
+        <p className="truncate">
+          ลูกค้า: {document.cust_name || document.cust_code || "ไม่ระบุลูกค้า"}
+        </p>
+        <p>
+          สาขา: {formatBranchLabel(document.resolved_branch_code)}{" "}
+          <span className="text-xs text-gray-400">(รหัสจาก SML)</span>
+        </p>
+      </div>
+    </button>
   );
 }
 
@@ -1128,42 +1256,13 @@ function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <DocumentSummaryCard document={document} lines={lines} />
       {lines.length ? (
-        <div className="max-w-full overflow-x-auto">
-          <div className="min-w-[820px]">
-            <Table>
-              <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
-                <TableRow>
-                  {[
-                    "สินค้า/บริการ",
-                    "Barcode",
-                    "หน่วย",
-                    "จำนวน",
-                    "ราคา",
-                    "ส่วนลด",
-                    "ยอดขาย",
-                  ].map((label, index) => (
-                    <TableCell
-                      className={`px-4 py-3 text-theme-xs font-medium text-gray-500 dark:text-gray-400 ${
-                        index >= 3 ? "text-right" : "text-start"
-                      }`}
-                      isHeader
-                      key={label}
-                    >
-                      {label}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
-                {lines.map((line, index) => (
-                  <DocumentLineRow
-                    key={`${line.doc_no}-${line.line_number ?? index}-${line.item_code ?? "item"}`}
-                    line={line}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+        <div className="grid gap-3 p-3 lg:grid-cols-2">
+          {lines.map((line, index) => (
+            <DocumentLineCard
+              key={`${line.doc_no}-${line.line_number ?? index}-${line.item_code ?? "item-card"}`}
+              line={line}
+            />
+          ))}
         </div>
       ) : (
         <p className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-500">
@@ -1209,42 +1308,58 @@ function DocumentSummaryCard({
   );
 }
 
-function DocumentLineRow({ line }: { line: SalesDetailRow }) {
+function DocumentLineCard({ line }: { line: SalesDetailRow }) {
   const unitLabel = line.unit_name || line.unit_code || "-";
+  const discountLabel =
+    line.discount || line.discount_amount
+      ? `${line.discount || ""}${line.discount ? " · " : ""}${formatCurrency(
+          line.discount_amount,
+        )}`
+      : "-";
 
   return (
-    <TableRow>
-      <TableCell className="max-w-[320px] px-4 py-3 text-start">
-        <p className="truncate font-medium text-gray-800 dark:text-white/90">
-          {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
+    <div className="rounded-xl border border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold leading-6 text-gray-900 dark:text-white">
+            {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            {line.item_code || "-"} · {formatBranchLabel(line.branch_code)}
+          </p>
+        </div>
+        <p className="shrink-0 text-right text-sm font-semibold text-gray-900 dark:text-white">
+          {formatCurrency(line.sum_amount)} บาท
         </p>
-        <p className="mt-0.5 text-theme-xs text-gray-500 dark:text-gray-400">
-          {line.item_code || "-"} · {formatBranchLabel(line.branch_code)}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-gray-500">
+        <p>
+          จำนวน:{" "}
+          <span className="font-medium text-gray-800 dark:text-gray-200">
+            {formatNumber(line.qty)} {unitLabel}
+          </span>
         </p>
-      </TableCell>
-      <TableCell className="px-4 py-3 text-theme-sm text-gray-500 dark:text-gray-400">
-        {line.barcode || "-"}
-      </TableCell>
-      <TableCell className="px-4 py-3 text-theme-sm text-gray-500 dark:text-gray-400">
-        {unitLabel}
-      </TableCell>
-      <TableCell className="px-4 py-3 text-right text-theme-sm text-gray-500 dark:text-gray-400">
-        {formatNumber(line.qty)}
-      </TableCell>
-      <TableCell className="px-4 py-3 text-right text-theme-sm text-gray-500 dark:text-gray-400">
-        {formatCurrency(line.price)}
-      </TableCell>
-      <TableCell className="px-4 py-3 text-right text-theme-sm text-gray-500 dark:text-gray-400">
-        {line.discount || line.discount_amount
-          ? `${line.discount || ""}${line.discount ? " · " : ""}${formatCurrency(
-              line.discount_amount,
-            )}`
-          : "-"}
-      </TableCell>
-      <TableCell className="px-4 py-3 text-right text-theme-sm font-medium text-gray-800 dark:text-white/90">
-        {formatCurrency(line.sum_amount)} บาท
-      </TableCell>
-    </TableRow>
+        <p>
+          ราคา:{" "}
+          <span className="font-medium text-gray-800 dark:text-gray-200">
+            {formatCurrency(line.price)}
+          </span>
+        </p>
+        <p className="col-span-2">
+          ส่วนลด:{" "}
+          <span className="font-medium text-gray-800 dark:text-gray-200">
+            {discountLabel}
+          </span>
+        </p>
+        <p className="col-span-2 truncate">
+          Barcode:{" "}
+          <span className="font-medium text-gray-800 dark:text-gray-200">
+            {line.barcode || "-"}
+          </span>
+        </p>
+      </div>
+    </div>
   );
 }
 

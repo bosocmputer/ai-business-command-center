@@ -176,6 +176,7 @@ Rules:
 - document detail bind `doc_no` เป็น `$3` ห้าม concat เข้า SQL
 - document detail คืน header + detail lines เฉพาะบิลนั้น
 - ไม่ store detail ทุกแถวของช่วงใหญ่ลง snapshot เพื่อกัน payload ใหญ่เกินจำเป็น
+- Customer dashboard ต้องแสดง document page แบบ responsive: desktop ใช้ table สำหรับรายการบิล, mobile ใช้ bill cards และรายการสินค้าในบิลใช้ item cards ทุก viewport เพื่อให้ผู้บริหารเปิดดูได้โดยไม่ต้อง scroll แนวนอน
 - LINE brief viewer ต้องแสดง drilldown แบบ mobile-first: สินค้าในบิลมาก่อนข้อมูลภาษี/ส่วนลด, ซ่อน system cashier value เช่น `SUPERADMIN`, และใช้คำธุรกิจ เช่น `ยอดขายบิลนี้`, `จำนวนรวม`, `ยอดรวมสินค้า`
 
 ## Snapshot Shape
