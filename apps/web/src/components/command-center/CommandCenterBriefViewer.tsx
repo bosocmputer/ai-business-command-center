@@ -284,6 +284,7 @@ function PremiumReportViewer({
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [detailedPrintState, setDetailedPrintState] =
     useState<DetailedPrintState>({ status: "idle" });
+  const [showDetailedPrintView, setShowDetailedPrintView] = useState(false);
 
   const copy = reportCopy[snapshot.report_key];
   const totalAmount = getSnapshotTotal(snapshot);
@@ -300,6 +301,7 @@ function PremiumReportViewer({
 
   useEffect(() => {
     setDetailedPrintState({ status: "idle" });
+    setShowDetailedPrintView(false);
   }, [
     snapshot.params.date_from,
     snapshot.params.date_to,
@@ -486,10 +488,11 @@ function PremiumReportViewer({
       detailedPrintState.dateFrom === snapshot.params.date_from &&
       detailedPrintState.dateTo === snapshot.params.date_to
     ) {
-      window.print();
+      setShowDetailedPrintView(true);
       return;
     }
 
+    setShowDetailedPrintView(false);
     setDetailedPrintState({
       status: "loading",
       phase: "documents",
@@ -601,7 +604,7 @@ function PremiumReportViewer({
         documents: detailedDocuments,
       };
       setDetailedPrintState(readyState);
-      window.setTimeout(() => window.print(), 350);
+      setShowDetailedPrintView(true);
     } catch (error) {
       setDetailedPrintState({
         status: "error",
@@ -625,12 +628,13 @@ function PremiumReportViewer({
   const documents = documentPage?.documents ?? [];
   const totalPages = documentPage?.pagination.total_pages ?? 1;
   const isDetailedPrintReady = detailedPrintState.status === "ready";
+  const showDetailedPrintScreen = isDetailedPrintReady && showDetailedPrintView;
 
   return (
     <main
       className={`min-h-screen bg-[#F6F7F9] text-[#101828] ${
         isDetailedPrintReady ? "detailed-print-ready" : ""
-      }`}
+      } ${showDetailedPrintScreen ? "detailed-print-screen-mode" : ""}`}
     >
       <DetailedPrintStyles />
       <div className="screen-report-viewer">
@@ -675,7 +679,7 @@ function PremiumReportViewer({
                 type="button"
               >
                 {detailedPrintState.status === "ready"
-                  ? "พิมพ์/PDF อีกครั้ง"
+                  ? "เปิดรายงานละเอียด"
                   : detailedPrintState.status === "loading"
                     ? "กำลังเตรียม PDF"
                     : "พิมพ์/PDF แบบละเอียด"}
@@ -710,7 +714,7 @@ function PremiumReportViewer({
           </div>
           <DetailedPrintNotice
             state={detailedPrintState}
-            onPrintAgain={() => window.print()}
+            onOpenDetailed={() => setShowDetailedPrintView(true)}
           />
         </div>
       </div>
@@ -889,6 +893,8 @@ function PremiumReportViewer({
       </div>
       <DetailedPrintReport
         copy={copy}
+        onBack={() => setShowDetailedPrintView(false)}
+        onPrint={() => window.print()}
         printState={detailedPrintState}
         snapshot={snapshot}
       />
@@ -1357,10 +1363,10 @@ function LineItem({ index, line }: { index: number; line: SalesDetailRow }) {
 
 function DetailedPrintNotice({
   state,
-  onPrintAgain,
+  onOpenDetailed,
 }: {
   state: DetailedPrintState;
-  onPrintAgain: () => void;
+  onOpenDetailed: () => void;
 }) {
   if (state.status === "idle") {
     return null;
@@ -1385,10 +1391,10 @@ function DetailedPrintNotice({
         </span>
         <button
           className="h-9 rounded-lg bg-[#027A48] px-4 text-[14px] font-semibold leading-[22px] text-white"
-          onClick={onPrintAgain}
+          onClick={onOpenDetailed}
           type="button"
         >
-          เปิดหน้าพิมพ์อีกครั้ง
+          เปิดรายงานละเอียด
         </button>
       </div>
     );
@@ -1428,10 +1434,14 @@ function DetailedPrintNotice({
 
 function DetailedPrintReport({
   copy,
+  onBack,
+  onPrint,
   printState,
   snapshot,
 }: {
   copy: ReportCopy;
+  onBack: () => void;
+  onPrint: () => void;
   printState: DetailedPrintState;
   snapshot: ReportSnapshot;
 }) {
@@ -1447,6 +1457,33 @@ function DetailedPrintReport({
 
   return (
     <section className="detailed-print-report bg-white text-[#101828]">
+      <div className="print-screen-toolbar">
+        <div>
+          <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+            รายงานละเอียดสำหรับพิมพ์/PDF
+          </p>
+          <p className="mt-1 text-[14px] leading-[22px] text-[#475467]">
+            ถ้าใช้ LINE browser แล้วปุ่มพิมพ์ไม่เปิด ให้เปิดลิงก์นี้ใน Safari/Chrome
+            แล้วบันทึกเป็น PDF จากเมนูพิมพ์ของเครื่อง
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="h-10 rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054]"
+            onClick={onBack}
+            type="button"
+          >
+            กลับหน้าสรุป
+          </button>
+          <button
+            className="h-10 rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white"
+            onClick={onPrint}
+            type="button"
+          >
+            พิมพ์/บันทึก PDF
+          </button>
+        </div>
+      </div>
       <div className="print-page">
         <header className="print-report-header">
           <div>
@@ -1624,6 +1661,42 @@ function DetailedPrintStyles() {
         .detailed-print-report {
           display: none;
         }
+
+        .detailed-print-screen-mode .screen-report-viewer {
+          display: none;
+        }
+
+        .detailed-print-screen-mode .detailed-print-report {
+          display: block;
+          min-height: 100vh;
+          overflow-x: auto;
+          padding: 16px;
+        }
+
+        .detailed-print-screen-mode .print-screen-toolbar {
+          align-items: flex-start;
+          background: #ffffff;
+          border: 1px solid #e4e7ec;
+          border-radius: 12px;
+          box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+          display: flex;
+          gap: 16px;
+          justify-content: space-between;
+          margin: 0 auto 12px;
+          max-width: 1280px;
+          padding: 14px 16px;
+        }
+
+        .detailed-print-screen-mode .print-page {
+          background: #ffffff;
+          border: 1px solid #e4e7ec;
+          border-radius: 12px;
+          box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+          margin: 0 auto;
+          max-width: 1280px;
+          min-width: 1100px;
+          padding: 18px;
+        }
       }
 
       @media print {
@@ -1651,6 +1724,10 @@ function DetailedPrintStyles() {
           font-family: Arial, "Noto Sans Thai", "Tahoma", sans-serif;
           font-size: 9px;
           line-height: 1.35;
+        }
+
+        .print-screen-toolbar {
+          display: none !important;
         }
 
         .print-page {
@@ -1834,9 +1911,9 @@ function PremiumKpi({
         {label}
       </p>
       <p
-        className={`mt-2 truncate font-semibold tracking-normal text-[#101828] ${
+        className={`mt-2 break-words font-semibold tracking-normal text-[#101828] ${
           emphasis
-            ? "text-[28px] leading-9 sm:text-[32px] sm:leading-10"
+            ? "text-[clamp(22px,6vw,32px)] leading-[1.15]"
             : "text-[18px] leading-7"
         }`}
         title={value}
