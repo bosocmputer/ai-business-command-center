@@ -37,6 +37,12 @@ sequenceDiagram
     LINE->>Brief: user opens signed link
     Brief->>API: read snapshot by tenant/run/token
     API-->>Brief: report snapshot JSON
+    Brief->>API: prepare PDF export with same signed token
+    API->>SML: preflight counts + fetch PDF rows when needed
+    API->>API: render/cache server-side PDF
+    API-->>Brief: PDF metadata/progress completion
+    Brief->>API: open PDF download URL
+    API-->>Brief: application/pdf
 ```
 
 ## Tenant Onboarding Flow
@@ -120,7 +126,35 @@ report_key: sales_goods_services
 schedule: 08:00 Asia/Bangkok
 period: yesterday
 viewer: /command-center/brief with signed token
+pdf export: /api/reports/:tenantId/:reportKey/pdf/prepare + /pdf with same signed token
 duplicate key: tenant_id + report_key + morning_brief + date_from + date_to
+```
+
+## PDF Export Flow
+
+```text
+Signed viewer
+  -> user clicks ดาวน์โหลด PDF
+  -> frontend calls /pdf/prepare with token, run_id, date_from, date_to, pdf_layout
+  -> API validates signed token and date range
+  -> API checks cache key: tenant_id + report_key + run_id + date_from + date_to + layout_version
+  -> if cache hit, return metadata immediately
+  -> if cache miss, preflight counts document/detail rows
+  -> reject 422 if over pilot guard
+  -> fetch approved report rows from SML
+  -> render HTML to PDF server-side with Chromium
+  -> atomic write to /app/.data/pdf-cache
+  -> return metadata
+  -> frontend opens original /pdf URL so LINE browser receives application/pdf
+```
+
+Current layout:
+
+```text
+layout_version: sml-row-v5
+paper: A4 landscape
+limits: 300 documents, 5,000 detail rows
+cache_ttl: 7 days
 ```
 
 ## Feedback Loop

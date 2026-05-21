@@ -66,6 +66,7 @@ Phase 1 UI:
 - Trigger report run manually
 - Read run history/audit log
 - Validate signed report viewer token
+- Prepare/download server-side PDF export with signed viewer token, cache in `/app/.data/pdf-cache`
 - Future chatbot API
 
 API ต้องไม่ expose DB credential ออกไป frontend

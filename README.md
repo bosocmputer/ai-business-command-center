@@ -9,8 +9,9 @@ Professional pilot สำหรับลูกค้า SML: approved report run
 - API: Fastify report API + signed viewer API + LINE endpoints ใน `apps/api`
 - Worker: Morning Brief scheduler ใน `apps/worker`
 - Reports: `sales_goods_services` และ `purchase_goods_payables` ใน `packages/reports` พร้อม document detail drilldown แบบ read-only
+- PDF: server-side SML PDF export ด้วย Chromium, signed token, progress modal, cache ใน server volume และ layout `sml-row-v5`
 - Shared schemas: `packages/shared`
-- Latest deployed commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
+- Latest deployed commit: `050b2a2` (`Tighten SML PDF pagination`)
 
 อ่านสถานะล่าสุดก่อนเริ่มงานต่อ:
 

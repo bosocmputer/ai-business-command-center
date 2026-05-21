@@ -135,13 +135,19 @@ redis optional
 Current deployed snapshot:
 
 ```text
-Latest commit: 9b7cb23
-Web LAN: http://192.168.2.109:3055/command-center
+Latest commit: 050b2a2
+Web Owner LAN: http://192.168.2.109:3055/owner
+Web Customer DEMO SHOP LAN: http://192.168.2.109:3055/app/demo-shop
+Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
+Web signed viewer: http://192.168.2.109:3055/command-center/brief
 API LAN: http://192.168.2.109:4055
 Public web tunnel: https://relationship-code-others-challenging.trycloudflare.com
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
 System store: PostgreSQL
-Pilot tenant: tenant_demo_remote
+PDF cache: /app/.data/pdf-cache via ai_bcc_data Docker volume
+PDF layout version: sml-row-v5
+Pilot tenants: tenant_demo_remote, tenant_office_sml1_2026
+Current reports: sales_goods_services, purchase_goods_payables
 ```
 
 หมายเหตุ: trycloudflare quick tunnel เป็น URL ชั่วคราว ถ้า tunnel restart ต้อง update `APP_BASE_URL` และ `NEXT_PUBLIC_API_BASE_URL` ใน `.env.server` แล้ว rebuild web

@@ -6,13 +6,14 @@
 
 ## Current Implementation Status
 
-สถานะล่าสุดวันที่ `2026-05-20`: LINE Morning Brief สำหรับ report แรก `sales_goods_services` ใช้งานแบบ professional pilot แล้ว
+สถานะล่าสุดวันที่ `2026-05-22`: LINE Morning Brief และ signed viewer ใช้งานแบบ professional pilot แล้วสำหรับ `sales_goods_services` และ `purchase_goods_payables`; viewer มี server-side PDF export layout `sml-row-v5`
 
 ```text
 GET /api/reports/:tenantId/sales_goods_services/line-preview
 GET /api/reports/:tenantId/sales_goods_services/line-deliveries
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
+GET /api/reports/:tenantId/purchase_goods_payables/line-preview
 GET /api/owner/line-channels
 POST /api/owner/line-channels
 GET /api/line-targets?tenant_id=...
@@ -35,6 +36,7 @@ POST /api/line-targets/:id/test-send
 - dashboard link ใน LINE ต้องเป็น signed report viewer URL ไม่ใช่ admin dashboard
 - signed URL ต้องอยู่หลังปุ่ม `เปิดรายงาน` ไม่แสดง URL ยาวใน body หลัก
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
+- signed viewer มีปุ่ม `ดาวน์โหลด PDF` ที่เรียก `/pdf/prepare` เพื่อแสดง progress แล้วเปิด `/pdf` เป็นไฟล์ `application/pdf` จริงสำหรับ LINE browser
 - target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดคนหรือผิดกลุ่ม
 - LINE target ต้องมาจาก target registry/webhook ที่ admin อนุมัติแล้ว; env fallback target ปิดเป็นค่า default เพื่อกันกลุ่มเก่าถูกสร้างกลับมาทุก restart
 - tenant ที่เป็น `suspended` หรือ `cancelled` จะไม่ส่ง Morning Brief แม้ target จะ approved แล้ว
@@ -220,6 +222,7 @@ Multi-report policy เมื่อมีรายงานเพิ่ม:
 - LINE ควรเป็น executive digest: 1 bubble หลักหรือ carousel สั้น ๆ ที่เลือกเฉพาะ 3-5 สัญญาณสำคัญที่สุดของวัน
 - แต่ละ report ต้องมี contract ของตัวเองและสร้าง `line_summary` แบบสั้น ไม่เกิน 1 KPI + 1 insight + 1 CTA
 - รายละเอียดเต็มให้ไปอยู่ใน `/command-center/brief` หรือ report viewer แยกรายงาน ไม่ใช่ใน LINE chat
+- PDF รายละเอียดเต็มให้สร้างจาก server-side export ของ viewer ไม่ใช้ browser print และไม่แนบ signed token เต็มในข้อความ LINE
 - ถ้ามีหลาย report ในวันเดียว ให้เรียงตาม severity/business impact เช่น ยอดขายผิดปกติ, AR overdue, stock risk, SO backlog
 
 ถ้า tenant ไม่มีสาขา:

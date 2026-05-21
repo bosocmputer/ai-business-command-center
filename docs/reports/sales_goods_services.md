@@ -209,6 +209,28 @@ Rules:
 - Customer dashboard ต้องแสดง document page แบบ responsive: desktop ใช้ table สำหรับรายการบิล, mobile ใช้ bill cards และรายการสินค้าในบิลใช้ item cards ทุก viewport เพื่อให้ผู้บริหารเปิดดูได้โดยไม่ต้อง scroll แนวนอน
 - LINE brief viewer ต้องแสดง drilldown แบบ mobile-first: สินค้าในบิลมาก่อนข้อมูลภาษี/ส่วนลด, ซ่อน system cashier value เช่น `SUPERADMIN`, และใช้คำธุรกิจ เช่น `ยอดขายบิลนี้`, `จำนวนรวม`, `ยอดรวมสินค้า`
 
+## Server-Side PDF Export
+
+รายงานนี้รองรับ PDF export สำหรับ customer-facing LINE viewer แล้ว:
+
+```text
+GET /api/reports/:tenantId/sales_goods_services/pdf/prepare?...signed params...
+GET /api/reports/:tenantId/sales_goods_services/pdf?...signed params...
+```
+
+Current PDF contract:
+
+- layout version ล่าสุด: `sml-row-v5`
+- ใช้ signed token เดิมของ viewer ผูก `tenant_id + report_key + run_id`
+- A4 landscape, header compact, Print Date/Page No., วันที่รูปแบบพ.ศ. เช่น `05/5/2569`
+- document row แสดงวันที่, เลขที่เอกสาร, เวลา, วันที่อ้างอิง, เอกสารอ้างอิง, ลูกค้า, ยอดเงิน, ภาษี และ cashier
+- detail row ไม่ซ้ำวันที่/ชื่อลูกค้า และไม่แสดง barcode ใน PDF หลัก
+- body ลดเส้น grid เหลือ whitespace/ตัวหนา/indent เป็นตัวแยกเอกสาร คงเส้นเฉพาะหัวตารางและ `รวมทั้งหมด`
+- multi-page guard v5 ไม่ force page-start ระหว่างเอกสาร, keep-together เฉพาะเอกสารเล็กที่เตี้ยจริง และมี continuation marker สำหรับเอกสารยาว
+- cache ที่ `/app/.data/pdf-cache`, TTL 7 วัน, atomic write, single-flight, regenerate เมื่อ cache เสียหรือว่าง
+- pilot limit: 300 เอกสาร และ 5,000 detail rows
+- LINE viewer ใช้ progress modal ผ่าน `/pdf/prepare` ก่อนเปิด `/pdf` เพื่อให้ LINE browser ดาวน์โหลด PDF จริง
+
 ## Snapshot Shape
 
 ```json

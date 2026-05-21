@@ -201,6 +201,28 @@ UI wording:
 - `เอกสารซื้อ` แทน `บิลขาย`
 - `สินค้าในเอกสารนี้` แทน `สินค้าในบิลนี้`
 
+## Server-Side PDF Export
+
+รายงานนี้ใช้ PDF export path เดียวกับรายงานขาย:
+
+```text
+GET /api/reports/:tenantId/purchase_goods_payables/pdf/prepare?...signed params...
+GET /api/reports/:tenantId/purchase_goods_payables/pdf?...signed params...
+```
+
+Current PDF contract:
+
+- layout version ล่าสุด: `sml-row-v5`
+- ใช้ signed token เดิมของ viewer ผูก `tenant_id + report_key + run_id`
+- A4 landscape, header compact, Print Date/Page No., วันที่รูปแบบพ.ศ.
+- document row ใช้ wording ฝั่งซื้อ เช่น `ผู้จำหน่าย`, `เอกสารซื้อ`, `ยอดซื้อเอกสารนี้`
+- detail row ไม่ซ้ำวันที่/ชื่อผู้จำหน่าย และไม่แสดง barcode ใน PDF หลัก
+- body ลดเส้น grid และคงเส้นเฉพาะหัวตารางกับ `รวมทั้งหมด`
+- multi-page guard v5 ใช้ Chromium pagination เป็นหลัก, keep-together เฉพาะเอกสารเล็กที่เตี้ยจริง และมี continuation marker สำหรับเอกสารยาว
+- cache ที่ `/app/.data/pdf-cache`, TTL 7 วัน, atomic write, single-flight, regenerate เมื่อ cache เสียหรือว่าง
+- pilot limit: 300 เอกสาร และ 5,000 detail rows
+- LINE viewer ใช้ progress modal ผ่าน `/pdf/prepare` ก่อนเปิด `/pdf` เพื่อให้ LINE browser ดาวน์โหลด PDF จริง
+
 ## LINE Morning Brief
 
 Morning Brief ส่งเป็น Flex Carousel หนึ่งข้อความ:

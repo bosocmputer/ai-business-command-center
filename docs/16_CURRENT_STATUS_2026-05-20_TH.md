@@ -2,7 +2,7 @@
 
 ## เป้าหมายของเอกสาร
 
-บันทึกสถานะล่าสุดของ AI Business Command Center หลังจบรอบงานวันที่ `20/05/2026` เพื่อให้วันถัดไปเริ่มทำต่อได้โดยไม่ต้องไล่ reconstruct จาก chat history
+บันทึกสถานะล่าสุดของ AI Business Command Center หลังจบรอบงานวันที่ `20/05/2026` ถึง `21/05/2026` เพื่อให้วันถัดไปเริ่มทำต่อได้โดยไม่ต้องไล่ reconstruct จาก chat history
 
 เอกสารนี้เป็น operational snapshot ไม่ใช่ replacement ของ blueprint หลัก ถ้ามีข้อมูลขัดกัน ให้ถือไฟล์นี้เป็นสถานะล่าสุด ณ เวลาที่ระบุ
 
@@ -10,9 +10,9 @@
 
 ```text
 วันที่บันทึก: 2026-05-20
-อัปเดตล่าสุด: 2026-05-21
+อัปเดตล่าสุด: 2026-05-22
 Timezone: Asia/Bangkok
-Latest deployed code commit: ดู `git rev-parse --short HEAD` บน server หลัง deploy
+Latest deployed code commit: 050b2a2
 SaaS pilot owner/customer portals: ready
 GitHub branch: main
 Deploy target: 192.168.2.109
@@ -20,6 +20,8 @@ Compose project: ai-business-command-center
 System store: PostgreSQL
 Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
 Current reports: sales_goods_services, purchase_goods_payables
+PDF export layout: sml-row-v5
+PDF cache volume: /app/.data/pdf-cache
 ```
 
 ## URL ที่ใช้ตรวจระบบ
@@ -69,6 +71,18 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Snapshot มี comparison สำหรับ single-day report:
   - เมื่อวานเทียบกับวันก่อนหน้า
   - เมื่อวานเทียบกับวันเดียวกันสัปดาห์ก่อน
+- Server-side PDF export ใช้งานแล้วสำหรับรายงาน `sales_goods_services` และ `purchase_goods_payables`:
+  - download endpoint เดิม: `GET /api/reports/:tenantId/:reportKey/pdf?...`
+  - prepare endpoint สำหรับ progress UX: `GET /api/reports/:tenantId/:reportKey/pdf/prepare?...`
+  - ใช้ signed token เดิมที่ผูกกับ `tenant_id + report_key + run_id` และ validate date range ภายใต้ run/token เดิม
+  - layout version ล่าสุดคือ `sml-row-v5` เพื่อ invalidate cache รุ่นก่อนหน้า
+  - render server-side ด้วย Chromium/Playwright เป็น A4 landscape, ฟอนต์ไทยอ่านได้, วันที่แบบพ.ศ. เช่น `05/5/2569`
+  - header เป็น customer-facing: ชื่อร้าน, ชื่อรายงาน, ช่วงวันที่, Print Date, Page No. ไม่แสดง Run ID/Layout/Data source ใน PDF หลัก
+  - row layout ลดความเป็น spreadsheet: ไม่มีเส้นแบ่งถี่ระหว่าง document/detail rows, คงเส้นเฉพาะหัวตารางและแถว `รวมทั้งหมด`
+  - detail row ไม่ซ้ำวันที่/ชื่อลูกค้า และไม่แสดง barcode ใน PDF หลัก
+  - multi-page guard v5: ไม่ force page-start ระหว่างเอกสารด้วย estimator แล้ว, keep-together เฉพาะเอกสารเล็กที่เตี้ยจริง, doc row พยายามติดกับ detail แถวแรก, เอกสารยาวมี continuation marker
+  - cache ที่ `/app/.data/pdf-cache` ผ่าน Docker volume `ai_bcc_data`, key รวม tenant/report/run/date/layout, TTL 7 วัน, atomic write, single-flight, cache เสียหรือว่างจะ regenerate
+  - limit guard pilot: ไม่เกิน 300 เอกสาร และ 5,000 detail rows พร้อม preflight reject 422 ก่อน fetch rows เต็ม
 
 ### SaaS Portal / Dashboard
 
@@ -156,6 +170,11 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - มี section `วันนี้ควรรู้อะไร`
 - Technical detail เช่น `run_id`, reconciliation, source อยู่ท้ายหน้าแบบ collapsed
 - มี CTA เดียว: `ดูรายละเอียดบิล/สินค้า`
+- ปุ่ม `ดาวน์โหลด PDF` ใช้ server-side PDF export ไม่ใช้ browser print:
+  - กดแล้วเปิด progress modal แบบ stage-based: ตรวจสิทธิ์, เช็ก cache, ตรวจจำนวนเอกสาร/รายการ, ดึงข้อมูล SML, สร้าง PDF, บันทึก cache, พร้อมดาวน์โหลด
+  - เมื่อ prepare สำเร็จจะเปิด URL `/pdf` เดิมเพื่อให้ LINE browser ได้ไฟล์ `application/pdf` จริง ไม่ใช่ blob URL
+  - ถ้า error จะแสดงข้อความอ่านง่ายและมี fallback link `เปิด PDF โดยตรง`
+  - ถ้าเปิด viewer เดิมค้างไว้ก่อน deploy อาจต้อง refresh หรือเปิด LINE link ใหม่เพื่อให้ web bundle ใช้ `sml-row-v5`
 - ส่วน `รายละเอียดบิลขาย` ปรับเป็น mobile-first bill list สำหรับคนกดจาก LINE:
   - แตะบิลแล้วเปิด drawer/full-height panel เพื่อดูสินค้าในบิล
   - จัดลำดับข้อมูลแบบผู้บริหาร: สรุปยอดสั้น ๆ → `สินค้าในบิลนี้` → หมายเหตุยอด → `ข้อมูลบิล`
@@ -236,6 +255,8 @@ x-ai-bcc-admin-token: <server-only-token>
   - `GET /api/app/:tenantSlug/reports/sales_goods_services/latest`
   - `GET /api/app/:tenantSlug/reports/sales_goods_services/documents`
   - `GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail`
+  - `GET /api/reports/:tenantId/:reportKey/pdf/prepare` with signed viewer token
+  - `GET /api/reports/:tenantId/:reportKey/pdf` with signed viewer token
 - Legacy customer endpoints ที่ไม่มี slug (`/api/app/session`, `/api/app/reports/...`) จะตอบ safe error และไม่ default ไป DEMO SHOP อีกแล้ว
 - Owner login ใช้ signed cookie ชื่อ `ai_bcc_owner_session`
 - Mutation API เดิมยังใช้ `x-ai-bcc-admin-token` เป็น MVP guard โดยหน้า login จะ bootstrap token ให้หลังเข้าสู่ระบบ
@@ -268,20 +289,28 @@ comparison: true
 
 ## Validation ล่าสุด
 
-Local validation หลังเพิ่ม Owner login + sidebar active fix:
+Local validation หลัง PDF export `sml-row-v5`:
 
 ```text
-corepack pnpm -r typecheck  -> pass
-corepack pnpm -r test       -> pass
-corepack pnpm lint          -> pass
-corepack pnpm -r build      -> pass
-git diff --check            -> pass
+corepack pnpm --filter @ai-bcc/api typecheck          -> pass
+corepack pnpm --filter @ai-bcc/api test               -> pass (51 tests)
+corepack pnpm --filter @ai-bcc/web typecheck          -> pass
+corepack pnpm --filter @ai-bcc/api build              -> pass
+corepack pnpm --filter @ai-bcc/web build              -> pass
+corepack pnpm --filter @ai-bcc/api test -- report-pdf-export.test.ts -> pass
+git diff --check                                      -> pass
 ```
 
 Server:
 
 ```text
 GET /health                         -> 200
+GET /command-center/brief           -> 200
+GET /api/reports/:tenantId/:reportKey/pdf/prepare without signed token
+                                    -> 400 safe error: Invalid report viewer link.
+Server git commit                    -> 050b2a2
+API bundle PDF layout                -> sml-row-v5
+Web bundle PDF layout                -> sml-row-v5
 GET /api/app/demo-shop/session      -> 200 (DEMO SHOP)
 GET /api/app/248-shop/session       -> 200 (248 SHOP)
 GET /api/app/unknown-shop/session   -> 404
@@ -297,6 +326,8 @@ system_store                        -> postgres
 
 Browser QA:
 
+- PDF visual QA จากไฟล์ลูกค้าจริงก่อน patch พบหน้า 6/7 ว่างเพราะ forced page-start heuristic และข้อความยาว; v5 แก้โดยให้ Chromium จัดหน้าเองมากขึ้นและ keep เฉพาะกลุ่มเล็กที่เตี้ยจริง
+- Smoke PDF จำลองข้อมูลชื่อยาว/สินค้า wrap หลายบรรทัด render ได้, header ซ้ำทุกหน้า, total row ไม่ overlap
 - `/` redirect ไป `/owner`
 - ถ้ายังไม่ login, `/owner` และ `/command-center` redirect ไป `/signin?next=...`
 - login ด้วย `superadmin/superadmin` เข้า `/owner` ได้
@@ -328,6 +359,7 @@ Browser QA:
 - Owner portal ทดสอบ datasource ได้แล้ว แต่ยังไม่ได้บันทึก/แก้ host, port, user, password ผ่าน UI แบบ encrypted
 - LINE OA token/secret ยังอยู่ใน env หรือ metadata registry; เพิ่ม secret vault/table foundation แล้ว แต่ยังไม่ migrate LINE credential จริงเข้า encrypted channel workflow
 - customer-specific LINE OA onboarding ยังไม่เต็ม แต่เริ่มมี `line_channels` registry, pending target discovery และ permission profile แล้ว
+- PDF export ยังเป็น synchronous + local Docker volume cache ใน pilot; ถ้ารายงานระดับปีเต็มหรือหลายหมื่นแถวต้องย้ายไป background queue และ object storage
 - `/app/:tenantSlug` ยังเป็น pilot link-based viewer ไม่ใช่ login/role จริง
 - หลังมี login จริง customer tenant ต้อง derive จาก session/role ไม่ใช่ slug เพียงอย่างเดียว
 - `subscriptions` ยังไม่แยก table ใช้ `tenants.status` เป็น gate จริงชั่วคราว
@@ -335,7 +367,7 @@ Browser QA:
 - ยังไม่แยกสิทธิ์ราย user ใน LINE group เดียวกัน
 - ยังไม่มี backup/restore automation สำหรับ system PostgreSQL
 - ยังไม่ได้ทำ CI/CD pipeline
-- ยังไม่ได้เพิ่ม report อื่นนอกจาก `sales_goods_services`
+- ยังไม่ได้เพิ่ม report อื่นนอกจาก `sales_goods_services` และ `purchase_goods_payables`
 
 ## จุดที่ควรทำต่อพรุ่งนี้
 
@@ -346,6 +378,7 @@ Priority 1:
 3. เพิ่ม LINE OA metadata ใน `/owner` แล้วตรวจว่าไม่ leak token/secret
 4. ออกแบบ login/session จริงแทน slug-only customer pilot
 5. ถ้าลูกค้าจะใช้ช่วงรายงานเกิน 31 วัน ให้แยก summary/top product computation เป็น summary-only query เพิ่มเติม ก่อนขยาย limit ช่วงวันที่ใน customer viewer
+6. ทดสอบ PDF จาก LINE viewer อีกครั้งหลัง refresh link เพื่อยืนยันว่า `sml-row-v5` ลดพื้นที่ว่างหน้า 6/7 ในข้อมูลจริง
 
 Priority 2:
 

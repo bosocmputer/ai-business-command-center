@@ -156,6 +156,30 @@ report หนึ่งตัวสามารถกำหนด widget ได�
 }
 ```
 
+## Server-Side PDF Export
+
+รายงานที่เปิดให้ลูกค้าดูผ่าน signed viewer สามารถมี PDF export ได้ โดยใช้ shared PDF contract เดียวกัน:
+
+```text
+GET /api/reports/:tenantId/:reportKey/pdf/prepare?...signed params...
+GET /api/reports/:tenantId/:reportKey/pdf?...signed params...
+```
+
+Rules:
+
+- ใช้ signed token เดียวกับ viewer และต้อง validate `tenant_id + report_key + run_id`
+- date range ใน request ใช้ได้เมื่ออยู่ภายใต้ token/run ที่ถูกต้องเท่านั้น
+- PDF ต้อง render server-side เป็น `application/pdf` จริง ไม่ใช้ browser print จากฝั่งลูกค้า
+- layout version ต้องอยู่ใน cache key เพื่อ invalidate PDF รุ่นเก่าเมื่อเปลี่ยน layout
+- cache key ต้องรวม `tenant_id`, `report_key`, `run_id`, `date_from`, `date_to`, `layout_version`
+- cache อยู่ใน server volume และล้างไฟล์เก่าเกิน TTL
+- pilot guard ปัจจุบันจำกัด 300 เอกสาร และ 5,000 detail rows
+- ถ้าเกิน limit ให้ตอบ 422 พร้อมข้อความให้เลือกช่วงวันที่สั้นลง
+- ห้าม log signed token เต็ม
+- PDF customer-facing ห้ามแสดง debug metadata เช่น Run ID, Layout, Data source
+- layout ล่าสุด `sml-row-v5` ใช้ A4 landscape, header compact, วันที่พ.ศ., table header ซ้ำทุกหน้า, continuation context สำหรับเอกสารยาว และลดเส้น grid ใน body
+- LINE viewer ต้องกดปุ่ม download แบบ controlled flow: call `/pdf/prepare` เพื่อแสดง progress แล้วค่อยเปิด `/pdf` URL เดิมเพื่อให้ LINE browser ได้ไฟล์ PDF จริง
+
 ## Validation Rule
 
 Phase 1 validation ขั้นต่ำ:
@@ -187,4 +211,3 @@ Future validation:
 - AI เลือก report และ params ได้
 - AI สรุปผลได้
 - AI ไม่เขียน SQL production เอง
-
