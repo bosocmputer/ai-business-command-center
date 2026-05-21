@@ -1516,34 +1516,20 @@ function DetailedPrintReport({
           </p>
         )}
 
-        <table className="print-document-table">
-          <thead>
-            <tr>
-              <th>ลำดับ</th>
-              <th>วันที่/เวลา</th>
-              <th>เลขเอกสาร</th>
-              <th>{copy.partyLabel}</th>
-              <th>รหัส</th>
-              <th>ผู้ทำรายการ</th>
-              <th>สาขา</th>
-              <th className="numeric">ยอดก่อนลด</th>
-              <th className="numeric">ส่วนลด / VAT</th>
-              <th className="numeric">ยอดสุทธิ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {printState.documents.map((entry, index) => (
-              <DetailedPrintDocumentGroup
-                entry={entry}
-                index={index + 1}
-                key={`${entry.document.doc_date}-${entry.document.doc_no}`}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="print-document-list">
+          {printState.documents.map((entry, index) => (
+            <DetailedPrintDocumentGroup
+              copy={copy}
+              entry={entry}
+              index={index + 1}
+              key={`${entry.document.doc_date}-${entry.document.doc_no}`}
+            />
+          ))}
+        </div>
 
         <footer className="print-footer">
-          รายงานนี้ใช้ยอดหัวเอกสารจาก SML เป็นยอดหลัก และแสดงรายละเอียดสินค้าเพื่ออธิบายที่มาของยอดเอกสาร
+          AI Business Center · {formatTenantName(snapshot.tenant_id)} ·{" "}
+          {copy.title} · รายงานนี้ใช้ยอดหัวเอกสารจาก SML เป็นยอดหลัก
         </footer>
       </div>
     </section>
@@ -1560,9 +1546,11 @@ function PrintSummaryItem({ label, value }: { label: string; value: string }) {
 }
 
 function DetailedPrintDocumentGroup({
+  copy,
   entry,
   index,
 }: {
+  copy: ReportCopy;
   entry: DetailedPrintDocument;
   index: number;
 }) {
@@ -1570,88 +1558,165 @@ function DetailedPrintDocumentGroup({
   const party = document.cust_name || document.cust_code || "-";
   const branchLabel = getDocumentBranchLabel(entry.document, document);
   const lines = entry.detail?.lines ?? [];
-  const discountAndVat = `${formatMoney(document.total_discount)} / ${formatMoney(
-    document.total_vat_value,
-  )}`;
+  const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
+  const technicalMeta = buildDocumentTechnicalMeta(document, lines);
 
   return (
-    <>
-      <tr className="print-document-row">
-        <td>{formatInteger(index)}</td>
-        <td>
-          {formatThaiDate(document.doc_date)}
-          {document.doc_time ? ` ${formatTime(document.doc_time)}` : ""}
-        </td>
-        <td>
+    <article className="print-document-block">
+      <div className="print-document-heading">
+        <div className="print-document-title">
+          <span>เอกสารที่ {formatInteger(index)}</span>
           <strong>{document.doc_no}</strong>
-          {document.doc_ref ? <span className="print-muted">อ้างอิง {document.doc_ref}</span> : null}
-        </td>
-        <td>{party}</td>
-        <td>{document.cust_code || "-"}</td>
-        <td>{document.cashier_code || "-"}</td>
-        <td>{branchLabel}</td>
-        <td className="numeric">{formatMoney(document.total_value)}</td>
-        <td className="numeric">{discountAndVat}</td>
-        <td className="numeric">
-          <strong>{formatMoney(document.total_amount)}</strong>
-        </td>
-      </tr>
-      <tr className="print-detail-row">
-        <td colSpan={10}>
-          {entry.error ? (
-            <div className="print-detail-error">{entry.error}</div>
-          ) : (
-            <table className="print-line-table">
-              <thead>
-                <tr>
-                  <th>รายการ</th>
-                  <th>รหัสสินค้า</th>
-                  <th>Barcode</th>
-                  <th>ชื่อสินค้า</th>
-                  <th>คลัง</th>
-                  <th>ที่เก็บ</th>
-                  <th>หน่วย</th>
-                  <th className="numeric">จำนวน</th>
-                  <th className="numeric">ราคา</th>
-                  <th>ส่วนลด</th>
-                  <th className="numeric">ส่วนลดเงิน</th>
-                  <th>VAT/Tax</th>
-                  <th className="numeric">ยอดรายการ</th>
+          {document.doc_ref ? (
+            <small>อ้างอิง {document.doc_ref}</small>
+          ) : null}
+        </div>
+        <div className="print-document-meta-grid">
+          <PrintMeta label="วันที่/เวลา" value={`${formatThaiDate(document.doc_date)}${document.doc_time ? ` · ${formatTime(document.doc_time)}` : ""}`} />
+          <PrintMeta label={copy.partyLabel} value={party} />
+          <PrintMeta label="รหัส" value={document.cust_code || "-"} />
+          <PrintMeta label="สาขา" value={branchLabel} />
+          <PrintMeta label="ผู้ทำรายการ" value={document.cashier_code || "-"} />
+          <PrintMeta label="จำนวนรายการ" value={`${formatInteger(lines.length || entry.document.detail_line_count)} รายการ`} />
+        </div>
+      </div>
+
+      <div className="print-amount-strip">
+        <PrintAmount label="ยอดก่อนลด" value={`${formatMoney(document.total_value)} บาท`} />
+        <PrintAmount label="ส่วนลด" value={`${formatMoney(document.total_discount)} บาท`} />
+        <PrintAmount label="ยอดก่อน VAT" value={`${formatMoney(document.total_except_vat)} บาท`} />
+        <PrintAmount label="VAT" value={`${formatMoney(document.total_vat_value)} บาท`} />
+        <PrintAmount label="ยอดสุทธิ" value={`${formatMoney(document.total_amount)} บาท`} emphasis />
+      </div>
+
+      {entry.error ? (
+        <div className="print-detail-error">{entry.error}</div>
+      ) : (
+        <table className="print-line-table">
+          <thead>
+            <tr>
+              <th className="line-index-col">#</th>
+              <th className="line-code-col">รหัสสินค้า / Barcode</th>
+              <th className="line-name-col">ชื่อสินค้า</th>
+              <th className="line-location-col">คลัง / ที่เก็บ / หน่วย</th>
+              <th className="line-number-col numeric">จำนวน</th>
+              <th className="line-money-col numeric">ราคา / ส่วนลด</th>
+              <th className="line-tax-col">VAT / Tax</th>
+              <th className="line-money-col numeric">ยอดรายการ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length ? (
+              lines.map((line, lineIndex) => (
+                <tr key={`${line.doc_no}-${line.line_number ?? lineIndex}`}>
+                  <td className="line-index-col">{formatInteger(lineIndex + 1)}</td>
+                  <td>
+                    <strong>{line.item_code || "-"}</strong>
+                    <span className="print-muted">Barcode: {line.barcode || "-"}</span>
+                  </td>
+                  <td>
+                    <strong>{line.item_name || "-"}</strong>
+                    {line.ref_row !== null && line.ref_row !== undefined ? (
+                      <span className="print-muted">Ref row: {formatInteger(line.ref_row)}</span>
+                    ) : null}
+                  </td>
+                  <td>
+                    <span>คลัง {line.wh_code || "-"}</span>
+                    <span className="print-muted">
+                      ที่เก็บ {line.shelf_code || "-"} · หน่วย{" "}
+                      {line.unit_name || line.unit_code || "-"}
+                    </span>
+                  </td>
+                  <td className="numeric">{formatQty(line.qty)}</td>
+                  <td className="numeric">
+                    <strong>{formatMoney(line.price)}</strong>
+                    <span className="print-muted">
+                      ลด {line.discount || "-"} / {formatMoney(line.discount_amount)}
+                    </span>
+                  </td>
+                  <td>{[line.vat_type, line.tax_type].filter(Boolean).join(" / ") || "-"}</td>
+                  <td className="numeric">
+                    <strong>{formatMoney(line.sum_amount)}</strong>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {lines.length ? (
-                  lines.map((line, lineIndex) => (
-                    <tr key={`${line.doc_no}-${line.line_number ?? lineIndex}`}>
-                      <td>{formatInteger(lineIndex + 1)}</td>
-                      <td>{line.item_code || "-"}</td>
-                      <td>{line.barcode || "-"}</td>
-                      <td>{line.item_name || "-"}</td>
-                      <td>{line.wh_code || "-"}</td>
-                      <td>{line.shelf_code || "-"}</td>
-                      <td>{line.unit_name || line.unit_code || "-"}</td>
-                      <td className="numeric">{formatQty(line.qty)}</td>
-                      <td className="numeric">{formatMoney(line.price)}</td>
-                      <td>{line.discount || "-"}</td>
-                      <td className="numeric">{formatMoney(line.discount_amount)}</td>
-                      <td>{[line.vat_type, line.tax_type].filter(Boolean).join(" / ") || "-"}</td>
-                      <td className="numeric">{formatMoney(line.sum_amount)}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="print-empty-line" colSpan={13}>
-                      ไม่พบรายละเอียดสินค้าในเอกสารนี้
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          )}
-        </td>
-      </tr>
-    </>
+              ))
+            ) : (
+              <tr>
+                <td className="print-empty-line" colSpan={8}>
+                  ไม่พบรายละเอียดสินค้าในเอกสารนี้
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
+      <div className="print-document-technical">
+        <span>ข้อมูลจากระบบ SML</span>
+        {technicalMeta.map((item) => (
+          <small key={item.label}>
+            {item.label}: {item.value}
+          </small>
+        ))}
+        <small>ยอดรวมสินค้า: {formatMoney(detailTotal)} บาท</small>
+      </div>
+    </article>
   );
+}
+
+function PrintMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="print-meta-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PrintAmount({
+  emphasis,
+  label,
+  value,
+}: {
+  emphasis?: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className={`print-amount-item ${emphasis ? "is-emphasis" : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function buildDocumentTechnicalMeta(
+  document: SalesDocumentDetail["document"],
+  lines: SalesDetailRow[],
+) {
+  const refs = new Set<string>();
+  const temp1 = new Set<string>();
+  const temp2 = new Set<string>();
+  for (const line of lines) {
+    if (line.ref_row !== null && line.ref_row !== undefined) {
+      refs.add(formatInteger(line.ref_row));
+    }
+    if (line.temp_float_1 !== null && line.temp_float_1 !== undefined) {
+      temp1.add(formatQty(line.temp_float_1));
+    }
+    if (line.temp_float_2 !== null && line.temp_float_2 !== undefined) {
+      temp2.add(formatQty(line.temp_float_2));
+    }
+  }
+
+  return [
+    ["สถานะ", document.last_status || "-"],
+    ["VAT type", document.vat_type || "-"],
+    ["VAT rate", `${formatQty(document.vat_rate)}%`],
+    ["Ref rows", refs.size ? Array.from(refs).slice(0, 6).join(", ") : "-"],
+    ["Temp 1", temp1.size ? Array.from(temp1).slice(0, 4).join(", ") : "-"],
+    ["Temp 2", temp2.size ? Array.from(temp2).slice(0, 4).join(", ") : "-"],
+  ].map(([label, value]) => ({ label, value }));
 }
 
 function DetailedPrintStyles() {
@@ -1780,15 +1845,120 @@ function DetailedPrintStyles() {
           padding: 8px 10px;
         }
 
-        .detailed-print-screen-mode .print-document-table,
+        .detailed-print-screen-mode .print-document-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .detailed-print-screen-mode .print-document-block {
+          background: #ffffff;
+          border: 1px solid #d0d5dd;
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        .detailed-print-screen-mode .print-document-heading {
+          background: #f8fafc;
+          border-bottom: 1px solid #e4e7ec;
+          display: grid;
+          gap: 12px;
+          grid-template-columns: 220px minmax(0, 1fr);
+          padding: 10px 12px;
+        }
+
+        .detailed-print-screen-mode .print-document-title span,
+        .detailed-print-screen-mode .print-meta-item span,
+        .detailed-print-screen-mode .print-amount-item span {
+          color: #667085;
+          display: block;
+          font-size: 10px;
+          font-weight: 600;
+        }
+
+        .detailed-print-screen-mode .print-document-title strong {
+          color: #101828;
+          display: block;
+          font-size: 16px;
+          line-height: 1.25;
+          margin-top: 3px;
+        }
+
+        .detailed-print-screen-mode .print-document-title small {
+          color: #667085;
+          display: block;
+          font-size: 10px;
+          margin-top: 3px;
+        }
+
+        .detailed-print-screen-mode .print-document-meta-grid {
+          display: grid;
+          gap: 8px;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .detailed-print-screen-mode .print-meta-item strong {
+          color: #101828;
+          display: block;
+          font-size: 11px;
+          line-height: 1.35;
+          margin-top: 2px;
+        }
+
+        .detailed-print-screen-mode .print-amount-strip {
+          display: grid;
+          gap: 0;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .detailed-print-screen-mode .print-amount-item {
+          border-bottom: 1px solid #e4e7ec;
+          border-right: 1px solid #e4e7ec;
+          padding: 8px 10px;
+        }
+
+        .detailed-print-screen-mode .print-amount-item:last-child {
+          border-right: 0;
+        }
+
+        .detailed-print-screen-mode .print-amount-item strong {
+          color: #101828;
+          display: block;
+          font-size: 12px;
+          line-height: 1.25;
+          margin-top: 3px;
+        }
+
+        .detailed-print-screen-mode .print-amount-item.is-emphasis strong {
+          color: #1d4ed8;
+          font-size: 14px;
+        }
+
+        .detailed-print-screen-mode .print-document-technical {
+          align-items: center;
+          background: #f9fafb;
+          border-top: 1px solid #e4e7ec;
+          color: #667085;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px 12px;
+          padding: 7px 10px;
+        }
+
+        .detailed-print-screen-mode .print-document-technical span {
+          color: #344054;
+          font-weight: 700;
+        }
+
+        .detailed-print-screen-mode .print-document-technical small {
+          font-size: 10px;
+        }
+
         .detailed-print-screen-mode .print-line-table {
           border-collapse: collapse;
           table-layout: fixed;
           width: 100%;
         }
 
-        .detailed-print-screen-mode .print-document-table th,
-        .detailed-print-screen-mode .print-document-table td,
         .detailed-print-screen-mode .print-line-table th,
         .detailed-print-screen-mode .print-line-table td {
           border: 1px solid #d0d5dd;
@@ -1798,7 +1968,6 @@ function DetailedPrintStyles() {
           word-break: break-word;
         }
 
-        .detailed-print-screen-mode .print-document-table th,
         .detailed-print-screen-mode .print-line-table th {
           background: #f2f4f7;
           color: #344054;
@@ -1806,11 +1975,7 @@ function DetailedPrintStyles() {
           font-weight: 700;
         }
 
-        .detailed-print-screen-mode .print-document-row {
-          background: #f9fafb;
-        }
-
-        .detailed-print-screen-mode .print-document-row strong,
+        .detailed-print-screen-mode .print-line-table td strong,
         .detailed-print-screen-mode .print-muted {
           display: block;
         }
@@ -1820,15 +1985,33 @@ function DetailedPrintStyles() {
           margin-top: 2px;
         }
 
-        .detailed-print-screen-mode .print-detail-row > td {
-          background: #ffffff;
-          padding: 0;
-        }
-
         .detailed-print-screen-mode .print-line-table th,
         .detailed-print-screen-mode .print-line-table td {
-          border-left: 0;
-          border-right: 1px solid #e4e7ec;
+          border-color: #e4e7ec;
+        }
+
+        .detailed-print-screen-mode .line-index-col {
+          width: 42px;
+        }
+
+        .detailed-print-screen-mode .line-code-col {
+          width: 138px;
+        }
+
+        .detailed-print-screen-mode .line-location-col {
+          width: 142px;
+        }
+
+        .detailed-print-screen-mode .line-number-col {
+          width: 82px;
+        }
+
+        .detailed-print-screen-mode .line-money-col {
+          width: 110px;
+        }
+
+        .detailed-print-screen-mode .line-tax-col {
+          width: 82px;
         }
 
         .detailed-print-screen-mode .numeric {
@@ -1963,19 +2146,121 @@ function DetailedPrintStyles() {
           padding: 5px 6px;
         }
 
-        .print-document-table,
+        .print-document-list {
+          display: grid;
+          gap: 7px;
+        }
+
+        .print-document-block {
+          background: #ffffff;
+          border: 1px solid #d0d5dd;
+          border-radius: 4px;
+          break-inside: avoid;
+          overflow: hidden;
+          page-break-inside: avoid;
+        }
+
+        .print-document-heading {
+          background: #f8fafc;
+          border-bottom: 1px solid #e4e7ec;
+          display: grid;
+          gap: 7px;
+          grid-template-columns: 142px minmax(0, 1fr);
+          padding: 5px 6px;
+        }
+
+        .print-document-title span,
+        .print-meta-item span,
+        .print-amount-item span {
+          color: #667085;
+          display: block;
+          font-size: 7px;
+          font-weight: 700;
+        }
+
+        .print-document-title strong {
+          color: #101828;
+          display: block;
+          font-size: 11px;
+          line-height: 1.2;
+          margin-top: 1px;
+        }
+
+        .print-document-title small {
+          color: #667085;
+          display: block;
+          font-size: 7px;
+          margin-top: 1px;
+        }
+
+        .print-document-meta-grid {
+          display: grid;
+          gap: 4px 6px;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .print-meta-item strong {
+          color: #101828;
+          display: block;
+          font-size: 8px;
+          line-height: 1.25;
+          margin-top: 1px;
+        }
+
+        .print-amount-strip {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .print-amount-item {
+          border-bottom: 1px solid #e4e7ec;
+          border-right: 1px solid #e4e7ec;
+          padding: 4px 5px;
+        }
+
+        .print-amount-item:last-child {
+          border-right: 0;
+        }
+
+        .print-amount-item strong {
+          color: #101828;
+          display: block;
+          font-size: 8px;
+          line-height: 1.2;
+          margin-top: 1px;
+        }
+
+        .print-amount-item.is-emphasis strong {
+          color: #1d4ed8;
+          font-size: 9px;
+        }
+
+        .print-document-technical {
+          align-items: center;
+          background: #f9fafb;
+          border-top: 1px solid #e4e7ec;
+          color: #667085;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 3px 8px;
+          padding: 4px 5px;
+        }
+
+        .print-document-technical span {
+          color: #344054;
+          font-weight: 700;
+        }
+
+        .print-document-technical small {
+          font-size: 7px;
+        }
+
         .print-line-table {
           border-collapse: collapse;
           table-layout: fixed;
           width: 100%;
         }
 
-        .print-document-table thead {
-          display: table-header-group;
-        }
-
-        .print-document-table th,
-        .print-document-table td,
         .print-line-table th,
         .print-line-table td {
           border: 1px solid #d0d5dd;
@@ -1985,7 +2270,6 @@ function DetailedPrintStyles() {
           word-break: break-word;
         }
 
-        .print-document-table th,
         .print-line-table th {
           background: #f2f4f7;
           color: #344054;
@@ -1993,36 +2277,45 @@ function DetailedPrintStyles() {
           font-weight: 700;
         }
 
-        .print-document-row {
-          background: #f9fafb;
-          break-after: avoid;
-          page-break-after: avoid;
-        }
-
-        .print-document-row strong {
-          display: block;
-        }
-
+        .print-line-table td strong,
         .print-muted {
           display: block;
           font-size: 7.5px;
           margin-top: 1px;
         }
 
-        .print-detail-row > td {
-          background: #ffffff;
-          padding: 0;
-        }
-
         .print-line-table th,
         .print-line-table td {
-          border-left: 0;
-          border-right: 1px solid #e4e7ec;
+          border-color: #e4e7ec;
         }
 
         .print-line-table tr {
           break-inside: avoid;
           page-break-inside: avoid;
+        }
+
+        .line-index-col {
+          width: 28px;
+        }
+
+        .line-code-col {
+          width: 98px;
+        }
+
+        .line-location-col {
+          width: 98px;
+        }
+
+        .line-number-col {
+          width: 58px;
+        }
+
+        .line-money-col {
+          width: 76px;
+        }
+
+        .line-tax-col {
+          width: 58px;
         }
 
         .numeric {
