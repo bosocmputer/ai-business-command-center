@@ -420,6 +420,8 @@ function CustomerDashboardContent({
   const [purchaseState, setPurchaseState] = useState<PurchasePanelState>({
     status: "loading",
   });
+  const purchaseSnapshot =
+    purchaseState.status === "ready" ? purchaseState.snapshot : null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -468,15 +470,23 @@ function CustomerDashboardContent({
 
   return (
     <CustomerShell tenant={session.tenant} title="รายงานร้านค้า">
+      <CustomerExecutiveCockpit
+        periodLabel={periodLabel}
+        purchaseState={purchaseState}
+        salesSnapshot={snapshot}
+        tenant={session.tenant}
+        topBranchLabel={topBranch ? formatBranchDisplay(topBranch) : null}
+        topProductLabel={topProduct?.item_name ?? null}
+        trust={trust}
+      />
+
       <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
         <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge color={trust.color}>{trust.label}</Badge>
-                <Badge color="light">อ่านอย่างเดียว</Badge>
-                <Badge color="light">ข้อมูลเฉพาะร้านนี้</Badge>
-              </div>
+              <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+                รายงานหลัก
+              </p>
               <h1 className="mt-3 text-[24px] font-semibold leading-8 text-[#101828] sm:text-[28px] sm:leading-9">
                 รายงานขายสินค้าและบริการ
               </h1>
@@ -634,6 +644,28 @@ function CustomerDashboardContent({
         </aside>
       </section>
 
+      {purchaseSnapshot ? (
+        <details className="rounded-xl border border-[#E4E7EC] bg-white px-4 py-3 text-[12px] leading-[18px] text-[#667085]">
+          <summary className="cursor-pointer select-none font-semibold text-[#344054]">
+            ภาพรวมยอดซื้อจากรายงานล่าสุด
+          </summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <DetailItem
+              label="ยอดซื้อ/ตั้งหนี้"
+              value={`${formatCurrency(purchaseSnapshot.summary.total_purchase)} บาท`}
+            />
+            <DetailItem
+              label="เอกสารซื้อ"
+              value={`${formatNumber(purchaseSnapshot.summary.document_count)} ใบ`}
+            />
+            <DetailItem
+              label="จำนวนซื้อรวม"
+              value={formatNumber(purchaseSnapshot.summary.total_qty)}
+            />
+          </div>
+        </details>
+      ) : null}
+
       <details className="rounded-xl border border-[#E4E7EC] bg-white px-4 py-3 text-[12px] leading-[18px] text-[#667085]">
         <summary className="cursor-pointer select-none font-semibold text-[#344054]">
           รายละเอียดแหล่งข้อมูล
@@ -657,6 +689,171 @@ function CustomerDashboardContent({
         </p>
       </details>
     </CustomerShell>
+  );
+}
+
+function CustomerExecutiveCockpit({
+  periodLabel,
+  purchaseState,
+  salesSnapshot,
+  tenant,
+  topBranchLabel,
+  topProductLabel,
+  trust,
+}: {
+  periodLabel: string;
+  purchaseState: PurchasePanelState;
+  salesSnapshot: SalesGoodsServicesSnapshot;
+  tenant: Tenant;
+  topBranchLabel: string | null;
+  topProductLabel: string | null;
+  trust: ReturnType<typeof getTrustStatus>;
+}) {
+  const purchaseSnapshot =
+    purchaseState.status === "ready" ? purchaseState.snapshot : null;
+  const purchaseLabel =
+    purchaseState.status === "loading"
+      ? "กำลังโหลด"
+      : purchaseState.status === "error"
+        ? "ยังไม่พร้อม"
+        : purchaseSnapshot
+          ? `${formatCurrency(purchaseSnapshot.summary.total_purchase)} บาท`
+          : "ยังไม่มีข้อมูล";
+  const netMovement = purchaseSnapshot
+    ? salesSnapshot.summary.total_sales - purchaseSnapshot.summary.total_purchase
+    : null;
+  const watchItems = [
+    `${formatCurrency(salesSnapshot.summary.total_sales)} บาท จาก ${formatNumber(
+      salesSnapshot.summary.document_count,
+    )} บิลขาย`,
+    purchaseSnapshot
+      ? `${formatCurrency(purchaseSnapshot.summary.total_purchase)} บาท จาก ${formatNumber(
+          purchaseSnapshot.summary.document_count,
+        )} เอกสารซื้อ`
+      : purchaseState.status === "error"
+        ? "รายงานซื้อยังไม่พร้อม ตรวจการเปิดสิทธิ์หรือ datasource"
+        : "กำลังเตรียมรายงานซื้อ/ตั้งหนี้",
+    topBranchLabel
+      ? `ยอดขายหลักมาจาก ${topBranchLabel}`
+      : "ยังไม่มีข้อมูลสาขาหลักในช่วงนี้",
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
+      <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill tone={trust.color === "warning" ? "warning" : "success"}>
+                {trust.label}
+              </StatusPill>
+              <StatusPill tone="neutral">อ่านอย่างเดียว</StatusPill>
+              <StatusPill tone="neutral">ข้อมูลเฉพาะร้านนี้</StatusPill>
+            </div>
+            <h1 className="mt-3 text-[24px] font-semibold leading-8 text-[#101828] sm:text-[28px] sm:leading-9">
+              ภาพรวมผู้บริหาร
+            </h1>
+            <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+              {tenant.name} · ช่วงข้อมูล {periodLabel}
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#EAECF0] bg-[#F9FAFB] px-3 py-2 text-[12px] leading-[18px] text-[#667085]">
+            แหล่งข้อมูล: SML PostgreSQL
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px]">
+        <ExecutiveMetricBlock
+          label="ยอดขายสุทธิ"
+          meta={`${formatNumber(salesSnapshot.summary.document_count)} บิล · ${
+            topProductLabel ?? "ยังไม่มีสินค้าหลัก"
+          }`}
+          value={`${formatCurrency(salesSnapshot.summary.total_sales)} บาท`}
+        />
+        <ExecutiveMetricBlock
+          label="ยอดซื้อ/ตั้งหนี้"
+          meta={
+            purchaseSnapshot
+              ? `${formatNumber(purchaseSnapshot.summary.document_count)} เอกสาร · ${
+                  purchaseSnapshot.top_suppliers[0]?.supplier_name ?? "ยังไม่มีผู้จำหน่ายหลัก"
+                }`
+              : "โหลดแยกจากรายงานซื้อ"
+          }
+          value={purchaseLabel}
+        />
+        <div className="border-t border-[#EAECF0] bg-[#F9FAFB] px-4 py-4 lg:border-l lg:border-t-0">
+          <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+            สิ่งที่ควรดูตอนนี้
+          </p>
+          <ul className="mt-3 space-y-2">
+            {watchItems.map((item, index) => (
+              <li className="flex gap-2 text-[14px] leading-[22px]" key={item}>
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-[11px] font-semibold text-white">
+                  {index + 1}
+                </span>
+                <span className="text-[#344054]">{item}</span>
+              </li>
+            ))}
+          </ul>
+          {netMovement !== null ? (
+            <p className="mt-3 rounded-lg border border-[#EAECF0] bg-white px-3 py-2 text-[12px] leading-[18px] text-[#667085]">
+              ส่วนต่างขาย-ซื้อในช่วงนี้:{" "}
+              <span className="font-semibold text-[#101828]">
+                {formatCurrency(netMovement)} บาท
+              </span>
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExecutiveMetricBlock({
+  label,
+  meta,
+  value,
+}: {
+  label: string;
+  meta: string;
+  value: string;
+}) {
+  return (
+    <div className="border-t border-[#EAECF0] px-4 py-4 first:border-t-0 lg:border-r lg:border-t-0">
+      <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+        {label}
+      </p>
+      <p className="mt-2 text-[28px] font-semibold leading-9 text-[#101828] sm:text-[32px] sm:leading-10">
+        {value}
+      </p>
+      <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-[#667085]">
+        {meta}
+      </p>
+    </div>
+  );
+}
+
+function StatusPill({
+  children,
+  tone,
+}: {
+  children: React.ReactNode;
+  tone: "neutral" | "success" | "warning";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+      : tone === "warning"
+        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+        : "border-[#D0D5DD] bg-[#F9FAFB] text-[#475467]";
+
+  return (
+    <span
+      className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold leading-[18px] ${toneClass}`}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -809,18 +1006,9 @@ function CustomerPurchaseSummary({
       <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                color={
-                  snapshot.summary.document_count > 0 ? "success" : "warning"
-                }
-              >
-                {snapshot.summary.document_count > 0
-                  ? "มีข้อมูลซื้อ"
-                  : "ยังไม่มีข้อมูลซื้อ"}
-              </Badge>
-              <Badge color="light">รายงานตัวที่ 2</Badge>
-            </div>
+            <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
+              รายงานเสริม
+            </p>
             <h2 className="mt-3 text-[24px] font-semibold leading-8 text-[#101828]">
               รายงานซื้อ/ตั้งหนี้
             </h2>
