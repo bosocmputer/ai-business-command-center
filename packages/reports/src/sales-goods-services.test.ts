@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSalesDetailQuery,
   buildSalesDocumentDetailQuery,
+  buildSalesDocumentPageQuery,
   buildSalesHeaderQuery,
   createEmptySalesGoodsServicesSnapshot,
   normalizeBranchCode,
@@ -82,6 +83,36 @@ describe("sales_goods_services contract", () => {
     expect(query.text).toContain("h.doc_no = $3");
     expect(query.text).toContain("h.is_doc_copy <> 1");
     expect(query.values).toEqual(["2026-05-10", "2026-05-19", "IV-001"]);
+  });
+
+  it("builds a parameterized document page query with search and pagination", () => {
+    const query = buildSalesDocumentPageQuery(
+      {
+        date_from: "2026-05-10",
+        date_to: "2026-05-19",
+      },
+      {
+        page: 2,
+        pageSize: 25,
+        search: "INV-001",
+      },
+    );
+
+    expect(query.text).toContain("$1::date");
+    expect(query.text).toContain("$2::date");
+    expect(query.text).toContain("nullif($3::text, '') is null");
+    expect(query.text).toContain("limit $4::int");
+    expect(query.text).toContain("offset $5::int");
+    expect(query.text).toContain("count(*) over() as total_count");
+    expect(query.text).toContain("left join lateral");
+    expect(query.text).toContain("h.is_doc_copy <> 1");
+    expect(query.values).toEqual([
+      "2026-05-10",
+      "2026-05-19",
+      "INV-001",
+      25,
+      25,
+    ]);
   });
 
   it("returns valid zero summary for empty results", () => {

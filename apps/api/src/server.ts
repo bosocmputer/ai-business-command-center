@@ -33,6 +33,7 @@ import {
 } from "./config.js";
 import {
   fetchSalesGoodsServicesDocumentDetail,
+  fetchSalesGoodsServicesDocumentPage,
   runSalesGoodsServicesReport,
   testDatasourceConnection,
   toSafeErrorMessage,
@@ -434,6 +435,73 @@ app.get(
       };
     } catch (error) {
       request.log.error({ error }, "customer report range fetch failed");
+      return reply.status(500).send({
+        error: toSafeErrorMessage(error),
+      });
+    }
+  },
+);
+
+app.get(
+  "/api/app/:tenantSlug/reports/sales_goods_services/documents",
+  async (request, reply) => {
+    const session = await resolveCustomerSessionBySlug(request.params);
+    if (!session.ok) {
+      return reply.status(session.statusCode).send({ error: session.error });
+    }
+
+    const access = tenantAccessStatus(session.tenant);
+    if (!access.enabled) {
+      return reply.status(403).send({
+        error: access.message,
+        tenant_status: session.tenant.status,
+      });
+    }
+
+    const query = customerDocumentsPageQuerySchema.safeParse(
+      request.query ?? {},
+    );
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid document page request",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const params = {
+      date_from: query.data.date_from,
+      date_to: query.data.date_to,
+    };
+    const rangeError = validateCustomerReportRange(params);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = readDatasourceConfig(session.tenant.id);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const page = await fetchSalesGoodsServicesDocumentPage({
+        tenant_id: session.tenant.id,
+        params,
+        datasource,
+        page: query.data.page,
+        page_size: query.data.page_size,
+        search: query.data.search,
+      });
+
+      return {
+        data: page,
+        tenant: session.tenant,
+        tenant_slug: session.tenantSlug,
+        mode: "documents",
+      };
+    } catch (error) {
+      request.log.error({ error }, "customer document page fetch failed");
       return reply.status(500).send({
         error: toSafeErrorMessage(error),
       });
@@ -2324,6 +2392,26 @@ const documentDetailQuerySchema = z.object({
 });
 
 const customerReportRangeQuerySchema = salesGoodsServicesParamsSchema;
+
+const customerDocumentsPageQuerySchema = z.object({
+  date_from: isoDateSchema,
+  date_to: isoDateSchema,
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  page_size: z.coerce.number().int().min(5).max(50).optional().default(10),
+  search: z.string().trim().max(120).optional().default(""),
+}).superRefine((value, ctx) => {
+  const parsed = salesGoodsServicesParamsSchema.safeParse({
+    date_from: value.date_from,
+    date_to: value.date_to,
+  });
+  if (!parsed.success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invalid date range",
+      path: ["date_from"],
+    });
+  }
+});
 
 const lineWebhookEventsQuerySchema = z.object({
   reveal: z.enum(["0", "1"]).optional().default("0"),

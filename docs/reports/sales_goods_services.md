@@ -156,7 +156,13 @@ Detail query ต้อง join ผ่าน `filtered_headers` เสมอ เ�
 
 ## Document Detail Drilldown
 
-หน้า customer dashboard ใช้ snapshot สำหรับ summary และรายการบิล preview แต่เมื่อผู้ใช้เลือกบิล ระบบจะดึงรายละเอียดบิลแบบ read-only จาก SML ด้วย approved SQL แยก:
+หน้า customer dashboard ใช้ snapshot สำหรับ summary, branch ranking และ product ranking ส่วนตารางบิลใช้ server-side pagination/search จาก SML ด้วย approved SQL:
+
+```text
+GET /api/app/:tenantSlug/reports/sales_goods_services/documents?date_from=2026-05-01&date_to=2026-05-20&page=1&page_size=10&search=INV
+```
+
+เมื่อผู้ใช้เลือกบิล ระบบจะดึงรายละเอียดบิลแบบ read-only จาก SML ด้วย approved SQL แยก:
 
 ```text
 GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail?doc_no=...
@@ -165,9 +171,10 @@ GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail?doc_no=...
 Rules:
 
 - API derive `tenant_id` จาก `tenantSlug` ฝั่ง server เท่านั้น
-- ใช้ช่วงวันที่จาก latest snapshot ไม่รับช่วงวันที่จาก customer query
-- bind `doc_no` เป็น `$3` ห้าม concat เข้า SQL
-- คืน header + detail lines เฉพาะบิลนั้น
+- document page bind `date_from`, `date_to`, `search`, `page_size`, `offset` เป็น `$1..$5` ห้าม concat เข้า SQL
+- document page คืนเฉพาะบิลของหน้าที่ขอ พร้อม `detail_line_count`, `detail_total_amount`, `detail_total_qty`, `resolved_branch_code`
+- document detail bind `doc_no` เป็น `$3` ห้าม concat เข้า SQL
+- document detail คืน header + detail lines เฉพาะบิลนั้น
 - ไม่ store detail ทุกแถวของช่วงใหญ่ลง snapshot เพื่อกัน payload ใหญ่เกินจำเป็น
 - LINE brief viewer ต้องแสดง drilldown แบบ mobile-first: สินค้าในบิลมาก่อนข้อมูลภาษี/ส่วนลด, ซ่อน system cashier value เช่น `SUPERADMIN`, และใช้คำธุรกิจ เช่น `ยอดขายบิลนี้`, `จำนวนรวม`, `ยอดรวมสินค้า`
 

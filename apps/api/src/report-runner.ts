@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import {
   buildSalesDocumentDetailQuery,
+  buildSalesDocumentPageQuery,
   buildSalesDetailQuery,
   buildSalesHeaderQuery,
   summarizeSalesGoodsServices,
@@ -8,6 +9,8 @@ import {
 } from "@ai-bcc/reports";
 import {
   type SalesDocumentDetail,
+  type SalesDocumentListItem,
+  type SalesDocumentPage,
   type SalesDetailRow,
   type SalesGoodsServicesParams,
   type SalesGoodsServicesSnapshot,
@@ -103,7 +106,10 @@ export async function fetchSalesGoodsServicesDocumentDetail(input: {
     const client = await pool.connect();
     try {
       await client.query("set statement_timeout = 15000");
-      const result = await client.query(query.text, query.values);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
       if (!result.rows[0]) {
         return null;
       }
@@ -119,6 +125,67 @@ export async function fetchSalesGoodsServicesDocumentDetail(input: {
         params,
         document,
         lines,
+      };
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function fetchSalesGoodsServicesDocumentPage(input: {
+  tenant_id: TenantId;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+  page: number;
+  page_size: number;
+  search?: string | null;
+}): Promise<SalesDocumentPage> {
+  const params = validateSalesGoodsServicesParams(input.params);
+  const page = Math.max(1, Math.floor(input.page));
+  const pageSize = Math.min(50, Math.max(1, Math.floor(input.page_size)));
+  const query = buildSalesDocumentPageQuery(params, {
+    page,
+    pageSize,
+    search: input.search,
+  });
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 15000,
+    query_timeout: 20000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 15000");
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+      const documents = result.rows.map(mapDocumentPageRow);
+      const totalItems = toNumber(result.rows[0]?.total_count);
+
+      return {
+        tenant_id: input.tenant_id,
+        report_key: "sales_goods_services",
+        params,
+        documents,
+        pagination: {
+          page,
+          page_size: pageSize,
+          total_items: totalItems,
+          total_pages: Math.max(1, Math.ceil(totalItems / pageSize)),
+          search: input.search?.trim() || null,
+        },
       };
     } finally {
       client.release();
@@ -268,6 +335,16 @@ function mapHeaderRow(row: Record<string, unknown>): SalesHeaderRow {
     total_amount: toNumber(row.total_amount),
     cashier_code: toNullableString(row.cashier_code),
     last_status: toNullableString(row.last_status),
+  };
+}
+
+function mapDocumentPageRow(row: Record<string, unknown>): SalesDocumentListItem {
+  return {
+    ...mapHeaderRow(row),
+    detail_line_count: toNumber(row.detail_line_count),
+    detail_total_amount: toNumber(row.detail_total_amount),
+    detail_total_qty: toNumber(row.detail_total_qty),
+    resolved_branch_code: toStringValue(row.resolved_branch_code) || "no_branch",
   };
 }
 

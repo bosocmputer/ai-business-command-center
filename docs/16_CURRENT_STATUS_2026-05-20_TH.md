@@ -59,7 +59,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Branch fallback: `detail.branch_code -> header.branch_code -> no_branch`
 - Header query ใช้ SML sales report filter รุ่นใหม่: `trans_flag in (44)`, `last_status = 0`, date range, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
 - Detail query join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag` และ enrich ด้วย `ic_inventory`, `ic_unit`
-- Customer bill drilldown ดึงรายละเอียดสินค้าในบิลแบบ on-demand จาก SML ด้วย approved SQL ไม่ยัด detail ทุกแถวของช่วงใหญ่ลง snapshot
+- Customer bill table ใช้ server-side pagination/search จาก SML ผ่าน approved SQL และ bill drilldown ดึงรายละเอียดสินค้าในบิลแบบ on-demand ไม่ยัด detail ทุกแถวของช่วงใหญ่ลง snapshot
 - Snapshot มี comparison สำหรับ single-day report:
   - เมื่อวานเทียบกับวันก่อนหน้า
   - เมื่อวานเทียบกับวันเดียวกันสัปดาห์ก่อน
@@ -98,9 +98,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
     - insight `วันนี้ควรรู้อะไร` อยู่คู่กับยอดขายหลัก ไม่แยกเป็น card dump
     - comparison และ data trust ใช้ภาษาธุรกิจ ไม่ใช้ wording แบบ debug
     - เลือกช่วงรายงานเองได้จาก customer viewer ด้วย date filter/quick range โดยจำกัดไม่เกิน 31 วันต่อครั้งใน pilot
-    - ตารางบิลมี search และ pagination เพื่อค้นหาเลขบิล, ลูกค้า, วันที่ หรือยอดขาย โดยยังเป็น read-only
+    - ตารางบิลมี server-side search และ pagination เพื่อค้นหาเลขบิล, ลูกค้า, วันที่ หรือยอดขาย โดยยังเป็น read-only
     - มี drilldown read-only สำหรับบิลขาย โดยรายการสินค้าในบิลดึงจาก SML แบบ on-demand ใน tenant scope เดิม
-    - ตารางบิลใช้ snapshot/report preview และรายการ detail ใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/document-detail`
+    - ตารางบิลใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/documents`
+    - รายการ detail ใช้ endpoint read-only `/api/app/:tenantSlug/reports/sales_goods_services/document-detail`
     - รายละเอียด source/run id อยู่ใน collapsed section
     - วันที่บน customer viewer ใช้ปี ค.ศ. เพื่อให้ตรงกับ LINE และข้อมูล SML
   - slug ที่ใช้งานจริงตอนนี้:
@@ -206,6 +207,8 @@ x-ai-bcc-admin-token: <server-only-token>
 - Customer read-only endpoints:
   - `GET /api/app/:tenantSlug/session`
   - `GET /api/app/:tenantSlug/reports/sales_goods_services/latest`
+  - `GET /api/app/:tenantSlug/reports/sales_goods_services/documents`
+  - `GET /api/app/:tenantSlug/reports/sales_goods_services/document-detail`
 - Legacy customer endpoints ที่ไม่มี slug (`/api/app/session`, `/api/app/reports/...`) จะตอบ safe error และไม่ default ไป DEMO SHOP อีกแล้ว
 - Owner login ใช้ signed cookie ชื่อ `ai_bcc_owner_session`
 - Mutation API เดิมยังใช้ `x-ai-bcc-admin-token` เป็น MVP guard โดยหน้า login จะ bootstrap token ให้หลังเข้าสู่ระบบ
@@ -315,7 +318,7 @@ Priority 1:
 2. ทดสอบเปลี่ยน tenant status เป็น `suspended` แล้ว `/app/:tenantSlug` ถูก block และ Morning Brief skip
 3. เพิ่ม LINE OA metadata ใน `/owner` แล้วตรวจว่าไม่ leak token/secret
 4. ออกแบบ login/session จริงแทน slug-only customer pilot
-5. ถ้าลูกค้าจะใช้ช่วงรายงานเกิน 31 วัน ให้เพิ่ม server-side document pagination/search แยกจาก snapshot preview ก่อนเปิด production
+5. ถ้าลูกค้าจะใช้ช่วงรายงานเกิน 31 วัน ให้แยก summary/top product computation เป็น summary-only query เพิ่มเติม ก่อนขยาย limit ช่วงวันที่ใน customer viewer
 
 Priority 2:
 

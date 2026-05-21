@@ -5,6 +5,8 @@ import type {
   SalesComparisonPoint,
   SalesDetailRow,
   SalesDocumentDetail,
+  SalesDocumentListItem,
+  SalesDocumentPage,
   SalesGoodsServicesSnapshot,
   SalesGoodsServicesParams,
   SalesHeaderRow,
@@ -612,52 +614,91 @@ function CustomerDetailDrilldown({
   tenantSlug: string;
 }) {
   const pageSize = 10;
+  const [draftSearch, setDraftSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [documentPageState, setDocumentPageState] =
+    useState<DocumentPageState>({ status: "loading" });
   const [expandedDocNo, setExpandedDocNo] = useState<string | null>(null);
   const [detailsByDoc, setDetailsByDoc] = useState<
     Record<string, DocumentDetailState>
   >({});
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-  const filteredDocuments = useMemo(() => {
-    if (!normalizedSearch) {
-      return snapshot.documents;
-    }
-
-    return snapshot.documents.filter((document) => {
-      const searchable = [
-        document.doc_no,
-        document.doc_date,
-        document.doc_time,
-        document.cust_code,
-        document.cust_name,
-        document.cashier_code,
-        String(document.total_amount),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(normalizedSearch);
-    });
-  }, [normalizedSearch, snapshot.documents]);
-  const totalPages = Math.max(1, Math.ceil(filteredDocuments.length / pageSize));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const documents = filteredDocuments.slice(
-    (safeCurrentPage - 1) * pageSize,
-    safeCurrentPage * pageSize,
-  );
+  const documentPage =
+    documentPageState.status === "ready" || documentPageState.status === "empty"
+      ? documentPageState.page
+      : null;
+  const documents: SalesDocumentListItem[] = documentPage?.documents ?? [];
+  const totalItems = documentPage?.pagination.total_items ?? snapshot.summary.document_count;
+  const activeSearch = documentPage?.pagination.search ?? (searchTerm || null);
 
   useEffect(() => {
     setExpandedDocNo(null);
     setDetailsByDoc({});
+    setDraftSearch("");
     setSearchTerm("");
     setCurrentPage(1);
-  }, [snapshot.run_id]);
+  }, [params.date_from, params.date_to, snapshot.run_id]);
 
   useEffect(() => {
-    setExpandedDocNo(null);
-    setCurrentPage(1);
-  }, [normalizedSearch]);
+    const controller = new AbortController();
+
+    async function loadDocumentPage() {
+      setDocumentPageState({ status: "loading" });
+      try {
+        const pageParams = new URLSearchParams({
+          date_from: params.date_from,
+          date_to: params.date_to,
+          page: String(currentPage),
+          page_size: String(pageSize),
+        });
+        if (searchTerm) {
+          pageParams.set("search", searchTerm);
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/app/${encodeURIComponent(
+            tenantSlug,
+          )}/reports/sales_goods_services/documents?${pageParams.toString()}`,
+          { signal: controller.signal },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: SalesDocumentPage;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "โหลดรายการบิลไม่สำเร็จ");
+        }
+
+        if (
+          payload.data.pagination.total_items > 0 &&
+          currentPage > payload.data.pagination.total_pages
+        ) {
+          setCurrentPage(payload.data.pagination.total_pages);
+          return;
+        }
+
+        setDocumentPageState({
+          status: payload.data.documents.length ? "ready" : "empty",
+          page: payload.data,
+        });
+      } catch (error) {
+        if ((error as { name?: string }).name === "AbortError") {
+          return;
+        }
+        setDocumentPageState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดรายการบิลไม่สำเร็จ",
+        });
+      }
+    }
+
+    void loadDocumentPage();
+    return () => controller.abort();
+  }, [currentPage, params.date_from, params.date_to, searchTerm, tenantSlug]);
 
   const loadDocumentDetail = useCallback(
     async (docNo: string) => {
@@ -721,6 +762,21 @@ function CustomerDetailDrilldown({
     [params.date_from, params.date_to, tenantSlug],
   );
 
+  const applySearch = useCallback(() => {
+    setExpandedDocNo(null);
+    setDetailsByDoc({});
+    setCurrentPage(1);
+    setSearchTerm(draftSearch.trim());
+  }, [draftSearch]);
+
+  const clearSearch = useCallback(() => {
+    setExpandedDocNo(null);
+    setDetailsByDoc({});
+    setDraftSearch("");
+    setSearchTerm("");
+    setCurrentPage(1);
+  }, []);
+
   const toggleDocument = useCallback(
     (docNo: string) => {
       if (expandedDocNo === docNo) {
@@ -750,36 +806,66 @@ function CustomerDetailDrilldown({
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
           <Badge color="light">
-            {formatNumber(filteredDocuments.length)} จาก{" "}
-            {formatNumber(snapshot.documents.length)} บิลที่โหลด
+            {documentPageState.status === "loading"
+              ? "กำลังโหลดบิล"
+              : `${formatNumber(totalItems)} บิล${activeSearch ? "ที่ค้นพบ" : ""}`}
           </Badge>
-          {snapshot.summary.document_count > snapshot.documents.length ? (
-            <p className="text-xs text-gray-500">
-              รายงานนี้มีทั้งหมด {formatNumber(snapshot.summary.document_count)} บิล
-            </p>
-          ) : null}
+          <p className="text-xs text-gray-500">
+            รายงานนี้มีทั้งหมด {formatNumber(snapshot.summary.document_count)} บิล
+          </p>
         </div>
       </div>
 
       <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6">
-        <div className="max-w-md">
-          <Label htmlFor="sales-document-search" className="mb-2">
-            ค้นหาบิล
-          </Label>
-          <Input
-            id="sales-document-search"
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="เลขบิล, ลูกค้า, วันที่, ยอดขาย"
-            type="text"
-            value={searchTerm}
-          />
-        </div>
+        <form
+          className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            applySearch();
+          }}
+        >
+          <div className="max-w-md">
+            <Label htmlFor="sales-document-search" className="mb-2">
+              ค้นหาบิลจาก SML
+            </Label>
+            <Input
+              id="sales-document-search"
+              onChange={(event) => setDraftSearch(event.target.value)}
+              placeholder="เลขบิล, ลูกค้า, วันที่, ยอดขาย"
+              type="text"
+              value={draftSearch}
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <Button className="h-11" size="sm">
+              ค้นหา
+            </Button>
+            {draftSearch || searchTerm ? (
+              <button
+                className="inline-flex h-11 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50"
+                onClick={clearSearch}
+                type="button"
+              >
+                ล้าง
+              </button>
+            ) : null}
+          </div>
+        </form>
       </div>
 
       <div className="border-t border-gray-100 dark:border-gray-800">
-        {documents.length ? (
+        {documentPageState.status === "loading" ? (
+          <DocumentTableLoading />
+        ) : documentPageState.status === "error" ? (
+          <div className="px-5 py-8 text-center">
+            <Badge color="error">โหลดบิลไม่สำเร็จ</Badge>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              {documentPageState.message}
+            </p>
+          </div>
+        ) : documents.length ? (
           <div className="max-w-full overflow-x-auto">
-            <div className="min-w-[980px]">
+            <div className="min-w-[1080px]">
               <Table>
                 <TableHeader className="border-b border-gray-100 dark:border-white/[0.05]">
                   <TableRow>
@@ -796,10 +882,16 @@ function CustomerDetailDrilldown({
                       ลูกค้า
                     </TableCell>
                     <TableCell
+                      className="px-5 py-3 text-start text-theme-xs font-medium text-gray-500 dark:text-gray-400"
+                      isHeader
+                    >
+                      สาขา
+                    </TableCell>
+                    <TableCell
                       className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
                       isHeader
                     >
-                      ยอดหัวบิล
+                      ยอดขายบิลนี้
                     </TableCell>
                     <TableCell
                       className="px-5 py-3 text-right text-theme-xs font-medium text-gray-500 dark:text-gray-400"
@@ -824,9 +916,7 @@ function CustomerDetailDrilldown({
                     const cachedLineCount =
                       detailState.status === "ready"
                         ? detailState.data.lines.length
-                        : snapshot.lines.filter(
-                            (line) => line.doc_no === document.doc_no,
-                          ).length;
+                        : document.detail_line_count;
 
                     return (
                       <Fragment key={`${document.doc_date}-${document.doc_no}`}>
@@ -863,6 +953,9 @@ function CustomerDetailDrilldown({
                           <TableCell className="max-w-[260px] truncate px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
                             {document.cust_name || document.cust_code || "-"}
                           </TableCell>
+                          <TableCell className="px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
+                            {formatBranchLabel(document.resolved_branch_code)}
+                          </TableCell>
                           <TableCell className="px-5 py-4 text-right text-theme-sm font-medium text-gray-800 dark:text-white/90">
                             {formatCurrency(document.total_amount)} บาท
                           </TableCell>
@@ -895,7 +988,7 @@ function CustomerDetailDrilldown({
                         </TableRow>
                         {isExpanded ? (
                           <TableRow className="bg-gray-50/80 dark:bg-white/[0.02]">
-                            <TableCell className="px-5 py-4" colSpan={5}>
+                            <TableCell className="px-5 py-4" colSpan={6}>
                               <DocumentDetailResult state={detailState} />
                             </TableCell>
                           </TableRow>
@@ -910,34 +1003,43 @@ function CustomerDetailDrilldown({
         ) : (
           <div className="px-5 py-8 text-center text-sm text-gray-500">
             {searchTerm
-              ? "ไม่พบบิลที่ตรงกับคำค้นหา"
+              ? "ไม่พบบิลที่ตรงกับคำค้นหาในช่วงวันที่นี้"
               : "ไม่มีบิลขายในช่วงวันที่นี้"}
           </div>
         )}
       </div>
 
-      {filteredDocuments.length > pageSize ? (
+      {documentPage && documentPage.pagination.total_pages > 1 ? (
         <div className="flex flex-col gap-3 border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-gray-500">
-            หน้า {formatNumber(safeCurrentPage)} จาก {formatNumber(totalPages)}
+            หน้า {formatNumber(documentPage.pagination.page)} จาก{" "}
+            {formatNumber(documentPage.pagination.total_pages)} · แสดง{" "}
+            {formatNumber(documents.length)} จาก{" "}
+            {formatNumber(documentPage.pagination.total_items)} บิล
           </p>
           <Pagination
-            currentPage={safeCurrentPage}
+            currentPage={documentPage.pagination.page}
             nextLabel="ถัดไป"
             onPageChange={setCurrentPage}
             previousLabel="ก่อนหน้า"
-            totalPages={totalPages}
+            totalPages={documentPage.pagination.total_pages}
           />
         </div>
       ) : null}
 
       <p className="border-t border-gray-100 px-5 py-3 text-xs leading-5 text-gray-500 dark:border-gray-800">
-        ตารางบิลอ่านจากรายงานช่วงวันที่ที่เลือก ส่วนรายการสินค้าในบิลดึงจาก SML แบบ
-        read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
+        ตารางบิลใช้ server-side pagination/search จาก SML ตามช่วงวันที่ที่เลือก
+        ส่วนรายการสินค้าในบิลดึงแบบ read-only เฉพาะบิลที่เลือก เพื่อให้รายงานช่วงใหญ่ยังโหลดเร็วและ trace ได้
       </p>
     </section>
   );
 }
+
+type DocumentPageState =
+  | { status: "loading" }
+  | { status: "ready"; page: SalesDocumentPage }
+  | { status: "empty"; page: SalesDocumentPage }
+  | { status: "error"; message: string };
 
 type DocumentDetailState =
   | { status: "idle" }
@@ -945,6 +1047,42 @@ type DocumentDetailState =
   | { status: "ready"; data: SalesDocumentDetail }
   | { status: "empty"; docNo: string; message: string }
   | { status: "error"; docNo: string; message: string };
+
+function DocumentTableLoading() {
+  return (
+    <div className="max-w-full overflow-x-auto">
+      <div className="min-w-[1080px]">
+        <Table>
+          <TableBody>
+            {["row-1", "row-2", "row-3", "row-4"].map((row) => (
+              <TableRow key={row}>
+                <TableCell className="px-5 py-4">
+                  <div className="h-4 w-36 rounded bg-gray-100" />
+                  <div className="mt-2 h-3 w-24 rounded bg-gray-100" />
+                </TableCell>
+                <TableCell className="px-5 py-4">
+                  <div className="h-4 w-44 rounded bg-gray-100" />
+                </TableCell>
+                <TableCell className="px-5 py-4">
+                  <div className="h-4 w-20 rounded bg-gray-100" />
+                </TableCell>
+                <TableCell className="px-5 py-4">
+                  <div className="ml-auto h-4 w-28 rounded bg-gray-100" />
+                </TableCell>
+                <TableCell className="px-5 py-4">
+                  <div className="ml-auto h-6 w-20 rounded-full bg-gray-100" />
+                </TableCell>
+                <TableCell className="px-5 py-4">
+                  <div className="ml-auto h-9 w-20 rounded-lg bg-gray-100" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
 
 function DocumentDetailResult({ state }: { state: DocumentDetailState }) {
   if (state.status === "idle") {

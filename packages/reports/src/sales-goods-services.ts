@@ -246,6 +246,119 @@ order by h.doc_date, h.doc_no, d.line_number
   };
 }
 
+export function buildSalesDocumentPageQuery(
+  params: SalesGoodsServicesParams,
+  options: {
+    page: number;
+    pageSize: number;
+    search?: string | null;
+  },
+) {
+  validateSalesGoodsServicesParams(params);
+  const page = Math.max(1, Math.floor(options.page));
+  const pageSize = Math.min(50, Math.max(1, Math.floor(options.pageSize)));
+  const offset = (page - 1) * pageSize;
+  const search = options.search?.trim() || null;
+
+  return {
+    text: `
+with filtered_headers as (
+  select
+    0 as rownum,
+    h.doc_date,
+    h.doc_no,
+    h.doc_time,
+    h.doc_ref_date,
+    h.doc_ref,
+    h.cust_code,
+    c.name_1 as cust_name,
+    h.branch_code,
+    h.total_value,
+    h.total_discount,
+    (h.total_value - h.total_discount) as total_except_discount,
+    h.total_except_vat,
+    h.vat_rate,
+    h.total_vat_value,
+    case
+      when h.vat_type = 0 then 'E'
+      when h.vat_type = 1 then 'I'
+      when h.vat_type = 2 then 'C'
+      when h.vat_type = 3 then '3'
+    end as vat_type,
+    h.total_amount,
+    h.cashier_code,
+    cast(h.last_status as varchar) as last_status,
+    h.trans_flag
+  from ic_trans h
+  left join ar_customer c on c.code = h.cust_code
+  where h.trans_flag in (44)
+    and h.last_status = 0
+    and h.doc_date between $1::date and $2::date
+    and (coalesce(h.doc_ref, '') = '' or h.is_pos = 0)
+    and h.is_doc_copy <> 1
+    and (
+      nullif($3::text, '') is null
+      or lower(coalesce(h.doc_no, '')) like '%' || lower($3::text) || '%'
+      or lower(coalesce(h.cust_code, '')) like '%' || lower($3::text) || '%'
+      or lower(coalesce(c.name_1, '')) like '%' || lower($3::text) || '%'
+      or lower(coalesce(h.cashier_code, '')) like '%' || lower($3::text) || '%'
+      or h.doc_date::text like '%' || $3::text || '%'
+      or h.total_amount::text like '%' || $3::text || '%'
+    )
+),
+paged_headers as (
+  select
+    filtered_headers.*,
+    count(*) over() as total_count
+  from filtered_headers
+  order by doc_date desc, doc_no desc, doc_time desc nulls last
+  limit $4::int
+  offset $5::int
+)
+select
+  h.rownum,
+  h.doc_date,
+  h.doc_no,
+  h.doc_time,
+  h.doc_ref_date,
+  h.doc_ref,
+  h.cust_code,
+  h.cust_name,
+  h.branch_code,
+  h.total_value,
+  h.total_discount,
+  h.total_except_discount,
+  h.total_except_vat,
+  h.vat_rate,
+  h.total_vat_value,
+  h.vat_type,
+  h.total_amount,
+  h.cashier_code,
+  h.last_status,
+  coalesce(detail_stats.detail_line_count, 0) as detail_line_count,
+  coalesce(detail_stats.detail_total_amount, 0) as detail_total_amount,
+  coalesce(detail_stats.detail_total_qty, 0) as detail_total_qty,
+  coalesce(nullif(detail_stats.detail_branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as resolved_branch_code,
+  h.total_count
+from paged_headers h
+left join lateral (
+  select
+    count(*)::int as detail_line_count,
+    sum(d.sum_amount) as detail_total_amount,
+    sum(d.qty) as detail_total_qty,
+    min(nullif(d.branch_code, '')) as detail_branch_code
+  from ic_trans_detail d
+  where d.doc_no = h.doc_no
+    and d.doc_date = h.doc_date
+    and d.trans_flag = h.trans_flag
+    and d.last_status = 0
+) detail_stats on true
+order by h.doc_date desc, h.doc_no desc, h.doc_time desc nulls last
+`,
+    values: [params.date_from, params.date_to, search, pageSize, offset],
+  };
+}
+
 export function normalizeBranchCode(
   detailBranch: string | null | undefined,
   headerBranch?: string | null,

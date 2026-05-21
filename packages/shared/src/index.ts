@@ -152,6 +152,27 @@ export type SalesDocumentDetail = {
   lines: SalesDetailRow[];
 };
 
+export type SalesDocumentListItem = SalesHeaderRow & {
+  detail_line_count: number;
+  detail_total_amount: number;
+  detail_total_qty: number;
+  resolved_branch_code: string;
+};
+
+export type SalesDocumentPage = {
+  tenant_id: TenantId;
+  report_key: ReportKey;
+  params: SalesGoodsServicesParams;
+  documents: SalesDocumentListItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+    search: string | null;
+  };
+};
+
 export type BranchSales = {
   branch_code: string;
   total_amount: number;
