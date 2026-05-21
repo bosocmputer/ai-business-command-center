@@ -133,6 +133,10 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - มี section `วันนี้ควรรู้อะไร`
 - Technical detail เช่น `run_id`, reconciliation, source อยู่ท้ายหน้าแบบ collapsed
 - มี CTA เดียว: `ดูรายละเอียดบิล/สินค้า`
+- ส่วน `รายละเอียดบิลขาย` ปรับเป็น mobile-first bill list สำหรับคนกดจาก LINE:
+  - แตะบิลแล้วเปิด drawer/full-height panel เพื่อดูสินค้าในบิล
+  - แสดงสรุปบิล, ลูกค้า, แคชเชียร์, สาขา, จำนวนขายรวม, VAT/ส่วนลด และรายการสินค้าแบบ business language
+  - ไม่ใช้ตารางดิบแนวนอนในพื้นที่หลักของ brief viewer เพื่อลดความงงบนมือถือ
 
 ### LINE OA / Morning Brief
 

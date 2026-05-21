@@ -109,7 +109,12 @@ export default function CommandCenterBriefViewer() {
 }
 
 function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
+  const [selectedBillKey, setSelectedBillKey] = useState<string | null>(null);
   const insights = useMemo(() => buildInsights(snapshot), [snapshot]);
+  const billPreviews = useMemo(() => buildBillPreviews(snapshot), [snapshot]);
+  const selectedBill = selectedBillKey
+    ? billPreviews.find((bill) => bill.key === selectedBillKey) ?? null
+    : null;
   const topBranchTotal = snapshot.branch_sales[0]?.total_amount ?? 0;
   const maxProductTotal = snapshot.top_products[0]?.sum_amount ?? 0;
   const hasWarning =
@@ -243,8 +248,8 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
           className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
         >
           <SectionTitle
-            title="รายละเอียดบิล/สินค้า"
-            caption="เปิดดูเมื่ออยากไล่รายการขายที่เป็นที่มาของตัวเลข"
+            title="รายละเอียดบิลขาย"
+            caption="กดเลือกบิลเพื่อดูสินค้าในบิลแบบอ่านง่าย เหมาะกับการเปิดจาก LINE บนมือถือ"
           />
           {hasWarning && (
             <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
@@ -253,18 +258,11 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
             </p>
           )}
           <div className="mt-4 space-y-3">
-            <BriefDetails title="บิลขาย" count={snapshot.documents.length}>
-              <CompactTable
-                headers={["วันที่", "เลขที่บิล", "ลูกค้า", "สาขา", "ยอดรวม"]}
-                rows={snapshot.documents.slice(0, 20).map(mapDocumentRow)}
-              />
-            </BriefDetails>
-            <BriefDetails title="รายการสินค้าและบริการ" count={snapshot.lines.length}>
-              <CompactTable
-                headers={["วันที่", "เลขที่บิล", "สินค้า/บริการ", "สาขา", "จำนวน", "ยอดขาย"]}
-                rows={snapshot.lines.slice(0, 20).map(mapLineRow)}
-              />
-            </BriefDetails>
+            <ExecutiveBillList
+              bills={billPreviews}
+              totalDocuments={snapshot.summary.document_count}
+              onSelect={(bill) => setSelectedBillKey(bill.key)}
+            />
             <BriefDetails
               title="ข้อมูลเทคนิค/ที่มา"
               count={4}
@@ -280,6 +278,11 @@ function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
           </div>
         </section>
       </div>
+      <BillDetailDrawer
+        bill={selectedBill}
+        onClose={() => setSelectedBillKey(null)}
+        hasReportWarning={hasWarning}
+      />
     </main>
   );
 }
@@ -547,52 +550,6 @@ function BriefDetails({
   );
 }
 
-function CompactTable({
-  headers,
-  rows,
-}: {
-  headers: string[];
-  rows: string[][];
-}) {
-  if (!rows.length) {
-    return <EmptyInline text="ไม่มีข้อมูลในตารางนี้" />;
-  }
-
-  return (
-    <div className="max-w-full overflow-x-auto">
-      <table className="w-full min-w-[720px] text-left text-sm">
-        <thead>
-          <tr className="border-b border-gray-100 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-            {headers.map((header) => (
-              <th key={header} className="px-3 py-2 font-medium">
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr
-              key={`${row.join("-")}-${rowIndex}`}
-              className="border-b border-gray-50 last:border-0 dark:border-gray-900"
-            >
-              {row.map((cell, index) => (
-                <td
-                  key={`${cell}-${index}`}
-                  className="max-w-[280px] truncate px-3 py-2 text-gray-700 dark:text-gray-300"
-                  title={cell}
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function StatusPill({
   tone,
   children,
@@ -619,6 +576,378 @@ function EmptyInline({ text }: { text: string }) {
       {text}
     </p>
   );
+}
+
+type BillPreview = {
+  key: string;
+  document: SalesHeaderRow;
+  lines: SalesDetailRow[];
+  detailTotal: number;
+  totalQty: number;
+  topItem: SalesDetailRow | null;
+  branchCode: string;
+  hasDifference: boolean;
+};
+
+function ExecutiveBillList({
+  bills,
+  totalDocuments,
+  onSelect,
+}: {
+  bills: BillPreview[];
+  totalDocuments: number;
+  onSelect: (bill: BillPreview) => void;
+}) {
+  if (!bills.length) {
+    return (
+      <EmptyInline text="ไม่มีบิลขายในช่วงวันที่นี้ หากร้านมีการขายจริงควรตรวจการปิดบิลใน SML" />
+    );
+  }
+
+  const visibleBills = bills.slice(0, 20);
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-col gap-1 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-600 dark:bg-white/[0.04] dark:text-gray-300 sm:flex-row sm:items-center sm:justify-between">
+        <span>
+          แสดง {formatInteger(visibleBills.length)} บิลแรกจาก{" "}
+          {formatInteger(totalDocuments)} บิลในรายงาน
+        </span>
+        <span className="font-medium text-gray-900 dark:text-white">
+          แตะบิลเพื่อดูสินค้าและยอดขาย
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {visibleBills.map((bill) => (
+          <button
+            key={bill.key}
+            type="button"
+            onClick={() => onSelect(bill)}
+            className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-left transition hover:border-brand-300 hover:bg-brand-50/40 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/50 dark:hover:bg-brand-500/10"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {bill.document.doc_no}
+                </p>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {formatThaiDate(bill.document.doc_date)}
+                  {bill.document.doc_time ? ` · ${formatTime(bill.document.doc_time)}` : ""}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {formatMoney(bill.document.total_amount)} บาท
+                </p>
+                <p className="mt-0.5 text-xs text-brand-600 dark:text-brand-400">
+                  ดูสินค้า
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-3">
+              <BillListMeta
+                label="ลูกค้า"
+                value={bill.document.cust_name || bill.document.cust_code || "ไม่ระบุลูกค้า"}
+              />
+              <BillListMeta
+                label="สินค้า"
+                value={
+                  bill.topItem?.item_name
+                    ? `${bill.topItem.item_name} ${bill.lines.length > 1 ? `+${bill.lines.length - 1}` : ""}`
+                    : `${formatInteger(bill.lines.length)} รายการ`
+                }
+              />
+              <BillListMeta
+                label="สาขา"
+                value={formatBranchLabel(bill.branchCode)}
+              />
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BillListMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <span className="block text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+        {label}
+      </span>
+      <span className="mt-0.5 block truncate font-medium text-gray-700 dark:text-gray-200">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function BillDetailDrawer({
+  bill,
+  onClose,
+  hasReportWarning,
+}: {
+  bill: BillPreview | null;
+  onClose: () => void;
+  hasReportWarning: boolean;
+}) {
+  useEffect(() => {
+    if (!bill) {
+      return;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [bill, onClose]);
+
+  if (!bill) {
+    return null;
+  }
+
+  const difference = bill.document.total_amount - bill.detailTotal;
+  const hasBillDifference = Math.abs(difference) > 0.01;
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] bg-gray-900/45 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`รายละเอียดบิล ${bill.document.doc_no}`}
+      onClick={onClose}
+    >
+      <div
+        className="fixed inset-x-0 bottom-0 max-h-[90vh] overflow-hidden rounded-t-2xl bg-white shadow-2xl dark:bg-gray-950 md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[560px] md:rounded-none"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex h-full flex-col">
+          <div className="border-b border-gray-200 px-4 py-4 dark:border-gray-800">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
+                  รายละเอียดบิลขาย
+                </p>
+                <h3 className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-white">
+                  {bill.document.doc_no}
+                </h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {formatThaiDate(bill.document.doc_date)}
+                  {bill.document.doc_time ? ` · ${formatTime(bill.document.doc_time)}` : ""} ·{" "}
+                  {bill.document.cust_name || bill.document.cust_code || "ไม่ระบุลูกค้า"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xl leading-none text-gray-500 transition hover:bg-gray-200 hover:text-gray-800 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/15"
+                aria-label="ปิดรายละเอียดบิล"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <BillMetric
+                label="ยอดตามบิล"
+                value={`${formatMoney(bill.document.total_amount)} บาท`}
+                emphasis
+              />
+              <BillMetric
+                label="รายการสินค้า"
+                value={`${formatInteger(bill.lines.length)} รายการ`}
+              />
+              <BillMetric label="จำนวนขายรวม" value={formatQty(bill.totalQty)} />
+              <BillMetric label="สาขา" value={formatBranchLabel(bill.branchCode)} />
+            </div>
+
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.04]">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                ข้อมูลบิล
+              </p>
+              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                <BillFact label="ลูกค้า" value={bill.document.cust_name || bill.document.cust_code || "-"} />
+                <BillFact label="แคชเชียร์" value={bill.document.cashier_code || "-"} />
+                <BillFact label="ยอดก่อนส่วนลด" value={`${formatMoney(bill.document.total_value)} บาท`} />
+                <BillFact label="ส่วนลดรวม" value={`${formatMoney(bill.document.total_discount)} บาท`} />
+                <BillFact label="VAT" value={`${formatMoney(bill.document.total_vat_value)} บาท`} />
+                <BillFact label="ยอดรายการสินค้า" value={`${formatMoney(bill.detailTotal)} บาท`} />
+              </dl>
+            </div>
+
+            {(hasReportWarning || hasBillDifference) && (
+              <p className="mt-3 rounded-lg bg-warning-50 px-3 py-2 text-sm leading-6 text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
+                ยอดตามบิลกับยอดรายการสินค้าอาจไม่เท่ากันจาก VAT ส่วนลด หรือโครงสร้างบิลของ SML
+                ระบบใช้ยอดตามบิลเป็นยอดขายหลัก
+                {hasBillDifference ? ` ส่วนต่างบิลนี้ ${formatMoney(difference)} บาท` : ""}
+              </p>
+            )}
+
+            <div className="mt-5">
+              <SectionTitle
+                title="สินค้าในบิลนี้"
+                caption="เรียงตามลำดับรายการจากระบบ SML"
+              />
+              <div className="mt-3 space-y-2">
+                {bill.lines.length ? (
+                  bill.lines.map((line, index) => (
+                    <BillLineItem
+                      key={`${bill.key}-${line.item_code}-${line.line_number ?? index}-${index}`}
+                      line={line}
+                      index={index + 1}
+                    />
+                  ))
+                ) : (
+                  <EmptyInline text="ไม่พบรายการสินค้าใน snapshot ของบิลนี้" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-950">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-lg bg-brand-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600"
+            >
+              กลับไปดูรายงาน
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillMetric({
+  label,
+  value,
+  emphasis,
+}: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p
+        className={`mt-1 truncate font-semibold ${
+          emphasis ? "text-lg text-gray-900 dark:text-white" : "text-gray-800 dark:text-white/90"
+        }`}
+        title={value}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function BillFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="mt-0.5 truncate font-medium text-gray-900 dark:text-white" title={value}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function BillLineItem({ line, index }: { line: SalesDetailRow; index: number }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-brand-500">รายการที่ {index}</p>
+          <p className="mt-1 line-clamp-2 text-sm font-semibold text-gray-900 dark:text-white">
+            {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {line.item_code || "-"}
+            {line.barcode ? ` · Barcode ${line.barcode}` : ""}
+          </p>
+        </div>
+        <p className="shrink-0 text-right text-sm font-semibold text-gray-900 dark:text-white">
+          {formatMoney(line.sum_amount)} บาท
+        </p>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs dark:bg-white/[0.04]">
+        <BillLineStat label="จำนวน" value={formatQty(line.qty)} />
+        <BillLineStat label="หน่วย" value={line.unit_name || line.unit_code || "-"} />
+        <BillLineStat label="ราคา" value={formatMoney(line.price)} />
+      </div>
+      {(line.discount || line.discount_amount > 0) && (
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          ส่วนลด {line.discount || "-"} · {formatMoney(line.discount_amount)} บาท
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BillLineStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-0.5 truncate font-semibold text-gray-900 dark:text-white" title={value}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function buildBillPreviews(snapshot: SalesGoodsServicesSnapshot): BillPreview[] {
+  const linesByDocument = new Map<string, SalesDetailRow[]>();
+
+  for (const line of snapshot.lines) {
+    const key = buildBillKey(line.doc_date, line.doc_no);
+    const existing = linesByDocument.get(key) ?? [];
+    existing.push(line);
+    linesByDocument.set(key, existing);
+  }
+
+  return snapshot.documents.map((document) => {
+    const key = buildBillKey(document.doc_date, document.doc_no);
+    const lines = linesByDocument.get(key) ?? [];
+    const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
+    const totalQty = lines.reduce((sum, line) => sum + line.qty, 0);
+    const topItem =
+      lines.length > 0
+        ? [...lines].sort((a, b) => b.sum_amount - a.sum_amount)[0] ?? null
+        : null;
+    const branchCode =
+      document.branch_code ||
+      lines.find((line) => line.branch_code)?.branch_code ||
+      "no_branch";
+
+    return {
+      key,
+      document,
+      lines,
+      detailTotal,
+      totalQty,
+      topItem,
+      branchCode,
+      hasDifference: Math.abs(document.total_amount - detailTotal) > 0.01,
+    };
+  });
+}
+
+function buildBillKey(docDate: string, docNo: string) {
+  return `${docDate}::${docNo}`;
 }
 
 function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
@@ -688,27 +1017,6 @@ function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
   return insights.slice(0, 3);
 }
 
-function mapDocumentRow(document: SalesHeaderRow) {
-  return [
-    document.doc_date,
-    document.doc_no,
-    document.cust_name || document.cust_code || "-",
-    document.branch_code || "ไม่ระบุสาขา",
-    `${formatMoney(document.total_amount)} บาท`,
-  ];
-}
-
-function mapLineRow(line: SalesDetailRow) {
-  return [
-    line.doc_date,
-    line.doc_no,
-    `${line.item_code || "-"} ${line.item_name || ""}`.trim(),
-    line.branch_code || "ไม่ระบุสาขา",
-    formatQty(line.qty),
-    `${formatMoney(line.sum_amount)} บาท`,
-  ];
-}
-
 function formatTenantName(tenantId: string) {
   if (tenantId === "tenant_demo_remote") {
     return "DEMO SHOP";
@@ -761,6 +1069,10 @@ function formatThaiDate(ymd: string) {
     month: "short",
     year: "numeric",
   }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function formatTime(value: string) {
+  return value.length >= 5 ? value.slice(0, 5) : value;
 }
 
 function formatDateTime(value: string) {
