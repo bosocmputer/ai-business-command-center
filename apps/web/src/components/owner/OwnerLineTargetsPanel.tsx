@@ -66,7 +66,7 @@ export function OwnerLineTargetsPanel({
             พร้อมส่ง {readyTargets.length}
           </Badge>
           <Badge color="info">
-            ประมาณ {formatEstimatedMonthlyMessages(quotaSummary)} / เดือน
+            Quota: {formatEstimatedMonthlyMessages(quotaSummary)}
           </Badge>
         </div>
       </div>
@@ -476,9 +476,9 @@ function formatEstimatedMonthlyMessages(summary: {
     if (knownMessages === 0) {
       return "รอระบุจำนวนผู้รับ";
     }
-    return `${knownMessages.toLocaleString("th-TH")}+ messages`;
+    return `${knownMessages.toLocaleString("th-TH")}+ messages/เดือน`;
   }
-  return `${knownMessages.toLocaleString("th-TH")} messages`;
+  return `${knownMessages.toLocaleString("th-TH")} messages/เดือน`;
 }
 
 function formatRecipientEstimate(target: LineTargetRecord) {
