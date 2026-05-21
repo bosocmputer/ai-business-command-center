@@ -662,6 +662,11 @@ function PremiumReportViewer({
   const totalPages = documentPage?.pagination.total_pages ?? 1;
   const isDetailedPrintReady = detailedPrintState.status === "ready";
   const showDetailedPrintScreen = isDetailedPrintReady && showDetailedPrintView;
+  const detailedPdfUrl = buildViewerPdfUrl({
+    viewer,
+    dateFrom: snapshot.params.date_from,
+    dateTo: snapshot.params.date_to,
+  });
 
   return (
     <main
@@ -705,18 +710,14 @@ function PremiumReportViewer({
               </p>
             </div>
             <div className="flex flex-wrap gap-2 print:hidden">
-              <button
+              <a
                 className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm transition hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={detailedPrintState.status === "loading"}
-                onClick={() => void prepareDetailedPrint()}
-                type="button"
+                href={detailedPdfUrl}
+                rel="noreferrer"
+                target="_blank"
               >
-                {detailedPrintState.status === "ready"
-                  ? "เปิดรายงานละเอียด"
-                  : detailedPrintState.status === "loading"
-                    ? "กำลังเตรียม PDF"
-                    : "พิมพ์/PDF แบบละเอียด"}
-              </button>
+                ดาวน์โหลด PDF
+              </a>
               <a
                 href="#documents"
                 className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
@@ -924,13 +925,6 @@ function PremiumReportViewer({
         </section>
       </div>
       </div>
-      <DetailedPrintReport
-        copy={copy}
-        onBack={() => setShowDetailedPrintView(false)}
-        onPrint={() => window.print()}
-        printState={detailedPrintState}
-        snapshot={snapshot}
-      />
     </main>
   );
 }
@@ -2766,6 +2760,22 @@ function toIsoDate(date: Date) {
 
 function isReportKey(value: string): value is ReportKey {
   return value === "sales_goods_services" || value === "purchase_goods_payables";
+}
+
+function buildViewerPdfUrl(input: {
+  viewer: ViewerParams;
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const params = new URLSearchParams({
+    token: input.viewer.token,
+    run_id: input.viewer.runId,
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+  });
+  return `${API_BASE_URL}/api/reports/${encodeURIComponent(
+    input.viewer.tenantId,
+  )}/${encodeURIComponent(input.viewer.reportKey)}/pdf?${params}`;
 }
 
 function truncateLabel(value: string) {

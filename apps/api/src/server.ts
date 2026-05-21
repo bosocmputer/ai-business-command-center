@@ -40,13 +40,22 @@ import {
 import {
   fetchSalesGoodsServicesDocumentDetail,
   fetchSalesGoodsServicesDocumentPage,
+  fetchSalesGoodsServicesPdfRows,
   fetchPurchaseGoodsPayablesDocumentDetail,
   fetchPurchaseGoodsPayablesDocumentPage,
+  fetchPurchaseGoodsPayablesPdfRows,
   runPurchaseGoodsPayablesReport,
   runSalesGoodsServicesReport,
   testDatasourceConnection,
   toSafeErrorMessage,
 } from "./report-runner.js";
+import {
+  buildReportPdf,
+  cleanupReportPdfCache,
+  closeReportPdfBrowser,
+  readCachedReportPdf,
+  validateReportPdfLimits,
+} from "./report-pdf-export.js";
 import {
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
@@ -87,6 +96,7 @@ const app = Fastify({
   logger: {
     level: "info",
     redact: [
+      "req.url",
       "req.headers.authorization",
       "req.headers.x-ai-bcc-admin-token",
       "*.password",
@@ -118,6 +128,9 @@ const systemStore = createSystemStore();
 await systemStore.initialize({
   tenants: listTenants(),
   reportDefinitions: reportDefinitionSeeds,
+});
+cleanupReportPdfCache().catch((error) => {
+  app.log.warn({ error }, "pdf cache cleanup failed");
 });
 
 app.get("/health", async () => ({
@@ -1999,6 +2012,161 @@ app.get(
 );
 
 app.get(
+  "/api/reports/:tenantId/:reportKey/pdf",
+  async (request, reply) => {
+    const access = await verifySignedViewerRequest({
+      params: request.params,
+      queryOrBody: request.query,
+      reply,
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const query = viewerPdfQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid PDF export request.",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const params = {
+      date_from: query.data.date_from,
+      date_to: query.data.date_to,
+    };
+    const rangeError = validateViewerReportRange(params);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const tenant = await getTenantOrNull(access.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+    const tenantAccess = tenantAccessStatus(tenant);
+    if (!tenantAccess.enabled) {
+      return reply.status(403).send({
+        error: tenantAccess.message,
+        tenant_status: tenant.status,
+      });
+    }
+
+    const snapshot = await systemStore.getSnapshotByRunId(
+      access.tenantId,
+      access.runId,
+      access.reportKey,
+    );
+    if (!snapshot) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+
+    const tenantSlug = getTenantSlug(access.tenantId);
+    const cachedPdf = await readCachedReportPdf({
+      tenantId: access.tenantId,
+      tenantSlug,
+      reportKey: access.reportKey,
+      runId: access.runId,
+      dateFrom: params.date_from,
+      dateTo: params.date_to,
+    });
+    if (cachedPdf) {
+      request.log.info(
+        {
+          tenant_id: access.tenantId,
+          report_key: access.reportKey,
+          run_id: access.runId,
+          date_from: params.date_from,
+          date_to: params.date_to,
+          cache_hit: true,
+        },
+        "signed viewer pdf export cache hit",
+      );
+      return reply
+        .header("content-type", "application/pdf")
+        .header(
+          "content-disposition",
+          `attachment; filename="${cachedPdf.filename}"`,
+        )
+        .header("cache-control", "private, max-age=604800")
+        .header("content-length", String(cachedPdf.pdf.length))
+        .send(cachedPdf.pdf);
+    }
+
+    const datasource = await resolveTenantDatasourceConfig(access.tenantId);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const rows =
+        access.reportKey === "purchase_goods_payables"
+          ? await fetchPurchaseGoodsPayablesPdfRows({
+              tenant_id: access.tenantId,
+              params,
+              datasource,
+            })
+          : await fetchSalesGoodsServicesPdfRows({
+              tenant_id: access.tenantId,
+              params,
+              datasource,
+            });
+      const limit = validateReportPdfLimits({
+        documentCount: rows.documents.length,
+        detailRowCount: rows.lines.length,
+      });
+      if (!limit.ok) {
+        return reply.status(limit.statusCode).send({ error: limit.error });
+      }
+
+      const pdf = await buildReportPdf({
+        tenantName: getTenantDefinition(access.tenantId)?.name,
+        tenantSlug,
+        snapshot,
+        rows,
+        tokenRunId: access.runId,
+        params,
+      });
+      request.log.info(
+        {
+          tenant_id: access.tenantId,
+          report_key: access.reportKey,
+          run_id: access.runId,
+          date_from: params.date_from,
+          date_to: params.date_to,
+          document_count: rows.documents.length,
+          detail_row_count: rows.lines.length,
+          cache_hit: pdf.cacheHit,
+        },
+        "signed viewer pdf export completed",
+      );
+
+      return reply
+        .header("content-type", "application/pdf")
+        .header("content-disposition", `attachment; filename="${pdf.filename}"`)
+        .header("cache-control", "private, max-age=604800")
+        .header("content-length", String(pdf.pdf.length))
+        .send(pdf.pdf);
+    } catch (error) {
+      request.log.error(
+        {
+          error,
+          tenant_id: access.tenantId,
+          report_key: access.reportKey,
+          run_id: access.runId,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        },
+        "signed viewer pdf export failed",
+      );
+      return reply.status(500).send({ error: toSafeErrorMessage(error) });
+    }
+  },
+);
+
+app.get(
   "/api/reports/:tenantId/sales_goods_services/runs",
   async (request, reply) => {
     const params = tenantParamsSchema.safeParse(request.params);
@@ -2886,6 +3054,7 @@ await app.listen({
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
+    await closeReportPdfBrowser();
     await systemStore.close();
     process.exit(0);
   });
@@ -3813,6 +3982,25 @@ const viewerDocumentsQuerySchema = viewerDocumentsBaseSchema.superRefine(
 const viewerDocumentDetailQuerySchema = viewerDocumentsBaseSchema
   .extend({
     doc_no: z.string().trim().min(1).max(120),
+  })
+  .superRefine((value, ctx) => {
+    const parsed = salesGoodsServicesParamsSchema.safeParse({
+      date_from: value.date_from,
+      date_to: value.date_to,
+    });
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid date range",
+        path: ["date_from"],
+      });
+    }
+  });
+
+const viewerPdfQuerySchema = signedViewerAuthSchema
+  .extend({
+    date_from: isoDateSchema,
+    date_to: isoDateSchema,
   })
   .superRefine((value, ctx) => {
     const parsed = salesGoodsServicesParamsSchema.safeParse({

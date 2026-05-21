@@ -17,6 +17,7 @@ import {
 import {
   getSmlBranchMeaning,
   type PurchaseGoodsPayablesSnapshot,
+  type ReportKey,
   type SalesDocumentDetail,
   type SalesDocumentListItem,
   type SalesDocumentPage,
@@ -43,6 +44,14 @@ export type DatasourceConnectionTestResult = {
     erp_branch_list: boolean;
   };
   safe_error_message: string | null;
+};
+
+export type ReportPdfRows = {
+  tenant_id: TenantId;
+  report_key: ReportKey;
+  params: SalesGoodsServicesParams;
+  documents: SalesHeaderRow[];
+  lines: SalesDetailRow[];
 };
 
 export async function runSalesGoodsServicesReport(input: {
@@ -220,6 +229,51 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
   }
 }
 
+export async function fetchSalesGoodsServicesPdfRows(input: {
+  tenant_id: TenantId;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+}): Promise<ReportPdfRows> {
+  const params = validateSalesGoodsServicesParams(input.params);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 30000,
+    query_timeout: 35000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 30000");
+      const headerQuery = buildSalesHeaderQuery(params);
+      const detailQuery = buildSalesDetailQuery(params);
+      const [headerResult, detailResult] = await Promise.all([
+        client.query<Record<string, unknown>>(headerQuery.text, headerQuery.values),
+        client.query<Record<string, unknown>>(detailQuery.text, detailQuery.values),
+      ]);
+
+      return {
+        tenant_id: input.tenant_id,
+        report_key: "sales_goods_services",
+        params,
+        documents: headerResult.rows.map(mapHeaderRow),
+        lines: detailResult.rows.map(mapDetailRow),
+      };
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
 export async function runPurchaseGoodsPayablesReport(input: {
   tenant_id: TenantId;
   run_id: string;
@@ -386,6 +440,51 @@ export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
           total_pages: Math.max(1, Math.ceil(totalItems / pageSize)),
           search: input.search?.trim() || null,
         },
+      };
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function fetchPurchaseGoodsPayablesPdfRows(input: {
+  tenant_id: TenantId;
+  params: SalesGoodsServicesParams;
+  datasource: DatasourceConfig;
+}): Promise<ReportPdfRows> {
+  const params = validatePurchaseGoodsPayablesParams(input.params);
+  const pool = new Pool({
+    host: input.datasource.host,
+    port: input.datasource.port,
+    database: input.datasource.database,
+    user: input.datasource.user,
+    password: input.datasource.password,
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 1000,
+    statement_timeout: 30000,
+    query_timeout: 35000,
+  });
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("set statement_timeout = 30000");
+      const headerQuery = buildPurchaseHeaderQuery(params);
+      const detailQuery = buildPurchaseDetailQuery(params);
+      const [headerResult, detailResult] = await Promise.all([
+        client.query<Record<string, unknown>>(headerQuery.text, headerQuery.values),
+        client.query<Record<string, unknown>>(detailQuery.text, detailQuery.values),
+      ]);
+
+      return {
+        tenant_id: input.tenant_id,
+        report_key: "purchase_goods_payables",
+        params,
+        documents: headerResult.rows.map(mapHeaderRow),
+        lines: detailResult.rows.map(mapDetailRow),
       };
     } finally {
       client.release();
