@@ -1692,10 +1692,161 @@ function DetailedPrintStyles() {
           border: 1px solid #e4e7ec;
           border-radius: 12px;
           box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+          color: #101828;
+          font-family: Arial, "Noto Sans Thai", "Tahoma", sans-serif;
+          font-size: 11px;
+          line-height: 1.45;
           margin: 0 auto;
           max-width: 1280px;
           min-width: 1100px;
           padding: 18px;
+        }
+
+        .detailed-print-screen-mode .print-report-header {
+          align-items: flex-start;
+          border-bottom: 1px solid #d0d5dd;
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          padding-bottom: 10px;
+        }
+
+        .detailed-print-screen-mode .print-report-header h1 {
+          color: #101828;
+          font-size: 22px;
+          font-weight: 700;
+          line-height: 1.25;
+          margin: 4px 0 0;
+        }
+
+        .detailed-print-screen-mode .print-eyebrow,
+        .detailed-print-screen-mode .print-subtitle,
+        .detailed-print-screen-mode .print-header-meta,
+        .detailed-print-screen-mode .print-footer,
+        .detailed-print-screen-mode .print-muted {
+          color: #667085;
+        }
+
+        .detailed-print-screen-mode .print-eyebrow {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0;
+          margin: 0;
+        }
+
+        .detailed-print-screen-mode .print-subtitle,
+        .detailed-print-screen-mode .print-header-meta p {
+          font-size: 11px;
+          margin: 3px 0 0;
+        }
+
+        .detailed-print-screen-mode .print-header-meta {
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        .detailed-print-screen-mode .print-summary-grid {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 8px;
+          margin: 12px 0;
+        }
+
+        .detailed-print-screen-mode .print-summary-item {
+          border: 1px solid #e4e7ec;
+          border-radius: 8px;
+          padding: 8px 10px;
+        }
+
+        .detailed-print-screen-mode .print-summary-item span {
+          color: #667085;
+          display: block;
+          font-size: 10px;
+        }
+
+        .detailed-print-screen-mode .print-summary-item strong {
+          color: #101828;
+          display: block;
+          font-size: 13px;
+          margin-top: 3px;
+        }
+
+        .detailed-print-screen-mode .print-warning {
+          background: #fffaeb;
+          border: 1px solid #fedf89;
+          border-radius: 8px;
+          color: #93370d;
+          margin: 0 0 10px;
+          padding: 8px 10px;
+        }
+
+        .detailed-print-screen-mode .print-document-table,
+        .detailed-print-screen-mode .print-line-table {
+          border-collapse: collapse;
+          table-layout: fixed;
+          width: 100%;
+        }
+
+        .detailed-print-screen-mode .print-document-table th,
+        .detailed-print-screen-mode .print-document-table td,
+        .detailed-print-screen-mode .print-line-table th,
+        .detailed-print-screen-mode .print-line-table td {
+          border: 1px solid #d0d5dd;
+          padding: 5px 6px;
+          text-align: left;
+          vertical-align: top;
+          word-break: break-word;
+        }
+
+        .detailed-print-screen-mode .print-document-table th,
+        .detailed-print-screen-mode .print-line-table th {
+          background: #f2f4f7;
+          color: #344054;
+          font-size: 10px;
+          font-weight: 700;
+        }
+
+        .detailed-print-screen-mode .print-document-row {
+          background: #f9fafb;
+        }
+
+        .detailed-print-screen-mode .print-document-row strong,
+        .detailed-print-screen-mode .print-muted {
+          display: block;
+        }
+
+        .detailed-print-screen-mode .print-muted {
+          font-size: 9px;
+          margin-top: 2px;
+        }
+
+        .detailed-print-screen-mode .print-detail-row > td {
+          background: #ffffff;
+          padding: 0;
+        }
+
+        .detailed-print-screen-mode .print-line-table th,
+        .detailed-print-screen-mode .print-line-table td {
+          border-left: 0;
+          border-right: 1px solid #e4e7ec;
+        }
+
+        .detailed-print-screen-mode .numeric {
+          text-align: right !important;
+          white-space: nowrap;
+        }
+
+        .detailed-print-screen-mode .print-detail-error,
+        .detailed-print-screen-mode .print-empty-line {
+          color: #b42318;
+          padding: 8px 10px;
+        }
+
+        .detailed-print-screen-mode .print-footer {
+          border-top: 1px solid #d0d5dd;
+          font-size: 10px;
+          margin-top: 10px;
+          padding-top: 8px;
         }
       }
 
