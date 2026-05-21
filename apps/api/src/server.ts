@@ -1522,13 +1522,19 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     });
   }
 
-  const permission = canAccessLineReport({
+  const salesPermission = canAccessLineReport({
     tenantId: target.tenant_id,
     target,
     reportKey: "sales_goods_services",
     action: "receive_morning_brief",
   });
-  if (!permission.allowed) {
+  const purchasePermission = canAccessLineReport({
+    tenantId: target.tenant_id,
+    target,
+    reportKey: "purchase_goods_payables",
+    action: "receive_morning_brief",
+  });
+  if (!salesPermission.allowed && !purchasePermission.allowed) {
     await systemStore.appendAuditLog({
       tenant_id: target.tenant_id,
       actor_id: null,
@@ -1536,37 +1542,75 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
       target_type: "line_target",
       target_id: target.id,
       metadata_json: {
-        report_key: "sales_goods_services",
-        reason: permission.reason,
+        report_keys: ["sales_goods_services", "purchase_goods_payables"],
+        reason: salesPermission.reason,
         target_id_masked: target.target_id_masked,
       },
     });
     return reply.status(403).send({
-      error: permission.message,
-      reason: permission.reason,
+      error: salesPermission.message,
+      reason: salesPermission.reason,
     });
   }
 
-    const snapshot = await systemStore.getLatestSnapshot(
-      target.tenant_id,
-      "sales_goods_services",
-    );
-    if (!snapshot || snapshot.report_key !== "sales_goods_services") {
-      return reply.status(404).send({ error: "Snapshot not found" });
-    }
+  const [salesSnapshot, purchaseSnapshot] = await Promise.all([
+    salesPermission.allowed
+      ? systemStore.getLatestSnapshot(
+          target.tenant_id,
+          "sales_goods_services",
+        )
+      : Promise.resolve(null),
+    purchasePermission.allowed
+      ? systemStore.getLatestSnapshot(
+          target.tenant_id,
+          "purchase_goods_payables",
+        )
+      : Promise.resolve(null),
+  ]);
 
-  const openViewerPermission = canAccessLineReport({
+  if (
+    (!salesSnapshot || salesSnapshot.report_key !== "sales_goods_services") &&
+    (!purchaseSnapshot ||
+      purchaseSnapshot.report_key !== "purchase_goods_payables")
+  ) {
+    return reply.status(404).send({ error: "Snapshot not found" });
+  }
+
+  const openSalesViewerPermission = canAccessLineReport({
     tenantId: target.tenant_id,
     target,
     reportKey: "sales_goods_services",
     action: "open_signed_viewer",
   });
-  const preview = renderSalesGoodsServicesLinePreview({
-    snapshot,
-    dashboardUrl: openViewerPermission.allowed
-      ? buildReportViewerUrl(snapshot)
-      : null,
-    tenantName: getTenantDefinition(target.tenant_id)?.name,
+  const salesPreview =
+    salesSnapshot?.report_key === "sales_goods_services"
+      ? renderSalesGoodsServicesLinePreview({
+          snapshot: salesSnapshot,
+          dashboardUrl: openSalesViewerPermission.allowed
+            ? buildReportViewerUrl(salesSnapshot)
+            : null,
+          tenantName: getTenantDefinition(target.tenant_id)?.name,
+        })
+      : null;
+  const openPurchaseViewerPermission = canAccessLineReport({
+    tenantId: target.tenant_id,
+    target,
+    reportKey: "purchase_goods_payables",
+    action: "open_signed_viewer",
+  });
+  const purchasePreview =
+    purchaseSnapshot?.report_key === "purchase_goods_payables"
+      ? renderPurchaseGoodsPayablesLinePreview({
+          snapshot: purchaseSnapshot,
+          dashboardUrl: openPurchaseViewerPermission.allowed
+            ? buildReportViewerUrl(purchaseSnapshot)
+            : null,
+          tenantName: getTenantDefinition(target.tenant_id)?.name,
+        })
+      : null;
+  const preview = buildMorningBriefCarouselPreview({
+    salesPreview,
+    purchasePreview,
   });
   const lineConfig = await buildLineChannelConfigForTarget(target);
   const delivery = await sendLineBrief({
@@ -1592,8 +1636,14 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     target_type: "line_target",
     target_id: target.id,
     metadata_json: {
-      report_key: "sales_goods_services",
-      report_run_id: snapshot.run_id,
+      report_keys: [
+        salesPreview ? "sales_goods_services" : null,
+        purchasePreview ? "purchase_goods_payables" : null,
+      ].filter(Boolean),
+      report_run_ids: [
+        salesSnapshot?.run_id ?? null,
+        purchaseSnapshot?.run_id ?? null,
+      ].filter(Boolean),
       status: delivery.status,
       target_id_masked: delivery.target_id_masked,
       safe_error_message: delivery.safe_error_message,
