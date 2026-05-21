@@ -1,26 +1,45 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import type { ApexOptions } from "apexcharts";
 import {
   formatSmlBranchLabel,
   type BranchSales,
-  type PurchaseGoodsPayablesSnapshot,
   type ReportKey,
   type ReportSnapshot,
-  type SalesComparisonPoint,
   type SalesDetailRow,
-  type SalesGoodsServicesSnapshot,
-  type SalesHeaderRow,
+  type SalesDocumentDetail,
+  type SalesDocumentListItem,
+  type SalesDocumentPage,
   type TopProduct,
+  type TopSupplier,
 } from "@ai-bcc/shared";
 import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
+const ReactApexChart = dynamic(() => import("react-apexcharts"), {
+  ssr: false,
+});
 
 type SnapshotResponse = {
   data?: ReportSnapshot;
+  error?: string;
+};
+
+type ViewerRunResponse = {
+  data?: ReportSnapshot;
+  error?: string;
+};
+
+type DocumentPageResponse = {
+  data?: SalesDocumentPage;
+  error?: string;
+};
+
+type DocumentDetailResponse = {
+  data?: SalesDocumentDetail;
   error?: string;
 };
 
@@ -29,17 +48,99 @@ type LoadState =
   | { status: "ready"; snapshot: ReportSnapshot }
   | { status: "error"; message: string };
 
+type DocumentsState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; page: SalesDocumentPage }
+  | { status: "error"; message: string };
+
+type DetailState =
+  | { status: "idle" }
+  | { status: "loading"; docNo: string }
+  | { status: "ready"; detail: SalesDocumentDetail }
+  | { status: "error"; docNo: string; message: string };
+
+type ViewerParams = {
+  tenantId: string;
+  reportKey: ReportKey;
+  runId: string;
+  token: string;
+};
+
+type ReportCopy = {
+  title: string;
+  shortTitle: string;
+  totalLabel: string;
+  documentLabel: string;
+  lineLabel: string;
+  qtyLabel: string;
+  detailsTitle: string;
+  searchPlaceholder: string;
+  documentColumn: string;
+  partyColumn: string;
+  amountColumn: string;
+  itemSectionTitle: string;
+  partyLabel: string;
+  amountDetailLabel: string;
+  primaryChartTitle: string;
+  primaryChartCaption: string;
+  secondaryChartTitle: string;
+  secondaryChartCaption: string;
+  emptyDocuments: string;
+};
+
+const reportCopy: Record<ReportKey, ReportCopy> = {
+  sales_goods_services: {
+    title: "รายงานขายสินค้าและบริการ",
+    shortTitle: "รายงานขาย",
+    totalLabel: "ยอดขายสุทธิ",
+    documentLabel: "บิลขาย",
+    lineLabel: "รายการขาย",
+    qtyLabel: "จำนวนขายรวม",
+    detailsTitle: "รายละเอียดบิลขาย",
+    searchPlaceholder: "ค้นหาเลขบิล ลูกค้า สาขา หรือยอดขาย",
+    documentColumn: "บิลขาย",
+    partyColumn: "ลูกค้า",
+    amountColumn: "ยอดขายบิลนี้",
+    itemSectionTitle: "สินค้าในบิลนี้",
+    partyLabel: "ลูกค้า",
+    amountDetailLabel: "ยอดขายบิลนี้",
+    primaryChartTitle: "ยอดขายตามสาขา",
+    primaryChartCaption: "ดูว่าสาขาไหนเป็นตัวขับยอดหลัก",
+    secondaryChartTitle: "สินค้าขายดี",
+    secondaryChartCaption: "สินค้าที่สร้างยอดขายสูงสุด",
+    emptyDocuments: "ไม่มีบิลขายในช่วงวันที่นี้",
+  },
+  purchase_goods_payables: {
+    title: "รายงานซื้อสินค้า/ตั้งหนี้",
+    shortTitle: "รายงานซื้อ",
+    totalLabel: "ยอดซื้อ/ตั้งหนี้",
+    documentLabel: "เอกสารซื้อ",
+    lineLabel: "รายการสินค้า",
+    qtyLabel: "จำนวนซื้อรวม",
+    detailsTitle: "รายละเอียดเอกสารซื้อ",
+    searchPlaceholder: "ค้นหาเลขเอกสาร ผู้จำหน่าย สาขา หรือยอดซื้อ",
+    documentColumn: "เอกสารซื้อ",
+    partyColumn: "ผู้จำหน่าย",
+    amountColumn: "ยอดซื้อเอกสารนี้",
+    itemSectionTitle: "สินค้าในเอกสารนี้",
+    partyLabel: "ผู้จำหน่าย",
+    amountDetailLabel: "ยอดซื้อเอกสารนี้",
+    primaryChartTitle: "ผู้จำหน่ายหลัก",
+    primaryChartCaption: "ดูว่ายอดซื้อมาจากผู้จำหน่ายใดเป็นหลัก",
+    secondaryChartTitle: "สินค้าที่ซื้อสูงสุด",
+    secondaryChartCaption: "สินค้าที่รับเข้าหรือมีมูลค่าซื้อสูงสุด",
+    emptyDocuments: "ไม่มีเอกสารซื้อ/ตั้งหนี้ในช่วงวันที่นี้",
+  },
+};
+
 export function CommandCenterBriefFallback() {
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-4 text-gray-800 dark:bg-gray-950 dark:text-gray-100">
-      <div className="mx-auto max-w-6xl space-y-3">
-        <div className="h-16 animate-pulse rounded-lg bg-white dark:bg-white/[0.04]" />
+    <main className="min-h-screen bg-[#f5f7fb] px-4 py-4 text-gray-800">
+      <div className="mx-auto max-w-7xl space-y-4">
+        <div className="h-28 animate-pulse rounded-2xl bg-white" />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className="h-24 animate-pulse rounded-lg bg-white dark:bg-white/[0.04]"
-            />
+            <div key={item} className="h-24 animate-pulse rounded-2xl bg-white" />
           ))}
         </div>
       </div>
@@ -57,7 +158,7 @@ export default function CommandCenterBriefViewer() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   useEffect(() => {
-    if (!tenantId || !runId || !token) {
+    if (!tenantId || !runId || !token || !isReportKey(reportKey)) {
       setState({
         status: "error",
         message: "ลิงก์รายงานไม่ครบถ้วน กรุณาเปิดจากข้อความ LINE ล่าสุดอีกครั้ง",
@@ -68,6 +169,7 @@ export default function CommandCenterBriefViewer() {
     const safeTenantId = tenantId;
     const safeRunId = runId;
     const safeToken = token;
+    const safeReportKey = reportKey;
     const controller = new AbortController();
     async function loadSnapshot() {
       setState({ status: "loading" });
@@ -75,7 +177,7 @@ export default function CommandCenterBriefViewer() {
         const response = await fetch(
           `${API_BASE_URL}/api/reports/${encodeURIComponent(
             safeTenantId,
-          )}/${encodeURIComponent(reportKey)}/snapshots/${encodeURIComponent(
+          )}/${encodeURIComponent(safeReportKey)}/snapshots/${encodeURIComponent(
             safeRunId,
           )}?token=${encodeURIComponent(safeToken)}`,
           { signal: controller.signal },
@@ -111,428 +213,847 @@ export default function CommandCenterBriefViewer() {
     return <BriefErrorState message={state.message} />;
   }
 
-  if (state.snapshot.report_key === "purchase_goods_payables") {
-    return <PurchaseBriefReport snapshot={state.snapshot} />;
-  }
-
-  return <BriefReport snapshot={state.snapshot} />;
+  return (
+    <PremiumReportViewer
+      initialSnapshot={state.snapshot}
+      viewer={{
+        tenantId: tenantId!,
+        reportKey: state.snapshot.report_key,
+        runId: runId!,
+        token: token!,
+      }}
+    />
+  );
 }
 
-function BriefReport({ snapshot }: { snapshot: SalesGoodsServicesSnapshot }) {
-  const [selectedBillKey, setSelectedBillKey] = useState<string | null>(null);
-  const insights = useMemo(() => buildInsights(snapshot), [snapshot]);
-  const billPreviews = useMemo(() => buildBillPreviews(snapshot), [snapshot]);
-  const selectedBill = selectedBillKey
-    ? billPreviews.find((bill) => bill.key === selectedBillKey) ?? null
-    : null;
-  const topBranchTotal = snapshot.branch_sales[0]?.total_amount ?? 0;
-  const maxProductTotal = snapshot.top_products[0]?.sum_amount ?? 0;
+function PremiumReportViewer({
+  initialSnapshot,
+  viewer,
+}: {
+  initialSnapshot: ReportSnapshot;
+  viewer: ViewerParams;
+}) {
+  const [snapshot, setSnapshot] = useState<ReportSnapshot>(initialSnapshot);
+  const [dateFrom, setDateFrom] = useState(initialSnapshot.params.date_from);
+  const [dateTo, setDateTo] = useState(initialSnapshot.params.date_to);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [documentsState, setDocumentsState] = useState<DocumentsState>({
+    status: "idle",
+  });
+  const [detailState, setDetailState] = useState<DetailState>({
+    status: "idle",
+  });
+  const [expandedDocNo, setExpandedDocNo] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState("");
+
+  const copy = reportCopy[snapshot.report_key];
+  const totalAmount = getSnapshotTotal(snapshot);
+  const topItem = snapshot.top_products[0] ?? null;
+  const primaryRanking = getPrimaryRanking(snapshot);
+  const generatedAt = formatDateTime(snapshot.generated_at);
   const hasWarning =
     snapshot.quality_status === "reconciled_with_warning" ||
     Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
 
+  const runRange = useCallback(
+    async (nextDateFrom = dateFrom, nextDateTo = dateTo) => {
+      setRangeLoading(true);
+      setRangeError(null);
+      setExpandedDocNo(null);
+      setDetailState({ status: "idle" });
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/reports/${encodeURIComponent(
+            viewer.tenantId,
+          )}/${encodeURIComponent(viewer.reportKey)}/viewer-run`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              token: viewer.token,
+              run_id: viewer.runId,
+              date_from: nextDateFrom,
+              date_to: nextDateTo,
+            }),
+          },
+        );
+        const payload = (await response.json()) as ViewerRunResponse;
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "โหลดรายงานไม่สำเร็จ");
+        }
+        setSnapshot(payload.data);
+        setDateFrom(payload.data.params.date_from);
+        setDateTo(payload.data.params.date_to);
+        setPage(1);
+        setSubmittedSearch("");
+        setSearch("");
+      } catch (error) {
+        setRangeError(
+          error instanceof Error
+            ? error.message
+            : "โหลดรายงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+        );
+      } finally {
+        setRangeLoading(false);
+      }
+    },
+    [dateFrom, dateTo, viewer],
+  );
+
+  const loadDocuments = useCallback(
+    async (nextPage = page, nextSearch = submittedSearch) => {
+      setDocumentsState({ status: "loading" });
+      try {
+        const params = new URLSearchParams({
+          token: viewer.token,
+          run_id: viewer.runId,
+          date_from: snapshot.params.date_from,
+          date_to: snapshot.params.date_to,
+          page: String(nextPage),
+          page_size: "10",
+          search: nextSearch,
+        });
+        const response = await fetch(
+          `${API_BASE_URL}/api/reports/${encodeURIComponent(
+            viewer.tenantId,
+          )}/${encodeURIComponent(viewer.reportKey)}/viewer-documents?${params}`,
+        );
+        const payload = (await response.json()) as DocumentPageResponse;
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "โหลดรายการเอกสารไม่สำเร็จ");
+        }
+        setDocumentsState({ status: "ready", page: payload.data });
+      } catch (error) {
+        setDocumentsState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดรายการเอกสารไม่สำเร็จ",
+        });
+      }
+    },
+    [
+      page,
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+      submittedSearch,
+      viewer,
+    ],
+  );
+
+  useEffect(() => {
+    void loadDocuments(page, submittedSearch);
+  }, [loadDocuments, page, submittedSearch]);
+
+  async function loadDetail(document: SalesDocumentListItem) {
+    if (expandedDocNo === document.doc_no) {
+      setExpandedDocNo(null);
+      setDetailState({ status: "idle" });
+      return;
+    }
+
+    setExpandedDocNo(document.doc_no);
+    setDetailState({ status: "loading", docNo: document.doc_no });
+    try {
+      const params = new URLSearchParams({
+        token: viewer.token,
+        run_id: viewer.runId,
+        date_from: snapshot.params.date_from,
+        date_to: snapshot.params.date_to,
+        doc_no: document.doc_no,
+      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/reports/${encodeURIComponent(
+          viewer.tenantId,
+        )}/${encodeURIComponent(viewer.reportKey)}/viewer-document-detail?${params}`,
+      );
+      const payload = (await response.json()) as DocumentDetailResponse;
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "โหลดรายละเอียดไม่สำเร็จ");
+      }
+      setDetailState({ status: "ready", detail: payload.data });
+    } catch (error) {
+      setDetailState({
+        status: "error",
+        docNo: document.doc_no,
+        message:
+          error instanceof Error
+            ? error.message
+            : "โหลดรายละเอียดไม่สำเร็จ กรุณาลองใหม่",
+      });
+    }
+  }
+
+  function applyPreset(preset: "yesterday" | "month" | "quarter" | "year") {
+    const range = buildPresetRange(preset);
+    setDateFrom(range.date_from);
+    setDateTo(range.date_to);
+    void runRange(range.date_from, range.date_to);
+  }
+
+  const documentPage =
+    documentsState.status === "ready" ? documentsState.page : null;
+  const documents = documentPage?.documents ?? [];
+  const totalPages = documentPage?.pagination.total_pages ?? 1;
+
   return (
-    <main className="min-h-screen bg-gray-50 text-gray-800 dark:bg-gray-950 dark:text-gray-100">
-      <div className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-              AI Business Center
-            </p>
-            <h1 className="mt-1 truncate text-xl font-semibold text-gray-900 dark:text-white">
-              รายงานขายสินค้าและบริการ
-            </h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {formatTenantName(snapshot.tenant_id)} · วันที่ข้อมูล{" "}
-              {formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <StatusPill tone={hasWarning ? "warning" : "success"}>
-              {formatTrustStatus(snapshot)}
-            </StatusPill>
-            <StatusPill tone={snapshot.source === "sml_postgres" ? "success" : "warning"}>
-              {formatSource(snapshot.source)}
-            </StatusPill>
-            <StatusPill tone="neutral">
-              อัปเดต {formatDateTime(snapshot.generated_at)}
-            </StatusPill>
+    <main className="min-h-screen bg-[#f4f6fb] text-slate-900">
+      <div className="border-b border-white/60 bg-[radial-gradient(circle_at_top_left,#e8efff,transparent_35%),linear-gradient(135deg,#071022,#172554_48%,#0f766e)] text-white">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:py-7">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-cyan-100">
+                <span>AI Business Executive Viewer</span>
+                <span className="rounded-full bg-white/12 px-2 py-1 text-white/90">
+                  {formatSource(snapshot.source)}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-1 ${
+                    hasWarning
+                      ? "bg-amber-300/20 text-amber-100"
+                      : "bg-emerald-300/20 text-emerald-100"
+                  }`}
+                >
+                  {hasWarning ? "ควรตรวจยอด" : "พร้อมใช้"}
+                </span>
+              </div>
+              <h1 className="mt-3 text-2xl font-semibold tracking-normal sm:text-3xl">
+                {copy.title}
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-slate-200">
+                {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+                {formatReportPeriod(
+                  snapshot.params.date_from,
+                  snapshot.params.date_to,
+                )}{" "}
+                · อัปเดต {generatedAt}
+              </p>
+            </div>
             <a
-              href="#sales-details"
-              className="rounded-full bg-brand-500 px-3 py-1 font-medium text-white transition hover:bg-brand-600"
+              href="#documents"
+              className="inline-flex h-11 w-fit items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-950/20 transition hover:bg-cyan-50"
             >
-              ดูรายละเอียดบิล/สินค้า
+              ดูรายละเอียดเอกสาร
             </a>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <PremiumKpi
+              label={copy.totalLabel}
+              value={`${formatMoney(totalAmount)} บาท`}
+              emphasis
+            />
+            <PremiumKpi
+              label={copy.documentLabel}
+              value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
+            />
+            <PremiumKpi
+              label={copy.lineLabel}
+              value={`${formatInteger(snapshot.summary.line_count)} รายการ`}
+            />
+            <PremiumKpi
+              label={copy.qtyLabel}
+              value={formatQty(snapshot.summary.total_qty)}
+            />
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl space-y-4 px-4 py-4 md:px-6">
-        <section aria-label="ภาพรวม" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiBlock
-            label="ยอดขายสุทธิ"
-            value={`${formatMoney(snapshot.summary.total_sales)} บาท`}
-            emphasis
-          />
-          <KpiBlock
-            label="บิลขาย"
-            value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
-          />
-          <KpiBlock
-            label="จำนวนรายการขาย"
-            value={`${formatInteger(snapshot.summary.line_count)} รายการ`}
-          />
-          <KpiBlock
-            label="จำนวนขายรวม"
-            value={formatQty(snapshot.summary.total_qty)}
-          />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-          <SectionTitle
-            title="วันนี้ควรรู้อะไร"
-            caption="แปลยอดขายเมื่อวานเป็นภาษาธุรกิจสำหรับตัดสินใจเร็ว"
-          />
-          <div className="mt-3 grid gap-2 lg:grid-cols-3">
-            {insights.map((insight, index) => (
-              <InsightItem key={insight.title} index={index + 1} {...insight} />
-            ))}
+      <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+        <section className="rounded-2xl border border-white bg-white/90 p-3 shadow-sm shadow-slate-200/80 backdrop-blur sm:p-4">
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                เลือกช่วงรายงาน
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <PresetButton label="เมื่อวาน" onClick={() => applyPreset("yesterday")} />
+                <PresetButton label="เดือนนี้" onClick={() => applyPreset("month")} />
+                <PresetButton label="ไตรมาสนี้" onClick={() => applyPreset("quarter")} />
+                <PresetButton label="ปีนี้" onClick={() => applyPreset("year")} />
+              </div>
+            </div>
+            <form
+              className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runRange();
+              }}
+            >
+              <DateInput label="จากวันที่" value={dateFrom} onChange={setDateFrom} />
+              <DateInput label="ถึงวันที่" value={dateTo} onChange={setDateTo} />
+              <button
+                className="h-11 rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
+                disabled={rangeLoading}
+                type="submit"
+              >
+                {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
+              </button>
+            </form>
           </div>
+          {rangeError && (
+            <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {rangeError}
+            </p>
+          )}
         </section>
 
-        {snapshot.comparison && (
-          <section className="grid gap-3 md:grid-cols-2">
-            <ComparisonCard
-              title="เทียบกับวันก่อนหน้า"
-              point={snapshot.comparison.previous_day}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <div className="space-y-4">
+            <ExecutiveInsights
+              copy={copy}
+              snapshot={snapshot}
+              topItem={topItem}
+              primaryRanking={primaryRanking}
+              hasWarning={hasWarning}
             />
-            <ComparisonCard
-              title="เทียบกับวันเดียวกันสัปดาห์ก่อน"
-              point={snapshot.comparison.same_weekday_last_week}
-            />
-          </section>
-        )}
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <SectionTitle
-              title="ยอดขายตามสาขา"
-              caption="เรียงจากยอดขายสูงสุด ถ้าขึ้นสาขาเดียวทั้งหมดอาจเป็นร้านสาขาเดียวหรือยังไม่ได้ตั้งค่า branch"
-            />
-            <div className="mt-4 space-y-3">
-              {snapshot.branch_sales.slice(0, 6).map((branch) => (
-                <BranchRow
-                  key={branch.branch_code}
-                  branch={branch}
-                  maxTotal={topBranchTotal}
-                />
-              ))}
-              {!snapshot.branch_sales.length && (
-                <EmptyInline text="ไม่มีข้อมูลสาขาในช่วงวันที่นี้" />
-              )}
-            </div>
-          </section>
+            <section className="grid gap-4 lg:grid-cols-2">
+              <ChartPanel
+                title={copy.primaryChartTitle}
+                caption={copy.primaryChartCaption}
+                color="#2563eb"
+                data={primaryRanking.map((item) => ({
+                  label: item.label,
+                  value: item.value,
+                }))}
+              />
+              <ChartPanel
+                title={copy.secondaryChartTitle}
+                caption={copy.secondaryChartCaption}
+                color="#10b981"
+                data={snapshot.top_products.slice(0, 6).map((item) => ({
+                  label: item.item_name,
+                  value: item.sum_amount,
+                }))}
+              />
+            </section>
+          </div>
 
-          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <SectionTitle
-              title="สินค้าขายดี"
-              caption="สินค้าที่สร้างยอดขายมากสุดจากรายการขาย"
-            />
-            <div className="mt-4 space-y-3">
-              {snapshot.top_products.slice(0, 6).map((product) => (
-                <ProductRow
-                  key={`${product.item_code}-${product.item_name}`}
-                  product={product}
-                  maxTotal={maxProductTotal}
-                />
-              ))}
-              {!snapshot.top_products.length && (
-                <EmptyInline text="ไม่มีสินค้าในช่วงวันที่นี้" />
-              )}
-            </div>
-          </section>
+          <aside className="space-y-4">
+            <ComparisonPanel snapshot={snapshot} />
+            <TrustPanel snapshot={snapshot} />
+          </aside>
         </div>
 
         <section
-          id="sales-details"
-          className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
+          id="documents"
+          className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/80 sm:p-4"
         >
-          <SectionTitle
-            title="รายละเอียดบิลขาย"
-            caption="กดเลือกบิลเพื่อดูสินค้าในบิลแบบอ่านง่าย เหมาะกับการเปิดจาก LINE บนมือถือ"
-          />
-          {hasWarning && (
-            <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
-              หมายเหตุ: ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount
-              เป็นยอดขายหลัก
-            </p>
-          )}
-          <div className="mt-4 space-y-3">
-            <ExecutiveBillList
-              bills={billPreviews}
-              totalDocuments={snapshot.summary.document_count}
-              onSelect={(bill) => setSelectedBillKey(bill.key)}
-            />
-            <BriefDetails
-              title="ข้อมูลเทคนิค/ที่มา"
-              count={4}
-              caption="เปิดเฉพาะเมื่อต้อง trace รอบรันหรือเช็คความถูกต้องของยอด"
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                Drilldown
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                {copy.detailsTitle}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                กดเอกสารเพื่อดูสินค้าและยอดที่ประกอบขึ้นมาในเอกสารนั้น
+                รายการโหลดจาก SML เฉพาะตอนเปิดดู
+              </p>
+            </div>
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setPage(1);
+                setSubmittedSearch(search);
+              }}
             >
-              <div className="grid gap-3 text-sm md:grid-cols-4">
-                <Fact label="เลขอ้างอิง" value={snapshot.run_id} />
-                <Fact label="ช่วงวันที่" value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)} />
-                <Fact label="ยอดหัวบิล" value={`${formatMoney(snapshot.reconciliation.header_total_amount)} บาท`} />
-                <Fact label="ส่วนต่าง" value={`${formatMoney(snapshot.reconciliation.difference_amount)} บาท`} />
-              </div>
-            </BriefDetails>
-          </div>
-        </section>
-      </div>
-      <BillDetailDrawer
-        bill={selectedBill}
-        onClose={() => setSelectedBillKey(null)}
-        hasReportWarning={hasWarning}
-      />
-    </main>
-  );
-}
-
-function PurchaseBriefReport({
-  snapshot,
-}: {
-  snapshot: PurchaseGoodsPayablesSnapshot;
-}) {
-  const topSupplier = snapshot.top_suppliers[0] ?? null;
-  const topProduct = snapshot.top_products[0] ?? null;
-  const maxSupplierTotal = topSupplier?.total_amount ?? 0;
-  const maxProductTotal = topProduct?.sum_amount ?? 0;
-  const hasWarning =
-    snapshot.quality_status === "reconciled_with_warning" ||
-    Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
-
-  return (
-    <main className="min-h-screen bg-gray-50 text-gray-800 dark:bg-gray-950 dark:text-gray-100">
-      <div className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-              AI Business Center
-            </p>
-            <h1 className="mt-1 truncate text-xl font-semibold text-gray-900 dark:text-white">
-              รายงานซื้อ/ตั้งหนี้
-            </h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
-              {formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <StatusPill tone={hasWarning ? "warning" : "success"}>
-              {formatPurchaseTrustStatus(snapshot)}
-            </StatusPill>
-            <StatusPill tone={snapshot.source === "sml_postgres" ? "success" : "warning"}>
-              {snapshot.source === "sml_postgres" ? "ข้อมูลจากระบบซื้อ SML" : "ข้อมูลตัวอย่าง"}
-            </StatusPill>
-            <StatusPill tone="neutral">
-              อัปเดต {formatDateTime(snapshot.generated_at)}
-            </StatusPill>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-6xl space-y-4 px-4 py-4 md:px-6">
-        <section aria-label="ภาพรวม" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiBlock
-            label="ยอดซื้อ/ตั้งหนี้"
-            value={`${formatMoney(snapshot.summary.total_purchase)} บาท`}
-            emphasis
-          />
-          <KpiBlock
-            label="เอกสารซื้อ"
-            value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
-          />
-          <KpiBlock
-            label="รายการสินค้า"
-            value={`${formatInteger(snapshot.summary.line_count)} รายการ`}
-          />
-          <KpiBlock
-            label="จำนวนซื้อรวม"
-            value={formatQty(snapshot.summary.total_qty)}
-          />
-        </section>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-          <SectionTitle
-            title="วันนี้ควรรู้อะไร"
-            caption="สรุปยอดซื้อ ผู้จำหน่าย และสินค้าที่รับเข้ามากที่สุด"
-          />
-          <div className="mt-3 grid gap-2 lg:grid-cols-3">
-            <InsightItem
-              index={1}
-              title={
-                snapshot.summary.document_count
-                  ? "มีเอกสารซื้อในช่วงนี้"
-                  : "ยังไม่พบเอกสารซื้อ"
-              }
-              body={
-                snapshot.summary.document_count
-                  ? `ยอดซื้อ/ตั้งหนี้ ${formatMoney(
-                      snapshot.summary.total_purchase,
-                    )} บาท จาก ${formatInteger(
-                      snapshot.summary.document_count,
-                    )} เอกสาร`
-                  : "หากมีการรับสินค้าแล้วควรตรวจการบันทึกเอกสารซื้อ/ตั้งหนี้ใน SML"
-              }
-              tone={snapshot.summary.document_count ? "success" : "warning"}
-            />
-            <InsightItem
-              index={2}
-              title="ผู้จำหน่ายหลัก"
-              body={
-                topSupplier
-                  ? `${topSupplier.supplier_name} มียอด ${formatMoney(
-                      topSupplier.total_amount,
-                    )} บาท จาก ${formatInteger(topSupplier.document_count)} เอกสาร`
-                  : "ยังไม่มีข้อมูลผู้จำหน่ายในช่วงนี้"
-              }
-              tone="neutral"
-            />
-            <InsightItem
-              index={3}
-              title="สินค้าที่ซื้อสูงสุด"
-              body={
-                topProduct
-                  ? `${topProduct.item_name} มียอด ${formatMoney(
-                      topProduct.sum_amount,
-                    )} บาท จำนวน ${formatQty(topProduct.qty)}`
-                  : "ยังไม่มีสินค้าในช่วงนี้"
-              }
-              tone="neutral"
-            />
-          </div>
-        </section>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <SectionTitle
-              title="ผู้จำหน่ายหลัก"
-              caption="เรียงตามยอดซื้อ/ตั้งหนี้จากหัวเอกสาร"
-            />
-            <div className="mt-4 space-y-3">
-              {snapshot.top_suppliers.slice(0, 6).map((supplier) => (
-                <PurchaseRankRow
-                  key={supplier.supplier_code}
-                  label={supplier.supplier_name}
-                  meta={`${formatInteger(supplier.document_count)} เอกสาร`}
-                  value={supplier.total_amount}
-                  maxTotal={maxSupplierTotal}
-                />
-              ))}
-              {!snapshot.top_suppliers.length && (
-                <EmptyInline text="ไม่มีข้อมูลผู้จำหน่ายในช่วงวันที่นี้" />
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <SectionTitle
-              title="สินค้าที่ซื้อสูงสุด"
-              caption="สินค้าที่มียอดซื้อสูงสุดจากรายละเอียดเอกสาร"
-            />
-            <div className="mt-4 space-y-3">
-              {snapshot.top_products.slice(0, 6).map((product) => (
-                <ProductRow
-                  key={`${product.item_code}-${product.item_name}`}
-                  product={product}
-                  maxTotal={maxProductTotal}
-                />
-              ))}
-              {!snapshot.top_products.length && (
-                <EmptyInline text="ไม่มีสินค้าในช่วงวันที่นี้" />
-              )}
-            </div>
-          </section>
-        </div>
-
-        <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-          <SectionTitle
-            title="เอกสารซื้อ/ตั้งหนี้"
-            caption="แสดงตัวอย่างเอกสารแรกจาก snapshot รอบนี้"
-          />
-          {hasWarning && (
-            <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
-              หมายเหตุ: ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount
-              เป็นยอดซื้อ/ตั้งหนี้หลัก
-            </p>
-          )}
-          <div className="mt-4 space-y-2">
-            {snapshot.documents.slice(0, 20).map((document) => (
-              <div
-                className="rounded-lg border border-gray-200 bg-white px-3 py-3 dark:border-gray-800 dark:bg-white/[0.03]"
-                key={`${document.doc_date}-${document.doc_no}`}
+              <input
+                className="h-10 min-w-0 rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                placeholder={copy.searchPlaceholder}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <button
+                className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                type="submit"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {document.doc_no}
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      {formatThaiDate(document.doc_date)}
-                      {document.doc_time ? ` · ${formatTime(document.doc_time)}` : ""} ·{" "}
-                      {document.cust_name || document.cust_code || "ไม่ระบุผู้จำหน่าย"}
-                    </p>
-                  </div>
-                  <p className="shrink-0 text-sm font-semibold text-gray-900 dark:text-white">
-                    {formatMoney(document.total_amount)} บาท
-                  </p>
-                </div>
-              </div>
-            ))}
-            {!snapshot.documents.length && (
-              <EmptyInline text="ไม่มีเอกสารซื้อ/ตั้งหนี้ในช่วงวันที่นี้" />
-            )}
+                ค้นหา
+              </button>
+            </form>
           </div>
 
-          <BriefDetails
-            title="ข้อมูลเทคนิค/ที่มา"
-            count={4}
-            caption="เปิดเฉพาะเมื่อต้อง trace รอบรันหรือเช็คความถูกต้องของยอด"
-          >
-            <div className="grid gap-3 text-sm md:grid-cols-4">
-              <Fact label="เลขอ้างอิง" value={snapshot.run_id} />
-              <Fact label="ช่วงวันที่" value={formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)} />
-              <Fact label="ยอดหัวเอกสาร" value={`${formatMoney(snapshot.reconciliation.header_total_amount)} บาท`} />
-              <Fact label="ส่วนต่าง" value={`${formatMoney(snapshot.reconciliation.difference_amount)} บาท`} />
+          <div className="mt-4 space-y-2">
+            {documentsState.status === "loading" && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                กำลังโหลดรายการเอกสาร...
+              </div>
+            )}
+            {documentsState.status === "error" && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {documentsState.message}
+              </div>
+            )}
+            {documentsState.status === "ready" && !documents.length && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                {copy.emptyDocuments}
+              </div>
+            )}
+            {documents.map((document) => (
+              <DocumentCard
+                key={`${document.doc_date}-${document.doc_no}`}
+                copy={copy}
+                detailState={detailState}
+                document={document}
+                expanded={expandedDocNo === document.doc_no}
+                onToggle={() => void loadDetail(document)}
+                reportKey={snapshot.report_key}
+              />
+            ))}
+          </div>
+
+          {documentPage && (
+            <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                หน้า {formatInteger(documentPage.pagination.page)} จาก{" "}
+                {formatInteger(totalPages)} · ทั้งหมด{" "}
+                {formatInteger(documentPage.pagination.total_items)} เอกสาร
+              </span>
+              <div className="flex gap-2">
+                <PagerButton
+                  disabled={page <= 1}
+                  label="ก่อนหน้า"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                />
+                <PagerButton
+                  disabled={page >= totalPages}
+                  label="ถัดไป"
+                  onClick={() =>
+                    setPage((current) => Math.min(totalPages, current + 1))
+                  }
+                />
+              </div>
             </div>
-          </BriefDetails>
+          )}
         </section>
       </div>
     </main>
   );
 }
 
-function BriefErrorState({ message }: { message: string }) {
+function ExecutiveInsights({
+  copy,
+  snapshot,
+  topItem,
+  primaryRanking,
+  hasWarning,
+}: {
+  copy: ReportCopy;
+  snapshot: ReportSnapshot;
+  topItem: TopProduct | null;
+  primaryRanking: Array<{ label: string; meta: string; value: number }>;
+  hasWarning: boolean;
+}) {
+  const total = getSnapshotTotal(snapshot);
+  const primary = primaryRanking[0] ?? null;
+  const partyTitle =
+    snapshot.report_key === "purchase_goods_payables"
+      ? "ผู้จำหน่ายที่ควรจับตา"
+      : "สาขาที่ทำยอดหลัก";
+
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 dark:bg-gray-950">
-      <div className="mx-auto max-w-2xl rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-          AI Business Center
-        </p>
-        <h1 className="mt-2 text-xl font-semibold text-gray-900 dark:text-white">
-          เปิดรายงานไม่ได้
-        </h1>
-        <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
-          {message}
-        </p>
-        <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-          เพื่อความปลอดภัย ลิงก์รายงานจาก LINE จะผูกกับบริษัทและรอบรายงานที่ส่งจริงเท่านั้น
-        </p>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+            Executive Insight
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">
+            ผู้บริหารควรรู้อะไร
+          </h2>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+            hasWarning
+              ? "bg-amber-50 text-amber-700"
+              : "bg-emerald-50 text-emerald-700"
+          }`}
+        >
+          {hasWarning ? "ควรตรวจยอด" : "พร้อมใช้"}
+        </span>
       </div>
-    </main>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <InsightCard
+          index={1}
+          title={copy.totalLabel}
+          body={`${formatMoney(total)} บาท จาก ${formatInteger(
+            snapshot.summary.document_count,
+          )} เอกสาร`}
+        />
+        <InsightCard
+          index={2}
+          title={partyTitle}
+          body={
+            primary
+              ? `${primary.label} มูลค่า ${formatMoney(primary.value)} บาท`
+              : "ยังไม่มีข้อมูลในช่วงวันที่นี้"
+          }
+        />
+        <InsightCard
+          index={3}
+          title={copy.secondaryChartTitle}
+          body={
+            topItem
+              ? `${topItem.item_name} มูลค่า ${formatMoney(topItem.sum_amount)} บาท`
+              : "ยังไม่มีสินค้าในช่วงวันที่นี้"
+          }
+        />
+      </div>
+    </section>
   );
 }
 
-function KpiBlock({
+function ChartPanel({
+  title,
+  caption,
+  data,
+  color,
+}: {
+  title: string;
+  caption: string;
+  data: Array<{ label: string; value: number }>;
+  color: string;
+}) {
+  const chartData = data.filter((item) => item.value > 0).slice(0, 6);
+  const options: ApexOptions = {
+    chart: {
+      fontFamily: "Outfit, sans-serif",
+      toolbar: { show: false },
+      type: "bar",
+    },
+    colors: [color],
+    plotOptions: {
+      bar: {
+        borderRadius: 6,
+        horizontal: true,
+      },
+    },
+    dataLabels: { enabled: false },
+    grid: { borderColor: "#eef2f7" },
+    xaxis: {
+      categories: chartData.map((item) => truncateLabel(item.label)),
+      labels: {
+        formatter: (value) => compactMoney(Number(value)),
+      },
+    },
+    tooltip: {
+      y: { formatter: (value) => `${formatMoney(value)} บาท` },
+    },
+  };
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-500">{caption}</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+          Top {chartData.length || 0}
+        </span>
+      </div>
+      {chartData.length ? (
+        <div className="mt-3">
+          <ReactApexChart
+            height={260}
+            options={options}
+            series={[{ name: title, data: chartData.map((item) => item.value) }]}
+            type="bar"
+          />
+        </div>
+      ) : (
+        <div className="mt-4 rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          ไม่มีข้อมูลเพียงพอสำหรับกราฟในช่วงวันที่นี้
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ComparisonPanel({ snapshot }: { snapshot: ReportSnapshot }) {
+  const comparison =
+    snapshot.report_key === "sales_goods_services" ? snapshot.comparison : null;
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
+      <h2 className="text-base font-semibold text-slate-950">เทียบยอด</h2>
+      <div className="mt-3 space-y-2">
+        <ComparisonRow
+          title="ช่วงก่อนหน้า"
+          value={
+            comparison?.previous_day
+              ? `${formatSignedMoney(
+                  comparison.previous_day.difference_amount,
+                )} บาท`
+              : "ยังไม่มีข้อมูลอ้างอิง"
+          }
+        />
+        <ComparisonRow
+          title="ช่วงเดียวกันปีก่อน"
+          value="กำลังเตรียมข้อมูลเปรียบเทียบรายปี"
+        />
+      </div>
+    </section>
+  );
+}
+
+function TrustPanel({ snapshot }: { snapshot: ReportSnapshot }) {
+  const hasWarning = Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/80">
+      <h2 className="text-base font-semibold text-slate-950">
+        ความน่าเชื่อถือข้อมูล
+      </h2>
+      <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
+        <p>
+          ระบบใช้ยอดหัวเอกสารจาก SML เป็นตัวเลขหลัก และใช้รายละเอียดสินค้าเพื่ออธิบายที่มา
+        </p>
+        {hasWarning && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-amber-700">
+            ยอดหัวเอกสารและยอดรายละเอียดต่างกัน{" "}
+            {formatMoney(snapshot.reconciliation.difference_amount)} บาท
+          </p>
+        )}
+        <details className="rounded-xl border border-slate-200 bg-slate-50">
+          <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700">
+            รายละเอียดเทคนิค
+          </summary>
+          <dl className="grid gap-2 border-t border-slate-200 px-3 py-3 text-xs sm:grid-cols-2">
+            <Fact label="Run ID" value={snapshot.run_id} />
+            <Fact
+              label="ช่วงวันที่"
+              value={formatReportPeriod(
+                snapshot.params.date_from,
+                snapshot.params.date_to,
+              )}
+            />
+            <Fact
+              label="ยอดหัวเอกสาร"
+              value={`${formatMoney(snapshot.reconciliation.header_total_amount)} บาท`}
+            />
+            <Fact
+              label="ยอดรายละเอียด"
+              value={`${formatMoney(snapshot.reconciliation.detail_sum_amount)} บาท`}
+            />
+          </dl>
+        </details>
+      </div>
+    </section>
+  );
+}
+
+function DocumentCard({
+  copy,
+  detailState,
+  document,
+  expanded,
+  onToggle,
+  reportKey,
+}: {
+  copy: ReportCopy;
+  detailState: DetailState;
+  document: SalesDocumentListItem;
+  expanded: boolean;
+  onToggle: () => void;
+  reportKey: ReportKey;
+}) {
+  const branchLabel =
+    document.resolved_branch_label ??
+    formatSmlBranchLabel(document.resolved_branch_code || document.branch_code);
+  const party = document.cust_name || document.cust_code || "-";
+
+  return (
+    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <button
+        className="grid w-full gap-3 px-3 py-3 text-left transition hover:bg-slate-50 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)_120px_120px] sm:items-center"
+        onClick={onToggle}
+        type="button"
+      >
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold text-slate-950">
+            {document.doc_no}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            {formatThaiDate(document.doc_date)}
+            {document.doc_time ? ` · ${formatTime(document.doc_time)}` : ""}
+          </p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            {copy.partyColumn}
+          </p>
+          <p className="mt-1 truncate text-sm font-medium text-slate-700">
+            {party}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-500">{branchLabel}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            {copy.amountColumn}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-slate-950">
+            {formatMoney(document.total_amount)} บาท
+          </p>
+        </div>
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+            {formatInteger(document.detail_line_count)} รายการ
+          </span>
+          <span className="text-lg text-blue-600">{expanded ? "−" : "+"}</span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-slate-100 bg-slate-50 px-3 py-3">
+          {detailState.status === "loading" && detailState.docNo === document.doc_no && (
+            <div className="rounded-xl bg-white px-4 py-6 text-center text-sm text-slate-500">
+              กำลังโหลดรายละเอียด...
+            </div>
+          )}
+          {detailState.status === "error" && detailState.docNo === document.doc_no && (
+            <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {detailState.message}
+            </div>
+          )}
+          {detailState.status === "ready" &&
+            detailState.detail.document.doc_no === document.doc_no && (
+              <DocumentDetailPanel
+                copy={copy}
+                detail={detailState.detail}
+                reportKey={reportKey}
+              />
+            )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function DocumentDetailPanel({
+  copy,
+  detail,
+  reportKey,
+}: {
+  copy: ReportCopy;
+  detail: SalesDocumentDetail;
+  reportKey: ReportKey;
+}) {
+  const totalQty = detail.lines.reduce((sum, line) => sum + line.qty, 0);
+  const detailTotal = detail.lines.reduce((sum, line) => sum + line.sum_amount, 0);
+  const party = detail.document.cust_name || detail.document.cust_code || "-";
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <section className="rounded-xl bg-white p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+              {copy.itemSectionTitle}
+            </p>
+            <h3 className="mt-1 text-base font-semibold text-slate-950">
+              {detail.document.doc_no}
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {formatThaiDate(detail.document.doc_date)}
+              {detail.document.doc_time
+                ? ` · ${formatTime(detail.document.doc_time)}`
+                : ""}{" "}
+              · {party}
+            </p>
+          </div>
+          <div className="rounded-xl bg-slate-950 px-4 py-2 text-white">
+            <p className="text-xs text-slate-300">{copy.amountDetailLabel}</p>
+            <p className="text-lg font-semibold">
+              {formatMoney(detail.document.total_amount)} บาท
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {detail.lines.map((line, index) => (
+            <LineItem
+              index={index + 1}
+              key={`${line.doc_no}-${line.item_code}-${line.line_number ?? index}`}
+              line={line}
+            />
+          ))}
+          {!detail.lines.length && (
+            <div className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              ไม่พบรายการสินค้าในเอกสารนี้
+            </div>
+          )}
+        </div>
+      </section>
+
+      <aside className="rounded-xl bg-white p-3">
+        <h4 className="text-sm font-semibold text-slate-950">สรุปเอกสาร</h4>
+        <dl className="mt-3 grid gap-3 text-sm">
+          <Fact label={copy.partyLabel} value={party} />
+          <Fact
+            label="จำนวนรวม"
+            value={`${formatQty(totalQty)} ${
+              reportKey === "sales_goods_services" ? "หน่วยขาย" : "หน่วยซื้อ"
+            }`}
+          />
+          <Fact
+            label="ยอดรวมสินค้า"
+            value={`${formatMoney(detailTotal)} บาท`}
+          />
+          <Fact
+            label="VAT"
+            value={`${formatMoney(detail.document.total_vat_value)} บาท`}
+          />
+          <Fact
+            label="ส่วนลดรวม"
+            value={`${formatMoney(detail.document.total_discount)} บาท`}
+          />
+        </dl>
+      </aside>
+    </div>
+  );
+}
+
+function LineItem({ index, line }: { index: number; line: SalesDetailRow }) {
+  const branch = formatSmlBranchLabel(line.branch_code);
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-blue-600">รายการที่ {index}</p>
+          <p className="mt-1 line-clamp-2 font-semibold text-slate-950">
+            {line.item_name || line.item_code || "-"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {line.item_code || "-"} · {branch}
+          </p>
+        </div>
+        <p className="shrink-0 text-right text-sm font-semibold text-slate-950">
+          {formatMoney(line.sum_amount)} บาท
+        </p>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
+        <Fact label="จำนวน" value={formatQty(line.qty)} />
+        <Fact label="ราคา" value={formatMoney(line.price)} />
+        <Fact
+          label="ส่วนลด"
+          value={
+            line.discount_amount ? `${formatMoney(line.discount_amount)} บาท` : "-"
+          }
+        />
+        <Fact label="Barcode" value={line.barcode || "-"} />
+      </div>
+    </div>
+  );
+}
+
+function PremiumKpi({
   label,
   value,
   emphasis,
@@ -542,15 +1063,11 @@ function KpiBlock({
   emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03] md:p-4">
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-        {label}
-      </p>
+    <div className="rounded-2xl border border-white/15 bg-white/12 p-3 shadow-lg shadow-slate-950/10 backdrop-blur">
+      <p className="text-xs font-medium text-slate-200">{label}</p>
       <p
-        className={`mt-2 truncate font-semibold ${
-          emphasis
-            ? "text-xl text-gray-900 dark:text-white md:text-2xl"
-            : "text-lg text-gray-800 dark:text-white/90"
+        className={`mt-2 truncate font-semibold tracking-normal text-white ${
+          emphasis ? "text-xl sm:text-2xl" : "text-lg"
         }`}
         title={value}
       >
@@ -560,751 +1077,219 @@ function KpiBlock({
   );
 }
 
-function SectionTitle({ title, caption }: { title: string; caption: string }) {
-  return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-          {title}
-        </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{caption}</p>
-      </div>
-    </div>
-  );
-}
-
-function InsightItem({
+function InsightCard({
   index,
   title,
   body,
-  tone,
 }: {
   index: number;
   title: string;
   body: string;
-  tone: "success" | "warning" | "neutral";
 }) {
   return (
-    <div className="flex gap-3 rounded-lg border border-gray-100 px-3 py-3 dark:border-gray-800">
-      <span
-        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-          tone === "warning"
-            ? "bg-warning-50 text-warning-700 dark:bg-warning-500/10 dark:text-orange-300"
-            : tone === "success"
-            ? "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400"
-            : "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300"
-        }`}
-      >
-        {index}
-      </span>
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-          {title}
-        </p>
-        <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
-          {body}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function ComparisonCard({
-  title,
-  point,
-}: {
-  title: string;
-  point: SalesComparisonPoint | null;
-}) {
-  if (!point) {
-    return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-          {title}
-        </p>
-        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-          ยังไม่มีข้อมูลอ้างอิงสำหรับเทียบยอด
-        </p>
-      </div>
-    );
-  }
-
-  const tone =
-    point.direction === "up"
-      ? "success"
-      : point.direction === "down"
-      ? "warning"
-      : "neutral";
-
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+      <div className="flex gap-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+          {index}
+        </span>
         <div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {title}
-          </p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            เทียบกับ {formatReportPeriod(point.date_from, point.date_to)}
-          </p>
+          <p className="font-semibold text-slate-950">{title}</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{body}</p>
         </div>
-        <StatusPill tone={tone}>{formatComparisonDirection(point.direction)}</StatusPill>
       </div>
-      <p className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
-        {formatSignedMoney(point.difference_amount)} บาท
-        {point.difference_percent !== null
-          ? ` (${formatSignedPercent(point.difference_percent)})`
-          : ""}
-      </p>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        ยอดอ้างอิง {formatMoney(point.total_sales)} บาท จาก{" "}
-        {formatInteger(point.document_count)} บิล
-      </p>
     </div>
   );
 }
 
-function BranchRow({
-  branch,
-  maxTotal,
-}: {
-  branch: BranchSales;
-  maxTotal: number;
-}) {
-  const width = maxTotal > 0 ? Math.max(8, (branch.total_amount / maxTotal) * 100) : 0;
+function ComparisonRow({ title, value }: { title: string; value: string }) {
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <div className="min-w-0">
-          <p className="font-semibold text-gray-900 dark:text-white">
-            {formatBranchDisplay(branch)}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {formatInteger(branch.document_count)} บิล · {formatInteger(branch.line_count)} รายการ
-          </p>
-        </div>
-        <p className="shrink-0 font-semibold text-gray-900 dark:text-white">
-          {formatMoney(branch.total_amount)}
-        </p>
-      </div>
-      <div className="mt-2 h-2 rounded-full bg-gray-100 dark:bg-white/10">
-        <div
-          className="h-2 rounded-full bg-brand-500"
-          style={{ width: `${width}%` }}
-        />
-      </div>
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3 text-sm">
+      <span className="font-medium text-slate-600">{title}</span>
+      <span className="text-right font-semibold text-slate-950">{value}</span>
     </div>
   );
 }
 
-function ProductRow({
-  product,
-  maxTotal,
-}: {
-  product: TopProduct;
-  maxTotal: number;
-}) {
-  const width = maxTotal > 0 ? Math.max(8, (product.sum_amount / maxTotal) * 100) : 0;
-  return (
-    <div>
-      <div className="flex items-start justify-between gap-3 text-sm">
-        <div className="min-w-0">
-          <p className="line-clamp-2 font-semibold text-gray-900 dark:text-white">
-            {product.item_name}
-          </p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {formatQty(product.qty)} หน่วย · {formatInteger(product.line_count)} รายการ
-          </p>
-        </div>
-        <p className="shrink-0 font-semibold text-gray-900 dark:text-white">
-          {formatMoney(product.sum_amount)}
-        </p>
-      </div>
-      <div className="mt-2 h-2 rounded-full bg-gray-100 dark:bg-white/10">
-        <div
-          className="h-2 rounded-full bg-success-500"
-          style={{ width: `${width}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function PurchaseRankRow({
+function PresetButton({
   label,
-  meta,
-  value,
-  maxTotal,
+  onClick,
 }: {
   label: string;
-  meta: string;
-  value: number;
-  maxTotal: number;
+  onClick: () => void;
 }) {
-  const width = maxTotal > 0 ? Math.max(8, (value / maxTotal) * 100) : 0;
   return (
-    <div>
-      <div className="flex items-start justify-between gap-3 text-sm">
-        <div className="min-w-0">
-          <p className="line-clamp-2 font-semibold text-gray-900 dark:text-white">
-            {label}
-          </p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {meta}
-          </p>
-        </div>
-        <p className="shrink-0 font-semibold text-gray-900 dark:text-white">
-          {formatMoney(value)}
-        </p>
-      </div>
-      <div className="mt-2 h-2 rounded-full bg-gray-100 dark:bg-white/10">
-        <div
-          className="h-2 rounded-full bg-brand-500"
-          style={{ width: `${width}%` }}
-        />
-      </div>
-    </div>
+    <button
+      className="h-9 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function DateInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <input
+        className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        type="date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function PagerButton({
+  disabled,
+  label,
+  onClick,
+}: {
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="h-9 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
   );
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-lg bg-gray-50 px-3 py-2 dark:bg-white/[0.04]">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 truncate font-semibold text-gray-900 dark:text-white" title={value}>
-        {value}
-      </p>
+    <div className="min-w-0">
+      <dt className="text-xs font-semibold text-slate-400">{label}</dt>
+      <dd className="mt-1 break-words font-medium text-slate-800">{value}</dd>
     </div>
   );
 }
 
-function BriefDetails({
-  title,
-  count,
-  caption,
-  children,
-}: {
-  title: string;
-  count: number;
-  caption?: string;
-  children: ReactNode;
-}) {
+function BriefErrorState({ message }: { message: string }) {
   return (
-    <details className="group rounded-lg border border-gray-100 dark:border-gray-800">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3">
-        <div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {title}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {caption ??
-              `แสดงตัวอย่าง 20 แถวแรกจาก ${formatInteger(count)} แถวที่เก็บในรายงาน`}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600 group-open:bg-brand-50 group-open:text-brand-600 dark:bg-white/10 dark:text-gray-300">
-          เปิดดู
-        </span>
-      </summary>
-      <div className="border-t border-gray-100 p-3 dark:border-gray-800">
-        {children}
+    <main className="min-h-screen bg-[#f4f6fb] px-4 py-6">
+      <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+          AI Business Center
+        </p>
+        <h1 className="mt-2 text-xl font-semibold text-slate-950">
+          เปิดรายงานไม่ได้
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+        <p className="mt-4 text-xs leading-5 text-slate-500">
+          เพื่อความปลอดภัย ลิงก์รายงานจาก LINE จะผูกกับบริษัทและรายงานที่ส่งจริงเท่านั้น
+        </p>
       </div>
-    </details>
+    </main>
   );
 }
 
-function StatusPill({
-  tone,
-  children,
-}: {
-  tone: "success" | "warning" | "neutral";
-  children: ReactNode;
-}) {
-  const classes =
-    tone === "success"
-      ? "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400"
-      : tone === "warning"
-      ? "bg-warning-50 text-warning-700 dark:bg-warning-500/10 dark:text-orange-300"
-      : "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300";
-  return (
-    <span className={`rounded-full px-3 py-1 font-medium ${classes}`}>
-      {children}
-    </span>
-  );
+function getSnapshotTotal(snapshot: ReportSnapshot) {
+  return snapshot.report_key === "purchase_goods_payables"
+    ? snapshot.summary.total_purchase
+    : snapshot.summary.total_sales;
 }
 
-function EmptyInline({ text }: { text: string }) {
-  return (
-    <p className="rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
-      {text}
-    </p>
-  );
-}
-
-type BillPreview = {
-  key: string;
-  document: SalesHeaderRow;
-  lines: SalesDetailRow[];
-  detailTotal: number;
-  totalQty: number;
-  topItem: SalesDetailRow | null;
-  branchCode: string;
-  branchLabel: string;
-  hasDifference: boolean;
-};
-
-function ExecutiveBillList({
-  bills,
-  totalDocuments,
-  onSelect,
-}: {
-  bills: BillPreview[];
-  totalDocuments: number;
-  onSelect: (bill: BillPreview) => void;
-}) {
-  if (!bills.length) {
-    return (
-      <EmptyInline text="ไม่มีบิลขายในช่วงวันที่นี้ หากร้านมีการขายจริงควรตรวจการปิดบิลใน SML" />
-    );
+function getPrimaryRanking(snapshot: ReportSnapshot) {
+  if (snapshot.report_key === "purchase_goods_payables") {
+    return snapshot.top_suppliers.slice(0, 6).map((supplier: TopSupplier) => ({
+      label: supplier.supplier_name,
+      meta: `${formatInteger(supplier.document_count)} เอกสาร`,
+      value: supplier.total_amount,
+    }));
   }
 
-  const visibleBills = bills.slice(0, 20);
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-1 rounded-lg bg-gray-50 px-3 py-3 text-sm text-gray-600 dark:bg-white/[0.04] dark:text-gray-300 sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          แสดง {formatInteger(visibleBills.length)} บิลแรกจาก{" "}
-          {formatInteger(totalDocuments)} บิลในรายงาน
-        </span>
-        <span className="font-medium text-gray-900 dark:text-white">
-          แตะบิลเพื่อดูสินค้าและยอดขาย
-        </span>
-      </div>
-
-      <div className="space-y-2">
-        {visibleBills.map((bill) => (
-          <button
-            key={bill.key}
-            type="button"
-            onClick={() => onSelect(bill)}
-            className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-3 text-left transition hover:border-brand-300 hover:bg-brand-50/40 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/50 dark:hover:bg-brand-500/10"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {bill.document.doc_no}
-                </p>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {formatThaiDate(bill.document.doc_date)}
-                  {bill.document.doc_time ? ` · ${formatTime(bill.document.doc_time)}` : ""}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {formatMoney(bill.document.total_amount)} บาท
-                </p>
-                <p className="mt-0.5 text-xs text-brand-600 dark:text-brand-400">
-                  ดูสินค้า
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-2 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-3">
-              <BillListMeta
-                label="ลูกค้า"
-                value={bill.document.cust_name || bill.document.cust_code || "ไม่ระบุลูกค้า"}
-              />
-              <BillListMeta
-                label="สินค้า"
-                value={
-                  bill.topItem?.item_name
-                    ? `${bill.topItem.item_name} ${bill.lines.length > 1 ? `+${bill.lines.length - 1}` : ""}`
-                    : `${formatInteger(bill.lines.length)} รายการ`
-                }
-              />
-              <BillListMeta
-                label="สาขา"
-                value={formatBillBranchDisplay(bill)}
-              />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function BillListMeta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <span className="block text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-        {label}
-      </span>
-      <span className="mt-0.5 block truncate font-medium text-gray-700 dark:text-gray-200">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function BillDetailDrawer({
-  bill,
-  onClose,
-  hasReportWarning,
-}: {
-  bill: BillPreview | null;
-  onClose: () => void;
-  hasReportWarning: boolean;
-}) {
-  useEffect(() => {
-    if (!bill) {
-      return;
-    }
-
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", handleEscape);
-
-    return () => {
-      document.body.style.overflow = originalOverflow;
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [bill, onClose]);
-
-  if (!bill) {
-    return null;
-  }
-
-  const difference = bill.document.total_amount - bill.detailTotal;
-  const hasBillDifference = Math.abs(difference) > 0.01;
-  const cashierLabel = formatCashierLabel(bill.document.cashier_code);
-
-  return (
-    <div
-      className="fixed inset-0 z-[99999] bg-gray-900/45 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`รายละเอียดบิล ${bill.document.doc_no}`}
-      onClick={onClose}
-    >
-      <div
-        className="fixed inset-x-0 bottom-0 max-h-[90vh] overflow-hidden rounded-t-2xl bg-white shadow-2xl dark:bg-gray-950 md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[560px] md:rounded-none"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex h-full flex-col">
-          <div className="border-b border-gray-200 px-4 py-4 dark:border-gray-800">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
-                  รายละเอียดบิลขาย
-                </p>
-                <h3 className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-white">
-                  {bill.document.doc_no}
-                </h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  {formatThaiDate(bill.document.doc_date)}
-                  {bill.document.doc_time ? ` · ${formatTime(bill.document.doc_time)}` : ""} ·{" "}
-                  {bill.document.cust_name || bill.document.cust_code || "ไม่ระบุลูกค้า"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-base leading-none text-gray-500 transition hover:bg-gray-200 hover:text-gray-800 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/15"
-                aria-label="ปิดรายละเอียดบิล"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-4">
-            <div className="grid grid-cols-2 gap-3">
-              <BillMetric
-                label="ยอดขายบิลนี้"
-                value={`${formatMoney(bill.document.total_amount)} บาท`}
-                emphasis
-              />
-              <BillMetric
-                label="รายการสินค้า"
-                value={`${formatInteger(bill.lines.length)} รายการ`}
-              />
-              <BillMetric label="จำนวนรวม" value={formatQty(bill.totalQty)} />
-              <BillMetric
-                label="สาขา"
-                value={formatBillBranchDisplay(bill)}
-                helper="รหัสสาขาจาก SML"
-              />
-            </div>
-
-            <div className="mt-5">
-              <SectionTitle
-                title="สินค้าในบิลนี้"
-                caption="ดูสินค้าที่เป็นที่มาของยอดขายบิลนี้"
-              />
-              <div className="mt-3 space-y-2">
-                {bill.lines.length ? (
-                  bill.lines.map((line, index) => (
-                    <BillLineItem
-                      key={`${bill.key}-${line.item_code}-${line.line_number ?? index}-${index}`}
-                      line={line}
-                      index={index + 1}
-                    />
-                  ))
-                ) : (
-                  <EmptyInline text="ไม่พบรายการสินค้าใน snapshot ของบิลนี้" />
-                )}
-              </div>
-            </div>
-
-            {(hasReportWarning || hasBillDifference) && (
-              <p className="mt-4 rounded-lg bg-warning-50 px-3 py-2 text-sm leading-6 text-warning-700 dark:bg-warning-500/10 dark:text-orange-300">
-                หมายเหตุ: ยอดขายบิลนี้กับยอดรวมสินค้าอาจไม่เท่ากันจาก VAT ส่วนลด หรือโครงสร้างบิลของ SML
-                ระบบใช้ยอดขายบิลนี้เป็นยอดขายหลัก
-                {hasBillDifference ? ` ส่วนต่างบิลนี้ ${formatMoney(difference)} บาท` : ""}
-              </p>
-            )}
-
-            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.04]">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                ข้อมูลบิล
-              </p>
-              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                <BillFact label="ลูกค้า" value={bill.document.cust_name || bill.document.cust_code || "-"} />
-                {cashierLabel ? (
-                  <BillFact label="ผู้ขาย/แคชเชียร์" value={cashierLabel} />
-                ) : null}
-              </dl>
-              <details className="mt-3 rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-                <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-gray-800 dark:text-white">
-                  ข้อมูลภาษี/ส่วนลด
-                </summary>
-                <dl className="grid gap-3 border-t border-gray-100 px-3 py-3 text-sm dark:border-gray-800 sm:grid-cols-2">
-                  <BillFact label="ยอดก่อนส่วนลด" value={`${formatMoney(bill.document.total_value)} บาท`} />
-                  <BillFact label="ส่วนลดรวม" value={`${formatMoney(bill.document.total_discount)} บาท`} />
-                  <BillFact label="VAT" value={`${formatMoney(bill.document.total_vat_value)} บาท`} />
-                  <BillFact label="ยอดรวมสินค้า" value={`${formatMoney(bill.detailTotal)} บาท`} />
-                </dl>
-              </details>
-            </div>
-          </div>
-
-          <div className="border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-950">
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full rounded-lg bg-brand-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600"
-            >
-              กลับไปดูรายงาน
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BillMetric({
-  label,
-  value,
-  emphasis,
-  helper,
-}: {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-  helper?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p
-        className={`mt-1 truncate font-semibold ${
-          emphasis ? "text-lg text-gray-900 dark:text-white" : "text-gray-800 dark:text-white/90"
-        }`}
-        title={value}
-      >
-        {value}
-      </p>
-      {helper ? (
-        <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
-          {helper}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function BillFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
-      <dd className="mt-0.5 truncate font-medium text-gray-900 dark:text-white" title={value}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-function BillLineItem({ line, index }: { line: SalesDetailRow; index: number }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-brand-500">รายการที่ {index}</p>
-          <p className="mt-1 line-clamp-2 text-sm font-semibold text-gray-900 dark:text-white">
-            {line.item_name || line.item_code || "ไม่ระบุสินค้า"}
-          </p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {line.item_code || "-"}
-            {line.barcode ? ` · Barcode ${line.barcode}` : ""}
-          </p>
-        </div>
-        <p className="shrink-0 text-right text-sm font-semibold text-gray-900 dark:text-white">
-          {formatMoney(line.sum_amount)} บาท
-        </p>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs dark:bg-white/[0.04]">
-        <BillLineStat label="จำนวน" value={formatQty(line.qty)} />
-        <BillLineStat label="หน่วย" value={line.unit_name || line.unit_code || "-"} />
-        <BillLineStat label="ราคา" value={formatMoney(line.price)} />
-      </div>
-      {(line.discount || line.discount_amount > 0) && (
-        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          ส่วนลด {line.discount || "-"} · {formatMoney(line.discount_amount)} บาท
-        </p>
-      )}
-    </div>
-  );
-}
-
-function BillLineStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-0.5 truncate font-semibold text-gray-900 dark:text-white" title={value}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function buildBillPreviews(snapshot: SalesGoodsServicesSnapshot): BillPreview[] {
-  const linesByDocument = new Map<string, SalesDetailRow[]>();
-  const branchLabelByCode = new Map(
-    snapshot.branch_sales.map((branch) => [
+  return snapshot.branch_sales.slice(0, 6).map((branch: BranchSales) => ({
+    label: formatSmlBranchLabel(
       branch.branch_code,
-      branch.branch_label ?? formatBranchLabel(branch.branch_code),
-    ]),
-  );
+      branch.branch_name ?? branch.branch_label,
+    ),
+    meta: `${formatInteger(branch.document_count)} บิล`,
+    value: branch.total_amount,
+  }));
+}
 
-  for (const line of snapshot.lines) {
-    const key = buildBillKey(line.doc_date, line.doc_no);
-    const existing = linesByDocument.get(key) ?? [];
-    existing.push(line);
-    linesByDocument.set(key, existing);
-  }
-
-  return snapshot.documents.map((document) => {
-    const key = buildBillKey(document.doc_date, document.doc_no);
-    const lines = linesByDocument.get(key) ?? [];
-    const detailTotal = lines.reduce((sum, line) => sum + line.sum_amount, 0);
-    const totalQty = lines.reduce((sum, line) => sum + line.qty, 0);
-    const topItem =
-      lines.length > 0
-        ? [...lines].sort((a, b) => b.sum_amount - a.sum_amount)[0] ?? null
-        : null;
-    const branchCode =
-      document.branch_code ||
-      lines.find((line) => line.branch_code)?.branch_code ||
-      "no_branch";
-
+function buildPresetRange(preset: "yesterday" | "month" | "quarter" | "year") {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = addDays(today, -1);
+  if (preset === "yesterday") {
     return {
-      key,
-      document,
-      lines,
-      detailTotal,
-      totalQty,
-      topItem,
-      branchCode,
-      branchLabel: branchLabelByCode.get(branchCode) ?? formatBranchLabel(branchCode),
-      hasDifference: Math.abs(document.total_amount - detailTotal) > 0.01,
+      date_from: toIsoDate(yesterday),
+      date_to: toIsoDate(yesterday),
     };
-  });
+  }
+
+  if (preset === "year") {
+    return {
+      date_from: `${yesterday.getFullYear()}-01-01`,
+      date_to: toIsoDate(yesterday),
+    };
+  }
+
+  if (preset === "quarter") {
+    const quarterStartMonth = Math.floor(yesterday.getMonth() / 3) * 3;
+    return {
+      date_from: toIsoDate(
+        new Date(yesterday.getFullYear(), quarterStartMonth, 1),
+      ),
+      date_to: toIsoDate(yesterday),
+    };
+  }
+
+  return {
+    date_from: toIsoDate(new Date(yesterday.getFullYear(), yesterday.getMonth(), 1)),
+    date_to: toIsoDate(yesterday),
+  };
 }
 
-function buildBillKey(docDate: string, docNo: string) {
-  return `${docDate}::${docNo}`;
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
 }
 
-function buildInsights(snapshot: SalesGoodsServicesSnapshot) {
-  const insights: Array<{
-    title: string;
-    body: string;
-    tone: "success" | "warning" | "neutral";
-  }> = [];
-  const topBranch = snapshot.branch_sales[0];
-  const topProduct = snapshot.top_products[0];
-  const noBranch = snapshot.branch_sales.find(
-    (branch) => branch.branch_code === "no_branch",
-  );
+function toIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-  if (snapshot.summary.document_count === 0) {
-    insights.push({
-      title: "ไม่พบยอดขายในช่วงวันที่นี้",
-      body: "ควรตรวจว่าวันนั้นร้านหยุดขาย ระบบยังไม่ปิดบิล หรือช่วงวันที่ที่ส่งรายงานถูกต้องหรือไม่",
-      tone: "warning",
-    });
-  } else if (topBranch) {
-    const share = snapshot.summary.total_sales
-      ? (topBranch.total_amount / snapshot.summary.total_sales) * 100
-      : 0;
-    insights.push({
-      title: `ยอดหลักอยู่ที่ ${formatBranchDisplay(topBranch)}`,
-      body:
-        share >= 99
-          ? `ยอดขายอยู่ที่สาขานี้เกือบทั้งหมด อาจเป็นร้านสาขาเดียว หรือยังไม่ได้ map สาขาใน SML`
-          : `ทำยอด ${formatMoney(topBranch.total_amount)} บาท คิดเป็นประมาณ ${share.toFixed(1)}% ของยอดขายรวม`,
-      tone: share >= 85 ? "warning" : "success",
-    });
+function isReportKey(value: string): value is ReportKey {
+  return value === "sales_goods_services" || value === "purchase_goods_payables";
+}
+
+function truncateLabel(value: string) {
+  return value.length > 28 ? `${value.slice(0, 28)}...` : value;
+}
+
+function compactMoney(value: number) {
+  if (!Number.isFinite(value)) {
+    return "";
   }
-
-  if (topProduct) {
-    insights.push({
-      title: "สินค้าขายดีอันดับหนึ่ง",
-      body: `${topProduct.item_name} ทำยอด ${formatMoney(topProduct.sum_amount)} บาท จาก ${formatQty(topProduct.qty)} หน่วย`,
-      tone: "neutral",
-    });
+  if (Math.abs(value) >= 1_000_000) {
+    return `${Math.round(value / 1_000_000)}M`;
   }
-
-  if (noBranch && noBranch.total_amount > 0) {
-    insights.push({
-      title: "มีรายการขายที่ไม่ระบุสาขา",
-      body: `พบยอด ${formatMoney(noBranch.total_amount)} บาทที่ยังไม่รู้สาขา ควรตรวจการตั้งค่า branch_code ใน SML`,
-      tone: "warning",
-    });
+  if (Math.abs(value) >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
   }
-
-  if (Math.abs(snapshot.reconciliation.difference_amount) > 0.01) {
-    insights.push({
-      title: "ยอดหัวบิลกับรายการสินค้าไม่ตรงกัน",
-      body: `ส่วนต่าง ${formatMoney(snapshot.reconciliation.difference_amount)} บาท ระบบใช้ยอดหัวบิลเป็นยอดขายหลัก`,
-      tone: "warning",
-    });
-  }
-
-  if (!insights.length) {
-    insights.push({
-      title: "ข้อมูลพร้อมอ่าน",
-      body: "ไม่พบสัญญาณผิดปกติจาก snapshot รอบนี้",
-      tone: "success",
-    });
-  }
-
-  return insights.slice(0, 3);
+  return `${Math.round(value)}`;
 }
 
 function formatTenantName(tenantId: string) {
@@ -1317,66 +1302,8 @@ function formatTenantName(tenantId: string) {
   return tenantId;
 }
 
-function formatSource(source: SalesGoodsServicesSnapshot["source"]) {
-  return source === "sml_postgres" ? "ข้อมูลจากระบบขาย SML" : "ข้อมูลตัวอย่าง";
-}
-
-function formatTrustStatus(snapshot: SalesGoodsServicesSnapshot) {
-  if (snapshot.summary.document_count === 0) {
-    return "ไม่มีข้อมูล";
-  }
-  if (snapshot.quality_status === "stale" || snapshot.source === "sample_snapshot") {
-    return "ข้อมูลเก่า";
-  }
-  if (
-    snapshot.quality_status === "reconciled_with_warning" ||
-    Math.abs(snapshot.reconciliation.difference_amount) > 0.01
-  ) {
-    return "ควรตรวจยอด";
-  }
-  return "พร้อมใช้";
-}
-
-function formatPurchaseTrustStatus(snapshot: PurchaseGoodsPayablesSnapshot) {
-  if (snapshot.summary.document_count === 0) {
-    return "ไม่มีข้อมูล";
-  }
-  if (snapshot.quality_status === "stale" || snapshot.source === "sample_snapshot") {
-    return "ข้อมูลเก่า";
-  }
-  if (
-    snapshot.quality_status === "reconciled_with_warning" ||
-    Math.abs(snapshot.reconciliation.difference_amount) > 0.01
-  ) {
-    return "ควรตรวจยอด";
-  }
-  return "พร้อมใช้";
-}
-
-function formatBranchLabel(branchCode: string) {
-  return formatSmlBranchLabel(branchCode);
-}
-
-function formatBranchDisplay(branch: {
-  branch_code: string;
-  branch_label?: string;
-}) {
-  return branch.branch_label ?? formatBranchLabel(branch.branch_code);
-}
-
-function formatBillBranchDisplay(bill: BillPreview) {
-  return bill.branchLabel;
-}
-
-function formatCashierLabel(value: string | null) {
-  const normalized = value?.trim();
-  if (!normalized) {
-    return null;
-  }
-  if (normalized.toUpperCase() === "SUPERADMIN") {
-    return null;
-  }
-  return normalized;
+function formatSource(source: ReportSnapshot["source"]) {
+  return source === "sml_postgres" ? "ข้อมูลจาก SML" : "ข้อมูลตัวอย่าง";
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {
@@ -1386,68 +1313,63 @@ function formatReportPeriod(dateFrom: string, dateTo: string) {
   return `${formatThaiDate(dateFrom)} - ${formatThaiDate(dateTo)}`;
 }
 
-function formatThaiDate(ymd: string) {
-  const [year, month, day] = ymd.split("-").map(Number);
-  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
-    timeZone: "Asia/Bangkok",
+function formatThaiDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("th-TH", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(Date.UTC(year, month - 1, day)));
-}
-
-function formatTime(value: string) {
-  return value.length >= 5 ? value.slice(0, 5) : value;
+  }).format(new Date(year, month - 1, day));
 }
 
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
-    timeZone: "Asia/Bangkok",
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("th-TH", {
     day: "numeric",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(value));
+    timeZone: "Asia/Bangkok",
+  }).format(date);
+}
+
+function formatTime(value: string) {
+  return value.slice(0, 5);
 }
 
 function formatMoney(value: number) {
-  return value.toLocaleString("th-TH", {
-    minimumFractionDigits: 2,
+  return new Intl.NumberFormat("th-TH", {
     maximumFractionDigits: 2,
-  });
-}
-
-function formatSignedMoney(value: number) {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${formatMoney(value)}`;
-}
-
-function formatSignedPercent(value: number) {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toLocaleString("th-TH", {
-    maximumFractionDigits: 1,
-  })}%`;
-}
-
-function formatComparisonDirection(direction: SalesComparisonPoint["direction"]) {
-  if (direction === "up") {
-    return "เพิ่มขึ้น";
-  }
-  if (direction === "down") {
-    return "ลดลง";
-  }
-  if (direction === "flat") {
-    return "ทรงตัว";
-  }
-  return "ยังไม่มีฐานเทียบ";
+    minimumFractionDigits: 2,
+  }).format(value || 0);
 }
 
 function formatInteger(value: number) {
-  return value.toLocaleString("th-TH", { maximumFractionDigits: 0 });
+  return new Intl.NumberFormat("th-TH", {
+    maximumFractionDigits: 0,
+  }).format(value || 0);
 }
 
 function formatQty(value: number) {
-  return value.toLocaleString("th-TH", { maximumFractionDigits: 3 });
+  return new Intl.NumberFormat("th-TH", {
+    maximumFractionDigits: 3,
+  }).format(value || 0);
+}
+
+function formatSignedMoney(value: number) {
+  const formatted = formatMoney(Math.abs(value));
+  if (value > 0) {
+    return `+${formatted}`;
+  }
+  if (value < 0) {
+    return `-${formatted}`;
+  }
+  return formatted;
 }

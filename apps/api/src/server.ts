@@ -1813,6 +1813,191 @@ app.get(
   },
 );
 
+app.post(
+  "/api/reports/:tenantId/:reportKey/viewer-run",
+  async (request, reply) => {
+    const access = await verifySignedViewerRequest({
+      params: request.params,
+      queryOrBody: request.body,
+      reply,
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const body = viewerRunBodySchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid report date range.",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const rangeError = validateViewerReportRange(body.data);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const runResult =
+      access.reportKey === "purchase_goods_payables"
+        ? await runAndPersistPurchaseGoodsPayablesReport({
+            tenantId: access.tenantId,
+            params: body.data,
+            requestAction: "viewer_purchase_report_run_requested",
+          })
+        : await runAndPersistSalesGoodsServicesReport({
+            tenantId: access.tenantId,
+            params: body.data,
+            requestAction: "viewer_sales_report_run_requested",
+          });
+
+    if (runResult.ok) {
+      return { data: runResult.snapshot, run: runResult.runRecord };
+    }
+
+    return reply.status(runResult.statusCode).send({
+      error: runResult.error,
+      run: runResult.runRecord,
+    });
+  },
+);
+
+app.get(
+  "/api/reports/:tenantId/:reportKey/viewer-documents",
+  async (request, reply) => {
+    const access = await verifySignedViewerRequest({
+      params: request.params,
+      queryOrBody: request.query,
+      reply,
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const query = viewerDocumentsQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid document page request.",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const params = {
+      date_from: query.data.date_from,
+      date_to: query.data.date_to,
+    };
+    const rangeError = validateViewerReportRange(params);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = await resolveTenantDatasourceConfig(access.tenantId);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const page =
+        access.reportKey === "purchase_goods_payables"
+          ? await fetchPurchaseGoodsPayablesDocumentPage({
+              tenant_id: access.tenantId,
+              params,
+              datasource,
+              page: query.data.page,
+              page_size: query.data.page_size,
+              search: query.data.search,
+            })
+          : await fetchSalesGoodsServicesDocumentPage({
+              tenant_id: access.tenantId,
+              params,
+              datasource,
+              page: query.data.page,
+              page_size: query.data.page_size,
+              search: query.data.search,
+            });
+
+      return { data: page };
+    } catch (error) {
+      request.log.error(
+        { error, report_key: access.reportKey },
+        "signed viewer document page fetch failed",
+      );
+      return reply.status(500).send({ error: toSafeErrorMessage(error) });
+    }
+  },
+);
+
+app.get(
+  "/api/reports/:tenantId/:reportKey/viewer-document-detail",
+  async (request, reply) => {
+    const access = await verifySignedViewerRequest({
+      params: request.params,
+      queryOrBody: request.query,
+      reply,
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const query = viewerDocumentDetailQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.status(400).send({
+        error: "Invalid document detail request.",
+        details: query.error.flatten().fieldErrors,
+      });
+    }
+
+    const params = {
+      date_from: query.data.date_from,
+      date_to: query.data.date_to,
+    };
+    const rangeError = validateViewerReportRange(params);
+    if (rangeError) {
+      return reply.status(400).send({ error: rangeError });
+    }
+
+    const datasource = await resolveTenantDatasourceConfig(access.tenantId);
+    if (!datasource) {
+      return reply.status(400).send({
+        error: "Datasource is not configured for this tenant.",
+      });
+    }
+
+    try {
+      const detail =
+        access.reportKey === "purchase_goods_payables"
+          ? await fetchPurchaseGoodsPayablesDocumentDetail({
+              tenant_id: access.tenantId,
+              params,
+              datasource,
+              doc_no: query.data.doc_no,
+            })
+          : await fetchSalesGoodsServicesDocumentDetail({
+              tenant_id: access.tenantId,
+              params,
+              datasource,
+              doc_no: query.data.doc_no,
+            });
+
+      if (!detail) {
+        return reply.status(404).send({
+          error: "Document not found in the selected report period.",
+        });
+      }
+
+      return { data: detail };
+    } catch (error) {
+      request.log.error(
+        { error, report_key: access.reportKey },
+        "signed viewer document detail fetch failed",
+      );
+      return reply.status(500).send({ error: toSafeErrorMessage(error) });
+    }
+  },
+);
+
 app.get(
   "/api/reports/:tenantId/sales_goods_services/runs",
   async (request, reply) => {
@@ -3373,6 +3558,117 @@ function validateCustomerReportRange(params: SalesGoodsServicesParams) {
   return null;
 }
 
+function validateViewerReportRange(params: SalesGoodsServicesParams) {
+  const parsed = salesGoodsServicesParamsSchema.safeParse(params);
+  if (!parsed.success) {
+    return "Invalid report date range.";
+  }
+
+  const start = Date.parse(`${params.date_from}T00:00:00.000Z`);
+  const end = Date.parse(`${params.date_to}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return "Invalid report date range.";
+  }
+
+  const inclusiveDays = Math.floor((end - start) / 86_400_000) + 1;
+  if (inclusiveDays > 366) {
+    return "Report viewer date range is limited to 366 days for this pilot.";
+  }
+
+  return null;
+}
+
+async function verifySignedViewerRequest(input: {
+  params: unknown;
+  queryOrBody: unknown;
+  reply: FastifyReply;
+}): Promise<
+  | {
+      ok: true;
+      tenantId: TenantId;
+      reportKey: ReportKey;
+      runId: string;
+    }
+  | { ok: false; response: FastifyReply }
+> {
+  const params = signedViewerParamsSchema.safeParse(input.params);
+  if (!params.success) {
+    return {
+      ok: false,
+      response: input.reply
+        .status(400)
+        .send({ error: "Invalid report viewer link." }),
+    };
+  }
+
+  const auth = signedViewerAuthSchema.safeParse(input.queryOrBody ?? {});
+  if (!auth.success) {
+    return {
+      ok: false,
+      response: input.reply
+        .status(400)
+        .send({ error: "Invalid report viewer link." }),
+    };
+  }
+
+  const signingSecret = readReportViewerSigningSecret();
+  if (!signingSecret) {
+    return {
+      ok: false,
+      response: input.reply.status(503).send({
+        error: "Report viewer signing is not configured.",
+      }),
+    };
+  }
+
+  const verification = verifyReportViewerToken({
+    token: auth.data.token,
+    secret: signingSecret,
+    tenantId: params.data.tenantId,
+    reportKey: params.data.reportKey,
+    runId: auth.data.run_id,
+  });
+  if (!verification.ok) {
+    const statusCode =
+      verification.reason === "missing" || verification.reason === "malformed"
+        ? 400
+        : 403;
+    const errorMessage =
+      verification.reason === "expired"
+        ? "Report viewer link has expired."
+        : "Invalid report viewer link.";
+    return {
+      ok: false,
+      response: input.reply.status(statusCode).send({ error: errorMessage }),
+    };
+  }
+
+  const tenant = await getTenantOrNull(params.data.tenantId);
+  if (!tenant) {
+    return {
+      ok: false,
+      response: input.reply.status(404).send({ error: "Tenant not found." }),
+    };
+  }
+  const access = tenantAccessStatus(tenant);
+  if (!access.enabled) {
+    return {
+      ok: false,
+      response: input.reply.status(403).send({
+        error: access.message,
+        tenant_status: tenant.status,
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    tenantId: params.data.tenantId,
+    reportKey: params.data.reportKey,
+    runId: auth.data.run_id,
+  };
+}
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -3409,6 +3705,35 @@ const signedSnapshotParamsSchema = z.object({
 const signedSnapshotQuerySchema = z.object({
   token: z.string().min(1).max(4096),
 });
+
+const signedViewerParamsSchema = z.object({
+  tenantId: tenantIdSchema,
+  reportKey: reportKeySchema,
+});
+
+const signedViewerAuthSchema = z.object({
+  token: z.string().min(1).max(4096),
+  run_id: z.string().min(1).max(180),
+});
+
+const viewerRunBodySchema = signedViewerAuthSchema
+  .extend({
+    date_from: isoDateSchema,
+    date_to: isoDateSchema,
+  })
+  .superRefine((value, ctx) => {
+    const parsed = salesGoodsServicesParamsSchema.safeParse({
+      date_from: value.date_from,
+      date_to: value.date_to,
+    });
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid date range",
+        path: ["date_from"],
+      });
+    }
+  });
 
 const documentDetailQuerySchema = z.object({
   doc_no: z.string().trim().min(1).max(120),
@@ -3459,6 +3784,48 @@ const customerDocumentsPageQuerySchema = z.object({
     });
   }
 });
+
+const viewerDocumentsBaseSchema = signedViewerAuthSchema.extend({
+  date_from: isoDateSchema,
+  date_to: isoDateSchema,
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  page_size: z.coerce.number().int().min(5).max(50).optional().default(10),
+  search: z.string().trim().max(120).optional().default(""),
+});
+
+const viewerDocumentsQuerySchema = viewerDocumentsBaseSchema.superRefine(
+  (value, ctx) => {
+    const parsed = salesGoodsServicesParamsSchema.safeParse({
+      date_from: value.date_from,
+      date_to: value.date_to,
+    });
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid date range",
+        path: ["date_from"],
+      });
+    }
+  },
+);
+
+const viewerDocumentDetailQuerySchema = viewerDocumentsBaseSchema
+  .extend({
+    doc_no: z.string().trim().min(1).max(120),
+  })
+  .superRefine((value, ctx) => {
+    const parsed = salesGoodsServicesParamsSchema.safeParse({
+      date_from: value.date_from,
+      date_to: value.date_to,
+    });
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid date range",
+        path: ["date_from"],
+      });
+    }
+  });
 
 const lineWebhookEventsQuerySchema = z.object({
   reveal: z.enum(["0", "1"]).optional().default("0"),
