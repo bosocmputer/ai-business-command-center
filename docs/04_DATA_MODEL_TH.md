@@ -234,7 +234,7 @@ Phase ปัจจุบัน `line_channels` เป็น registry/metadata �
 
 ### line_targets
 
-ปลายทาง LINE ต่อ tenant เช่น `groupId`, `roomId`, หรือ `userId` พร้อม permission profile ระดับกลุ่ม
+ปลายทาง LINE ต่อ tenant เช่น `userId`, `groupId`, หรือ `roomId` พร้อม permission profile ระดับ target. ค่า default ใหม่ของ pilot คือส่งส่วนตัวให้ผู้บริหาร (`userId`) ก่อน ส่วน group ใช้เฉพาะข้อมูลที่ทีมควรเห็นร่วมกัน
 
 ```text
 id
@@ -245,6 +245,7 @@ target_type
 target_id
 target_id_masked
 target_id_hash
+recipient_count_estimate
 access_profile_key
 allowed_report_keys
 allowed_actions
@@ -257,6 +258,11 @@ updated_at
 ```
 
 `target_type`: `user`, `group`, `room`
+
+`recipient_count_estimate` ใช้เพื่อประมาณ LINE quota เท่านั้น ไม่ใช่ตัวควบคุมการส่งจริง:
+
+- `user`: default = `1`
+- `group` / `room`: owner กรอกเองเมื่อรู้จำนวนสมาชิกโดยประมาณ
 
 `access_profile_key`:
 

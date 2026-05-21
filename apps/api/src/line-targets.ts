@@ -77,6 +77,12 @@ export function buildEnvFallbackLineTarget(input: {
     target_id: input.config.targetId,
     target_id_masked: maskLineTargetId(input.config.targetId),
     target_id_hash: targetIdHash,
+    recipient_count_estimate: estimateRecipientCount(
+      normalizeLineTargetType({
+        value: input.config.targetType,
+        targetId: input.config.targetId,
+      }),
+    ),
     access_profile_key: "executive",
     allowed_report_keys: defaults.allowed_report_keys,
     allowed_actions: defaults.allowed_actions,
@@ -115,6 +121,7 @@ export function buildPendingWebhookLineTarget(input: {
     target_id: input.event.source_id,
     target_id_masked: maskLineTargetId(input.event.source_id),
     target_id_hash: targetIdHash,
+    recipient_count_estimate: estimateRecipientCount(input.event.source_type),
     access_profile_key: "staff",
     allowed_report_keys: [],
     allowed_actions: [],
@@ -198,6 +205,12 @@ export function maskLineTargetId(value: string) {
   }
 
   return `${value.slice(0, 5)}...${value.slice(-5)}`;
+}
+
+export function estimateRecipientCount(
+  targetType: LineTargetType,
+): number | null {
+  return targetType === "user" ? 1 : null;
 }
 
 function createLineTargetId(tenantId: TenantId, targetId: string) {

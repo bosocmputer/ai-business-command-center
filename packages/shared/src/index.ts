@@ -371,6 +371,7 @@ export type LineTargetRecord = {
   target_type: LineTargetType;
   target_id_masked: string;
   target_id_hash: string;
+  recipient_count_estimate?: number | null;
   access_profile_key: LineAccessProfileKey;
   allowed_report_keys: ReportKey[];
   allowed_actions: AllowedLineAction[];

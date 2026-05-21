@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyLineAccessProfileDefaults,
   buildEnvFallbackLineTarget,
+  buildPendingWebhookLineTarget,
   canAccessLineReport,
 } from "./line-targets.js";
 
@@ -99,6 +100,58 @@ describe("LINE target permission profiles", () => {
     ).toMatchObject({
       allowed: false,
       reason: "tenant_mismatch",
+    });
+  });
+
+  it("discovers personal LINE targets as pending staff with a one-recipient estimate", () => {
+    const target = buildPendingWebhookLineTarget({
+      tenantId: "tenant_demo_remote",
+      event: {
+        id: "event_1",
+        event_type: "message",
+        source_type: "user",
+        source_id: "U1234567890abcdef1234567890abcdef",
+        source_id_masked: "U1234...bcdef",
+        user_id: "U1234567890abcdef1234567890abcdef",
+        message_text: "test",
+        raw_event_json: {},
+        created_at: "2026-05-21T01:00:00.000Z",
+      },
+    });
+
+    expect(target).toMatchObject({
+      target_type: "user",
+      access_profile_key: "staff",
+      approved: false,
+      enabled: false,
+      allowed_report_keys: [],
+      allowed_actions: [],
+      recipient_count_estimate: 1,
+    });
+  });
+
+  it("discovers LINE groups as pending staff without an automatic recipient estimate", () => {
+    const target = buildPendingWebhookLineTarget({
+      tenantId: "tenant_demo_remote",
+      event: {
+        id: "event_2",
+        event_type: "message",
+        source_type: "group",
+        source_id: "C1234567890abcdef1234567890abcdef",
+        source_id_masked: "C1234...bcdef",
+        user_id: "U1234567890abcdef1234567890abcdef",
+        message_text: "test",
+        raw_event_json: {},
+        created_at: "2026-05-21T01:00:00.000Z",
+      },
+    });
+
+    expect(target).toMatchObject({
+      target_type: "group",
+      access_profile_key: "staff",
+      approved: false,
+      enabled: false,
+      recipient_count_estimate: null,
     });
   });
 });

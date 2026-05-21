@@ -1138,6 +1138,10 @@ app.post("/api/line-targets/:id/approve", async (request, reply) => {
   const updated = await systemStore.upsertLineTarget({
     ...applyLineAccessProfileDefaults(target, profileKey),
     display_name: body.data.display_name?.trim() || target.display_name,
+    recipient_count_estimate:
+      body.data.recipient_count_estimate !== undefined
+        ? body.data.recipient_count_estimate
+        : target.recipient_count_estimate,
     approved: true,
     enabled: body.data.enabled ?? true,
     updated_at: new Date().toISOString(),
@@ -1153,6 +1157,7 @@ app.post("/api/line-targets/:id/approve", async (request, reply) => {
       target_id_masked: updated.target_id_masked,
       target_id_hash: updated.target_id_hash,
       access_profile_key: updated.access_profile_key,
+      recipient_count_estimate: updated.recipient_count_estimate,
       enabled: updated.enabled,
     },
   });
@@ -1187,6 +1192,10 @@ app.patch("/api/line-targets/:id", async (request, reply) => {
   let updated: StoredLineTargetRecord = {
     ...target,
     display_name: body.data.display_name?.trim() || target.display_name,
+    recipient_count_estimate:
+      body.data.recipient_count_estimate !== undefined
+        ? body.data.recipient_count_estimate
+        : target.recipient_count_estimate,
     enabled: body.data.enabled ?? target.enabled,
     approved: body.data.approved ?? target.approved,
     updated_at: new Date().toISOString(),
@@ -1225,6 +1234,7 @@ app.patch("/api/line-targets/:id", async (request, reply) => {
       approved: updated.approved,
       allowed_report_keys: updated.allowed_report_keys,
       allowed_actions: updated.allowed_actions,
+      recipient_count_estimate: updated.recipient_count_estimate,
     },
   });
 
@@ -2866,6 +2876,13 @@ const lineTargetApproveSchema = z.object({
   access_profile_key: lineAccessProfileKeySchema.optional(),
   display_name: z.string().trim().min(1).max(120).optional(),
   enabled: z.boolean().optional(),
+  recipient_count_estimate: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .nullable()
+    .optional(),
 });
 
 const lineTargetPatchSchema = z.object({
@@ -2875,6 +2892,13 @@ const lineTargetPatchSchema = z.object({
   approved: z.boolean().optional(),
   allowed_report_keys: z.array(reportKeySchema).optional(),
   allowed_actions: z.array(allowedLineActionSchema).optional(),
+  recipient_count_estimate: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .nullable()
+    .optional(),
 });
 
 const workerHeartbeatSchema = z.object({

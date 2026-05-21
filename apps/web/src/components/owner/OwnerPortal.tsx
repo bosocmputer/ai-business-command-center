@@ -590,12 +590,12 @@ export default function OwnerPortal({
   ) {
     await runOwnerAction(`approve-line-target-${target.id}`, async () => {
       const headers = await buildAdminJsonHeaders({
-        actionLabel: "อนุมัติกลุ่ม LINE",
+        actionLabel: "อนุมัติผู้รับ LINE",
         description:
-          "เปิดให้กลุ่มนี้รับ Morning Brief ตามสิทธิ์ที่เลือก โดยไม่เปิดเผย target id เต็ม",
+          "เปิดให้ปลายทางนี้รับ Morning Brief ตามสิทธิ์ที่เลือก โดยไม่เปิดเผย target id เต็ม",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนอนุมัติกลุ่ม LINE");
+        throw new Error("ต้องกรอก Admin token ก่อนอนุมัติผู้รับ LINE");
       }
 
       const response = await fetch(
@@ -615,7 +615,7 @@ export default function OwnerPortal({
       };
 
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error || "อนุมัติกลุ่ม LINE ไม่สำเร็จ");
+        throw new Error(payload.error || "อนุมัติผู้รับ LINE ไม่สำเร็จ");
       }
 
       setSelectedTenantId(payload.data.tenant_id);
@@ -635,12 +635,12 @@ export default function OwnerPortal({
       `line-target-profile-${target.id}-${profileKey}`,
       async () => {
         const headers = await buildAdminJsonHeaders({
-          actionLabel: "เปลี่ยนสิทธิ์กลุ่ม LINE",
+          actionLabel: "เปลี่ยนสิทธิ์ผู้รับ LINE",
           description:
-            "ปรับสิทธิ์รายงานของกลุ่มนี้ เช่น ผู้บริหาร ฝ่ายขาย ปฏิบัติการ หรือพนักงาน",
+            "ปรับสิทธิ์รายงานของปลายทางนี้ เช่น ผู้บริหาร ฝ่ายขาย ปฏิบัติการ หรือพนักงาน",
         });
         if (!headers) {
-          throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสิทธิ์กลุ่ม LINE");
+          throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสิทธิ์ผู้รับ LINE");
         }
 
         const response = await fetch(
@@ -657,7 +657,7 @@ export default function OwnerPortal({
         };
 
         if (!response.ok || !payload.data) {
-          throw new Error(payload.error || "เปลี่ยนสิทธิ์กลุ่ม LINE ไม่สำเร็จ");
+          throw new Error(payload.error || "เปลี่ยนสิทธิ์ผู้รับ LINE ไม่สำเร็จ");
         }
 
         setResult({
@@ -676,10 +676,10 @@ export default function OwnerPortal({
           ? "ปิดรับ Morning Brief"
           : "เปิดรับ Morning Brief",
         description:
-          "เปลี่ยนเฉพาะสถานะเปิด/ปิดของกลุ่มนี้ ไม่เปลี่ยน profile สิทธิ์รายงาน",
+          "เปลี่ยนเฉพาะสถานะเปิด/ปิดของปลายทางนี้ ไม่เปลี่ยน profile สิทธิ์รายงาน",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสถานะกลุ่ม LINE");
+        throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสถานะผู้รับ LINE");
       }
 
       const response = await fetch(
@@ -696,14 +696,14 @@ export default function OwnerPortal({
       };
 
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error || "เปลี่ยนสถานะกลุ่ม LINE ไม่สำเร็จ");
+        throw new Error(payload.error || "เปลี่ยนสถานะผู้รับ LINE ไม่สำเร็จ");
       }
 
       setResult({
         tone: "success",
         message: payload.data.enabled
-          ? "เปิดรับ Morning Brief ให้กลุ่มนี้แล้ว"
-          : "ปิดรับ Morning Brief ให้กลุ่มนี้แล้ว",
+          ? "เปิดรับ Morning Brief ให้ปลายทางนี้แล้ว"
+          : "ปิดรับ Morning Brief ให้ปลายทางนี้แล้ว",
       });
       await loadOwnerData();
     });
@@ -714,11 +714,11 @@ export default function OwnerPortal({
       const confirmed = await requestAdminConfirmation({
         title: "ยืนยันส่ง LINE test จริง",
         message:
-          "ระบบจะส่ง Flex Morning Brief ทดสอบไปยังปลายทางนี้เท่านั้น เพื่อยืนยันว่ากลุ่มรับข้อความได้จริง",
+          "ระบบจะส่ง Flex Morning Brief ทดสอบไปยังปลายทางนี้เท่านั้น เพื่อยืนยันว่าผู้รับได้รับข้อความจริง",
         confirmLabel: "ส่งทดสอบ",
         tone: "danger",
         details: [
-          { label: "กลุ่ม/ปลายทาง", value: target.display_name },
+          { label: "ผู้รับ/ปลายทาง", value: target.display_name },
           { label: "รหัสปลายทาง", value: target.target_id_masked },
           {
             label: "สิทธิ์",
@@ -733,7 +733,7 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: "ส่ง LINE test จริง",
         description:
-          "ใช้ทดสอบเฉพาะกลุ่มนี้หลัง owner อนุมัติสิทธิ์แล้ว",
+          "ใช้ทดสอบเฉพาะปลายทางนี้หลัง owner อนุมัติสิทธิ์แล้ว",
       });
       if (!headers) {
         throw new Error("ต้องกรอก Admin token ก่อนส่ง LINE test");
@@ -764,6 +764,47 @@ export default function OwnerPortal({
             ? "ส่ง LINE test สำเร็จ"
             : payload.data.delivery.safe_error_message ??
               "ส่ง LINE test แล้วแต่ยังไม่สำเร็จ",
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function updateLineTargetRecipientEstimate(
+    target: LineTargetRecord,
+    recipientCountEstimate: number | null,
+  ) {
+    await runOwnerAction(`line-target-recipient-estimate-${target.id}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "บันทึกจำนวนผู้รับโดยประมาณ",
+        description:
+          "ใช้ประเมิน LINE quota ต่อเดือนเท่านั้น ไม่กระทบ target id หรือสิทธิ์รายงาน",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนบันทึกจำนวนผู้รับ");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/line-targets/${target.id}`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            recipient_count_estimate: recipientCountEstimate,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: LineTargetRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "บันทึกจำนวนผู้รับไม่สำเร็จ");
+      }
+
+      setResult({
+        tone: "success",
+        message: `${payload.data.display_name}: บันทึก quota estimate แล้ว`,
       });
       await loadOwnerData();
     });
@@ -1151,6 +1192,9 @@ export default function OwnerPortal({
           onTestDatasource={testDatasource}
           onTestLineTarget={testLineTarget}
           onToggleLineTarget={toggleLineTarget}
+          onUpdateLineTargetRecipientEstimate={
+            updateLineTargetRecipientEstimate
+          }
           onUpdateStatus={updateTenantStatus}
           onSaveValidationSignoff={saveValidationSignoff}
           operationsStatus={operationsStatus}
@@ -1267,6 +1311,10 @@ type OwnerSectionContentProps = {
   onTestDatasource: (tenantId: string) => Promise<void>;
   onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
   onToggleLineTarget: (target: LineTargetRecord) => Promise<void>;
+  onUpdateLineTargetRecipientEstimate: (
+    target: LineTargetRecord,
+    recipientCountEstimate: number | null,
+  ) => Promise<void>;
   onUpdateStatus: (
     tenant: Tenant,
     status: Tenant["status"],
@@ -1354,9 +1402,9 @@ function getOwnerSectionMeta(section: OwnerPortalSection) {
     },
     line: {
       eyebrow: "LINE operations",
-      title: "LINE OA และสิทธิ์กลุ่ม",
+      title: "LINE OA และผู้รับรายงาน",
       description:
-        "จัดการช่องทาง LINE OA กลุ่มที่รออนุมัติ สิทธิ์การรับ Morning Brief และ test send",
+        "จัดการช่องทาง LINE OA ผู้บริหารรายคน กลุ่มทีมงาน สิทธิ์การรับ Morning Brief และ test send",
     },
     audit: {
       eyebrow: "System history",
@@ -1446,7 +1494,7 @@ function TenantOperationsTable({ tenants }: { tenants: TenantSummary[] }) {
             />
             <CompactFact
               label="LINE"
-              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} กลุ่ม`}
+              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} ปลายทาง`}
             />
             <div className="flex gap-2 lg:justify-end">
               <Link
@@ -1470,7 +1518,7 @@ function OwnerFlowCard() {
     "เชื่อม SML",
     "รันรายงาน",
     "ตั้ง LINE OA",
-    "อนุมัติกลุ่ม",
+    "อนุมัติผู้รับ",
     "ส่งทดสอบ",
   ];
 
@@ -1697,7 +1745,7 @@ function OwnerTenantsContent({
               </h2>
               <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
                 ร้านที่ถูกระงับจะเข้า `/app` ไม่ได้ และ scheduler จะไม่ส่ง Morning Brief
-                ให้ทุกกลุ่มของร้านนั้น
+                ให้ทุกปลายทางของร้านนั้น
               </p>
             </div>
             <select
@@ -1834,6 +1882,7 @@ function OwnerLineContent({
   onSetLineTargetProfile,
   onTestLineTarget,
   onToggleLineTarget,
+  onUpdateLineTargetRecipientEstimate,
   publicOrigin,
   selectedTenant,
   selectedTenantId,
@@ -1853,8 +1902,8 @@ function OwnerLineContent({
       <div className="space-y-4">
         <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
           <OwnerPanelHeader
-            title="LINE OA และกลุ่มรับรายงาน"
-            description="รวมสถานะ LINE ต่อร้าน เลือกร้านแล้วจัดการกลุ่มรับ Morning Brief ได้จากหน้านี้"
+            title="LINE OA และผู้รับรายงาน"
+            description="รวมสถานะ LINE ต่อร้าน เลือกร้านแล้วจัดการผู้บริหารรายคน กลุ่มทีมงาน และสิทธิ์รับ Morning Brief"
           />
           <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
             {tenants.map((item) => (
@@ -1874,6 +1923,7 @@ function OwnerLineContent({
           onSetProfile={onSetLineTargetProfile}
           onTestSend={onTestLineTarget}
           onToggleEnabled={onToggleLineTarget}
+          onUpdateRecipientEstimate={onUpdateLineTargetRecipientEstimate}
           targets={selectedTenantLineTargets}
           tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
         />
@@ -2022,7 +2072,7 @@ function AuditLogPanel({ auditLogs }: { auditLogs: OwnerAuditLogEntry[] }) {
     <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <OwnerPanelHeader
         title="Audit log ล่าสุด"
-        description="หลักฐานการรันรายงาน การส่ง LINE การอนุมัติกลุ่ม และการรับรองยอด"
+        description="หลักฐานการรันรายงาน การส่ง LINE การอนุมัติผู้รับ และการรับรองยอด"
       />
       <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
         {auditLogs.length ? (
@@ -2470,8 +2520,8 @@ function LineTenantRow({
         value={`${item.health.line_channels} ช่องทาง`}
       />
       <CompactFact
-        label="กลุ่มที่เปิดรับ"
-        value={`${item.health.line_targets_enabled}/${item.health.line_targets_total} กลุ่ม`}
+        label="ปลายทางที่เปิดรับ"
+        value={`${item.health.line_targets_enabled}/${item.health.line_targets_total} ปลายทาง`}
       />
       <CompactFact
         label="ส่งล่าสุด"
@@ -2577,10 +2627,10 @@ function buildOwnerActionItems(tenants: TenantSummary[]) {
     }
     if (item.health.line_channels > 0 && item.health.line_targets_enabled === 0) {
       actions.push({
-        description: "มี LINE OA แล้ว แต่ยังไม่มีกลุ่มที่อนุมัติรับ Morning Brief",
+        description: "มี LINE OA แล้ว แต่ยังไม่มีผู้รับที่อนุมัติรับ Morning Brief",
         label: "ตรวจ",
         tenantName: item.tenant.name,
-        title: "อนุมัติกลุ่ม LINE",
+        title: "อนุมัติผู้รับ LINE",
         tone: "warning",
       });
     }
@@ -2625,8 +2675,8 @@ function formatAuditAction(action: string) {
   const labels: Record<string, string> = {
     datasource_test_succeeded: "ทดสอบ SML สำเร็จ",
     datasource_test_failed: "ทดสอบ SML ไม่สำเร็จ",
-    line_target_approved: "อนุมัติกลุ่ม LINE",
-    line_target_updated: "แก้สิทธิ์กลุ่ม LINE",
+    line_target_approved: "อนุมัติผู้รับ LINE",
+    line_target_updated: "แก้สิทธิ์ผู้รับ LINE",
     line_delivery_succeeded: "ส่ง LINE สำเร็จ",
     line_delivery_failed: "ส่ง LINE ไม่สำเร็จ",
     morning_brief_report_run_requested: "รัน Morning Brief",
@@ -3161,7 +3211,7 @@ function TenantCard({
             />
             <CompactFact
               label="LINE"
-              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} กลุ่ม`}
+              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} ปลายทาง`}
             />
             <CompactFact
               label="รายงานล่าสุด"
@@ -3383,10 +3433,10 @@ function LineOnboardingGuide({
               วิธีให้ {tenantName} เริ่มรับ Morning Brief
             </h2>
             <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              ดึง OA เข้ากลุ่ม → พิมพ์ test → owner อนุมัติสิทธิ์
+              ผู้บริหาร add OA → พิมพ์ test ส่วนตัว → owner อนุมัติสิทธิ์
             </p>
           </div>
-          <Badge color="light">ไม่ auto-enable กลุ่มใหม่</Badge>
+          <Badge color="light">ไม่ auto-enable ปลายทางใหม่</Badge>
         </div>
       </summary>
 
@@ -3403,10 +3453,10 @@ function LineOnboardingGuide({
         {[
           "เพิ่มหรือเลือก LINE OA ของร้านใน LINE Developers",
           "ตั้ง Webhook URL และเปิด Use webhook",
-          "ให้ลูกค้าดึง OA เข้ากลุ่ม LINE ที่ต้องการรับรายงาน",
-          "ให้ลูกค้าพิมพ์ test ในกลุ่ม เพื่อให้ระบบ discover target",
-          "กลับมาหน้า LINE OA/สิทธิ์กลุ่ม แล้วอนุมัติ profile เช่น ผู้บริหาร หรือฝ่ายขาย",
-          "กดส่งทดสอบเฉพาะกลุ่มก่อนเปิด Morning Brief ประจำวัน",
+          "ให้ผู้บริหาร add OA เป็นเพื่อน แล้วพิมพ์ test แบบส่วนตัว",
+          "ถ้าต้องใช้กลุ่ม ให้ดึง OA เข้ากลุ่มและพิมพ์ test ในกลุ่มนั้น",
+          "กลับมาหน้า LINE OA/ผู้รับรายงาน แล้วอนุมัติ profile เช่น ผู้บริหาร หรือฝ่ายขาย",
+          "กดส่งทดสอบเฉพาะปลายทางก่อนเปิด Morning Brief ประจำวัน",
         ].map((step, index) => (
           <div
             className="flex gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
@@ -3595,14 +3645,14 @@ function getTenantReadiness(
     },
     {
       ok: item.health.line_targets_enabled > 0,
-      label: "มีกลุ่ม LINE ที่อนุมัติแล้ว",
+      label: "มีผู้รับ LINE ที่อนุมัติแล้ว",
       detail: `${item.health.line_targets_enabled}/${item.health.line_targets_total} target เปิดรับ Morning Brief`,
     },
     {
       ok: hasLineRoute && item.health.latest_line_delivery_status === "success",
       label: "ส่ง LINE ทดสอบสำเร็จ",
       detail: !hasLineRoute
-        ? "ต้องตั้ง LINE OA และอนุมัติกลุ่มก่อน จึงค่อยนับผลส่งทดสอบ"
+        ? "ต้องตั้ง LINE OA และอนุมัติผู้รับก่อน จึงค่อยนับผลส่งทดสอบ"
         : item.health.latest_line_delivery_at
         ? `${formatLineDeliveryStatus(item.health.latest_line_delivery_status)} · ${formatDateTime(item.health.latest_line_delivery_at)}`
         : "ยังไม่มี delivery log สำเร็จ",
@@ -3661,7 +3711,7 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
   if (firstMissing.label.includes("LINE")) {
     return {
       actionLabel: "ตั้ง LINE",
-      description: "ต้องเพิ่ม LINE OA หรืออนุมัติกลุ่มรับ Morning Brief",
+      description: "ต้องเพิ่ม LINE OA หรืออนุมัติผู้รับ Morning Brief",
       href: "/owner/line",
     };
   }

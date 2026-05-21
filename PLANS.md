@@ -22,16 +22,16 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `packages/shared` shared types/Zod schemas
 - `packages/reports` report contract/renderer สำหรับ `sales_goods_services`
 - Docker Compose deploy บน `192.168.2.109`
-- LINE OA demo flow ส่งเข้ากลุ่มทดสอบได้จริง
+- LINE OA demo flow ส่งเข้า target ทดสอบได้จริง และ strategy ใหม่ให้ส่งส่วนตัวผู้บริหารเป็น default
 - LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
 - System PostgreSQL store สำหรับ report runs/snapshots/audit/line deliveries
-- LINE target registry + group-level permission profiles สำหรับหลายกลุ่ม LINE
+- LINE target registry + target-level permission profiles สำหรับหลาย user/group/room
 - `/signin` Owner login สำหรับ admin surface ค่าเริ่มต้น pilot คือ `superadmin/superadmin`
 - `/owner` Owner Admin portal สำหรับคุณ/ทีม โดยแยก section เป็นภาพรวม, ร้านค้า, รายงาน, LINE OA, ประวัติระบบ
 - `/owner` มี Pilot rollout board แสดง readiness ต่อร้าน, progress, next action และลิงก์ไปหน้าที่ต้องทำต่อ
 - `/owner/tenants` ใช้เพิ่มร้าน, คุม subscription status, ดู datasource และเปิดลิงก์ Dashboard ลูกค้า
 - `/owner/reports` ใช้ติดตาม report snapshot ล่าสุดต่อร้าน และรันรายงานขายสินค้าและบริการแบบ manual จาก Owner Portal โดยตรง
-- `/owner/line` ใช้ดู LINE OA readiness, onboarding guide, อนุมัติ/เปลี่ยนสิทธิ์กลุ่ม LINE และส่ง test เฉพาะกลุ่ม
+- `/owner/line` ใช้ดู LINE OA readiness, onboarding guide, อนุมัติ/เปลี่ยนสิทธิ์ผู้รับ LINE และส่ง test เฉพาะปลายทาง
 - `/owner/audit` ใช้ดู latest report run, latest LINE delivery, audit log ล่าสุด, worker/scheduler health และ backup readiness
 - `/app` เป็น neutral state ไม่โชว์ร้านใดอัตโนมัติ
 - `/app/demo-shop` Customer Viewer read-only ของ DEMO SHOP
@@ -51,12 +51,12 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - Duplicate guard สำหรับ Morning Brief delivery ต่อ target
 - Signed owner session cookie สำหรับ route protection
 - Lightweight admin token guard สำหรับ mutation endpoints ระหว่าง MVP transition
-- `/owner` มี pilot readiness checklist ต่อร้าน และคู่มือ LINE OA onboarding สำหรับให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`
+- `/owner` มี pilot readiness checklist ต่อร้าน และคู่มือ LINE OA onboarding สำหรับให้ผู้บริหาร add OA เป็นเพื่อนแล้วพิมพ์ `test`; group ใช้เป็น optional สำหรับทีมงานเท่านั้น
 - Owner config secret workflow พร้อมใช้งานระดับ pilot:
   - `/owner/tenants` บันทึก SML datasource password แบบ encrypted ผ่าน masked input
   - `/owner/line` บันทึก LINE channel access token / channel secret แบบ encrypted ผ่าน masked input
   - API/worker prefer encrypted secret จาก system store ก่อน fallback ไป `.env.server`
-  - LINE webhook สามารถ match stored channel secret เพื่อผูก pending group กับ tenant/LINE OA ที่ถูกต้อง
+- LINE webhook สามารถ match stored channel secret เพื่อผูก pending target กับ tenant/LINE OA ที่ถูกต้อง
 - Phase 1 stabilization checkpoint ที่ `docs/13_PHASE_1_STABILIZATION_CHECK_TH.md`
 
 สิ่งที่ไม่มีแล้ว:

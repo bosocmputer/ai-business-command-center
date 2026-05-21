@@ -1186,6 +1186,7 @@ select
   target_id,
   target_id_masked,
   target_id_hash,
+  recipient_count_estimate,
   access_profile_key,
   allowed_report_keys,
   allowed_actions,
@@ -1217,6 +1218,7 @@ select
   target_id,
   target_id_masked,
   target_id_hash,
+  recipient_count_estimate,
   access_profile_key,
   allowed_report_keys,
   allowed_actions,
@@ -1251,6 +1253,7 @@ select
   target_id,
   target_id_masked,
   target_id_hash,
+  recipient_count_estimate,
   access_profile_key,
   allowed_report_keys,
   allowed_actions,
@@ -1282,6 +1285,7 @@ insert into line_targets (
   target_id,
   target_id_masked,
   target_id_hash,
+  recipient_count_estimate,
   access_profile_key,
   allowed_report_keys,
   allowed_actions,
@@ -1292,7 +1296,7 @@ insert into line_targets (
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14, $15::timestamptz, $16::timestamptz, $17::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15, $16::timestamptz, $17::timestamptz, $18::timestamptz)
 on conflict (id) do update
 set line_channel_id = excluded.line_channel_id,
     display_name = excluded.display_name,
@@ -1300,6 +1304,7 @@ set line_channel_id = excluded.line_channel_id,
     target_id = excluded.target_id,
     target_id_masked = excluded.target_id_masked,
     target_id_hash = excluded.target_id_hash,
+    recipient_count_estimate = excluded.recipient_count_estimate,
     access_profile_key = excluded.access_profile_key,
     allowed_report_keys = excluded.allowed_report_keys,
     allowed_actions = excluded.allowed_actions,
@@ -1317,6 +1322,7 @@ returning
   target_id,
   target_id_masked,
   target_id_hash,
+  recipient_count_estimate,
   access_profile_key,
   allowed_report_keys,
   allowed_actions,
@@ -1336,6 +1342,7 @@ returning
         target.target_id,
         target.target_id_masked,
         target.target_id_hash,
+        target.recipient_count_estimate ?? null,
         target.access_profile_key,
         JSON.stringify(target.allowed_report_keys),
         JSON.stringify(target.allowed_actions),
@@ -1780,6 +1787,10 @@ function mapLineTargetRow(row: Record<string, unknown>): StoredLineTargetRecord 
     target_id: String(row.target_id),
     target_id_masked: String(row.target_id_masked),
     target_id_hash: String(row.target_id_hash),
+    recipient_count_estimate: normalizeRecipientCountEstimate(
+      row.recipient_count_estimate,
+      row.target_type,
+    ),
     access_profile_key: normalizeAccessProfile(row.access_profile_key),
     allowed_report_keys: normalizeReportKeys(row.allowed_report_keys),
     allowed_actions: normalizeLineActions(row.allowed_actions),
@@ -1860,6 +1871,10 @@ function normalizeLineTarget(value: unknown): StoredLineTargetRecord | null {
     target_id: String(target.target_id),
     target_id_masked: String(target.target_id_masked),
     target_id_hash: String(target.target_id_hash),
+    recipient_count_estimate: normalizeRecipientCountEstimate(
+      target.recipient_count_estimate,
+      target.target_type,
+    ),
     access_profile_key: normalizeAccessProfile(target.access_profile_key),
     allowed_report_keys: normalizeReportKeys(target.allowed_report_keys),
     allowed_actions: normalizeLineActions(target.allowed_actions),
@@ -1883,6 +1898,22 @@ function normalizeAccessProfile(value: unknown) {
   }
 
   return "staff";
+}
+
+function normalizeRecipientCountEstimate(
+  value: unknown,
+  targetType: unknown,
+): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return targetType === "user" ? 1 : null;
 }
 
 function normalizeReportKeys(value: unknown): LineTargetRecord["allowed_report_keys"] {
@@ -2154,6 +2185,7 @@ create table if not exists line_targets (
   target_id text not null,
   target_id_masked text not null,
   target_id_hash text not null,
+  recipient_count_estimate integer,
   access_profile_key text not null,
   allowed_report_keys jsonb not null default '[]'::jsonb,
   allowed_actions jsonb not null default '[]'::jsonb,
@@ -2168,6 +2200,9 @@ create table if not exists line_targets (
 
 alter table line_targets
   add column if not exists line_channel_id text;
+
+alter table line_targets
+  add column if not exists recipient_count_estimate integer;
 
 create table if not exists line_channels (
   id text primary key,

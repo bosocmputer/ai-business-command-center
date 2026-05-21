@@ -79,7 +79,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - `/owner`: ภาพรวมเจ้าของ เห็น readiness ของทุกร้าน, งานที่ต้องทำต่อ, flow เปิดร้านใหม่
   - `/owner/tenants`: ร้านค้าและการใช้งาน เพิ่ม tenant, เปลี่ยน subscription status, ดู datasource/customer dashboard slug
   - `/owner/reports`: สถานะ report snapshot ล่าสุดต่อร้าน และ manual report runner สำหรับรายงานขายสินค้าและบริการโดยตรง
-  - `/owner/line`: LINE OA และกลุ่มรับรายงาน, onboarding guide ให้ลูกค้าดึง OA เข้ากลุ่มแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน
+  - `/owner/line`: LINE OA และผู้รับรายงาน, onboarding guide ให้ผู้บริหาร add OA เป็นเพื่อนแล้วพิมพ์ `test`, ดู LINE readiness ต่อร้าน; group ใช้เป็น optional สำหรับทีมงาน
   - `/owner/audit`: ประวัติระบบล่าสุด เช่น latest report run, latest LINE delivery, audit log, worker/scheduler status และ backup readiness
 - `/owner` มี Pilot rollout board:
   - แสดง progress ต่อร้านจาก checklist subscription, SML datasource, snapshot, LINE OA, approved target, LINE delivery
@@ -158,7 +158,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 
 ### LINE OA / Morning Brief
 
-- LINE OA demo ส่งเข้ากลุ่มทดสอบได้จริง
+- LINE OA demo ส่งเข้า target ทดสอบได้จริง และ strategy ใหม่คือส่งส่วนตัวให้ผู้บริหารเป็น default
 - Live send ใช้ LINE Flex Message เป็น default:
   - ไม่แสดง signed URL ยาวใน body
   - ไม่มีชื่อ `AI Business Center` ซ้ำในข้อความ เพราะ LINE แสดงชื่อ OA อยู่แล้ว
@@ -181,7 +181,7 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 
 - LINE message link ชี้ไป report viewer signed URL ไม่ใช่ admin dashboard
 - `line_deliveries.message_type` เก็บ `flex` หรือ `text` เพื่อ audit รูปแบบข้อความ
-- เพิ่ม `line_targets` สำหรับแยกสิทธิ์ระดับกลุ่ม/room/user:
+- เพิ่ม `line_targets` สำหรับแยกสิทธิ์ระดับ user/group/room:
   - `executive`
   - `sales_manager`
   - `operations`
@@ -189,11 +189,11 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 - Scheduler ส่งไปทุก target ที่ `approved=true`, `enabled=true` และผ่าน permission check ของ report นั้น
 - Target ใหม่จาก webhook จะถูกบันทึกเป็น pending ไม่ auto-enable
 - Env fallback target ถูกปิดเป็นค่า default เพื่อไม่ให้กลุ่มเก่าจาก `.env.server` ถูกสร้างกลับมาทุก restart
-- `/owner/line` เป็น flow หลักสำหรับดู masked target, profile, approve/change profile, enable-disable และ test send เฉพาะกลุ่ม
+- `/owner/line` เป็น flow หลักสำหรับดู masked target, profile, approve/change profile, enable-disable, quota estimate และ test send เฉพาะปลายทาง
 - `/command-center/settings` ยังมี LINE Groups & Permissions เป็น legacy/admin fallback ชั่วคราว แต่ไม่ใช่ flow หลักแล้ว
 - หน้า web/admin/brief สามารถเรียก API ผ่าน same-origin `/api` ได้ ไม่จำเป็นต้อง expose API tunnel แยกใน browser
-- `/owner/line` มี onboarding card บอกขั้นตอนเพิ่ม OA เข้ากลุ่ม, ส่ง `test`, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ
-- API พยายามดึงชื่อกลุ่ม LINE จาก group summary API แล้วบันทึกกลับเป็น `display_name`; ถ้าดึงไม่ได้จะ fallback เป็น masked id
+- `/owner/line` มี onboarding card บอกขั้นตอนให้ผู้บริหาร add OA, ส่ง `test` ส่วนตัว, รีเฟรช, อนุมัติสิทธิ์ และส่งทดสอบ; group onboarding เป็น optional
+- API พยายามดึงชื่อผู้รับ/ชื่อกลุ่มจาก LINE profile/group summary API แล้วบันทึกกลับเป็น `display_name`; ถ้าดึงไม่ได้จะ fallback เป็น masked id
 - `line_channels` registry เริ่มรองรับหลาย LINE OA ต่อ tenant ในระดับ metadata แล้ว
 - `/owner/line` มีฟอร์มบันทึก LINE channel access token และ channel secret แบบเข้ารหัส:
   - owner สร้าง LINE OA metadata ก่อน แล้วค่อยใส่ token/secret
@@ -295,7 +295,7 @@ Browser QA:
 - `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP ในภาพรวม พร้อมงานที่ต้องทำต่อ
 - `/owner/tenants` เห็น tenant operations และไม่มี horizontal overflow
 - `/owner/reports` เห็นสถานะ report snapshot ต่อร้าน, เลือกร้าน/ช่วงวันที่, ยืนยันก่อนรัน report และไม่มี horizontal overflow
-- `/owner/line` เห็น LINE readiness/onboarding guide, กลุ่ม LINE ต่อร้าน, profile permission และ action ส่ง test โดยไม่มี horizontal overflow
+- `/owner/line` เห็น LINE readiness/onboarding guide, ผู้บริหารรายคน, กลุ่มทีมงาน, target pending, profile permission, quota estimate และ action ส่ง test โดยไม่มี horizontal overflow
 - `/owner/audit` เห็น latest run/delivery ต่อร้าน และไม่มี horizontal overflow
 - `/app` แสดงข้อความให้ใช้ลิงก์ร้าน ไม่โชว์ Demo อัตโนมัติ
 - `/app/demo-shop` แสดงข้อมูล DEMO SHOP แบบ read-only

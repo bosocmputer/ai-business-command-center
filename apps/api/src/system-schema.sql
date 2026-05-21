@@ -57,6 +57,7 @@ create table if not exists line_targets (
   target_id text not null,
   target_id_masked text not null,
   target_id_hash text not null,
+  recipient_count_estimate integer,
   access_profile_key text not null,
   allowed_report_keys jsonb not null default '[]'::jsonb,
   allowed_actions jsonb not null default '[]'::jsonb,

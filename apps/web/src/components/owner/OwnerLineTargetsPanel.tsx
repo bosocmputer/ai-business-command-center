@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type {
   LineAccessProfileKey,
   LineTargetRecord,
@@ -13,6 +14,7 @@ export function OwnerLineTargetsPanel({
   onSetProfile,
   onTestSend,
   onToggleEnabled,
+  onUpdateRecipientEstimate,
   targets,
   tenantName,
 }: {
@@ -27,69 +29,91 @@ export function OwnerLineTargetsPanel({
   ) => Promise<void>;
   onTestSend: (target: LineTargetRecord) => Promise<void>;
   onToggleEnabled: (target: LineTargetRecord) => Promise<void>;
+  onUpdateRecipientEstimate: (
+    target: LineTargetRecord,
+    recipientCountEstimate: number | null,
+  ) => Promise<void>;
   targets: LineTargetRecord[];
   tenantName: string;
 }) {
   const readyTargets = targets.filter(canReceiveSalesMorningBrief);
+  const personalTargets = targets.filter(
+    (target) => target.target_type === "user" && target.approved,
+  );
+  const teamTargets = targets.filter(
+    (target) => target.target_type !== "user" && target.approved,
+  );
+  const pendingTargets = targets.filter((target) => !target.approved);
+  const quotaSummary = useMemo(
+    () => calculateQuotaSummary(readyTargets),
+    [readyTargets],
+  );
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            กลุ่ม LINE ของ {tenantName}
+            ผู้รับ LINE ของ {tenantName}
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            กลุ่มใหม่จาก webhook จะยังไม่รับรายงานจนกว่า owner จะอนุมัติและเลือกสิทธิ์
+            ค่าเริ่มต้นของ pilot คือส่ง Morning Brief ส่วนตัวให้ผู้บริหาร ส่วนกลุ่มใช้เฉพาะข้อมูลที่ทีมควรเห็นร่วมกัน
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge color="light">{targets.length} กลุ่ม/ปลายทาง</Badge>
+          <Badge color="light">{targets.length} ปลายทาง</Badge>
           <Badge color={readyTargets.length ? "success" : "warning"}>
             พร้อมส่ง {readyTargets.length}
+          </Badge>
+          <Badge color="info">
+            ประมาณ {formatEstimatedMonthlyMessages(quotaSummary)} / เดือน
           </Badge>
         </div>
       </div>
 
       <div className="border-t border-gray-100 p-4 dark:border-gray-800">
-        <div className="mb-4 grid gap-2 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-5">
-          {[
-            ["1", "ลูกค้าดึง OA เข้ากลุ่ม"],
-            ["2", "พิมพ์ test"],
-            ["3", "รายการขึ้นรออนุมัติ"],
-            ["4", "เลือกสิทธิ์กลุ่ม"],
-            ["5", "ส่งทดสอบ"],
-          ].map(([step, label]) => (
-            <div
-              className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
-              key={step}
-            >
-              <p className="text-xs font-semibold text-brand-600 dark:text-brand-400">
-                Step {step}
-              </p>
-              <p className="mt-1 leading-5">{label}</p>
-            </div>
-          ))}
-        </div>
+        <LineOnboardingSteps />
 
         {targets.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
-            ยังไม่พบกลุ่ม LINE ของร้านนี้ ให้เพิ่ม OA เข้ากลุ่มแล้วพิมพ์
-            `test` ในกลุ่มก่อน ระบบจะบันทึกเป็นรายการรออนุมัติ
+          <div className="mt-4 rounded-xl border border-dashed border-gray-200 p-4 text-sm leading-6 text-gray-500 dark:border-gray-800 dark:text-gray-400">
+            ยังไม่พบผู้รับ LINE ของร้านนี้ ให้ผู้บริหาร add LINE OA เป็นเพื่อนแล้วพิมพ์
+            `test` ก่อน ระบบจะบันทึกเป็นรายการรออนุมัติ
           </div>
         ) : (
-          <div className="space-y-3">
-            {targets.map((target) => (
-              <LineTargetCard
-                busy={busy}
-                key={target.id}
-                onApprove={onApprove}
-                onSetProfile={onSetProfile}
-                onTestSend={onTestSend}
-                onToggleEnabled={onToggleEnabled}
-                target={target}
-              />
-            ))}
+          <div className="mt-4 space-y-5">
+            <LineTargetSection
+              busy={busy}
+              emptyMessage="ยังไม่มีผู้บริหารรายคนที่อนุมัติแล้ว"
+              onApprove={onApprove}
+              onSetProfile={onSetProfile}
+              onTestSend={onTestSend}
+              onToggleEnabled={onToggleEnabled}
+              onUpdateRecipientEstimate={onUpdateRecipientEstimate}
+              targets={personalTargets}
+              title="ผู้บริหารรายคน"
+            />
+            <LineTargetSection
+              busy={busy}
+              emptyMessage="ยังไม่มีกลุ่มทีมงานที่อนุมัติแล้ว"
+              onApprove={onApprove}
+              onSetProfile={onSetProfile}
+              onTestSend={onTestSend}
+              onToggleEnabled={onToggleEnabled}
+              onUpdateRecipientEstimate={onUpdateRecipientEstimate}
+              targets={teamTargets}
+              title="กลุ่มทีมงาน"
+            />
+            <LineTargetSection
+              busy={busy}
+              emptyMessage="ไม่มีปลายทางรออนุมัติ"
+              onApprove={onApprove}
+              onSetProfile={onSetProfile}
+              onTestSend={onTestSend}
+              onToggleEnabled={onToggleEnabled}
+              onUpdateRecipientEstimate={onUpdateRecipientEstimate}
+              targets={pendingTargets}
+              title="รออนุมัติ"
+            />
           </div>
         )}
       </div>
@@ -110,12 +134,113 @@ export function formatLineAccessProfile(profileKey: LineAccessProfileKey) {
   return "พนักงานทั่วไป";
 }
 
+function LineOnboardingSteps() {
+  const steps = [
+    ["1", "ผู้บริหาร add OA เป็นเพื่อน", "เหมาะกับ Morning Brief ยอดขาย"],
+    ["2", "พิมพ์ test ส่วนตัว", "ระบบจะเห็น userId แบบ masked/hash"],
+    ["3", "owner อนุมัติสิทธิ์", "เลือกผู้บริหาร ฝ่ายขาย หรือทีมงาน"],
+    ["4", "ส่งทดสอบ", "ยืนยันว่า Flex Message และปุ่มเปิดรายงานใช้ได้"],
+  ];
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-2 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-4">
+        {steps.map(([step, label, description]) => (
+          <div
+            className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+            key={step}
+          >
+            <p className="text-xs font-semibold text-brand-600 dark:text-brand-400">
+              Step {step}
+            </p>
+            <p className="mt-1 font-semibold text-gray-800 dark:text-white/90">
+              {label}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {description}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm leading-6 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+        กลุ่ม LINE ยังใช้ได้ แต่ควรใช้เฉพาะรายงานที่ทุกคนในกลุ่มเห็นได้จริง
+        และถ้ากลุ่มมี 10 คน การส่ง 1 ครั้งจะประมาณ 10 messages.
+        `webhook.site` ใช้ debug payload ชั่วคราวเท่านั้น เพราะอาจเห็น userId,
+        groupId และข้อความจริง
+      </div>
+    </div>
+  );
+}
+
+function LineTargetSection({
+  busy,
+  emptyMessage,
+  onApprove,
+  onSetProfile,
+  onTestSend,
+  onToggleEnabled,
+  onUpdateRecipientEstimate,
+  targets,
+  title,
+}: {
+  busy: string | null;
+  emptyMessage: string;
+  onApprove: (
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) => Promise<void>;
+  onSetProfile: (
+    target: LineTargetRecord,
+    profileKey: LineAccessProfileKey,
+  ) => Promise<void>;
+  onTestSend: (target: LineTargetRecord) => Promise<void>;
+  onToggleEnabled: (target: LineTargetRecord) => Promise<void>;
+  onUpdateRecipientEstimate: (
+    target: LineTargetRecord,
+    recipientCountEstimate: number | null,
+  ) => Promise<void>;
+  targets: LineTargetRecord[];
+  title: string;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+          {title}
+        </h3>
+        <Badge color="light">{targets.length} รายการ</Badge>
+      </div>
+      {targets.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+          {emptyMessage}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {targets.map((target) => (
+            <LineTargetCard
+              busy={busy}
+              key={target.id}
+              onApprove={onApprove}
+              onSetProfile={onSetProfile}
+              onTestSend={onTestSend}
+              onToggleEnabled={onToggleEnabled}
+              onUpdateRecipientEstimate={onUpdateRecipientEstimate}
+              target={target}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LineTargetCard({
   busy,
   onApprove,
   onSetProfile,
   onTestSend,
   onToggleEnabled,
+  onUpdateRecipientEstimate,
   target,
 }: {
   busy: string | null;
@@ -129,8 +254,15 @@ function LineTargetCard({
   ) => Promise<void>;
   onTestSend: (target: LineTargetRecord) => Promise<void>;
   onToggleEnabled: (target: LineTargetRecord) => Promise<void>;
+  onUpdateRecipientEstimate: (
+    target: LineTargetRecord,
+    recipientCountEstimate: number | null,
+  ) => Promise<void>;
   target: LineTargetRecord;
 }) {
+  const [recipientEstimate, setRecipientEstimate] = useState(
+    target.recipient_count_estimate?.toString() ?? "",
+  );
   const isEnvFallback = target.source === "env_fallback";
   const ready = canReceiveSalesMorningBrief(target);
   const profileKeys: LineAccessProfileKey[] = [
@@ -139,6 +271,10 @@ function LineTargetCard({
     "operations",
     "staff",
   ];
+  const showsSalesToGroup =
+    target.target_type !== "user" &&
+    target.allowed_report_keys.includes("sales_goods_services") &&
+    target.allowed_actions.includes("receive_morning_brief");
 
   return (
     <div className="rounded-xl border border-gray-100 p-4 dark:border-gray-800">
@@ -148,6 +284,9 @@ function LineTargetCard({
             <h3 className="truncate text-sm font-semibold text-gray-900 dark:text-white">
               {target.display_name}
             </h3>
+            <Badge color={target.target_type === "user" ? "info" : "light"}>
+              {formatLineTargetType(target.target_type)}
+            </Badge>
             <Badge color={ready ? "success" : "warning"}>
               {ready ? "รับรายงานขายได้" : "ยังไม่พร้อมรับ"}
             </Badge>
@@ -159,18 +298,15 @@ function LineTargetCard({
             </Badge>
           </div>
 
-          <dl className="mt-3 grid gap-x-4 gap-y-2 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-2 2xl:grid-cols-4">
-            <CompactFact
-              label="ประเภท"
-              value={formatLineTargetType(target.target_type)}
-            />
-            <CompactFact
-              label="รหัสปลายทาง"
-              value={target.target_id_masked}
-            />
+          <dl className="mt-3 grid gap-x-4 gap-y-2 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-2 2xl:grid-cols-5">
+            <CompactFact label="รหัสปลายทาง" value={target.target_id_masked} />
             <CompactFact
               label="สิทธิ์"
               value={formatLineAccessProfile(target.access_profile_key)}
+            />
+            <CompactFact
+              label="Quota"
+              value={formatRecipientEstimate(target)}
             />
             <CompactFact
               label="ล่าสุด"
@@ -180,24 +316,82 @@ function LineTargetCard({
                   : "-"
               }
             />
+            <CompactFact
+              label="ที่มา"
+              value={formatLineTargetSource(target.source)}
+            />
           </dl>
 
           <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
             รายงานที่เห็นได้: {formatAllowedReports(target)} · สิทธิ์การใช้งาน:{" "}
-            {formatAllowedActions(target)} · ที่มา:{" "}
-            {formatLineTargetSource(target.source)}
+            {formatAllowedActions(target)}
           </p>
+
+          {showsSalesToGroup ? (
+            <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+              ปลายทางนี้เป็นกลุ่ม/ห้องแชท: ข้อมูลยอดขายที่ส่งไปทุกคนในปลายทางนี้จะเห็นได้
+            </p>
+          ) : null}
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <label className="min-w-[180px] text-xs font-medium text-gray-600 dark:text-gray-300">
+              จำนวนผู้รับโดยประมาณ
+              <input
+                className="mt-1 h-9 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none focus:border-brand-300 dark:border-gray-800 dark:bg-gray-900 dark:text-white/90"
+                disabled={Boolean(busy) || isEnvFallback}
+                inputMode="numeric"
+                min={1}
+                onChange={(event) => setRecipientEstimate(event.target.value)}
+                placeholder={target.target_type === "user" ? "1" : "เช่น 10"}
+                type="number"
+                value={recipientEstimate}
+              />
+            </label>
+            <Button
+              disabled={Boolean(busy) || isEnvFallback}
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void onUpdateRecipientEstimate(
+                  target,
+                  parseRecipientEstimate(recipientEstimate),
+                )
+              }
+            >
+              บันทึก quota
+            </Button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 xl:max-w-[360px] xl:justify-end">
+        <div className="flex flex-wrap gap-2 xl:max-w-[420px] xl:justify-end">
           {!target.approved && !isEnvFallback ? (
-            <Button
-              disabled={Boolean(busy)}
-              size="sm"
-              onClick={() => void onApprove(target, "executive")}
-            >
-              อนุมัติผู้บริหาร
-            </Button>
+            target.target_type === "user" ? (
+              <Button
+                disabled={Boolean(busy)}
+                size="sm"
+                onClick={() => void onApprove(target, "executive")}
+              >
+                อนุมัติเป็นผู้บริหาร
+              </Button>
+            ) : (
+              <>
+                <Button
+                  disabled={Boolean(busy)}
+                  size="sm"
+                  onClick={() => void onApprove(target, "sales_manager")}
+                >
+                  อนุมัติกลุ่มฝ่ายขาย
+                </Button>
+                <Button
+                  disabled={Boolean(busy)}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void onApprove(target, "staff")}
+                >
+                  ตั้งเป็นทีมงาน
+                </Button>
+              </>
+            )
           ) : null}
 
           {profileKeys.map((profileKey) => (
@@ -245,6 +439,60 @@ function canReceiveSalesMorningBrief(target: LineTargetRecord) {
     target.allowed_actions.includes("receive_morning_brief") &&
     target.allowed_report_keys.includes("sales_goods_services")
   );
+}
+
+function calculateQuotaSummary(targets: LineTargetRecord[]) {
+  return targets.reduce(
+    (summary, target) => {
+      const estimate = getRecipientEstimate(target);
+      if (estimate === null) {
+        return {
+          knownRecipients: summary.knownRecipients,
+          unknownTargets: summary.unknownTargets + 1,
+        };
+      }
+      return {
+        knownRecipients: summary.knownRecipients + estimate,
+        unknownTargets: summary.unknownTargets,
+      };
+    },
+    { knownRecipients: 0, unknownTargets: 0 },
+  );
+}
+
+function getRecipientEstimate(target: LineTargetRecord) {
+  if (typeof target.recipient_count_estimate === "number") {
+    return target.recipient_count_estimate;
+  }
+  return target.target_type === "user" ? 1 : null;
+}
+
+function formatEstimatedMonthlyMessages(summary: {
+  knownRecipients: number;
+  unknownTargets: number;
+}) {
+  const knownMessages = summary.knownRecipients * 30;
+  if (summary.unknownTargets) {
+    return `${knownMessages.toLocaleString("th-TH")}+ messages`;
+  }
+  return `${knownMessages.toLocaleString("th-TH")} messages`;
+}
+
+function formatRecipientEstimate(target: LineTargetRecord) {
+  const estimate = getRecipientEstimate(target);
+  if (estimate === null) {
+    return "ยังไม่ระบุ";
+  }
+  return `${estimate.toLocaleString("th-TH")} คน/ครั้ง`;
+}
+
+function parseRecipientEstimate(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function formatAccessProfileShort(profileKey: LineAccessProfileKey) {

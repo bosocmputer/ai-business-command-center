@@ -26,7 +26,8 @@ POST /api/line-targets/:id/test-send
 - renderer อ่านจาก `report_snapshots` ล่าสุด หรือ snapshot ที่เพิ่ง run ใน morning brief flow
 - `line-preview` ไม่ส่งข้อความจริง
 - `line-send-test` และ `morning-brief/run-and-send` เป็น mutation endpoint ต้องใช้ `x-ai-bcc-admin-token`
-- `line_targets` แยกสิทธิ์ระดับกลุ่ม/room/user ต่อ tenant แล้ว โดยเริ่มจาก profile `executive`, `sales_manager`, `operations`, `staff`
+- `line_targets` แยกสิทธิ์ระดับ user/group/room ต่อ tenant แล้ว โดยเริ่มจาก profile `executive`, `sales_manager`, `operations`, `staff`
+- Strategy ใหม่สำหรับ pilot/prod คือส่ง Morning Brief ส่วนตัวให้ผู้บริหารเป็น default (`target_type=user`); group/room เป็น optional สำหรับทีมที่ควรเห็นข้อมูลร่วมกันเท่านั้น
 - live send ใช้ LINE Flex Message เป็น default และเก็บ text summary เป็น fallback/preview
 - ข้อความต้องระบุ source เป็นภาษาผู้ใช้ เช่น `ข้อมูลจากระบบขาย SML`
 - `run_id` ต้อง trace ได้ผ่าน viewer/details และ `line_deliveries` แต่ไม่ต้องโชว์ในข้อความ LINE ส่วนหลัก
@@ -34,12 +35,13 @@ POST /api/line-targets/:id/test-send
 - dashboard link ใน LINE ต้องเป็น signed report viewer URL ไม่ใช่ admin dashboard
 - signed URL ต้องอยู่หลังปุ่ม `เปิดรายงาน` ไม่แสดง URL ยาวใน body หลัก
 - signed viewer URL ห้าม log หรือบันทึกเต็มใน docs เพราะมี token
-- target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดกลุ่ม
+- target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดคนหรือผิดกลุ่ม
 - LINE target ต้องมาจาก target registry/webhook ที่ admin อนุมัติแล้ว; env fallback target ปิดเป็นค่า default เพื่อกันกลุ่มเก่าถูกสร้างกลับมาทุก restart
 - tenant ที่เป็น `suspended` หรือ `cancelled` จะไม่ส่ง Morning Brief แม้ target จะ approved แล้ว
 - Owner Admin เริ่มมี `line_channels` registry เพื่อรองรับหลาย LINE OA ต่อ tenant: 1 tenant มีหลาย OA, 1 OA มีหลาย target
 - web public URL ใช้ same-origin `/api` rewrite ไปยัง API ภายใน Docker เพื่อลดการพึ่งพา API quick tunnel แยกอีกตัว
-- ระบบพยายามดึงชื่อกลุ่มจาก LINE group summary API เพื่อให้ admin เห็นชื่อกลุ่มแทน masked group id ถ้า LINE API ให้สิทธิ์และ OA ยังอยู่ในกลุ่มนั้น
+- ระบบพยายามดึงชื่อปลายทางจาก LINE profile/group summary API เพื่อให้ admin เห็นชื่อผู้รับหรือชื่อกลุ่มแทน masked id ถ้า LINE API ให้สิทธิ์
+- `webhook.site` ใช้ได้เฉพาะ debug payload ชั่วคราว ห้ามใช้เป็น pilot/prod webhook หลัก เพราะอาจเห็น `userId`, `groupId`, และข้อความจริง
 
 ข้อมูลที่ต้องใช้สำหรับการส่งจริง:
 
@@ -149,15 +151,26 @@ target_id
 
 ถ้า target ไม่มีสิทธิ์ ระบบต้อง skip และบันทึก audit โดยไม่ส่งข้อมูลธุรกิจ
 
-Admin onboarding flow สำหรับกลุ่มใหม่:
+Admin onboarding flow สำหรับผู้บริหารรายคน:
 
 ```text
-1. เพิ่ม LINE OA เข้ากลุ่ม
-2. พิมพ์ test ในกลุ่ม
+1. ให้ผู้บริหาร add LINE OA เป็นเพื่อน
+2. พิมพ์ test แบบส่วนตัว
 3. กลับมาที่ `/owner/line` แล้วกดรีเฟรช
-4. ตรวจชื่อกลุ่ม/รหัสปลายทาง masked
-5. กดอนุมัติผู้บริหารหรือเลือก profile ที่เหมาะสม
-6. กดส่งทดสอบเฉพาะกลุ่มนั้น
+4. ตรวจชื่อผู้รับ/รหัสปลายทาง masked
+5. กดอนุมัติเป็นผู้บริหารหรือเลือก profile ที่เหมาะสม
+6. กดส่งทดสอบเฉพาะปลายทางนั้น
+```
+
+Admin onboarding flow สำหรับกลุ่มทีมงานเป็น optional:
+
+```text
+1. เพิ่ม LINE OA เข้ากลุ่มที่ทีมควรเห็นข้อมูลร่วมกัน
+2. พิมพ์ test ในกลุ่ม
+3. กลับมาที่ `/owner/line`
+4. ตั้ง profile อย่างระมัดระวัง เช่น ฝ่ายขาย หรือพนักงาน
+5. ถ้าเปิดรายงานขายให้ group ต้องถือว่าทุกคนในกลุ่มเห็นข้อมูลยอดขายได้
+6. กรอกจำนวนผู้รับโดยประมาณเพื่อประเมิน quota
 ```
 
 ## Morning Brief Content
@@ -311,7 +324,7 @@ LINE_CHANNEL_ACCESS_TOKEN=
 
 ## LINE Group Permission Profiles
 
-Phase ปัจจุบันรองรับ group-level permission ก่อน ยังไม่แยกสิทธิ์ราย user ในกลุ่มเดียวกัน
+Phase ปัจจุบันรองรับ target-level permission ก่อน ยังไม่แยกสิทธิ์ราย user ในกลุ่มเดียวกัน
 
 ```text
 executive
@@ -338,7 +351,7 @@ Permission check function ต้องใช้ร่วมกันทั้ง
 - signed viewer link generation
 - future chatbot intent routing
 
-Future chatbot rule: ทุกคำถามต้อง resolve `tenant_id + line_target + report_key + action` ก่อนเลือก report ถ้า deny ให้ตอบว่า `กลุ่มนี้ไม่มีสิทธิ์ดูรายงานนี้` และห้ามรัน/สรุปข้อมูล
+Future chatbot rule: ทุกคำถามต้อง resolve `tenant_id + line_target + report_key + action` ก่อนเลือก report ถ้า deny ให้ตอบว่า `ปลายทางนี้ไม่มีสิทธิ์ดูรายงานนี้` และห้ามรัน/สรุปข้อมูล
 
 ## Future Chatbot
 
