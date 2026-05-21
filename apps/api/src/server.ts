@@ -2088,7 +2088,9 @@ app.get(
           "content-disposition",
           `attachment; filename="${cachedPdf.filename}"`,
         )
-        .header("cache-control", "private, max-age=604800")
+        .header("cache-control", "no-store, no-cache, must-revalidate, private")
+        .header("pragma", "no-cache")
+        .header("expires", "0")
         .header("content-length", String(cachedPdf.pdf.length))
         .send(cachedPdf.pdf);
     }
@@ -2146,7 +2148,9 @@ app.get(
       return reply
         .header("content-type", "application/pdf")
         .header("content-disposition", `attachment; filename="${pdf.filename}"`)
-        .header("cache-control", "private, max-age=604800")
+        .header("cache-control", "no-store, no-cache, must-revalidate, private")
+        .header("pragma", "no-cache")
+        .header("expires", "0")
         .header("content-length", String(pdf.pdf.length))
         .send(pdf.pdf);
     } catch (error) {
