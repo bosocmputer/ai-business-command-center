@@ -1575,27 +1575,72 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     });
   }
 
-  const [salesSnapshot, purchaseSnapshot] = await Promise.all([
-    salesPermission.allowed
-      ? systemStore.getLatestSnapshot(
-          target.tenant_id,
-          "sales_goods_services",
-        )
-      : Promise.resolve(null),
-    purchasePermission.allowed
-      ? systemStore.getLatestSnapshot(
-          target.tenant_id,
-          "purchase_goods_payables",
-        )
-      : Promise.resolve(null),
-  ]);
+  // Always run fresh yesterday report — never use getLatestSnapshot (stale / wrong date range)
+  const yesterdayParams = deriveMorningBriefDateRange({
+    period: "yesterday",
+    timeZone: "Asia/Bangkok",
+  });
+  const yesterdayPurchaseParams = derivePurchaseMorningBriefDateRange();
 
-  if (
-    (!salesSnapshot || salesSnapshot.report_key !== "sales_goods_services") &&
-    (!purchaseSnapshot ||
-      purchaseSnapshot.report_key !== "purchase_goods_payables")
-  ) {
-    return reply.status(404).send({ error: "Snapshot not found" });
+  let salesSnapshot: SalesGoodsServicesSnapshot | null = null;
+  let purchaseSnapshot: PurchaseGoodsPayablesSnapshot | null = null;
+
+  if (salesPermission.allowed) {
+    const salesRunResult = await runAndPersistSalesGoodsServicesReport({
+      tenantId: target.tenant_id,
+      params: yesterdayParams,
+      requestAction: "line_target_test_send_report_run",
+    });
+    if (!salesRunResult.ok) {
+      await systemStore.appendAuditLog({
+        tenant_id: target.tenant_id,
+        actor_id: null,
+        action: "line_target_test_failed",
+        target_type: "line_target",
+        target_id: target.id,
+        metadata_json: {
+          step: "sales_report_run",
+          error: salesRunResult.error,
+          target_id_masked: target.target_id_masked,
+        },
+      });
+      return reply.status(salesRunResult.statusCode).send({
+        error: salesRunResult.error,
+        run: salesRunResult.runRecord,
+      });
+    }
+    salesSnapshot = salesRunResult.snapshot;
+  }
+
+  if (purchasePermission.allowed) {
+    const purchaseRunResult = await runAndPersistPurchaseGoodsPayablesReport({
+      tenantId: target.tenant_id,
+      params: yesterdayPurchaseParams,
+      requestAction: "line_target_test_send_purchase_report_run",
+    });
+    // Graceful degrade: purchase failure does not block the send
+    if (purchaseRunResult.ok) {
+      purchaseSnapshot = purchaseRunResult.snapshot;
+    } else {
+      await systemStore.appendAuditLog({
+        tenant_id: target.tenant_id,
+        actor_id: null,
+        action: "line_target_test_purchase_run_failed",
+        target_type: "line_target",
+        target_id: target.id,
+        metadata_json: {
+          step: "purchase_report_run",
+          error: purchaseRunResult.error,
+          target_id_masked: target.target_id_masked,
+        },
+      });
+    }
+  }
+
+  if (!salesSnapshot && !purchaseSnapshot) {
+    return reply.status(424).send({
+      error: "ไม่สามารถดึงข้อมูลรายงานได้ กรุณาตรวจสอบการเชื่อมต่อ SML หรือ datasource ของ tenant",
+    });
   }
 
   const openSalesViewerPermission = canAccessLineReport({
