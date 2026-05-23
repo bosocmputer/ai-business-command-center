@@ -704,7 +704,7 @@ export function renderSalesGoodsServicesLinePreview(input: {
         "รายงานขายสินค้าและบริการ",
         "",
         `บริษัท: ${tenantName}`,
-        `วันที่ข้อมูล: ${formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}`,
+        `วันที่ข้อมูล: ${formatReportPeriodWithTime(snapshot.params.date_from, snapshot.params.date_to)}`,
         `อัปเดต: ${generatedAt}`,
         "",
         "สถานะ: ไม่พบยอดขาย",
@@ -731,7 +731,7 @@ export function renderSalesGoodsServicesLinePreview(input: {
         "รายงานขายสินค้าและบริการ",
         "",
         `บริษัท: ${tenantName}`,
-        `วันที่ข้อมูล: ${formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}`,
+        `วันที่ข้อมูล: ${formatReportPeriodWithTime(snapshot.params.date_from, snapshot.params.date_to)}`,
         `อัปเดต: ${generatedAt}`,
         "",
         `ยอดขายสุทธิ: ${formatMoney(snapshot.summary.total_sales)} บาท`,
@@ -841,7 +841,7 @@ function buildSalesGoodsServicesFlexMessage(input: {
           },
           {
             type: "text",
-            text: `${input.tenantName} · ${formatReportPeriod(
+            text: `${input.tenantName} · ${formatReportPeriodWithTime(
               snapshot.params.date_from,
               snapshot.params.date_to,
             )}`,
@@ -1000,7 +1000,7 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
           },
           {
             type: "text",
-            text: `${input.tenantName} · ${formatReportPeriod(
+            text: `${input.tenantName} · ${formatReportPeriodWithTime(
               snapshot.params.date_from,
               snapshot.params.date_to,
             )}`,
@@ -1373,6 +1373,20 @@ function formatReportPeriod(dateFrom: string, dateTo: string) {
   }
 
   return `${formatThaiDate(dateFrom)} - ${formatThaiDate(dateTo)}`;
+}
+
+function formatReportPeriodWithTime(dateFrom: string, dateTo: string) {
+  const from = formatDateSlash(dateFrom);
+  const to = formatDateSlash(dateTo);
+  if (dateFrom === dateTo) {
+    return `${from} 00:00 - ${to} 23:59`;
+  }
+  return `${from} 00:00 - ${to} 23:59`;
+}
+
+function formatDateSlash(ymd: string) {
+  const [year, month, day] = ymd.split("-");
+  return `${day}/${month}/${year}`;
 }
 
 function formatThaiDate(ymd: string) {

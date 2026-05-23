@@ -590,7 +590,7 @@ export function renderPurchaseGoodsPayablesLinePreview(input: {
     "รายงานซื้อ/ตั้งหนี้",
     "",
     `บริษัท: ${tenantName}`,
-    `ช่วงข้อมูล: ${formatReportPeriod(snapshot.params.date_from, snapshot.params.date_to)}`,
+    `ช่วงข้อมูล: ${formatReportPeriodWithTime(snapshot.params.date_from, snapshot.params.date_to)}`,
     `อัปเดต: ${generatedAt}`,
     "",
     `ยอดซื้อ/ตั้งหนี้: ${formatMoney(snapshot.summary.total_purchase)} บาท`,
@@ -691,7 +691,7 @@ function buildPurchaseGoodsPayablesFlexMessage(input: {
           },
           {
             type: "text",
-            text: `${input.tenantName} · ${formatReportPeriod(
+            text: `${input.tenantName} · ${formatReportPeriodWithTime(
               snapshot.params.date_from,
               snapshot.params.date_to,
             )}`,
@@ -1017,6 +1017,20 @@ function formatReportPeriod(dateFrom: string, dateTo: string) {
   }
 
   return `${formatThaiDate(dateFrom)} - ${formatThaiDate(dateTo)}`;
+}
+
+function formatReportPeriodWithTime(dateFrom: string, dateTo: string) {
+  const from = formatDateSlash(dateFrom);
+  const to = formatDateSlash(dateTo);
+  if (dateFrom === dateTo) {
+    return `${from} 00:00 - ${to} 23:59`;
+  }
+  return `${from} 00:00 - ${to} 23:59`;
+}
+
+function formatDateSlash(ymd: string) {
+  const [year, month, day] = ymd.split("-");
+  return `${day}/${month}/${year}`;
 }
 
 function formatThaiDate(ymd: string) {
