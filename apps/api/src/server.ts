@@ -3561,7 +3561,7 @@ function derivePurchaseMorningBriefDateRange(input?: { now?: Date }) {
   const currentYmd = formatDateInBangkok(input?.now ?? new Date());
   const yesterday = addDays(currentYmd, -1);
   return {
-    date_from: `${yesterday.slice(0, 8)}01`,
+    date_from: yesterday,
     date_to: yesterday,
   };
 }
