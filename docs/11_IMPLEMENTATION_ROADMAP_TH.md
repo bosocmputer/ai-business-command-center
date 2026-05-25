@@ -6,7 +6,7 @@
 
 ## MVP Principle
 
-ทำให้จบ flow นี้ก่อน:
+ทำให้จบ flow นี้ก่อนสำหรับ SML channel แรก:
 
 ```text
 SML PostgreSQL
@@ -17,6 +17,8 @@ SML PostgreSQL
 ```
 
 ยังไม่เริ่ม chatbot จนกว่า report contract และ snapshot เชื่อถือได้
+
+Product direction ล่าสุด: AI-Business เป็น multi-channel brief hub. SML เป็น channel แรก ส่วน FlowAccount จะเป็น `flowaccount_finance` channel สำหรับ finance/accounting brief แยก ไม่ใช่ SML sync target.
 
 ## Phase 0: Documentation and Design
 
@@ -30,6 +32,7 @@ Deliverables:
 Acceptance:
 
 - ทีมเข้าใจว่า report เป็นแกนหลัก
+- ทีมเข้าใจว่า channel เป็น boundary หลัก: SML, FlowAccount และ future channels แยกกัน
 - ไม่มี decision ใหญ่ค้างก่อนเริ่ม coding
 
 ## Phase 1: Single-Tenant Pilot
@@ -212,6 +215,7 @@ Acceptance:
 - branch mode handling
 - subscription status check
 - report versioning
+- brief channel catalog และ permission ต่อ channel
 
 Reports ถัดไป:
 
@@ -219,6 +223,10 @@ Reports ถัดไป:
 - `top_products`
 - `sales_daily_trend`
 - `sales_by_customer`
+
+Channel ถัดไป:
+
+- `flowaccount_finance`: connection + finance brief foundation ผ่าน FlowAccount OpenAPI, Sandbox first, ไม่มี SML dependency
 
 Acceptance:
 
@@ -238,6 +246,7 @@ Acceptance:
 - alert on failed jobs
 - query safety scanner
 - staging/prod split
+- partner API readiness สำหรับ channel ใหม่ เช่น OAuth state, refresh token rotation, rate limit และ safe error
 
 Acceptance:
 
@@ -254,6 +263,7 @@ Acceptance:
 - chat session
 - intent router
 - report selection
+- channel selection
 - param extraction
 - answer renderer
 - source citation
@@ -262,6 +272,7 @@ Rules:
 
 - chatbot ไม่ generate SQL เอง
 - chatbot ตอบจาก report contract เท่านั้น
+- chatbot ต้องระบุ source/channel และไม่รวมข้อมูลข้าม channel โดยไม่มี permission
 - ถ้าไม่มี report รองรับ ให้ตอบว่าไม่มีรายงานรองรับ
 
 Acceptance:
@@ -291,3 +302,16 @@ Acceptance:
 4. กด link จาก LINE แล้วตรวจ signed viewer ของ `run_id` รอบนั้น
 5. บันทึก UX feedback จากผู้ใช้จริง
 6. ถ้ารอบนี้ผ่าน ค่อยเพิ่ม report ถัดไปหรือเริ่ม login/role permission
+
+## Planned Milestone: FlowAccount Foundation
+
+รอคำตอบจากทีม FlowAccount แล้ว implement เป็น channel แยก:
+
+- OpenID Partner Flow
+- Sandbox first
+- encrypted access/refresh token
+- connection status/test/disconnect
+- audit log
+- finance/accounting brief foundation
+- ไม่สร้างเอกสาร
+- ไม่ sync SML ไป FlowAccount

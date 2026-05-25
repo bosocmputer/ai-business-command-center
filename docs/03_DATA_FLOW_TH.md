@@ -2,7 +2,17 @@
 
 ## เป้าหมายของเอกสาร
 
-อธิบาย full loop ของข้อมูลตั้งแต่ onboarding tenant, connect SML database, run report, build snapshot, dashboard, LINE Morning Brief, audit และ feedback loop กลับเข้า shared report library
+อธิบาย full loop ของข้อมูลตั้งแต่ onboarding tenant, connect integration channel, run report/brief, build snapshot, dashboard, LINE Morning Brief, audit และ feedback loop กลับเข้า shared report/brief library
+
+## Brief Channel Rule
+
+AI-Business เป็น multi-channel brief hub:
+
+- `sml_reports`: SML PostgreSQL approved SQL reports
+- `flowaccount_finance`: FlowAccount OpenAPI finance/accounting brief foundation
+- future channels เช่น `ecommerce`, `pos`, `crm`
+
+แต่ละ channel แยก credential, permission, runner, schedule, template และ audit. ห้าม assume ว่า FlowAccount ต้องอ่าน/เขียน/เทียบกับ SML เว้นแต่มี requirement แยก.
 
 ## Full Loop
 
@@ -12,18 +22,18 @@ sequenceDiagram
     participant API as Backend API
     participant DB as System DB
     participant Worker as Report Worker
-    participant SML as SML PostgreSQL
+    participant Source as Integration Source
     participant Web as Dashboard
     participant Brief as Signed Report Viewer
     participant LINE as LINE OA
 
-    Admin->>API: create tenant + datasource
-    API->>DB: save encrypted datasource
-    Admin->>API: enable report sales_goods_services
-    API->>DB: save tenant_report_config
+    Admin->>API: create tenant + channel config
+    API->>DB: save encrypted channel credential
+    Admin->>API: enable report/brief contract
+    API->>DB: save tenant report/channel config
     Worker->>DB: load due jobs
-    Worker->>SML: execute approved SQL read-only
-    SML-->>Worker: rows
+    Worker->>Source: execute approved SQL/API read-only
+    Source-->>Worker: rows/data
     Worker->>Worker: validate output schema
     Worker->>DB: save report_run + result_json
     Worker->>DB: save report_snapshot
@@ -48,10 +58,10 @@ sequenceDiagram
 ## Tenant Onboarding Flow
 
 1. สร้าง `tenant`
-2. เพิ่ม `datasource`
-3. ทดสอบ connection
-4. scan schema หรือ fingerprint เบื้องต้น
-5. enable report ที่ต้องใช้
+2. เพิ่ม channel config เช่น SML datasource หรือ FlowAccount OAuth connection
+3. ทดสอบ connection ของ channel นั้น
+4. scan schema/fingerprint หรืออ่าน profile เท่าที่ channel รองรับ
+5. enable report/brief ที่ต้องใช้
 6. ตั้ง schedule
 7. ตั้ง LINE target
 8. run manual ครั้งแรก
@@ -69,11 +79,11 @@ input:
 steps:
   1. validate tenant active
   2. validate subscription allows report
-  3. load datasource
+  3. load channel config/datasource
   4. decrypt secret in memory only
   5. validate params
-  6. render approved SQL template
-  7. execute with timeout
+  6. render approved SQL/API request
+  7. execute with timeout/rate-limit handling
   8. validate output schema
   9. save report_run
   10. build report_snapshot
@@ -130,6 +140,18 @@ pdf export: /api/reports/:tenantId/:reportKey/pdf/prepare + /pdf with same signe
 duplicate key: tenant_id + report_key + morning_brief + date_from + date_to
 ```
 
+Planned FlowAccount channel:
+
+```text
+tenant_id: <tenant>
+brief_channel: flowaccount_finance
+auth: OpenID Partner Flow
+environment: sandbox first
+behavior: connection + finance/accounting brief foundation only
+no SML dependency: true
+no document creation/sync: true
+```
+
 ## PDF Export Flow
 
 ```text
@@ -163,11 +185,11 @@ cache_ttl: 7 days
 flowchart TD
     A[ลูกค้าใช้ dashboard/LINE] --> B[พบคำถามใหม่]
     B --> C[ส่ง feedback ให้ทีม]
-    C --> D[ออกแบบ report contract ใหม่]
+    C --> D[ออกแบบ report/brief contract ใหม่]
     D --> E[เพิ่ม report_definitions version ใหม่]
-    E --> F[เปิดให้ tenant เดิม]
+    E --> F[เปิดให้ tenant เดิมใน channel นั้น]
     E --> G[เปิดขายให้ tenant อื่น]
-    G --> H[shared SML knowledge โตขึ้น]
+    G --> H[shared channel knowledge โตขึ้น]
 ```
 
 ## Data Freshness Rules
@@ -180,6 +202,7 @@ flowchart TD
 - `status`
 - `row_count`
 - `source_report_key`
+- `brief_channel`
 
 สถานะ:
 
@@ -193,6 +216,7 @@ flowchart TD
 กรณีที่ต้องรองรับ:
 
 - SML DB connect ไม่ได้
+- FlowAccount token หมดอายุ/revoked หรือ API fail
 - query timeout
 - output column ไม่ตรง contract
 - LINE API fail

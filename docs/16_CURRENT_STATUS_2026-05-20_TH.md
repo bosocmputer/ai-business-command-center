@@ -14,12 +14,15 @@
 Timezone: Asia/Bangkok
 Latest deployed code commit: 050b2a2
 SaaS pilot owner/customer portals: ready
+Product positioning: multi-channel brief hub
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
 System store: PostgreSQL
 Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
+Current channel: sml_reports
 Current reports: sales_goods_services, purchase_goods_payables
+Planned channel: flowaccount_finance (foundation only, no SML sync)
 PDF export layout: sml-row-v5
 PDF cache volume: /app/.data/pdf-cache
 ```
@@ -52,6 +55,14 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Web ใช้ same-origin `/api` rewrite ไป API service ภายใน Docker ได้แล้ว เพื่อลดปัญหา API quick tunnel URL หมดอายุหรือ DNS ไม่ทัน
 
 ## สิ่งที่สำเร็จแล้ว
+
+### Product Direction
+
+- AI-Business ถูกวางเป็น multi-channel Morning Brief / Business Brief Hub
+- SML เป็น channel แรก (`sml_reports`) สำหรับ approved SQL reports, dashboard, LINE viewer และ PDF
+- FlowAccount จะเป็น channel แยก (`flowaccount_finance`) สำหรับ finance/accounting brief foundation
+- FlowAccount ไม่ใช่ SML sync target และรอบแรกจะไม่สร้าง/แก้เอกสาร FlowAccount
+- ทุก channel ต้องแยก auth, credential, runner, schedule, template, permission และ audit
 
 ### Report Platform
 
@@ -364,6 +375,8 @@ Browser QA:
 - หลังมี login จริง customer tenant ต้อง derive จาก session/role ไม่ใช่ slug เพียงอย่างเดียว
 - `subscriptions` ยังไม่แยก table ใช้ `tenants.status` เป็น gate จริงชั่วคราว
 - `tenant_report_configs` ยังไม่เปิดใช้จริง รายงานแรกยังเป็น `sales_goods_services`
+- ยังไม่มี `integration_channels`/`brief_channels` table จริง; multi-channel เป็น direction/docs ก่อน
+- FlowAccount foundation ยังรอข้อมูลจาก FlowAccount dev team เช่น OAuth endpoints, test connection endpoint, token rotation และ rate limit
 - ยังไม่แยกสิทธิ์ราย user ใน LINE group เดียวกัน
 - ยังไม่มี backup/restore automation สำหรับ system PostgreSQL
 - ยังไม่ได้ทำ CI/CD pipeline
@@ -386,12 +399,14 @@ Priority 2:
 2. ต่อ owner datasource config ให้บันทึก secret ผ่าน encrypted secret store
 3. ต่อ LINE channel token/secret ให้บันทึกผ่าน encrypted secret store สำหรับหลาย LINE OA จริง
 4. เพิ่ม `subscriptions` และ `tenant_report_configs` เป็น table/workflow แยก
+5. ออกแบบ `integration_channels` foundation เพื่อรองรับ `flowaccount_finance` โดยไม่ผูกกับ SML
 
 Priority 3:
 
 1. เตรียม report ถัดไปจาก SML query จริง เช่น AR Overdue, SO Backlog หรือ Inventory Risk
-2. ทำ named tunnel/domain แทน trycloudflare quick tunnel
-3. ทำ read-only DB user guide สำหรับลูกค้า pilot
+2. วาง FlowAccount Foundation เมื่อได้คำตอบจาก FlowAccount dev team: OpenID Partner, Sandbox, encrypted token, test connection, read/report brief
+3. ทำ named tunnel/domain แทน trycloudflare quick tunnel
+4. ทำ read-only DB user guide สำหรับลูกค้า pilot
 
 ## คำสั่ง deploy/update
 
@@ -424,3 +439,4 @@ curl http://127.0.0.1:4055/health
 - ถ้าจะทดสอบ mutation endpoint ให้ใช้ token จาก server env โดยไม่ echo ออกมา
 - ค่า admin token สำหรับ pilot อาจตั้งให้ง่ายต่อการจำใน server env ได้ แต่ production ต้องเปลี่ยนเป็น secret ที่ strong และหมุนได้
 - ถ้าเห็นยอด `0` ของวันที่ `2026-05-19` ให้ถือว่าเป็นข้อมูลจริงของ snapshot ล่าสุด ไม่ใช่ error
+- อย่า assume ว่า FlowAccount หรือ integration ใหม่ต้องเชื่อมกับ SML; ให้ถือเป็น independent brief channel เว้นแต่ user ระบุให้ sync/reconcile โดยตรง

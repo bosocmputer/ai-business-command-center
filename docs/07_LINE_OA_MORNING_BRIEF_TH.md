@@ -2,7 +2,7 @@
 
 ## เป้าหมายของเอกสาร
 
-ออกแบบ LINE OA strategy สำหรับส่ง Morning Brief ทุกเช้า และรองรับอนาคตเป็น LINE chatbot โดยยังรักษา tenant isolation และ auditability
+ออกแบบ LINE OA strategy สำหรับส่ง Morning Brief ทุกเช้าจากหลาย brief channel และรองรับอนาคตเป็น LINE chatbot โดยยังรักษา tenant isolation และ auditability
 
 ## Current Implementation Status
 
@@ -31,6 +31,8 @@ POST /api/line-targets/:id/test-send
 - Strategy ใหม่สำหรับ pilot/prod คือส่ง Morning Brief ส่วนตัวให้ผู้บริหารเป็น default (`target_type=user`); group/room เป็น optional สำหรับทีมที่ควรเห็นข้อมูลร่วมกันเท่านั้น
 - live send ใช้ LINE Flex Message เป็น default และเก็บ text summary เป็น fallback/preview
 - ข้อความต้องระบุ source เป็นภาษาผู้ใช้ เช่น `ข้อมูลจากระบบขาย SML`
+- Morning Brief รองรับหลาย channel ต่อ tenant ได้ เช่น `sml_reports` และ future `flowaccount_finance`
+- FlowAccount เป็น finance/accounting brief channel แยก ไม่ใช่ SML sync target
 - `run_id` ต้อง trace ได้ผ่าน viewer/details และ `line_deliveries` แต่ไม่ต้องโชว์ในข้อความ LINE ส่วนหลัก
 - ถ้ามี reconciliation warning ต้องแสดงเป็นหมายเหตุหรือ insight ที่อ่านรู้เรื่อง
 - dashboard link ใน LINE ต้องเป็น signed report viewer URL ไม่ใช่ admin dashboard
@@ -93,7 +95,7 @@ POST /api/line-targets/:id/test-send
 
 ```mermaid
 flowchart TD
-    A[Scheduled Report Run] --> B[Report Snapshot]
+    A[Scheduled Channel Run] --> B[Report/Brief Snapshot]
     B --> C[Summary JSON]
     C --> D[Resolve line_targets]
     D --> E[Permission Check]
@@ -139,7 +141,7 @@ period = yesterday
 ```text
 send_time
 timezone
-enabled_reports
+enabled_reports_or_channels
 target_id
 ```
 
@@ -152,6 +154,16 @@ target_id
 - มี `sales_goods_services` ใน `allowed_report_keys`
 
 ถ้า target ไม่มีสิทธิ์ ระบบต้อง skip และบันทึก audit โดยไม่ส่งข้อมูลธุรกิจ
+
+Future multi-channel permission:
+
+```text
+target -> allowed_channels: sml_reports, flowaccount_finance
+target -> allowed_report_keys / brief_keys per channel
+target -> allowed_actions: receive_morning_brief, ask_report, open_signed_viewer
+```
+
+ถ้า executive digest รวมหลาย channel ในข้อความเดียว ต้องยังเก็บ source ต่อ card/section ให้ trace กลับ `brief_channel + report_key + report_run_id` ได้
 
 Admin onboarding flow สำหรับผู้บริหารรายคน:
 
@@ -221,6 +233,7 @@ Multi-report policy เมื่อมีรายงานเพิ่ม:
 - Morning Brief ห้ามต่อทุก report แบบเต็ม ๆ จนข้อความยาวขึ้นเรื่อย ๆ
 - LINE ควรเป็น executive digest: 1 bubble หลักหรือ carousel สั้น ๆ ที่เลือกเฉพาะ 3-5 สัญญาณสำคัญที่สุดของวัน
 - แต่ละ report ต้องมี contract ของตัวเองและสร้าง `line_summary` แบบสั้น ไม่เกิน 1 KPI + 1 insight + 1 CTA
+- แต่ละ channel เช่น SML หรือ FlowAccount ต้องมี source label และ permission แยก
 - รายละเอียดเต็มให้ไปอยู่ใน `/command-center/brief` หรือ report viewer แยกรายงาน ไม่ใช่ใน LINE chat
 - PDF รายละเอียดเต็มให้สร้างจาก server-side export ของ viewer ไม่ใช้ browser print และไม่แนบ signed token เต็มในข้อความ LINE
 - ถ้ามีหลาย report ในวันเดียว ให้เรียงตาม severity/business impact เช่น ยอดขายผิดปกติ, AR overdue, stock risk, SO backlog
@@ -244,6 +257,7 @@ Multi-report policy เมื่อมีรายงานเพิ่ม:
 - format ตัวเลขเป็นเงินบาท/จำนวน
 - แสดงช่วงวันที่เสมอ
 - แสดง `last_run_at`
+- แสดง source/channel เป็นภาษาธุรกิจ เช่น `ข้อมูลจากระบบขาย SML` หรือ `ข้อมูลจาก FlowAccount`
 - ถ้าไม่มีข้อมูล ให้ส่งข้อความแบบ empty state ไม่ใช่ error ดิบ
 - ถ้า report failed ให้ส่ง alert เฉพาะ admin target หรือบันทึก error ตาม config
 - ใช้คำที่ผู้บริหารอ่านรู้เรื่อง เช่น `จำนวนรายการขาย`, `ข้อมูลจากระบบขาย SML`
@@ -267,6 +281,7 @@ Multi-report policy เมื่อมีรายงานเพิ่ม:
 
 ```text
 tenant_id
+brief_channel
 report_run_id
 target_id
 message_type

@@ -2,13 +2,13 @@
 
 ## เป้าหมายของเอกสาร
 
-กำหนดวิธีใช้ AI ในการสร้าง **AI Business Command Center for SML** แบบ senior engineering workflow ไม่ใช่แค่ให้ AI เขียนโค้ดเร็ว แต่ต้องช่วยตรวจสมมติฐาน, ลด risk, เพิ่ม testability, และป้องกัน production incident
+กำหนดวิธีใช้ AI ในการสร้าง **AI Business Command Center** แบบ senior engineering workflow สำหรับ multi-channel brief platform ไม่ใช่แค่ให้ AI เขียนโค้ดเร็ว แต่ต้องช่วยตรวจสมมติฐาน, ลด risk, เพิ่ม testability, และป้องกัน production incident
 
 เอกสารนี้รวบรวม prompt patterns ที่ต้องนำมาใช้ในงานสำคัญของโปรเจกต์ เช่น code review, refactor, debug, architecture decision, test, performance และ migration
 
 ## หลักคิด
 
-ระบบนี้จะเชื่อม SML PostgreSQL, dashboard, LINE OA และในอนาคต chatbot ดังนั้นคุณภาพ engineering ต้องถือว่าเป็นระบบ production ตั้งแต่ phase 1
+ระบบนี้จะเชื่อม SML PostgreSQL, FlowAccount/future partner APIs, dashboard, LINE OA และในอนาคต chatbot ดังนั้นคุณภาพ engineering ต้องถือว่าเป็นระบบ production ตั้งแต่ phase 1
 
 หลักการ:
 
@@ -49,8 +49,9 @@ AI-Business Command-Center specific checks:
 - มี `tenant_id` filter ครบหรือไม่
 - มี secret หลุด log หรือไม่
 - SQL เป็น approved/parameterized หรือไม่
-- report run trace กลับ `report_run_id` ได้หรือไม่
+- report/brief run trace กลับ `report_run_id` และ channel/source ได้หรือไม่
 - LINE target แยก tenant ถูกต้องหรือไม่
+- integration ใหม่ถูกแยกเป็น channel ของตัวเองหรือเผลอผูกกับ SML โดยไม่มี requirement หรือไม่
 
 ## Prompt 2: Safe Refactor
 
@@ -394,4 +395,3 @@ Project migration rules:
 - audit/run log เพียงพอสำหรับ debug
 - LINE/report jobs retry/fail อย่างมีสถานะ
 - production risk ถูกบันทึกถ้ามี
-

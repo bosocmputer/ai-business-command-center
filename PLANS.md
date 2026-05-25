@@ -10,7 +10,7 @@ docs/16_CURRENT_STATUS_2026-05-20_TH.md
 
 ## Current State
 
-Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner Admin กับ Customer Viewer ชัดเจนแล้ว
+Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner Admin กับ Customer Viewer ชัดเจนแล้ว และ product positioning ถูกขยายเป็น **AI Business Brief Hub**: SML เป็น channel แรก ส่วน FlowAccount จะเป็น finance/accounting brief channel แยก ไม่ใช่ปลายทาง sync จาก SML
 
 สิ่งที่มี:
 
@@ -20,7 +20,8 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - `apps/api` Fastify report runner + LINE endpoints + signed viewer API + admin mutation auth
 - `apps/worker` Morning Brief scheduler สำหรับ `08:00 Asia/Bangkok`
 - `packages/shared` shared types/Zod schemas
-- `packages/reports` report contract/renderer สำหรับ `sales_goods_services`
+- `packages/reports` report contract/renderer สำหรับ SML channel (`sales_goods_services`, `purchase_goods_payables`)
+- Brief channel model ในเชิง product/docs: `sml_reports` เปิดใช้แล้ว, `flowaccount_finance` เป็น milestone ถัดไปแบบ read/report foundation
 - Docker Compose deploy บน `192.168.2.109`
 - LINE OA demo flow ส่งเข้า target ทดสอบได้จริง และ strategy ใหม่ให้ส่งส่วนตัวผู้บริหารเป็น default
 - LINE Morning Brief ส่งแบบ Flex Message พร้อมปุ่ม `เปิดรายงาน` เป็น default และมี text fallback
@@ -82,23 +83,25 @@ Latest deployed code commit: ดู `git rev-parse --short HEAD` บน server �
 
 ## Product Direction
 
-สร้าง **AI Business Command Center for SML** เป็น subscription/hybrid SaaS:
+สร้าง **AI Business Command Center** เป็น subscription/hybrid SaaS สำหรับ Morning Brief / Business Brief หลาย channel:
 
-- 1 บริษัท = 1 SML PostgreSQL database
-- shared report knowledge ใช้ร่วมกันทุก tenant
-- customer data, DB credential, report results, LINE targets แยกด้วย `tenant_id`
-- Phase 1 ทำ dashboard + LINE Morning Brief จาก approved SQL
-- Future chatbot ตอบจาก approved reports ไม่ใช่ SQL generator อิสระ
+- 1 tenant เปิดได้หลาย `brief_channel` เช่น `sml_reports`, `flowaccount_finance`, future `ecommerce`, future `pos`
+- SML เป็น channel แรก ไม่ใช่แกนถาวรของทุก integration
+- FlowAccount เป็น accounting/finance brief channel แยก ไม่ใช่ SML document sync target
+- แต่ละ channel ต้องแยก auth, credential, runner, schedule, message template, permission และ audit
+- customer data, credential, report/brief results, LINE targets แยกด้วย `tenant_id`
+- Future chatbot ตอบจาก approved reports/brief summaries ของแต่ละ channel ไม่ใช่ SQL/API generator อิสระ
 
 ## Non-Negotiable Engineering Rules
 
 - ห้าม hardcode credential จริงลง repo
 - production ห้ามใช้ DB superuser เช่น `postgres`
-- ทุก report ต้องมาจาก `report_contract`
-- SQL ต้อง approved และ parameterized
+- ทุก report/brief ต้องมาจาก contract ของ channel นั้น
+- SQL/API call ต้อง approved และ parameterized/typed ตาม source
 - ทุก customer data ต้องมี `tenant_id`
 - ทุก report run และ LINE delivery ต้อง trace/audit ได้
 - chatbot ในอนาคตต้อง route ไปหา report ที่ approved แล้ว
+- ห้าม assume ว่า integration ใหม่เกี่ยวข้องกับ SML เว้นแต่ requirement ระบุชัดเจน
 - งานสำคัญต้องใช้ engineering playbook ใน `docs/12_ENGINEERING_PLAYBOOK_TH.md`
 
 ## Phase 0: Lock Report Contract From First Query
@@ -213,6 +216,27 @@ Acceptance:
 - can register multiple LINE OA metadata per tenant
 - can see per-tenant pilot readiness checklist in owner portal
 - can enable report per tenant (next increment: `tenant_report_configs`)
+
+## Phase 2B: FlowAccount Finance Brief Foundation
+
+Goal: วาง FlowAccount เป็น `flowaccount_finance` channel แยกจาก SML เพื่อสร้าง finance/accounting brief ในอนาคต
+
+Scope รอบแรก:
+
+- OpenID Partner connection ต่อ tenant
+- Sandbox first
+- encrypted token storage ผ่าน secret vault
+- connect/callback/status/test/disconnect
+- audit log สำหรับ connection lifecycle
+- ยังไม่สร้าง/แก้เอกสาร FlowAccount
+- ยังไม่ sync SML ไป FlowAccount
+
+Acceptance:
+
+- owner เห็นว่า tenant เชื่อม FlowAccount แล้วหรือยัง
+- token/secret ไม่หลุด UI/log/audit
+- test connection ใช้ endpoint ที่ FlowAccount ยืนยัน
+- connection ของ FlowAccount ไม่กระทบ SML report/PDF/LINE เดิม
 
 ## Phase 3: Report Runner MVP
 
@@ -373,6 +397,7 @@ Add:
 - enable/disable report per plan
 - subscription status check
 - report versioning
+- multi-channel brief catalog เช่น SML, FlowAccount, ecommerce, POS
 - reports:
   - `sales_by_product`
   - `top_products`
@@ -420,6 +445,7 @@ LINE/Web question
 5. ถ้ารอบ 08:00 ผ่าน ค่อยเลือกงานถัดไป:
    - polish empty state/brief viewer
    - เพิ่ม report ถัดไปจาก SML query จริง
+   - วาง FlowAccount foundation เป็น finance brief channel แยกเมื่อได้คำตอบจาก FlowAccount dev team
    - วาง lightweight login/role แทน shared admin token
 
 ก่อนเริ่มงานให้เปิด [docs/16_CURRENT_STATUS_2026-05-20_TH.md](./docs/16_CURRENT_STATUS_2026-05-20_TH.md)

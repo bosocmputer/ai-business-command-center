@@ -2,7 +2,7 @@
 
 ## เป้าหมายของเอกสาร
 
-นิยาม data model กลางสำหรับระบบ subscription, datasource, report registry, report run, snapshot, LINE config, audit และ future chatbot
+นิยาม data model กลางสำหรับระบบ subscription, integration channel, datasource/partner secret, report registry, report run, snapshot, LINE config, audit และ future chatbot
 
 ## Design Principles
 
@@ -11,6 +11,7 @@
 - secret ต้อง encrypted
 - report result ต้อง trace กลับไป `report_run_id`
 - schema ต้องรองรับหลาย tenant ตั้งแต่แรก แม้ phase 1 ใช้ tenant เดียว
+- integration ใหม่ต้องเป็น channel แยก เช่น `sml_reports` หรือ `flowaccount_finance`; ห้ามถือว่า channel อื่นขึ้นกับ SML โดยอัตโนมัติ
 
 ## Core Tables
 
@@ -29,7 +30,39 @@ Current implementation ผ่าน `SystemStore` persist ตารางหล�
 - `secrets`
 - `audit_logs`
 
-ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง ส่วน datasource/LINE channel secret ยังมาจาก env บน server หรือ metadata ใน `line_channels` โดยไม่ commit secret ลง repo. รอบล่าสุดเพิ่ม `secrets` เป็น encrypted secret foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า workflow config
+ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` และ `integration_channels` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง ส่วน datasource/LINE channel secret ยังมาจาก env บน server หรือ metadata ใน `line_channels` โดยไม่ commit secret ลง repo. รอบล่าสุดเพิ่ม `secrets` เป็น encrypted secret foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า workflow config
+
+### integration_channels / brief_channels (planned)
+
+เก็บสถานะ integration ต่อ tenant ในเชิง channel:
+
+```text
+id
+tenant_id
+channel_key
+display_name
+environment
+status
+schedule_enabled
+last_run_at
+last_error
+metadata_json
+created_at
+updated_at
+```
+
+`channel_key` examples:
+
+- `sml_reports`: SML PostgreSQL read-only reports
+- `flowaccount_finance`: FlowAccount OpenAPI finance/accounting brief
+- `ecommerce`: future ecommerce marketplace brief
+- `pos`: future POS brief
+
+Policy:
+
+- แต่ละ channel มี credential, permission, runner, schedule, template และ audit แยก
+- SML และ FlowAccount ไม่ sync กันโดย default
+- executive digest อาจรวมหลาย channel ได้ในอนาคต แต่ snapshot/source ต้อง trace กลับ channel เดิมได้
 
 ### tenants
 
@@ -57,7 +90,7 @@ Policy:
 
 ### secrets
 
-เก็บ encrypted secret envelope สำหรับ datasource และ LINE channel ใน phase ถัดไป
+เก็บ encrypted secret envelope สำหรับ datasource, LINE channel และ partner channel เช่น FlowAccount ใน phase ถัดไป
 
 ```text
 id
@@ -97,7 +130,7 @@ metadata_json
 
 ### datasources
 
-เก็บ connection ไปยัง SML PostgreSQL
+เก็บ connection ไปยัง SML PostgreSQL สำหรับ `sml_reports` channel
 
 ```text
 id
@@ -121,6 +154,32 @@ updated_at
 `type`: `sml_postgres`
 
 `connection_mode`: `direct_ip`, `vpn`, `local_connector`
+
+### flowaccount_connections (planned)
+
+เก็บ connection metadata ของ `flowaccount_finance` channel โดย token จริงอยู่ใน `secrets`
+
+```text
+id
+tenant_id
+environment
+support_code
+status
+access_token_expires_at
+refresh_token_expires_at
+last_tested_at
+last_error
+created_at
+updated_at
+```
+
+Policy:
+
+- ใช้ OpenID Partner Flow
+- เริ่มจาก Sandbox first
+- `support_code` ใช้ map FlowAccount business กับ tenant เมื่อ FlowAccount ยืนยันว่า stable/unique
+- `access_token` และ `refresh_token` เก็บใน `secrets` scope `flowaccount_oauth`
+- รอบ foundation ใช้อ่าน/ทดสอบ connection เท่านั้น ไม่สร้างหรือแก้เอกสาร
 
 ### report_definitions
 
@@ -149,7 +208,7 @@ updated_at
 
 ### tenant_report_configs
 
-เปิด/ปิด report ต่อ tenant และตั้งค่าต่าง ๆ
+เปิด/ปิด report/brief ต่อ tenant/channel และตั้งค่าต่าง ๆ
 
 ```text
 id
@@ -160,12 +219,15 @@ schedule_enabled
 schedule_cron
 default_params_json
 branch_mode
+channel_key
 freshness_minutes
 created_at
 updated_at
 ```
 
 `branch_mode`: `has_branch_code`, `single_branch`, `unknown`
+
+`channel_key`: `sml_reports`, `flowaccount_finance`, future channel keys
 
 ### report_runs
 
@@ -291,6 +353,7 @@ updated_at
 id
 tenant_id
 report_key
+channel_key
 report_run_id
 delivery_key
 delivery_type
@@ -431,3 +494,4 @@ created_at
 - Query system DB ทุกครั้งที่อ่าน customer data ต้อง filter `tenant_id`
 - ห้าม reuse LINE target ข้าม tenant
 - ห้าม cache report result แบบไม่มี tenant namespace
+- future multi-channel permission ต้องระบุได้ว่า target รับ brief จาก `channel_key` ใดได้บ้าง

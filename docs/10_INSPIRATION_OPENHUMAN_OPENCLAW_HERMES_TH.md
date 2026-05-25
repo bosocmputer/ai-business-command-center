@@ -11,7 +11,7 @@ OpenHuman -> Command Center UX + memory/knowledge mindset
 OpenClaw  -> Gateway + channel routing + permission mindset
 Hermes    -> Skill/report system + cron + learning loop mindset
 
-Our System -> SML Report Intelligence Platform
+Our System -> AI Business Brief Hub (SML channel first)
 ```
 
 ## OpenHuman Inspiration
@@ -118,7 +118,7 @@ AI เป็น layer สรุป/เลือก report ไม่ใช่เ�
 เราสร้าง vertical product:
 
 ```text
-AI Business Command Center for SML
+AI Business Command Center (SML channel first)
 ```
 
 โดยใช้ pattern ที่เหมาะ:

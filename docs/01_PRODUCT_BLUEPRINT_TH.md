@@ -1,14 +1,14 @@
-# Product Blueprint: AI Business Command Center for SML
+# Product Blueprint: AI Business Command Center
 
 ## เป้าหมายของเอกสาร
 
-นิยาม product, target customer, subscription model, phase roadmap และขอบเขตที่ชัดเจนสำหรับระบบ **AI Business Command Center for SML**
+นิยาม product, target customer, subscription model, phase roadmap และขอบเขตที่ชัดเจนสำหรับระบบ **AI Business Command Center** ในฐานะ multi-channel Morning Brief / Business Brief Hub
 
 ## Product Vision
 
-สร้างระบบรายเดือนสำหรับลูกค้า SML ที่ช่วยให้ผู้บริหารเห็นรายงานสำคัญทุกวันโดยไม่ต้องเปิด SML หรือรอคนดึงรายงาน
+สร้างระบบรายเดือนที่ช่วยให้ผู้บริหารเห็นรายงานสำคัญทุกวันจากหลาย business system โดยไม่ต้องเปิดหลายระบบหรือรอคนดึงรายงาน
 
-ระบบเริ่มจาก:
+ระบบเริ่มจาก SML เป็น channel แรก:
 
 - Dashboard จากรายงาน SML PostgreSQL ที่ approved แล้ว
 - LINE OA Morning Brief ทุกเช้า
@@ -16,30 +16,52 @@
 
 อนาคตต่อยอดเป็น:
 
+- FlowAccount finance/accounting brief channel แบบอ่านข้อมูล/สรุปข้อมูล ไม่ใช่ sync เอกสารจาก SML
+- Channel อื่น เช่น ecommerce, POS, inventory หรือ CRM โดยแยก auth/credential/runner/template ของตัวเอง
 - Chatbot ถามข้อมูลจากรายงานที่ approved แล้ว
 - AI Business Copilot ที่ช่วยสรุป anomaly, insight, recommendation
 
 ## One-Line Pitch
 
-ระบบผู้ช่วยผู้บริหารสำหรับ SML ที่เชื่อม PostgreSQL แบบ read-only แล้วแสดง Dashboard และส่ง LINE Morning Brief ทุกเช้า พร้อมต่อยอดเป็น chatbot ที่ตอบจากรายงานที่ตรวจสอบได้
+ระบบผู้ช่วยผู้บริหารที่เชื่อม business systems หลายช่องทางแบบปลอดภัย แล้วส่ง Dashboard / LINE Morning Brief ที่ trace ได้ทุกเช้า พร้อมต่อยอดเป็น chatbot ที่ตอบจากรายงานที่ตรวจสอบได้
 
 ## Core Positioning
 
-ระบบนี้ไม่ใช่ BI ทั่วไป และไม่ใช่ chatbot ถาม database ตรง ๆ แต่เป็น **SML Report Intelligence Platform**
+ระบบนี้ไม่ใช่ BI ทั่วไป และไม่ใช่ chatbot ถาม database/API ตรง ๆ แต่เป็น **AI Business Brief Hub**
 
 ```text
-SML PostgreSQL
-  -> Approved SQL Reports
-  -> Metric Snapshots
+Business Source Channel
+  -> Approved Report/Brief Contract
+  -> Metric Snapshot
   -> Dashboard / LINE OA / Future Chatbot
 ```
 
+Current channel:
+
+```text
+sml_reports
+  -> SML PostgreSQL read-only approved SQL
+  -> sales/purchase snapshots
+  -> dashboard / LINE / signed viewer / PDF
+```
+
+Planned channel:
+
+```text
+flowaccount_finance
+  -> FlowAccount OpenAPI read/report access
+  -> finance/accounting brief snapshots
+  -> LINE / dashboard / future chatbot
+```
+
+กติกาสำคัญ: ห้าม assume ว่า FlowAccount ต้องเชื่อมโยงกับ SML. แต่ละ channel เป็น source แยก เว้นแต่ requirement ระบุให้ reconcile/sync โดยตรง
+
 ## Target Customer
 
-- ร้าน/บริษัทที่ใช้ SML PostgreSQL
+- ร้าน/บริษัทที่ใช้ SML PostgreSQL, FlowAccount หรือ business system อื่นที่ต้องการ daily executive brief
 - บริษัทที่มีเจ้าของหรือผู้จัดการต้องดูยอดขายทุกวัน
 - ธุรกิจค้าปลีก/ค้าส่ง/หลายสาขา
-- ธุรกิจที่มีรายงาน SML อยู่แล้ว แต่ยังต้องดึงเอง
+- ธุรกิจที่มีรายงานในระบบต้นทางอยู่แล้ว แต่ยังต้องดึงเอง
 - ลูกค้าที่ต้องการเริ่มจาก dashboard และ LINE ก่อน ยังไม่พร้อม chatbot เต็มระบบ
 
 ## Subscription Model
@@ -47,8 +69,8 @@ SML PostgreSQL
 หลักคิด:
 
 ```text
-report logic / SML knowledge = shared
-customer data / DB connection / LINE target = separated per tenant
+brief/report logic per channel = shared
+customer data / credentials / LINE target = separated per tenant
 ```
 
 ### Suggested Packages
@@ -65,7 +87,7 @@ customer data / DB connection / LINE target = separated per tenant
 
 - Multiple report modules
 - Sales by branch/product/customer
-- AR, inventory, SO backlog in future
+- AR, inventory, SO backlog, FlowAccount finance brief in future
 - Multiple LINE targets
 - Role/branch permission
 - Export report
@@ -83,15 +105,16 @@ customer data / DB connection / LINE target = separated per tenant
 สำหรับลูกค้า:
 
 - ได้รายงานทุกเช้าโดยไม่ต้องเปิด SML
+- ในอนาคตได้ brief จากหลายระบบ เช่น SML และ FlowAccount โดยไม่ต้องรวมระบบเข้าด้วยกัน
 - ลดเวลารอคนสรุปรายงาน
 - เห็นยอดขาย/สาขา/สินค้าแบบเร็ว
 - เริ่มจากข้อมูลจริงและรายงานที่ตรวจสอบได้
 
 สำหรับ product:
 
-- รายงานหนึ่งตัวขายซ้ำได้หลาย tenant
-- feedback จากลูกค้าแต่ละรายเพิ่มคุณค่าให้ shared SML knowledge
-- ต่อ chatbot ได้โดยไม่เสี่ยงให้ AI เดา SQL
+- report/brief contract หนึ่งตัวขายซ้ำได้หลาย tenant ใน channel เดียวกัน
+- feedback จากลูกค้าแต่ละรายเพิ่มคุณค่าให้ shared channel knowledge
+- ต่อ chatbot ได้โดยไม่เสี่ยงให้ AI เดา SQL/API เอง
 
 ## Phase 1 Scope
 
@@ -109,6 +132,7 @@ customer data / DB connection / LINE target = separated per tenant
 - Chatbot
 - AI forecast/recommendation
 - Write-back เข้า SML
+- FlowAccount document creation หรือการ sync เอกสารระหว่าง SML/FlowAccount
 - Multi-company complex permission
 - Mobile native app
 - OpenHuman desktop fork
@@ -116,6 +140,7 @@ customer data / DB connection / LINE target = separated per tenant
 ## Future Scope
 
 - เพิ่ม report library: AR overdue, inventory risk, SO backlog, top products
+- เพิ่ม FlowAccount Foundation: OpenID partner connection, encrypted token, test connection, finance brief snapshot
 - Multi-tenant subscription admin
 - LINE Q&A และ Web Chat
 - Role-based chatbot
@@ -126,20 +151,19 @@ customer data / DB connection / LINE target = separated per tenant
 
 ```mermaid
 flowchart TD
-    A[ลูกค้าใช้ SML] --> B[เชื่อม DB read-only]
-    B --> C[รันรายงานกลาง]
+    A[ลูกค้าใช้ Business System] --> B[เชื่อม Channel แบบปลอดภัย]
+    B --> C[รัน Approved Brief Contract]
     C --> D[Dashboard + LINE Brief]
     D --> E[ลูกค้า feedback อยากดูเพิ่ม]
-    E --> F[เพิ่ม report module กลาง]
-    F --> G[ลูกค้าทุกรายใช้ได้]
-    G --> H[shared SML knowledge โตขึ้น]
+    E --> F[เพิ่ม channel/report module กลาง]
+    F --> G[ลูกค้าที่เปิด channel นั้นใช้ได้]
+    G --> H[shared brief knowledge โตขึ้น]
     H --> I[future chatbot ฉลาดขึ้น]
 ```
 
 ## Explicit Assumptions
 
-- ลูกค้า SML ส่วนใหญ่มี schema เหมือนกันหรือใกล้เคียงกันมาก
-- 1 บริษัทใช้ 1 database เป็น baseline
-- บางร้านมี `branch_code` บางร้านไม่มี ต้องรองรับทั้งสองแบบ
+- SML channel: ลูกค้า SML ส่วนใหญ่มี schema เหมือนกันหรือใกล้เคียงกันมาก, 1 บริษัทใช้ 1 database เป็น baseline, บางร้านมี `branch_code` บางร้านไม่มี ต้องรองรับทั้งสองแบบ
+- FlowAccount channel: เริ่มจาก read/report foundation ผ่าน OpenID Partner Flow และ Sandbox ก่อน ยังไม่สร้างหรือแก้เอกสาร
+- แต่ละ channel มี credential, permission, schedule, audit และ failure mode แยก
 - Phase 1 deploy บนเครื่องทดสอบก่อน แล้วค่อย harden สำหรับ production
-

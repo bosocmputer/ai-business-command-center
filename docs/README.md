@@ -1,6 +1,6 @@
-# SML AI Business Command Center Docs
+# AI Business Command Center Docs
 
-เอกสารชุดนี้คือ living specification สำหรับสร้างระบบ **AI Business Command Center for SML** แบบ subscription โดยใช้แนวคิด shared SML knowledge + separated tenant data
+เอกสารชุดนี้คือ living specification สำหรับสร้างระบบ **AI Business Command Center** แบบ multi-channel Morning Brief / Business Brief Hub โดยใช้แนวคิด shared channel knowledge + separated tenant data. SML เป็น channel แรก ส่วน FlowAccount เป็น planned finance/accounting channel แยก ไม่ใช่ระบบ sync จาก SML
 
 เอกสารเดิมใน `proposal_output/` ถือเป็น proposal archive ส่วนเอกสารใน `docs/` คือชุดที่ใช้เดินงานจริง
 
@@ -8,8 +8,8 @@
 
 1. [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) - สถานะล่าสุดหลัง deploy professional pilot
 2. [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) - ภาพรวมสินค้า, ลูกค้าเป้าหมาย, subscription model
-3. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ SML DB ถึง Dashboard และ LINE OA
-4. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report หนึ่งตัว ซึ่งเป็นแกนหลักของระบบ
+3. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ integration channel ถึง Dashboard และ LINE OA
+4. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report/brief หนึ่งตัว ซึ่งเป็นแกนหลักของแต่ละ channel
 5. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานขายสินค้าและบริการ
 6. [reports/purchase_goods_payables.md](./reports/purchase_goods_payables.md) - contract รายงานซื้อสินค้า/ตั้งหนี้
 7. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
@@ -22,7 +22,7 @@
 | [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) | Product vision, package, roadmap, value proposition |
 | [02_SYSTEM_ARCHITECTURE_TH.md](./02_SYSTEM_ARCHITECTURE_TH.md) | Architecture production-grade ของระบบ |
 | [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) | Full loop data flow และ feedback loop |
-| [04_DATA_MODEL_TH.md](./04_DATA_MODEL_TH.md) | ตารางกลางของ subscription/report platform |
+| [04_DATA_MODEL_TH.md](./04_DATA_MODEL_TH.md) | ตารางกลางของ subscription/report/channel platform |
 | [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) | มาตรฐาน report, SQL, params, output, validation |
 | [06_SML_KNOWLEDGE_MODEL_TH.md](./06_SML_KNOWLEDGE_MODEL_TH.md) | Shared SML knowledge, business objects, chatbot intent |
 | [07_LINE_OA_MORNING_BRIEF_TH.md](./07_LINE_OA_MORNING_BRIEF_TH.md) | LINE OA strategy, schedule, retry, template |
@@ -40,16 +40,17 @@
 
 ## Product Direction
 
-ระบบนี้ไม่ใช่ chatbot ที่ยิง SQL เอง แต่เป็น **SML Report Intelligence Platform**
+ระบบนี้ไม่ใช่ chatbot ที่ยิง SQL/API เอง แต่เป็น **AI Business Brief Hub**
 
 หลักการสำคัญ:
 
-- 1 บริษัท = 1 SML PostgreSQL database
-- รายงานและองค์ความรู้ SML ใช้ร่วมกันทุก tenant
-- ข้อมูลจริง, credential, report result, LINE target แยกด้วย `tenant_id`
-- report ทุกตัวต้องเป็น approved SQL และมี `report_contract`
+- 1 tenant เปิดได้หลาย channel เช่น `sml_reports`, `flowaccount_finance`, future `ecommerce`, future `pos`
+- SML เป็น channel แรก ไม่ใช่แกนถาวรของทุก integration
+- FlowAccount เป็น finance/accounting brief channel แยก ไม่ใช่ SML document sync target
+- ข้อมูลจริง, credential, report/brief result, LINE target แยกด้วย `tenant_id`
+- report/brief ทุกตัวต้องเป็น approved contract ของ channel นั้น
 - dashboard, LINE OA, future chatbot อ่านจาก `report_runs` หรือ `report_snapshots` ที่ trace ได้
-- chatbot ในอนาคตเป็น report router ไม่ใช่ SQL generator อิสระ
+- chatbot ในอนาคตเป็น report/brief router ไม่ใช่ SQL/API generator อิสระ
 
 ## Phase Status
 
@@ -62,7 +63,8 @@
 | Phase 1D | Done | professional LINE brief, signed viewer, permission profiles |
 | Phase 1E | Current | SaaS pilot portal: Owner Admin + Customer Viewer per tenant slug |
 | Phase 2 | Current | report library เพิ่มเติม เริ่มที่ `purchase_goods_payables`, server-side PDF export และ multi-tenant subscription |
-| Phase 3 | Future | LINE/Web chatbot over approved reports |
+| Phase 2B | Planned | FlowAccount Foundation เป็น `flowaccount_finance` channel แบบ connection + finance brief foundation ไม่ sync กับ SML |
+| Phase 3 | Future | LINE/Web chatbot over approved reports/briefs |
 | Phase 4 | Future | AI business copilot, anomaly, recommendation |
 
 ## Current Deployment Snapshot
@@ -80,6 +82,8 @@ Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
 System store: PostgreSQL
 PDF export: server-side Chromium, layout sml-row-v5, cache in /app/.data/pdf-cache
 Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
+Current channel: sml_reports
+Planned channel: flowaccount_finance
 ```
 
 ห้ามบันทึก signed viewer URL แบบเต็มลงเอกสาร เพราะมี `token=...`
@@ -89,6 +93,7 @@ Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2
 - ห้ามบันทึก production DB password เป็น plaintext
 - ห้ามใช้ superuser เช่น `postgres` ใน production connection
 - ห้ามให้ AI generate SQL production เองโดยไม่มี approved report
+- ห้าม assume ว่า integration ใหม่ต้องผูกกับ SML เว้นแต่ requirement ระบุชัดเจน
 - ทุก record ที่เป็นข้อมูลลูกค้าต้องมี `tenant_id`
 - ทุกการรัน report และการส่ง LINE ต้องมี audit/run log
 - ต้องแยก demo, staging, production config

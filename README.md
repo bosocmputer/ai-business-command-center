@@ -1,6 +1,6 @@
 # AI Business Command Center
 
-Professional pilot สำหรับลูกค้า SML: approved report runner, admin control room, signed LINE report viewer, LINE OA Morning Brief, run history และ audit log
+Professional pilot สำหรับ AI Business Brief Hub: เชื่อม data channel หลายแบบเพื่อสร้าง Morning Brief / Business Brief ที่ trace ได้ โดย SML เป็น channel แรก และ FlowAccount จะเป็น finance/accounting brief channel แยก ไม่ใช่ระบบ sync เอกสารจาก SML
 
 ## Current Milestone
 
@@ -8,7 +8,8 @@ Professional pilot สำหรับลูกค้า SML: approved report run
 - Viewer: compact signed report viewer ที่ `/command-center/brief`
 - API: Fastify report API + signed viewer API + LINE endpoints ใน `apps/api`
 - Worker: Morning Brief scheduler ใน `apps/worker`
-- Reports: `sales_goods_services` และ `purchase_goods_payables` ใน `packages/reports` พร้อม document detail drilldown แบบ read-only
+- Channels: ตอนนี้เปิดใช้ `sml_reports` เป็น channel แรกผ่าน approved SML reports; เตรียม `flowaccount_finance` เป็น channel ถัดไปแบบ read/report ไม่ผูกกับ SML
+- Reports: `sales_goods_services` และ `purchase_goods_payables` ใน `packages/reports` พร้อม document detail drilldown แบบ read-only สำหรับ SML channel
 - PDF: server-side SML PDF export ด้วย Chromium, signed token, progress modal, cache ใน server volume และ layout `sml-row-v5`
 - Shared schemas: `packages/shared`
 - Latest deployed commit: `050b2a2` (`Tighten SML PDF pagination`)
@@ -39,7 +40,17 @@ API health:
 http://localhost:4000/health
 ```
 
-ถ้าไม่ได้ใส่ SML credentials ใน `.env.local` ระบบจะแสดง stale sample snapshot เพื่อให้ UX ทำงานได้ก่อน และ manual report run จะตอบ error แบบปลอดภัยโดยไม่ leak secret.
+ถ้าไม่ได้ใส่ SML credentials ใน `.env.local` ระบบจะแสดง stale sample snapshot ของ SML channel เพื่อให้ UX ทำงานได้ก่อน และ manual report run จะตอบ error แบบปลอดภัยโดยไม่ leak secret.
+
+## Multi-Channel Brief Hub Direction
+
+AI-Business ไม่ใช่ตัวกลาง sync SML ไป FlowAccount. บทบาทหลักคือเป็น hub สำหรับสร้าง brief จากหลาย source แยกกัน:
+
+- `sml_reports`: อ่าน SML PostgreSQL แบบ read-only แล้วสร้าง sales/purchase brief, dashboard, signed viewer และ PDF
+- `flowaccount_finance`: วางเป็น channel ถัดไปสำหรับ finance/accounting brief จาก FlowAccount OpenAPI
+- future channels เช่น `ecommerce` หรือ `pos` ต้องมี credential, runner, schedule, template, permission และ audit แยกของตัวเอง
+
+กติกาเริ่มต้น: อย่า assume ว่า integration ใหม่ต้องเชื่อมกับ SML เว้นแต่ requirement ระบุชัดเจน.
 
 ## Persistence
 
@@ -52,7 +63,7 @@ Local JSON store ถูก ignore จาก git เพื่อไม่ให�
 
 ## LINE Morning Brief
 
-Phase 1 professional pilot มี preview, manual test sender และ scheduled sender แล้ว
+Phase 1 professional pilot มี preview, manual test sender และ scheduled sender แล้วสำหรับ SML channel
 ข้อความที่ส่งจริงใช้ LINE Flex Message เป็น default เพื่อให้ผู้บริหารเห็นสรุปแบบ compact และกดปุ่ม `เปิดรายงาน` แทนการเห็น signed URL ยาวในแชท ส่วน text summary ยังเก็บไว้เป็น fallback/preview/dry-run
 
 ```text
