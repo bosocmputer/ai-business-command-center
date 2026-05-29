@@ -112,6 +112,14 @@ export type SystemStore = {
   appendAuditLog(entry: Omit<AuditLogEntry, "created_at">): Promise<void>;
   importAuditLogs(entries: AuditLogEntry[]): Promise<void>;
   listAuditLogs(limit: number): Promise<AuditLogEntry[]>;
+  createViewerToken(input: {
+    tokenHash: string;
+    tenantId: TenantId;
+    runId: string;
+    expiresAt: Date;
+  }): Promise<void>;
+  consumeViewerToken(tokenHash: string): Promise<{ ok: boolean }>;
+  purgeExpiredViewerTokens(): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -474,6 +482,24 @@ class LocalJsonSystemStore implements SystemStore {
 
   async listAuditLogs(limit: number) {
     return this.requireData().auditLogs.slice(0, limit);
+  }
+
+  async createViewerToken(_input: {
+    tokenHash: string;
+    tenantId: TenantId;
+    runId: string;
+    expiresAt: Date;
+  }) {
+    // local-json store: OTT not enforced in dev/test mode
+  }
+
+  async consumeViewerToken(_tokenHash: string): Promise<{ ok: boolean }> {
+    // local-json store: always allow (no enforcement)
+    return { ok: true };
+  }
+
+  async purgeExpiredViewerTokens() {
+    // local-json store: no-op
   }
 
   async close() {
@@ -1648,6 +1674,43 @@ limit $1
     })) as AuditLogEntry[];
   }
 
+  async createViewerToken(input: {
+    tokenHash: string;
+    tenantId: TenantId;
+    runId: string;
+    expiresAt: Date;
+  }) {
+    await this.pool.query(
+      `
+insert into report_viewer_tokens (token_hash, tenant_id, run_id, expires_at)
+values ($1, $2, $3, $4::timestamptz)
+on conflict (token_hash) do nothing
+`,
+      [input.tokenHash, input.tenantId, input.runId, input.expiresAt.toISOString()],
+    );
+  }
+
+  async consumeViewerToken(tokenHash: string): Promise<{ ok: boolean }> {
+    const result = await this.pool.query(
+      `
+update report_viewer_tokens
+set consumed_at = now()
+where token_hash = $1
+  and consumed_at is null
+  and expires_at > now()
+returning token_hash
+`,
+      [tokenHash],
+    );
+    return { ok: result.rowCount !== null && result.rowCount > 0 };
+  }
+
+  async purgeExpiredViewerTokens() {
+    await this.pool.query(
+      `delete from report_viewer_tokens where expires_at < now() - interval '1 day'`,
+    );
+  }
+
   async close() {
     await this.pool.end();
   }
@@ -2300,4 +2363,16 @@ create table if not exists worker_heartbeats (
 
 create index if not exists worker_heartbeats_latest_idx
 on worker_heartbeats (role, checked_at desc);
+
+create table if not exists report_viewer_tokens (
+  token_hash   text primary key,
+  tenant_id    text not null,
+  run_id       text not null,
+  expires_at   timestamptz not null,
+  consumed_at  timestamptz,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists report_viewer_tokens_expires_idx
+on report_viewer_tokens (expires_at);
 `;

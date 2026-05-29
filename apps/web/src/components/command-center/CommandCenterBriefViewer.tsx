@@ -255,7 +255,13 @@ export default function CommandCenterBriefViewer() {
         );
         const payload = (await response.json()) as SnapshotResponse;
         if (!response.ok || !payload.data) {
-          throw new Error(payload.error || "เปิดรายงานไม่สำเร็จ");
+          const rawError = payload.error || "เปิดรายงานไม่สำเร็จ";
+          const friendlyError = rawError.includes("already been used")
+            ? "ลิงก์นี้เปิดไปแล้วจากเครื่องอื่น กรุณาเปิดจาก LINE โดยตรง"
+            : rawError.includes("expired")
+              ? "ลิงก์รายงานหมดอายุแล้ว กรุณาขอลิงก์ใหม่จาก LINE"
+              : rawError;
+          throw new Error(friendlyError);
         }
         setState({ status: "ready", snapshot: payload.data });
       } catch (error) {

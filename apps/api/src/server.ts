@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -1649,13 +1650,15 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     reportKey: "sales_goods_services",
     action: "open_signed_viewer",
   });
+  const salesViewerUrl =
+    openSalesViewerPermission.allowed && salesSnapshot?.report_key === "sales_goods_services"
+      ? await buildReportViewerUrl(salesSnapshot)
+      : null;
   const salesPreview =
     salesSnapshot?.report_key === "sales_goods_services"
       ? renderSalesGoodsServicesLinePreview({
           snapshot: salesSnapshot,
-          dashboardUrl: openSalesViewerPermission.allowed
-            ? buildReportViewerUrl(salesSnapshot)
-            : null,
+          dashboardUrl: salesViewerUrl,
           tenantName: getTenantDefinition(target.tenant_id)?.name,
         })
       : null;
@@ -1665,13 +1668,15 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     reportKey: "purchase_goods_payables",
     action: "open_signed_viewer",
   });
+  const purchaseViewerUrl =
+    openPurchaseViewerPermission.allowed && purchaseSnapshot?.report_key === "purchase_goods_payables"
+      ? await buildReportViewerUrl(purchaseSnapshot)
+      : null;
   const purchasePreview =
     purchaseSnapshot?.report_key === "purchase_goods_payables"
       ? renderPurchaseGoodsPayablesLinePreview({
           snapshot: purchaseSnapshot,
-          dashboardUrl: openPurchaseViewerPermission.allowed
-            ? buildReportViewerUrl(purchaseSnapshot)
-            : null,
+          dashboardUrl: purchaseViewerUrl,
           tenantName: getTenantDefinition(target.tenant_id)?.name,
         })
       : null;
@@ -1792,6 +1797,14 @@ app.get(
       return reply.status(statusCode).send({ error: errorMessage });
     }
 
+    const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
+    const consumed = await systemStore.consumeViewerToken(tokenHash);
+    if (!consumed.ok) {
+      return reply
+        .status(403)
+        .send({ error: "Report viewer link has already been used." });
+    }
+
     const tenant = await getTenantOrNull(params.data.tenantId);
     if (!tenant) {
       return reply.status(404).send({ error: "Tenant not found." });
@@ -1853,6 +1866,14 @@ app.get(
           ? "Report viewer link has expired."
           : "Invalid report viewer link.";
       return reply.status(statusCode).send({ error: errorMessage });
+    }
+
+    const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
+    const consumed = await systemStore.consumeViewerToken(tokenHash);
+    if (!consumed.ok) {
+      return reply
+        .status(403)
+        .send({ error: "Report viewer link has already been used." });
     }
 
     const tenant = await getTenantOrNull(params.data.tenantId);
@@ -2136,7 +2157,7 @@ app.get(
     return {
       data: renderSalesGoodsServicesLinePreview({
         snapshot,
-        dashboardUrl: buildReportViewerUrl(snapshot),
+        dashboardUrl: await buildReportViewerUrl(snapshot),
         tenantName: getTenantDefinition(params.data.tenantId)?.name,
       }),
     };
@@ -2194,7 +2215,7 @@ app.get(
     return {
       data: renderPurchaseGoodsPayablesLinePreview({
         snapshot,
-        dashboardUrl: buildReportViewerUrl(snapshot),
+        dashboardUrl: await buildReportViewerUrl(snapshot),
         tenantName: getTenantDefinition(params.data.tenantId)?.name,
       }),
     };
@@ -2245,7 +2266,7 @@ app.post(
 
     const preview = renderSalesGoodsServicesLinePreview({
       snapshot,
-      dashboardUrl: buildReportViewerUrl(snapshot),
+      dashboardUrl: await buildReportViewerUrl(snapshot),
       tenantName: getTenantDefinition(tenantId)?.name,
     });
     const lineConfig = readLineChannelConfig(tenantId);
@@ -2457,12 +2478,14 @@ app.post(
         reportKey: "sales_goods_services",
         action: "open_signed_viewer",
       });
+      const salesViewerUrl2 =
+        openSalesViewerPermission.allowed
+          ? await buildReportViewerUrl(runResult.snapshot)
+          : null;
       const salesPreview = receiveSalesPermission.allowed
         ? renderSalesGoodsServicesLinePreview({
             snapshot: runResult.snapshot,
-            dashboardUrl: openSalesViewerPermission.allowed
-              ? buildReportViewerUrl(runResult.snapshot)
-              : null,
+            dashboardUrl: salesViewerUrl2,
             tenantName: getTenantDefinition(tenantId)?.name,
           })
         : null;
@@ -2472,13 +2495,15 @@ app.post(
         reportKey: "purchase_goods_payables",
         action: "open_signed_viewer",
       });
+      const purchaseViewerUrl2 =
+        openPurchaseViewerPermission.allowed && purchaseSnapshot
+          ? await buildReportViewerUrl(purchaseSnapshot)
+          : null;
       const purchasePreview =
         purchaseSnapshot && receivePurchasePermission.allowed
           ? renderPurchaseGoodsPayablesLinePreview({
               snapshot: purchaseSnapshot,
-              dashboardUrl: openPurchaseViewerPermission.allowed
-                ? buildReportViewerUrl(purchaseSnapshot)
-                : null,
+              dashboardUrl: purchaseViewerUrl2,
               tenantName: getTenantDefinition(tenantId)?.name,
             })
           : null;
@@ -3105,20 +3130,34 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
   };
 }
 
-function buildReportViewerUrl(snapshot: ReportSnapshot) {
+async function buildReportViewerUrl(snapshot: ReportSnapshot) {
   const baseUrl = process.env.APP_BASE_URL?.trim();
   const signingSecret = readReportViewerSigningSecret();
   if (!baseUrl || !signingSecret) {
     return null;
   }
 
+  const expiresAt = new Date(Date.now() + readReportViewerLinkTtlSeconds() * 1000);
   const token = createReportViewerToken({
     secret: signingSecret,
     tenantId: snapshot.tenant_id,
     reportKey: snapshot.report_key,
     runId: snapshot.run_id,
-    expiresAt: new Date(Date.now() + readReportViewerLinkTtlSeconds() * 1000),
+    expiresAt,
   });
+
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  try {
+    await systemStore.createViewerToken({
+      tokenHash,
+      tenantId: snapshot.tenant_id,
+      runId: snapshot.run_id,
+      expiresAt,
+    });
+  } catch (err) {
+    app.log.warn({ err }, "Failed to register viewer token in DB — URL will be non-OTT");
+  }
+
   try {
     const url = new URL("/command-center/brief", baseUrl.replace(/\/$/, ""));
     url.searchParams.set("tenant_id", snapshot.tenant_id);
