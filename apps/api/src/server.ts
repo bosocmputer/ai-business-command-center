@@ -1813,7 +1813,7 @@ app.get(
     if (tokenAccess.newSessionId) {
       void reply.setCookie("vt_session", tokenAccess.newSessionId, {
         httpOnly: true,
-        sameSite: "strict",
+        sameSite: "lax",
         path: "/",
         maxAge: readReportViewerLinkTtlSeconds(),
       });
@@ -1895,7 +1895,7 @@ app.get(
     if (tokenAccess.newSessionId) {
       void reply.setCookie("vt_session", tokenAccess.newSessionId, {
         httpOnly: true,
-        sameSite: "strict",
+        sameSite: "lax",
         path: "/",
         maxAge: readReportViewerLinkTtlSeconds(),
       });

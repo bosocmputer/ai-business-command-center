@@ -251,7 +251,7 @@ export default function CommandCenterBriefViewer() {
           )}/${encodeURIComponent(safeReportKey)}/snapshots/${encodeURIComponent(
             safeRunId,
           )}?token=${encodeURIComponent(safeToken)}`,
-          { signal: controller.signal },
+          { signal: controller.signal, credentials: "include" },
         );
         const payload = (await response.json()) as SnapshotResponse;
         if (!response.ok || !payload.data) {

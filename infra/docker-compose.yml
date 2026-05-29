@@ -58,7 +58,7 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.web
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://192.168.2.109:4055}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-same-origin}
     restart: unless-stopped
     ports:
       - "${AI_BCC_WEB_PORT:-3055}:3000"

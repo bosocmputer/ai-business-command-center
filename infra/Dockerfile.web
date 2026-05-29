@@ -3,7 +3,7 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 RUN corepack enable
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:4055
+ARG NEXT_PUBLIC_API_BASE_URL=same-origin
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
