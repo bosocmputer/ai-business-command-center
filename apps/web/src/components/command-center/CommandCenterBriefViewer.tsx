@@ -256,8 +256,8 @@ export default function CommandCenterBriefViewer() {
         const payload = (await response.json()) as SnapshotResponse;
         if (!response.ok || !payload.data) {
           const rawError = payload.error || "เปิดรายงานไม่สำเร็จ";
-          const friendlyError = rawError.includes("already been used")
-            ? "ลิงก์นี้เปิดไปแล้วจากเครื่องอื่น กรุณาเปิดจาก LINE โดยตรง"
+          const friendlyError = rawError.includes("another device")
+            ? "ลิงก์นี้เปิดอยู่บนอีกเครื่องหนึ่ง กรุณาเปิดจาก LINE บนเครื่องเดิม"
             : rawError.includes("expired")
               ? "ลิงก์รายงานหมดอายุแล้ว กรุณาขอลิงก์ใหม่จาก LINE"
               : rawError;

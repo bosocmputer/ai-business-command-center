@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
   type LineChannelRecord,
@@ -118,7 +119,14 @@ export type SystemStore = {
     runId: string;
     expiresAt: Date;
   }): Promise<void>;
-  consumeViewerToken(tokenHash: string): Promise<{ ok: boolean }>;
+  accessViewerToken(
+    tokenHash: string,
+    cookieSessionId: string | null,
+  ): Promise<{
+    ok: boolean;
+    newSessionId?: string;
+    reason?: "not_found" | "expired" | "session_mismatch";
+  }>;
   purgeExpiredViewerTokens(): Promise<void>;
   close(): Promise<void>;
 };
@@ -493,8 +501,11 @@ class LocalJsonSystemStore implements SystemStore {
     // local-json store: OTT not enforced in dev/test mode
   }
 
-  async consumeViewerToken(_tokenHash: string): Promise<{ ok: boolean }> {
-    // local-json store: always allow (no enforcement)
+  async accessViewerToken(
+    _tokenHash: string,
+    _cookieSessionId: string | null,
+  ): Promise<{ ok: boolean; newSessionId?: string }> {
+    // local-json store: always allow (no enforcement in dev mode)
     return { ok: true };
   }
 
@@ -1690,19 +1701,53 @@ on conflict (token_hash) do nothing
     );
   }
 
-  async consumeViewerToken(tokenHash: string): Promise<{ ok: boolean }> {
+  async accessViewerToken(
+    tokenHash: string,
+    cookieSessionId: string | null,
+  ): Promise<{
+    ok: boolean;
+    newSessionId?: string;
+    reason?: "not_found" | "expired" | "session_mismatch";
+  }> {
+    const newSessionId = randomUUID();
     const result = await this.pool.query(
       `
 update report_viewer_tokens
-set consumed_at = now()
+set session_id = coalesce(session_id, $2),
+    session_bound_at = coalesce(session_bound_at, now())
 where token_hash = $1
-  and consumed_at is null
   and expires_at > now()
-returning token_hash
+returning session_id, session_bound_at
 `,
-      [tokenHash],
+      [tokenHash, newSessionId],
     );
-    return { ok: result.rowCount !== null && result.rowCount > 0 };
+
+    if (result.rowCount === 0) {
+      // token not found or already expired
+      const check = await this.pool.query(
+        `select token_hash from report_viewer_tokens where token_hash = $1`,
+        [tokenHash],
+      );
+      return {
+        ok: false,
+        reason: check.rowCount === 0 ? "not_found" : "expired",
+      };
+    }
+
+    const boundSessionId = result.rows[0].session_id as string;
+
+    // First access: boundSessionId === newSessionId (we just set it)
+    if (boundSessionId === newSessionId) {
+      return { ok: true, newSessionId };
+    }
+
+    // Same device: cookie matches already-bound session
+    if (cookieSessionId && cookieSessionId === boundSessionId) {
+      return { ok: true };
+    }
+
+    // Different device: session already bound to another cookie
+    return { ok: false, reason: "session_mismatch" };
   }
 
   async purgeExpiredViewerTokens() {
@@ -2375,4 +2420,8 @@ create table if not exists report_viewer_tokens (
 
 create index if not exists report_viewer_tokens_expires_idx
 on report_viewer_tokens (expires_at);
+
+alter table report_viewer_tokens
+  add column if not exists session_id text,
+  add column if not exists session_bound_at timestamptz;
 `;

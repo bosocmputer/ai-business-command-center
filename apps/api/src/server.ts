@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
@@ -112,6 +113,8 @@ const app = Fastify({
 await app.register(cors, {
   origin: true,
 });
+
+await app.register(cookie);
 
 app.removeContentTypeParser("application/json");
 app.addContentTypeParser(
@@ -1798,11 +1801,22 @@ app.get(
     }
 
     const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
-    const consumed = await systemStore.consumeViewerToken(tokenHash);
-    if (!consumed.ok) {
-      return reply
-        .status(403)
-        .send({ error: "Report viewer link has already been used." });
+    const cookieSessionId = (request.cookies as Record<string, string | undefined>)["vt_session"] ?? null;
+    const tokenAccess = await systemStore.accessViewerToken(tokenHash, cookieSessionId);
+    if (!tokenAccess.ok) {
+      const errorMessage =
+        tokenAccess.reason === "session_mismatch"
+          ? "Report viewer link has already been opened on another device."
+          : "Invalid report viewer link.";
+      return reply.status(403).send({ error: errorMessage });
+    }
+    if (tokenAccess.newSessionId) {
+      void reply.setCookie("vt_session", tokenAccess.newSessionId, {
+        httpOnly: true,
+        sameSite: "strict",
+        path: "/",
+        maxAge: readReportViewerLinkTtlSeconds(),
+      });
     }
 
     const tenant = await getTenantOrNull(params.data.tenantId);
@@ -1869,11 +1883,22 @@ app.get(
     }
 
     const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
-    const consumed = await systemStore.consumeViewerToken(tokenHash);
-    if (!consumed.ok) {
-      return reply
-        .status(403)
-        .send({ error: "Report viewer link has already been used." });
+    const cookieSessionId = (request.cookies as Record<string, string | undefined>)["vt_session"] ?? null;
+    const tokenAccess = await systemStore.accessViewerToken(tokenHash, cookieSessionId);
+    if (!tokenAccess.ok) {
+      const errorMessage =
+        tokenAccess.reason === "session_mismatch"
+          ? "Report viewer link has already been opened on another device."
+          : "Invalid report viewer link.";
+      return reply.status(403).send({ error: errorMessage });
+    }
+    if (tokenAccess.newSessionId) {
+      void reply.setCookie("vt_session", tokenAccess.newSessionId, {
+        httpOnly: true,
+        sameSite: "strict",
+        path: "/",
+        maxAge: readReportViewerLinkTtlSeconds(),
+      });
     }
 
     const tenant = await getTenantOrNull(params.data.tenantId);
