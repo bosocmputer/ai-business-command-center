@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   deriveMorningBriefDateRange,
@@ -173,6 +173,7 @@ export default function OwnerPortal({
   const [newTenantName, setNewTenantName] = useState("");
   const [newTenantId, setNewTenantId] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState("");
+  const [justCreatedTenantId, setJustCreatedTenantId] = useState<string | null>(null);
   const [reportDateFrom, setReportDateFrom] = useState(
     defaultReportRange.date_from,
   );
@@ -461,6 +462,7 @@ export default function OwnerPortal({
       setNewTenantName("");
       setNewTenantId("");
       setSelectedTenantId(tenantId);
+      setJustCreatedTenantId(tenantId);
       setResult({ tone: "success", message: "เพิ่มร้านค้าใหม่แล้ว" });
       await loadOwnerData();
     });
@@ -1265,6 +1267,7 @@ export default function OwnerPortal({
           lineSecretChannelId={lineSecretChannelId}
           lineSecretConfigured={lineSecretConfigured}
           lineTokenConfigured={lineTokenConfigured}
+          justCreatedTenantId={justCreatedTenantId}
           newTenantId={newTenantId}
           newTenantName={newTenantName}
           onApproveLineTarget={approveLineTarget}
@@ -1368,6 +1371,7 @@ type OwnerSectionContentProps = {
   datasourcePort: string;
   datasourceUser: string;
   datasourceTests: Record<string, DatasourceTestResult>;
+  justCreatedTenantId: string | null;
   lastManualRun: ReportRunRecord | null;
   lastManualSnapshot: SalesGoodsServicesSnapshot | null;
   lineAccessTokenInput: string;
@@ -1872,6 +1876,7 @@ function OwnerTenantsContent({
   datasourcePort,
   datasourceUser,
   datasourceTests,
+  justCreatedTenantId,
   newTenantId,
   newTenantName,
   onSaveDatasourceConfig,
@@ -1889,6 +1894,10 @@ function OwnerTenantsContent({
   setSelectedTenantId,
   tenants,
 }: OwnerSectionContentProps) {
+  const justCreatedTenant = justCreatedTenantId
+    ? tenants.find((item) => item.tenant.id === justCreatedTenantId)?.tenant
+    : null;
+
   return (
     <div className="space-y-4">
       <OwnerSetupPanel
@@ -1899,6 +1908,17 @@ function OwnerTenantsContent({
         setNewTenantId={setNewTenantId}
         setNewTenantName={setNewTenantName}
       />
+
+      {justCreatedTenant ? (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+          <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
+            เพิ่ม {justCreatedTenant.name} แล้ว — ขั้นต่อไป: ตั้งค่า SML datasource
+          </p>
+          <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
+            เลือกร้านนี้ด้านล่าง แล้วกด "ตั้งค่า SML datasource" เพื่อใส่ host/user/password ของฐานข้อมูล SML
+          </p>
+        </div>
+      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
@@ -1941,6 +1961,10 @@ function OwnerTenantsContent({
         </div>
 
         <TenantDetailPanel
+          autoOpenDatasource={
+            !!justCreatedTenantId &&
+            selectedTenantId === justCreatedTenantId
+          }
           busy={busy}
           datasourceConfig={datasourceConfig}
           datasourceDatabase={datasourceDatabase}
@@ -3080,20 +3104,46 @@ function OwnerSetupPanel({
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
           เพิ่มร้านค้าใหม่
         </h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-          <input
-            className="h-11 rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
-            onChange={(event) => setNewTenantName(event.target.value)}
-            placeholder="ชื่อร้านค้า"
-            value={newTenantName}
-          />
-          <input
-            className="h-11 rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
-            onChange={(event) => setNewTenantId(event.target.value)}
-            placeholder="tenant_id เช่น tenant_demo_remote"
-            value={newTenantId}
-          />
-          <Button disabled={busy === "create"} size="sm">
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1">
+            <input
+              className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              onChange={(event) => {
+                setNewTenantName(event.target.value);
+                setNewTenantId("");
+              }}
+              placeholder="ชื่อร้านค้า เช่น ABC Shop"
+              value={newTenantName}
+            />
+            {newTenantName.trim() ? (
+              <p className="px-1 text-xs text-gray-400 dark:text-gray-500">
+                Tenant ID:{" "}
+                <span className="font-mono font-medium text-gray-600 dark:text-gray-300">
+                  {newTenantId.trim() || slugifyTenantId(newTenantName)}
+                </span>
+                {!newTenantId.trim() && (
+                  <button
+                    className="ml-2 text-brand-500 hover:underline"
+                    type="button"
+                    onClick={() =>
+                      setNewTenantId(slugifyTenantId(newTenantName))
+                    }
+                  >
+                    แก้ไขเอง
+                  </button>
+                )}
+              </p>
+            ) : null}
+            {newTenantId.trim() ? (
+              <input
+                className="h-9 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 dark:border-gray-700 dark:text-white"
+                onChange={(event) => setNewTenantId(event.target.value)}
+                placeholder="tenant_id"
+                value={newTenantId}
+              />
+            ) : null}
+          </div>
+          <Button disabled={busy === "create" || !newTenantName.trim()} size="sm">
             เพิ่มร้านค้า
           </Button>
         </div>
@@ -3325,6 +3375,7 @@ function LineChannelPanel({
 }
 
 function DatasourceConfigPanel({
+  autoOpen,
   busy,
   config,
   database,
@@ -3339,6 +3390,7 @@ function DatasourceConfigPanel({
   port,
   user,
 }: {
+  autoOpen?: boolean;
   busy: boolean;
   config: DatasourceConfigStatus | null;
   database: string;
@@ -3353,6 +3405,15 @@ function DatasourceConfigPanel({
   port: string;
   user: string;
 }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    if (autoOpen && detailsRef.current) {
+      detailsRef.current.open = true;
+      detailsRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [autoOpen]);
+
   const sourceLabel =
     config?.source === "encrypted_store"
       ? "บันทึกในระบบแล้ว"
@@ -3361,7 +3422,7 @@ function DatasourceConfigPanel({
         : "ยังไม่ตั้งค่า";
 
   return (
-    <details className="mt-4 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+    <details ref={detailsRef} className="mt-4 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
       <summary className="cursor-pointer list-none">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -3589,6 +3650,7 @@ function TenantCard({
 }
 
 function TenantDetailPanel({
+  autoOpenDatasource,
   item,
   busy,
   datasourceConfig,
@@ -3606,6 +3668,7 @@ function TenantDetailPanel({
   setDatasourcePort,
   setDatasourceUser,
 }: {
+  autoOpenDatasource?: boolean;
   item?: TenantSummary;
   busy: string | null;
   datasourceConfig: DatasourceConfigStatus | null;
@@ -3714,6 +3777,7 @@ function TenantDetailPanel({
         <DatasourceTestSummary result={datasourceTest} />
 
         <DatasourceConfigPanel
+          autoOpen={autoOpenDatasource}
           busy={busy === `datasource-save-${tenant.id}`}
           config={datasourceConfig}
           database={datasourceDatabase}
