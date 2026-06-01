@@ -313,6 +313,9 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
           <p className="mt-2 text-sm leading-6 text-gray-600">
             {state.message}
           </p>
+          <p className="mt-3 text-xs leading-5 text-warning-700">
+            กรุณาติดต่อผู้ดูแลระบบเพื่อเปิดสิทธิ์ร้านก่อนกลับมาอ่านรายงาน
+          </p>
         </div>
       </CustomerShell>
     );
@@ -322,7 +325,14 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
     return (
       <CustomerShell title="โหลดข้อมูลไม่สำเร็จ">
         <div className="mx-auto mt-10 max-w-xl rounded-xl border border-error-200 bg-error-50 p-6 text-center text-error-700">
-          {state.message}
+          <Badge color="error">โหลดรายงานไม่สำเร็จ</Badge>
+          <h1 className="mt-4 text-2xl font-semibold text-gray-900">
+            ยังเปิด Dashboard ไม่ได้
+          </h1>
+          <p className="mt-2 text-sm leading-6">{state.message}</p>
+          <p className="mt-3 text-xs leading-5">
+            ลองรีเฟรชอีกครั้ง หากยังไม่สำเร็จให้แจ้งผู้ดูแลเพื่อตรวจ datasource หรือรอบรายงานล่าสุด
+          </p>
         </div>
       </CustomerShell>
     );
@@ -339,6 +349,9 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
           <p className="mt-2 text-sm leading-6 text-gray-600">
             {state.message}
           </p>
+          <p className="mt-3 text-xs leading-5 text-gray-500">
+            ตรวจว่าลิงก์อยู่ในรูปแบบ `/app/ชื่อร้าน` และเป็นลิงก์ล่าสุดจากผู้ดูแล
+          </p>
         </div>
       </CustomerShell>
     );
@@ -354,6 +367,9 @@ export default function CustomerDashboard({ tenantSlug }: CustomerDashboardProps
           </h1>
           <p className="mt-2 text-sm leading-6 text-gray-600">
             {state.message}
+          </p>
+          <p className="mt-3 text-xs leading-5 text-gray-500">
+            ผู้ดูแลต้องเชื่อม SML และรันรายงานแรกก่อน Dashboard จะแสดงข้อมูลได้
           </p>
         </div>
       </CustomerShell>
@@ -676,9 +692,9 @@ function CustomerDashboardContent({
           <DetailItem
             label="แหล่งข้อมูล"
             value={
-              snapshot.source === "sml_postgres"
-                ? "ข้อมูลจากระบบขาย SML"
-                : "ข้อมูลตัวอย่าง"
+              snapshot.source === "sample_snapshot"
+                ? "ข้อมูลตัวอย่าง"
+                : "ข้อมูลจาก SML"
             }
           />
           <DetailItem label="รอบประมวลผล" value={snapshot.run_id} />
@@ -759,6 +775,11 @@ function CustomerExecutiveCockpit({
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <StatusPill tone={trust.color === "warning" ? "warning" : "success"}>
               {trust.label}
+            </StatusPill>
+            <StatusPill tone="neutral">
+              {salesSnapshot.source === "sample_snapshot"
+                ? "ข้อมูลตัวอย่าง"
+                : "ข้อมูลจาก SML"}
             </StatusPill>
             <StatusPill tone="neutral">อ่านอย่างเดียว</StatusPill>
             <StatusPill tone="neutral">เฉพาะร้านนี้</StatusPill>

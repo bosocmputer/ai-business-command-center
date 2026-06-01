@@ -1,10 +1,13 @@
 import type { LineChannelRecord, TenantId } from "@ai-bcc/shared";
 import type {
   DatasourceConfig,
+  JavaWsDatasourceConfig,
   LineChannelCredentialConfig,
+  PostgresDatasourceConfig,
 } from "./config.js";
 import { decryptSecret, encryptSecret } from "./secret-vault.js";
 import type { SecretRecord, SystemStore } from "./system-store.js";
+import { readBootstrapSecretKey } from "./bootstrap-config.js";
 
 const SECRET_KEY_ID = "env:AI_BCC_SECRET_KEY";
 const DATASOURCE_SECRET_KEY = "sml_password";
@@ -13,11 +16,19 @@ const LINE_CHANNEL_SECRET_KEY = "channel_secret";
 
 export type DatasourceConfigStatus = {
   source: "encrypted_store" | "env" | "missing";
+  kind: DatasourceConfig["kind"] | null;
   host: string | null;
   port: number | null;
   database: string | null;
   user: string | null;
   password_configured: boolean;
+  base_url: string | null;
+  webapp_path: string | null;
+  endpoint: string | null;
+  config_file_name: string | null;
+  query_method: string | null;
+  auth_mode: JavaWsDatasourceConfig["auth"]["mode"] | null;
+  auth_configured: boolean;
   encryption_configured: boolean;
   updated_at: string | null;
 };
@@ -33,10 +44,25 @@ export type SaveLineChannelSecretsInput = {
   channelSecret?: string;
 };
 
-type DatasourceSecretMetadata = Omit<DatasourceConfig, "password">;
+type PostgresDatasourceSecretMetadata = Omit<PostgresDatasourceConfig, "password">;
+type JavaWsDatasourceSecretMetadata = Omit<JavaWsDatasourceConfig, "auth"> & {
+  authMode: JavaWsDatasourceConfig["auth"]["mode"];
+  authUsername?: string;
+};
+type DatasourceSecretMetadata =
+  | PostgresDatasourceSecretMetadata
+  | JavaWsDatasourceSecretMetadata;
+
+type DatasourceSecretPayload =
+  | { kind: "sml_postgres"; password: string }
+  | {
+      kind: "sml_javaws";
+      authPassword?: string;
+      authToken?: string;
+    };
 
 export function readSecretEncryptionSecret() {
-  return process.env.AI_BCC_SECRET_KEY?.trim() || null;
+  return readBootstrapSecretKey();
 }
 
 export function datasourceSecretId(tenantId: TenantId) {
@@ -78,38 +104,39 @@ export async function readDatasourceConfigStatus(input: {
 
   if (record) {
     const metadata = parseDatasourceSecretMetadata(record.metadata_json);
-    return {
+    return datasourceStatusFromMetadata({
       source: "encrypted_store",
-      host: metadata?.host ?? null,
-      port: metadata?.port ?? null,
-      database: metadata?.database ?? null,
-      user: metadata?.user ?? null,
-      password_configured: true,
+      metadata,
       encryption_configured: encryptionConfigured,
       updated_at: record.updated_at,
-    };
+      secretConfigured: Boolean(record.encrypted_value),
+    });
   }
 
   if (input.envConfig) {
-    return {
+    return datasourceStatusFromConfig({
       source: "env",
-      host: input.envConfig.host,
-      port: input.envConfig.port,
-      database: input.envConfig.database,
-      user: input.envConfig.user,
-      password_configured: true,
+      config: input.envConfig,
       encryption_configured: encryptionConfigured,
       updated_at: null,
-    };
+    });
   }
 
   return {
     source: "missing",
+    kind: null,
     host: null,
     port: null,
     database: null,
     user: null,
     password_configured: false,
+    base_url: null,
+    webapp_path: null,
+    endpoint: null,
+    config_file_name: null,
+    query_method: null,
+    auth_mode: null,
+    auth_configured: false,
     encryption_configured: encryptionConfigured,
     updated_at: null,
   };
@@ -132,15 +159,42 @@ export async function readStoredDatasourceConfig(input: {
   }
 
   const encryptionSecret = requireEncryptionSecret();
-  const password = decryptSecret({
+  const plaintext = decryptSecret({
     envelope: record.encrypted_value,
     encryptionSecret,
     aad: datasourceSecretAad(input.tenantId),
   });
 
+  const secret = parseDatasourceSecretPayload(plaintext, metadata.kind);
+
+  if (metadata.kind === "sml_javaws") {
+    return {
+      kind: "sml_javaws",
+      baseUrl: metadata.baseUrl,
+      webappPath: metadata.webappPath,
+      endpoint: metadata.endpoint,
+      configFileName: metadata.configFileName,
+      database: metadata.database,
+      queryMethod: metadata.queryMethod,
+      auth:
+        metadata.authMode === "basic"
+          ? {
+              mode: "basic",
+              username: metadata.authUsername ?? "",
+              password: secret.kind === "sml_javaws" ? secret.authPassword ?? "" : "",
+            }
+          : metadata.authMode === "bearer"
+            ? {
+                mode: "bearer",
+                token: secret.kind === "sml_javaws" ? secret.authToken ?? "" : "",
+              }
+            : { mode: "none" },
+    };
+  }
+
   return {
     ...metadata,
-    password,
+    password: secret.kind === "sml_postgres" ? secret.password : "",
   };
 }
 
@@ -152,12 +206,8 @@ export async function saveTenantDatasourceConfig(input: {
   const id = datasourceSecretId(input.config.tenantId);
   const existing = await input.store.getSecretRecord(id);
   const encryptionSecret = requireEncryptionSecret();
-  const metadata: DatasourceSecretMetadata = {
-    host: input.config.host,
-    port: input.config.port,
-    database: input.config.database,
-    user: input.config.user,
-  };
+  const metadata = buildDatasourceSecretMetadata(input.config);
+  const secretPayload = buildDatasourceSecretPayload(input.config);
 
   const record: SecretRecord = {
     id,
@@ -165,7 +215,7 @@ export async function saveTenantDatasourceConfig(input: {
     scope: "datasource",
     secret_key: DATASOURCE_SECRET_KEY,
     encrypted_value: encryptSecret({
-      plaintext: input.config.password,
+      plaintext: JSON.stringify(secretPayload),
       encryptionSecret,
       keyId: SECRET_KEY_ID,
       aad: datasourceSecretAad(input.config.tenantId),
@@ -369,6 +419,42 @@ async function upsertLineChannelSecret(input: {
 function parseDatasourceSecretMetadata(
   value: Record<string, unknown>,
 ): DatasourceSecretMetadata | null {
+  const kind =
+    value.kind === "sml_javaws" || value.kind === "sml_postgres"
+      ? value.kind
+      : "sml_postgres";
+
+  if (kind === "sml_javaws") {
+    if (
+      typeof value.baseUrl !== "string" ||
+      typeof value.webappPath !== "string" ||
+      typeof value.endpoint !== "string" ||
+      typeof value.configFileName !== "string" ||
+      typeof value.database !== "string" ||
+      typeof value.queryMethod !== "string"
+    ) {
+      return null;
+    }
+
+    const authMode =
+      value.authMode === "basic" || value.authMode === "bearer"
+        ? value.authMode
+        : "none";
+
+    return {
+      kind: "sml_javaws",
+      baseUrl: value.baseUrl,
+      webappPath: value.webappPath,
+      endpoint: "DotNetFrameWork",
+      configFileName: value.configFileName,
+      database: value.database,
+      queryMethod: "_queryCompress",
+      authMode,
+      authUsername:
+        typeof value.authUsername === "string" ? value.authUsername : undefined,
+    };
+  }
+
   if (
     typeof value.host !== "string" ||
     typeof value.database !== "string" ||
@@ -377,20 +463,191 @@ function parseDatasourceSecretMetadata(
     return null;
   }
 
-  const port =
-    typeof value.port === "number"
-      ? value.port
-      : typeof value.port === "string"
-        ? Number(value.port)
-        : Number.NaN;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  const port = coercePort(value.port);
+  if (!port) {
     return null;
   }
-
   return {
+    kind: "sml_postgres",
     host: value.host,
     port,
     database: value.database,
     user: value.user,
+  };
+}
+
+function coercePort(value: unknown) {
+  const port =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+function buildDatasourceSecretMetadata(
+  config: DatasourceConfig,
+): DatasourceSecretMetadata {
+  if (config.kind === "sml_javaws") {
+    return {
+      kind: "sml_javaws",
+      baseUrl: config.baseUrl,
+      webappPath: config.webappPath,
+      endpoint: config.endpoint,
+      configFileName: config.configFileName,
+      database: config.database,
+      queryMethod: config.queryMethod,
+      authMode: config.auth.mode,
+      authUsername: config.auth.mode === "basic" ? config.auth.username : undefined,
+    };
+  }
+
+  return {
+    kind: "sml_postgres",
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    user: config.user,
+  };
+}
+
+function buildDatasourceSecretPayload(
+  config: DatasourceConfig,
+): DatasourceSecretPayload {
+  if (config.kind === "sml_javaws") {
+    return {
+      kind: "sml_javaws",
+      authPassword: config.auth.mode === "basic" ? config.auth.password : undefined,
+      authToken: config.auth.mode === "bearer" ? config.auth.token : undefined,
+    };
+  }
+
+  return {
+    kind: "sml_postgres",
+    password: config.password,
+  };
+}
+
+function parseDatasourceSecretPayload(
+  plaintext: string,
+  metadataKind: DatasourceConfig["kind"],
+): DatasourceSecretPayload {
+  try {
+    const parsed = JSON.parse(plaintext) as Partial<DatasourceSecretPayload>;
+    if (parsed.kind === "sml_javaws") {
+      return {
+        kind: "sml_javaws",
+        authPassword:
+          typeof parsed.authPassword === "string"
+            ? parsed.authPassword
+            : undefined,
+        authToken:
+          typeof parsed.authToken === "string" ? parsed.authToken : undefined,
+      };
+    }
+    if (parsed.kind === "sml_postgres" && typeof parsed.password === "string") {
+      return {
+        kind: "sml_postgres",
+        password: parsed.password,
+      };
+    }
+  } catch {
+    // Legacy datasource records encrypted only the PostgreSQL password string.
+  }
+
+  if (metadataKind === "sml_postgres") {
+    return {
+      kind: "sml_postgres",
+      password: plaintext,
+    };
+  }
+
+  return { kind: "sml_javaws" };
+}
+
+function datasourceStatusFromConfig(input: {
+  source: DatasourceConfigStatus["source"];
+  config: DatasourceConfig;
+  encryption_configured: boolean;
+  updated_at: string | null;
+}): DatasourceConfigStatus {
+  return datasourceStatusFromMetadata({
+    source: input.source,
+    metadata: buildDatasourceSecretMetadata(input.config),
+    encryption_configured: input.encryption_configured,
+    updated_at: input.updated_at,
+    secretConfigured: true,
+  });
+}
+
+function datasourceStatusFromMetadata(input: {
+  source: DatasourceConfigStatus["source"];
+  metadata: DatasourceSecretMetadata | null;
+  encryption_configured: boolean;
+  updated_at: string | null;
+  secretConfigured: boolean;
+}): DatasourceConfigStatus {
+  const metadata = input.metadata;
+  if (metadata?.kind === "sml_javaws") {
+    return {
+      source: input.source,
+      kind: "sml_javaws",
+      host: null,
+      port: null,
+      database: metadata.database,
+      user: null,
+      password_configured: false,
+      base_url: metadata.baseUrl,
+      webapp_path: metadata.webappPath,
+      endpoint: metadata.endpoint,
+      config_file_name: metadata.configFileName,
+      query_method: metadata.queryMethod,
+      auth_mode: metadata.authMode,
+      auth_configured:
+        metadata.authMode === "none" ? true : input.secretConfigured,
+      encryption_configured: input.encryption_configured,
+      updated_at: input.updated_at,
+    };
+  }
+
+  if (metadata?.kind === "sml_postgres") {
+    return {
+      source: input.source,
+      kind: "sml_postgres",
+      host: metadata.host,
+      port: metadata.port,
+      database: metadata.database,
+      user: metadata.user,
+      password_configured: input.secretConfigured,
+      base_url: null,
+      webapp_path: null,
+      endpoint: null,
+      config_file_name: null,
+      query_method: null,
+      auth_mode: null,
+      auth_configured: false,
+      encryption_configured: input.encryption_configured,
+      updated_at: input.updated_at,
+    };
+  }
+
+  return {
+    source: input.source,
+    kind: null,
+    host: null,
+    port: null,
+    database: null,
+    user: null,
+    password_configured: false,
+    base_url: null,
+    webapp_path: null,
+    endpoint: null,
+    config_file_name: null,
+    query_method: null,
+    auth_mode: null,
+    auth_configured: false,
+    encryption_configured: input.encryption_configured,
+    updated_at: input.updated_at,
   };
 }

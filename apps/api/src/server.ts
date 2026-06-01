@@ -51,6 +51,7 @@ import {
   runPurchaseGoodsPayablesReport,
   runSalesGoodsServicesReport,
   testDatasourceConnection,
+  toSafeDatasourceErrorMessage,
   toSafeErrorMessage,
 } from "./report-runner.js";
 import {
@@ -97,6 +98,13 @@ import {
   saveLineChannelSecrets,
   saveTenantDatasourceConfig,
 } from "./tenant-secret-config.js";
+import {
+  readEffectiveSystemRuntimeConfig,
+  readSystemRuntimeConfigStatus,
+  saveSystemRuntimeConfig,
+} from "./system-runtime-config.js";
+import { readBootstrapReportViewerSigningSecret } from "./bootstrap-config.js";
+import { listJavaWsDatabases } from "./sml-javaws-client.js";
 
 const app = Fastify({
   logger: {
@@ -171,6 +179,43 @@ app.get("/api/owner/tenants", async (request, reply) => {
   );
 
   return { data: summaries };
+});
+
+app.get("/api/owner/sml-connections", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const tenants = await systemStore.listTenants();
+  const summaries = await Promise.all(
+    tenants.map(async (tenant) => {
+      const [summary, datasource] = await Promise.all([
+        buildOwnerTenantSummary(tenant.id),
+        readDatasourceConfigStatus({
+          store: systemStore,
+          tenantId: tenant.id,
+          envConfig: readDatasourceConfig(tenant.id),
+        }),
+      ]);
+
+      if (!summary) {
+        return null;
+      }
+
+      return {
+        ...summary,
+        datasource,
+        last_test: null,
+      };
+    }),
+  );
+
+  return {
+    data: summaries.filter((summary): summary is NonNullable<typeof summary> =>
+      Boolean(summary),
+    ),
+  };
 });
 
 app.post("/api/owner/tenants", async (request, reply) => {
@@ -351,7 +396,7 @@ app.put(
     if (!readSecretEncryptionSecret()) {
       return reply.status(503).send({
         error:
-          "AI_BCC_SECRET_KEY is not configured. Set it on the server before saving secrets.",
+          "Secret key is not configured. Add secret_key in the bootstrap config file before saving secrets.",
       });
     }
 
@@ -359,11 +404,7 @@ app.put(
       store: systemStore,
       config: {
         tenantId: tenant.id,
-        host: body.data.host,
-        port: body.data.port,
-        database: body.data.database,
-        user: body.data.user,
-        password: body.data.password,
+        ...body.data,
       },
     });
 
@@ -380,15 +421,118 @@ app.put(
       target_id: tenant.id,
       metadata_json: {
         source: status.source,
-        host: body.data.host,
-        port: body.data.port,
+        kind: body.data.kind,
+        host: body.data.kind === "sml_postgres" ? body.data.host : null,
+        port: body.data.kind === "sml_postgres" ? body.data.port : null,
+        base_url: body.data.kind === "sml_javaws" ? body.data.baseUrl : null,
+        webapp_path:
+          body.data.kind === "sml_javaws" ? body.data.webappPath : null,
         database: body.data.database,
-        user: body.data.user,
-        password_configured: true,
+        user: body.data.kind === "sml_postgres" ? body.data.user : null,
+        password_configured:
+          body.data.kind === "sml_postgres" ? Boolean(body.data.password) : false,
+        auth_configured:
+          body.data.kind === "sml_javaws"
+            ? body.data.auth.mode === "none" ||
+              (body.data.auth.mode === "basic"
+                ? Boolean(body.data.auth.password)
+                : Boolean(body.data.auth.token))
+            : false,
       },
     });
 
     return { data: status };
+  },
+);
+
+app.post(
+  "/api/owner/tenants/:tenantId/datasource/javaws/databases",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = javaWsDatabaseDiscoverySchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid JavaWS database discovery request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const checkedAt = new Date().toISOString();
+    const startedAt = Date.now();
+    try {
+      const databases = await listJavaWsDatabases(body.data, 15000);
+      const payload = {
+        ok: true,
+        checked_at: checkedAt,
+        mode: "sml_javaws" as const,
+        latency_ms: Date.now() - startedAt,
+        config_file_name: body.data.configFileName,
+        databases,
+        safe_error_message: databases.length
+          ? null
+          : "JavaWS connected, but no database rows were returned for this config file.",
+      };
+
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "datasource_javaws_database_discovery_succeeded",
+        target_type: "datasource",
+        target_id: tenant.id,
+        metadata_json: {
+          base_url: body.data.baseUrl,
+          webapp_path: body.data.webappPath,
+          endpoint: body.data.endpoint,
+          config_file_name: body.data.configFileName,
+          database_count: databases.length,
+          latency_ms: payload.latency_ms,
+        },
+      });
+
+      return { data: payload };
+    } catch (error) {
+      const payload = {
+        ok: false,
+        checked_at: checkedAt,
+        mode: "sml_javaws" as const,
+        latency_ms: Date.now() - startedAt,
+        config_file_name: body.data.configFileName,
+        databases: [],
+        safe_error_message: toSafeDatasourceErrorMessage(error),
+      };
+
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "datasource_javaws_database_discovery_failed",
+        target_type: "datasource",
+        target_id: tenant.id,
+        metadata_json: {
+          base_url: body.data.baseUrl,
+          webapp_path: body.data.webappPath,
+          endpoint: body.data.endpoint,
+          config_file_name: body.data.configFileName,
+          latency_ms: payload.latency_ms,
+          safe_error_message: payload.safe_error_message,
+        },
+      });
+
+      return reply.status(502).send({ data: payload });
+    }
   },
 );
 
@@ -1148,7 +1292,23 @@ async function testTenantDatasource(
   }
 
   const tenantId = routeParams.data.tenantId;
-  const datasource = await resolveTenantDatasourceConfig(tenantId);
+  const bodyCandidate =
+    request.body &&
+    typeof request.body === "object" &&
+    Object.keys(request.body as Record<string, unknown>).length
+      ? datasourceConfigUpdateSchema.safeParse(request.body)
+      : null;
+  if (bodyCandidate && !bodyCandidate.success) {
+    return reply.status(400).send({
+      error: "Invalid datasource test request",
+      details: bodyCandidate.error.flatten().fieldErrors,
+    });
+  }
+
+  const datasource =
+    bodyCandidate?.success
+      ? bodyCandidate.data
+      : await resolveTenantDatasourceConfig(tenantId);
   if (!datasource) {
     const checkedAt = new Date().toISOString();
     await systemStore.appendAuditLog({
@@ -1168,6 +1328,7 @@ async function testTenantDatasource(
       data: {
         ok: false,
         checked_at: checkedAt,
+        mode: "sml_postgres",
         latency_ms: 0,
         database_name: getTenantDefinition(tenantId)?.databaseName ?? null,
         user_name_masked: null,
@@ -1193,6 +1354,7 @@ async function testTenantDatasource(
     metadata_json: {
       configured: true,
       checked_at: result.checked_at,
+      mode: result.mode,
       latency_ms: result.latency_ms,
       database_name: result.database_name,
       required_tables: result.required_tables,
@@ -1223,8 +1385,65 @@ app.get("/api/owner/operations/status", async (request, reply) => {
   };
 });
 
+app.get("/api/owner/system/config", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  return {
+    data: await readSystemRuntimeConfigStatus(systemStore),
+  };
+});
+
+app.put("/api/owner/system/config", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const body = systemConfigUpdateSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid system config request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+  if (!readSecretEncryptionSecret()) {
+    return reply.status(503).send({
+      error:
+        "Secret key is not configured. Add secret_key in the bootstrap config file before saving system config.",
+    });
+  }
+
+  const status = await saveSystemRuntimeConfig({
+    store: systemStore,
+    config: body.data,
+  });
+  await systemStore.appendAuditLog({
+    tenant_id: null,
+    actor_id: null,
+    action: "system_config_updated",
+    target_type: "system_config",
+    target_id: "runtime_config",
+    metadata_json: {
+      source: status.source,
+      app_base_url_configured: Boolean(status.app_base_url),
+      public_api_base_url_configured: Boolean(status.public_api_base_url),
+      morning_brief_enabled: status.morning_brief_enabled,
+      morning_brief_tenant_ids: status.morning_brief_tenant_ids,
+      worker_heartbeat_token_configured:
+        status.worker_heartbeat_token_configured,
+      backup_configured: status.backup_configured,
+    },
+  });
+
+  return { data: status };
+});
+
 app.post("/api/worker/heartbeat", async (request, reply) => {
-  const expectedToken = process.env.WORKER_HEARTBEAT_TOKEN?.trim();
+  const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+  const expectedToken = runtimeConfig.worker_heartbeat_token?.trim();
   if (!expectedToken) {
     return reply.status(503).send({
       error: "Worker heartbeat token is not configured.",
@@ -3060,8 +3279,7 @@ function createCustomerPreviewRunId(tenantId: string) {
   return `preview_${tenantId}_${Date.now()}`;
 }
 
-function buildDashboardUrl() {
-  const baseUrl = process.env.APP_BASE_URL?.trim();
+function buildDashboardUrl(baseUrl: string | null) {
   if (!baseUrl) {
     return null;
   }
@@ -3070,6 +3288,8 @@ function buildDashboardUrl() {
 }
 
 async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
+  const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+  const runtimeStatus = await readSystemRuntimeConfigStatus(systemStore);
   const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
     "morning_brief_scheduler",
   );
@@ -3119,22 +3339,20 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       time: new Date().toISOString(),
     },
     dashboard: {
-      app_base_url_configured: Boolean(process.env.APP_BASE_URL?.trim()),
-      dashboard_url: buildDashboardUrl(),
-      public_api_base_url_configured: Boolean(
-        process.env.NEXT_PUBLIC_API_BASE_URL?.trim(),
-      ),
+      app_base_url_configured: Boolean(runtimeConfig.app_base_url),
+      dashboard_url: buildDashboardUrl(runtimeConfig.app_base_url),
+      public_api_base_url_configured: Boolean(runtimeConfig.public_api_base_url),
     },
     scheduler: {
-      enabled: readBoolean(process.env.MORNING_BRIEF_ENABLED, true),
-      tenant_ids: readSchedulerTenantIds(),
-      time: process.env.MORNING_BRIEF_TIME || "08:00",
-      timezone: process.env.MORNING_BRIEF_TIMEZONE || "Asia/Bangkok",
-      mode: process.env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send",
-      force: readBoolean(process.env.MORNING_BRIEF_FORCE, false),
+      enabled: runtimeConfig.morning_brief_enabled,
+      tenant_ids: runtimeConfig.morning_brief_tenant_ids,
+      time: runtimeConfig.morning_brief_time,
+      timezone: runtimeConfig.morning_brief_timezone,
+      mode: runtimeConfig.morning_brief_mode,
+      force: runtimeConfig.morning_brief_force,
     },
     worker: {
-      heartbeat_configured: Boolean(process.env.WORKER_HEARTBEAT_TOKEN?.trim()),
+      heartbeat_configured: Boolean(runtimeConfig.worker_heartbeat_token),
       latest_heartbeat: latestHeartbeat,
       age_seconds: heartbeatAgeSeconds,
       status: latestHeartbeat
@@ -3145,18 +3363,20 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
     },
     backup: {
       system_store: systemStore.kind,
-      configured: readBoolean(process.env.SYSTEM_BACKUP_CONFIGURED, false),
-      last_backup_at: process.env.SYSTEM_LAST_BACKUP_AT?.trim() || null,
+      configured: runtimeConfig.backup_configured,
+      last_backup_at: runtimeConfig.system_last_backup_at,
       recommendation:
         "ก่อน production ควรตั้ง cron pg_dump, เก็บไฟล์นอกเครื่อง และทดสอบ restore รายสัปดาห์",
     },
     audit_logs: auditLogs,
     tenants: tenantHealth,
+    system_config: runtimeStatus,
   };
 }
 
 async function buildReportViewerUrl(snapshot: ReportSnapshot) {
-  const baseUrl = process.env.APP_BASE_URL?.trim();
+  const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+  const baseUrl = runtimeConfig.app_base_url;
   const signingSecret = readReportViewerSigningSecret();
   if (!baseUrl || !signingSecret) {
     return null;
@@ -3647,7 +3867,7 @@ function requireAdminMutation(request: {
 }
 
 function readReportViewerSigningSecret() {
-  const secret = process.env.REPORT_VIEWER_SIGNING_SECRET?.trim();
+  const secret = readBootstrapReportViewerSigningSecret()?.trim();
   return secret && secret.length >= 32 ? secret : null;
 }
 
@@ -4395,12 +4615,85 @@ const lineChannelSecretsUpdateSchema = z
     }
   });
 
-const datasourceConfigUpdateSchema = z.object({
+const postgresDatasourceConfigUpdateSchema = z.object({
+  kind: z.literal("sml_postgres"),
   host: z.string().trim().min(1).max(255),
   port: z.coerce.number().int().min(1).max(65535),
   database: z.string().trim().min(1).max(120),
   user: z.string().trim().min(1).max(120),
   password: z.string().min(1).max(1024),
+});
+
+const javaWsAuthSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("none") }),
+  z.object({
+    mode: z.literal("basic"),
+    username: z.string().trim().min(1).max(120),
+    password: z.string().min(1).max(1024),
+  }),
+  z.object({
+    mode: z.literal("bearer"),
+    token: z.string().min(1).max(4096),
+  }),
+]);
+
+const javaWsDatasourceConfigUpdateSchema = z.object({
+  kind: z.literal("sml_javaws"),
+  baseUrl: z.string().trim().url().max(500),
+  webappPath: z.string().trim().min(1).max(120).default("/SMLJavaWebService"),
+  endpoint: z.literal("DotNetFrameWork").default("DotNetFrameWork"),
+  configFileName: z.string().trim().min(1).max(160),
+  database: z.string().trim().min(1).max(120),
+  queryMethod: z.literal("_queryCompress").default("_queryCompress"),
+  auth: javaWsAuthSchema.default({ mode: "none" }),
+});
+
+const javaWsDatabaseDiscoverySchema = javaWsDatasourceConfigUpdateSchema
+  .pick({
+    baseUrl: true,
+    webappPath: true,
+    endpoint: true,
+    configFileName: true,
+    auth: true,
+  })
+  .extend({
+    kind: z.literal("sml_javaws").optional(),
+  });
+
+const datasourceConfigUpdateSchema = z.discriminatedUnion("kind", [
+  postgresDatasourceConfigUpdateSchema,
+  javaWsDatasourceConfigUpdateSchema,
+]);
+
+const nullableUrlString = z
+  .string()
+  .trim()
+  .max(500)
+  .transform((value) => value || null)
+  .nullable();
+
+const systemConfigUpdateSchema = z.object({
+  app_base_url: nullableUrlString,
+  public_api_base_url: nullableUrlString,
+  morning_brief_enabled: z.coerce.boolean(),
+  morning_brief_tenant_ids: z.array(tenantIdSchema).min(1).max(50),
+  morning_brief_time: z
+    .string()
+    .trim()
+    .regex(/^\d{2}:\d{2}$/)
+    .default("08:00"),
+  morning_brief_timezone: z.string().trim().min(1).max(80).default("Asia/Bangkok"),
+  morning_brief_mode: z.enum(["send", "dry_run"]).default("send"),
+  morning_brief_force: z.coerce.boolean().default(false),
+  worker_id: z.string().trim().min(1).max(120).default("worker_morning_brief_1"),
+  worker_heartbeat_token: z
+    .string()
+    .trim()
+    .max(2048)
+    .optional()
+    .nullable(),
+  backup_configured: z.coerce.boolean().default(false),
+  system_last_backup_at: z.string().trim().max(80).nullable().default(null),
 });
 
 const reportValidationSignoffSchema = z.object({

@@ -1,12 +1,29 @@
 import type { LineTargetType, Tenant, TenantId } from "@ai-bcc/shared";
 
-type DatasourceConfig = {
+export type PostgresDatasourceConfig = {
+  kind: "sml_postgres";
   host: string;
   port: number;
   database: string;
   user: string;
   password: string;
 };
+
+export type JavaWsDatasourceConfig = {
+  kind: "sml_javaws";
+  baseUrl: string;
+  webappPath: string;
+  endpoint: "DotNetFrameWork";
+  configFileName: string;
+  database: string;
+  queryMethod: "_queryCompress";
+  auth:
+    | { mode: "none" }
+    | { mode: "basic"; username: string; password: string }
+    | { mode: "bearer"; token: string };
+};
+
+type DatasourceConfig = PostgresDatasourceConfig | JavaWsDatasourceConfig;
 
 export type LineChannelCredentialConfig = {
   channelAccessToken: string;
@@ -106,6 +123,7 @@ export function readDatasourceConfig(
   }
 
   return {
+    kind: "sml_postgres",
     host,
     port: Number(port),
     database,

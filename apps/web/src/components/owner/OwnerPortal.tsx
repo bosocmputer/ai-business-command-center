@@ -31,6 +31,31 @@ import {
 const API_BASE_URL = getCommandCenterApiBaseUrl();
 const defaultReportRange = deriveMorningBriefDateRange();
 
+const JAVA_WS_DATASOURCE_PRESETS = [
+  {
+    id: "seaandhill-demo",
+    label: "Sea & Hill demo",
+    description: "147.50.69.68:80 · SMLConfigDEMO.xml · thapput",
+    baseUrl: "http://147.50.69.68:80",
+    webappPath: "/SMLJavaWebService",
+    endpoint: "DotNetFrameWork",
+    configFileName: "SMLConfigDEMO.xml",
+    database: "thapput",
+  },
+  {
+    id: "demo-3bb",
+    label: "3BB demo",
+    description: "demserver.3bbddns.com:47308 · SMLConfigDATA.xml · demo",
+    baseUrl: "http://demserver.3bbddns.com:47308",
+    webappPath: "/SMLJavaWebService",
+    endpoint: "DotNetFrameWork",
+    configFileName: "SMLConfigDATA.xml",
+    database: "demo",
+  },
+] as const;
+
+type JavaWsDatasourcePreset = (typeof JAVA_WS_DATASOURCE_PRESETS)[number];
+
 type TenantSummary = {
   tenant: Tenant;
   customer_dashboard_path: string | null;
@@ -53,6 +78,11 @@ type TenantSummary = {
   };
 };
 
+type SmlConnectionSummary = TenantSummary & {
+  datasource: DatasourceConfigStatus;
+  last_test: DatasourceTestResult | null;
+};
+
 type ActionResult = {
   tone: "success" | "error" | "warning";
   message: string;
@@ -63,6 +93,7 @@ type OwnerDataStatus = "checking" | "auth_required" | "ready" | "error";
 type DatasourceTestResult = {
   ok: boolean;
   checked_at: string;
+  mode: DatasourceKind;
   latency_ms: number;
   database_name: string | null;
   user_name_masked: string | null;
@@ -76,15 +107,40 @@ type DatasourceTestResult = {
   safe_error_message: string | null;
 };
 
+type DatasourceKind = "sml_postgres" | "sml_javaws";
+type JavaWsAuthMode = "none" | "basic" | "bearer";
+
 type DatasourceConfigStatus = {
   source: "encrypted_store" | "env" | "missing";
+  kind: DatasourceKind | null;
   host: string | null;
   port: number | null;
   database: string | null;
   user: string | null;
   password_configured: boolean;
+  base_url: string | null;
+  webapp_path: string | null;
+  endpoint: string | null;
+  config_file_name: string | null;
+  query_method: string | null;
+  auth_mode: JavaWsAuthMode | null;
+  auth_configured: boolean;
   encryption_configured: boolean;
   updated_at: string | null;
+};
+
+type JavaWsDatabaseDiscoveryResult = {
+  ok: boolean;
+  checked_at: string;
+  mode: "sml_javaws";
+  latency_ms: number;
+  config_file_name: string;
+  databases: {
+    code: string;
+    name: string;
+    database_name: string;
+  }[];
+  safe_error_message: string | null;
 };
 
 type OwnerAuditLogEntry = {
@@ -131,6 +187,35 @@ type OwnerOperationsStatus = {
     recommendation: string;
   };
   audit_logs: OwnerAuditLogEntry[];
+  system_config?: SystemConfigStatus;
+};
+
+type SystemConfigStatus = {
+  source: "encrypted_store" | "bootstrap_file" | "env";
+  app_base_url: string | null;
+  public_api_base_url: string | null;
+  morning_brief_enabled: boolean;
+  morning_brief_tenant_ids: string[];
+  morning_brief_time: string;
+  morning_brief_timezone: string;
+  morning_brief_mode: "dry_run" | "send";
+  morning_brief_force: boolean;
+  worker_id: string;
+  worker_heartbeat_token_configured: boolean;
+  backup_configured: boolean;
+  system_last_backup_at: string | null;
+  encryption_configured: boolean;
+  updated_at: string | null;
+  bootstrap: {
+    path: string;
+    exists: boolean;
+    system_database_configured: boolean;
+    secret_key_present: boolean;
+    app_base_url_configured: boolean;
+    public_api_base_url_configured: boolean;
+    read_error: string | null;
+  };
+  restart_required_for_bootstrap_changes: boolean;
 };
 
 type ValidationSignoffResult = {
@@ -142,9 +227,11 @@ type ValidationSignoffResult = {
 export type OwnerPortalSection =
   | "overview"
   | "tenants"
+  | "sml-connections"
   | "reports"
   | "line"
-  | "audit";
+  | "audit"
+  | "settings";
 
 export default function OwnerPortal({
   section = "overview",
@@ -152,6 +239,9 @@ export default function OwnerPortal({
   section?: OwnerPortalSection;
 }) {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
+  const [smlConnections, setSmlConnections] = useState<SmlConnectionSummary[]>(
+    [],
+  );
   const [lineChannels, setLineChannels] = useState<LineChannelRecord[]>([]);
   const [lineTargets, setLineTargets] = useState<LineTargetRecord[]>([]);
   const [datasourceTests, setDatasourceTests] = useState<
@@ -159,13 +249,48 @@ export default function OwnerPortal({
   >({});
   const [datasourceConfig, setDatasourceConfig] =
     useState<DatasourceConfigStatus | null>(null);
+  const [javaWsDatabaseDiscovery, setJavaWsDatabaseDiscovery] =
+    useState<JavaWsDatabaseDiscoveryResult | null>(null);
+  const [datasourceKind, setDatasourceKind] =
+    useState<DatasourceKind>("sml_postgres");
   const [datasourceHost, setDatasourceHost] = useState("");
   const [datasourcePort, setDatasourcePort] = useState("5432");
   const [datasourceDatabase, setDatasourceDatabase] = useState("");
   const [datasourceUser, setDatasourceUser] = useState("");
   const [datasourcePassword, setDatasourcePassword] = useState("");
+  const [javaWsBaseUrl, setJavaWsBaseUrl] = useState("");
+  const [javaWsWebappPath, setJavaWsWebappPath] =
+    useState("/SMLJavaWebService");
+  const [javaWsEndpoint, setJavaWsEndpoint] = useState("DotNetFrameWork");
+  const [javaWsConfigFileName, setJavaWsConfigFileName] = useState("");
+  const [javaWsDatabase, setJavaWsDatabase] = useState("");
+  const [javaWsAuthMode, setJavaWsAuthMode] =
+    useState<JavaWsAuthMode>("none");
+  const [javaWsAuthUsername, setJavaWsAuthUsername] = useState("");
+  const [javaWsAuthSecret, setJavaWsAuthSecret] = useState("");
   const [operationsStatus, setOperationsStatus] =
     useState<OwnerOperationsStatus | null>(null);
+  const [systemConfig, setSystemConfig] = useState<SystemConfigStatus | null>(
+    null,
+  );
+  const [systemAppBaseUrl, setSystemAppBaseUrl] = useState("");
+  const [systemPublicApiBaseUrl, setSystemPublicApiBaseUrl] = useState("");
+  const [systemMorningBriefEnabled, setSystemMorningBriefEnabled] =
+    useState(true);
+  const [systemMorningBriefTenantIds, setSystemMorningBriefTenantIds] =
+    useState("tenant_demo_remote");
+  const [systemMorningBriefTime, setSystemMorningBriefTime] = useState("08:00");
+  const [systemMorningBriefTimezone, setSystemMorningBriefTimezone] =
+    useState("Asia/Bangkok");
+  const [systemMorningBriefMode, setSystemMorningBriefMode] =
+    useState<"dry_run" | "send">("send");
+  const [systemMorningBriefForce, setSystemMorningBriefForce] = useState(false);
+  const [systemWorkerId, setSystemWorkerId] =
+    useState("worker_morning_brief_1");
+  const [systemWorkerHeartbeatToken, setSystemWorkerHeartbeatToken] =
+    useState("");
+  const [systemBackupConfigured, setSystemBackupConfigured] = useState(false);
+  const [systemLastBackupAt, setSystemLastBackupAt] = useState("");
   const [dataStatus, setDataStatus] =
     useState<OwnerDataStatus>("checking");
   const [busy, setBusy] = useState<string | null>(null);
@@ -236,6 +361,21 @@ export default function OwnerPortal({
   }, [selectedTenantId, tenants]);
 
   useEffect(() => {
+    if (section !== "sml-connections" || !tenants.length) {
+      return;
+    }
+
+    const tenantId = new URLSearchParams(window.location.search).get("tenant");
+    if (
+      tenantId &&
+      tenantId !== selectedTenantId &&
+      tenants.some((item) => item.tenant.id === tenantId)
+    ) {
+      setSelectedTenantId(tenantId);
+    }
+  }, [section, selectedTenantId, tenants]);
+
+  useEffect(() => {
     if (selectedTenantId) {
       void loadDatasourceConfig(selectedTenantId);
     } else {
@@ -277,15 +417,19 @@ export default function OwnerPortal({
 
       const [
         tenantsResponse,
+        smlConnectionsResponse,
         channelsResponse,
         lineTargetsResponse,
         operationsResponse,
+        systemConfigResponse,
       ] =
         await Promise.all([
           fetch(`${API_BASE_URL}/api/owner/tenants`, { headers }),
+          fetch(`${API_BASE_URL}/api/owner/sml-connections`, { headers }),
           fetch(`${API_BASE_URL}/api/owner/line-channels`, { headers }),
           fetch(`${API_BASE_URL}/api/line-targets`),
           fetch(`${API_BASE_URL}/api/owner/operations/status`, { headers }),
+          fetch(`${API_BASE_URL}/api/owner/system/config`, { headers }),
         ]);
 
       if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
@@ -308,6 +452,11 @@ export default function OwnerPortal({
       const tenantsPayload = (await tenantsResponse.json()) as {
         data: TenantSummary[];
       };
+      const smlConnectionsPayload = smlConnectionsResponse.ok
+        ? ((await smlConnectionsResponse.json()) as {
+            data: SmlConnectionSummary[];
+          })
+        : { data: [] };
       const channelsPayload = channelsResponse.ok
         ? ((await channelsResponse.json()) as { data: LineChannelRecord[] })
         : { data: [] };
@@ -317,10 +466,17 @@ export default function OwnerPortal({
       const operationsPayload = operationsResponse.ok
         ? ((await operationsResponse.json()) as { data: OwnerOperationsStatus })
         : { data: null };
+      const systemConfigPayload = systemConfigResponse.ok
+        ? ((await systemConfigResponse.json()) as { data: SystemConfigStatus })
+        : { data: null };
       setTenants(tenantsPayload.data);
+      setSmlConnections(smlConnectionsPayload.data);
       setLineChannels(channelsPayload.data);
       setLineTargets(lineTargetsPayload.data);
       setOperationsStatus(operationsPayload.data);
+      if (systemConfigPayload.data) {
+        applySystemConfigState(systemConfigPayload.data);
+      }
       setDataStatus("ready");
     } catch (error) {
       setDataStatus("error");
@@ -338,6 +494,9 @@ export default function OwnerPortal({
       return;
     }
 
+    setDatasourceConfig(null);
+    setJavaWsDatabaseDiscovery(null);
+
     const response = await fetch(
       `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/config`,
       { headers },
@@ -350,11 +509,109 @@ export default function OwnerPortal({
       data: DatasourceConfigStatus;
     };
     setDatasourceConfig(payload.data);
+    setJavaWsDatabaseDiscovery(null);
+    setDatasourceKind(payload.data.kind ?? "sml_postgres");
     setDatasourceHost(payload.data.host ?? "");
     setDatasourcePort(String(payload.data.port ?? 5432));
     setDatasourceDatabase(payload.data.database ?? "");
     setDatasourceUser(payload.data.user ?? "");
     setDatasourcePassword("");
+    setJavaWsBaseUrl(payload.data.base_url ?? "");
+    setJavaWsWebappPath(payload.data.webapp_path ?? "/SMLJavaWebService");
+    setJavaWsEndpoint(payload.data.endpoint ?? "DotNetFrameWork");
+    setJavaWsConfigFileName(payload.data.config_file_name ?? "");
+    setJavaWsDatabase(payload.data.database ?? "");
+    setJavaWsAuthMode(payload.data.auth_mode ?? "none");
+    setJavaWsAuthUsername("");
+    setJavaWsAuthSecret("");
+  }
+
+  function buildDatasourcePayload() {
+    if (datasourceKind === "sml_javaws") {
+      return {
+        kind: "sml_javaws" as const,
+        baseUrl: javaWsBaseUrl.trim(),
+        webappPath: javaWsWebappPath.trim() || "/SMLJavaWebService",
+        endpoint: "DotNetFrameWork" as const,
+        configFileName: javaWsConfigFileName.trim(),
+        database: javaWsDatabase.trim(),
+        queryMethod: "_queryCompress" as const,
+        auth:
+          javaWsAuthMode === "basic"
+            ? {
+                mode: "basic" as const,
+                username: javaWsAuthUsername.trim(),
+                password: javaWsAuthSecret,
+              }
+            : javaWsAuthMode === "bearer"
+              ? {
+                  mode: "bearer" as const,
+                  token: javaWsAuthSecret,
+                }
+              : { mode: "none" as const },
+      };
+    }
+
+    return {
+      kind: "sml_postgres" as const,
+      host: datasourceHost.trim(),
+      port: Number(datasourcePort),
+      database: datasourceDatabase.trim(),
+      user: datasourceUser.trim(),
+      password: datasourcePassword,
+    };
+  }
+
+  function buildJavaWsDiscoveryPayload() {
+    return {
+      kind: "sml_javaws" as const,
+      baseUrl: javaWsBaseUrl.trim(),
+      webappPath: javaWsWebappPath.trim() || "/SMLJavaWebService",
+      endpoint: "DotNetFrameWork" as const,
+      configFileName: javaWsConfigFileName.trim(),
+      auth:
+        javaWsAuthMode === "basic"
+          ? {
+              mode: "basic" as const,
+              username: javaWsAuthUsername.trim(),
+              password: javaWsAuthSecret,
+            }
+          : javaWsAuthMode === "bearer"
+            ? {
+                mode: "bearer" as const,
+                token: javaWsAuthSecret,
+              }
+            : { mode: "none" as const },
+    };
+  }
+
+  function applyJavaWsPreset(preset: JavaWsDatasourcePreset) {
+    setDatasourceKind("sml_javaws");
+    setJavaWsBaseUrl(preset.baseUrl);
+    setJavaWsWebappPath(preset.webappPath);
+    setJavaWsEndpoint(preset.endpoint);
+    setJavaWsConfigFileName(preset.configFileName);
+    setJavaWsDatabase(preset.database);
+    setJavaWsAuthMode("none");
+    setJavaWsAuthUsername("");
+    setJavaWsAuthSecret("");
+    setJavaWsDatabaseDiscovery(null);
+  }
+
+  function applySystemConfigState(config: SystemConfigStatus) {
+    setSystemConfig(config);
+    setSystemAppBaseUrl(config.app_base_url ?? "");
+    setSystemPublicApiBaseUrl(config.public_api_base_url ?? "");
+    setSystemMorningBriefEnabled(config.morning_brief_enabled);
+    setSystemMorningBriefTenantIds(config.morning_brief_tenant_ids.join(", "));
+    setSystemMorningBriefTime(config.morning_brief_time);
+    setSystemMorningBriefTimezone(config.morning_brief_timezone);
+    setSystemMorningBriefMode(config.morning_brief_mode);
+    setSystemMorningBriefForce(config.morning_brief_force);
+    setSystemWorkerId(config.worker_id);
+    setSystemWorkerHeartbeatToken("");
+    setSystemBackupConfigured(config.backup_configured);
+    setSystemLastBackupAt(config.system_last_backup_at ?? "");
   }
 
   async function saveDatasourceConfig(event: FormEvent<HTMLFormElement>) {
@@ -366,16 +623,27 @@ export default function OwnerPortal({
     }
 
     await runOwnerAction(`datasource-save-${tenant.id}`, async () => {
+      const payload = buildDatasourcePayload();
       const confirmed = await requestAdminConfirmation({
         title: "ยืนยันบันทึก SML datasource",
         message:
-          "ระบบจะเข้ารหัส password ก่อนเก็บใน system store และบันทึก audit โดยไม่แสดง password เต็ม",
+          "ระบบจะเข้ารหัส password/token ก่อนเก็บใน system store และบันทึก audit โดยไม่แสดง secret เต็ม",
         confirmLabel: "บันทึก datasource",
         details: [
           { label: "ร้านค้า", value: tenant.name },
-          { label: "Host", value: datasourceHost },
-          { label: "Database", value: datasourceDatabase },
-          { label: "User", value: datasourceUser },
+          {
+            label: "Mode",
+            value:
+              payload.kind === "sml_javaws"
+                ? "Tomcat JavaWS"
+                : "PostgreSQL direct",
+          },
+          {
+            label: payload.kind === "sml_javaws" ? "Tomcat" : "Host",
+            value:
+              payload.kind === "sml_javaws" ? payload.baseUrl : payload.host,
+          },
+          { label: "Database", value: payload.database },
         ],
       });
       if (!confirmed) {
@@ -385,7 +653,7 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: `บันทึก datasource ของ ${tenant.name}`,
         description:
-          "ใช้สำหรับให้ API/worker ต่อ SML PostgreSQL โดย password จะถูกเข้ารหัสฝั่ง server",
+          "ใช้สำหรับให้ API/worker ต่อ SML ผ่าน PostgreSQL direct หรือ Tomcat JavaWS โดย secret จะถูกเข้ารหัสฝั่ง server",
       });
       if (!headers) {
         throw new Error("ต้องกรอก Admin token ก่อนบันทึก datasource");
@@ -396,28 +664,79 @@ export default function OwnerPortal({
         {
           method: "PUT",
           headers,
-          body: JSON.stringify({
-            host: datasourceHost.trim(),
-            port: Number(datasourcePort),
-            database: datasourceDatabase.trim(),
-            user: datasourceUser.trim(),
-            password: datasourcePassword,
-          }),
+          body: JSON.stringify(payload),
         },
       );
-      const payload = (await response.json().catch(() => ({}))) as {
+      const responsePayload = (await response.json().catch(() => ({}))) as {
         data?: DatasourceConfigStatus;
         error?: string;
       };
-      if (!response.ok || !payload.data) {
-        throw new Error(payload.error || "บันทึก datasource ไม่สำเร็จ");
+      if (!response.ok || !responsePayload.data) {
+        throw new Error(responsePayload.error || "บันทึก datasource ไม่สำเร็จ");
       }
 
-      setDatasourceConfig(payload.data);
+      setDatasourceConfig(responsePayload.data);
       setDatasourcePassword("");
+      setJavaWsAuthSecret("");
       setResult({
         tone: "success",
         message: "บันทึก datasource แบบเข้ารหัสแล้ว",
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function saveSystemConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runOwnerAction("system-config-save", async () => {
+      const tenantIds = systemMorningBriefTenantIds
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (!tenantIds.length) {
+        throw new Error("กรุณาระบุ tenant id สำหรับ Morning Brief อย่างน้อย 1 ร้าน");
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "บันทึก System Config",
+        description:
+          "บันทึก runtime settings ลง encrypted system store โดยไม่เก็บ worker token แบบอ่านได้",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนบันทึก System Config");
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/owner/system/config`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          app_base_url: systemAppBaseUrl.trim(),
+          public_api_base_url: systemPublicApiBaseUrl.trim(),
+          morning_brief_enabled: systemMorningBriefEnabled,
+          morning_brief_tenant_ids: tenantIds,
+          morning_brief_time: systemMorningBriefTime,
+          morning_brief_timezone: systemMorningBriefTimezone.trim(),
+          morning_brief_mode: systemMorningBriefMode,
+          morning_brief_force: systemMorningBriefForce,
+          worker_id: systemWorkerId.trim(),
+          worker_heartbeat_token:
+            systemWorkerHeartbeatToken.trim() || undefined,
+          backup_configured: systemBackupConfigured,
+          system_last_backup_at: systemLastBackupAt.trim() || null,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: SystemConfigStatus;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "บันทึก System Config ไม่สำเร็จ");
+      }
+
+      applySystemConfigState(payload.data);
+      setResult({
+        tone: "success",
+        message: "บันทึก System Config ลง encrypted store แล้ว",
       });
       await loadOwnerData();
     });
@@ -855,18 +1174,77 @@ export default function OwnerPortal({
     });
   }
 
-  async function testDatasource(tenantId: string) {
+  async function discoverJavaWsDatabases(tenantId: string) {
+    const tenant = tenants.find((item) => item.tenant.id === tenantId)?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "ไม่พบร้านค้าที่ต้องการค้นหา database" });
+      return;
+    }
+
+    await runOwnerAction(`javaws-databases-${tenantId}`, async () => {
+      const payload = buildJavaWsDiscoveryPayload();
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `ค้นหา JavaWS database ของ ${tenant.name}`,
+        description:
+          "เรียก SOAP _getDatabaseList เพื่ออ่านรายชื่อ database จาก config file โดยไม่ส่ง SQL จาก UI",
+      });
+      if (!headers) {
+        throw new Error("ต้องกรอก Admin token ก่อนค้นหา JavaWS database");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/javaws/databases`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        },
+      );
+      const responsePayload = (await response.json().catch(() => ({}))) as {
+        data?: JavaWsDatabaseDiscoveryResult;
+        error?: string;
+      };
+      if (!responsePayload.data) {
+        throw new Error(responsePayload.error || "ค้นหา JavaWS database ไม่สำเร็จ");
+      }
+
+      setJavaWsDatabaseDiscovery(responsePayload.data);
+      if (responsePayload.data.databases.length === 1) {
+        setJavaWsDatabase(responsePayload.data.databases[0].database_name);
+      }
+      setResult({
+        tone: responsePayload.data.ok ? "success" : "warning",
+        message: responsePayload.data.ok
+          ? `พบ ${responsePayload.data.databases.length.toLocaleString("th-TH")} database จาก JavaWS`
+          : toDatasourceBusinessMessage(responsePayload.data.safe_error_message),
+      });
+
+      if (!response.ok) {
+        return;
+      }
+    });
+  }
+
+  async function testDatasource(tenantId: string, source: "form" | "saved" = "form") {
     const tenant = tenants.find((item) => item.tenant.id === tenantId)?.tenant;
     if (!tenant) {
       setResult({ tone: "warning", message: "ไม่พบร้านค้าที่ต้องการทดสอบ" });
       return;
     }
 
-    await runOwnerAction(`datasource-${tenantId}`, async () => {
+    await runOwnerAction(
+      source === "saved" ? `datasource-saved-${tenantId}` : `datasource-${tenantId}`,
+      async () => {
+      const datasourcePayload = source === "form" ? buildDatasourcePayload() : null;
       const headers = await buildAdminJsonHeaders({
-        actionLabel: `ทดสอบ SML datasource ของ ${tenant.name}`,
+        actionLabel:
+          source === "saved"
+            ? `ทดสอบ SML datasource ที่บันทึกแล้วของ ${tenant.name}`
+            : `ทดสอบ SML datasource ของ ${tenant.name}`,
         description:
-          "ตรวจการเชื่อมต่อฐานข้อมูล SML และตารางหลัก โดยไม่แสดง password หรือ credential เต็มใน UI",
+          source === "saved"
+            ? "ตรวจการเชื่อมต่อ SML จาก encrypted store โดยไม่ต้องกรอก secret ซ้ำ"
+            : "ตรวจการเชื่อมต่อ SML ด้วย mode ที่เลือกในฟอร์ม โดยไม่แสดง password หรือ credential เต็มใน UI",
       });
       if (!headers) {
         throw new Error("ต้องกรอก Admin token ก่อนทดสอบ SML datasource");
@@ -877,7 +1255,7 @@ export default function OwnerPortal({
         {
           method: "POST",
           headers,
-          body: JSON.stringify({}),
+          body: datasourcePayload ? JSON.stringify(datasourcePayload) : undefined,
         },
       );
       const payload = (await response.json().catch(() => ({}))) as {
@@ -901,7 +1279,8 @@ export default function OwnerPortal({
       }
 
       throw new Error(payload.error || "ทดสอบ SML datasource ไม่สำเร็จ");
-    });
+      },
+    );
   }
 
   async function runSalesReport() {
@@ -1253,10 +1632,20 @@ export default function OwnerPortal({
           datasourceConfig={datasourceConfig}
           datasourceDatabase={datasourceDatabase}
           datasourceHost={datasourceHost}
+          datasourceKind={datasourceKind}
           datasourcePassword={datasourcePassword}
           datasourcePort={datasourcePort}
           datasourceUser={datasourceUser}
           datasourceTests={datasourceTests}
+          javaWsDatabaseDiscovery={javaWsDatabaseDiscovery}
+          javaWsAuthMode={javaWsAuthMode}
+          javaWsAuthSecret={javaWsAuthSecret}
+          javaWsAuthUsername={javaWsAuthUsername}
+          javaWsBaseUrl={javaWsBaseUrl}
+          javaWsConfigFileName={javaWsConfigFileName}
+          javaWsDatabase={javaWsDatabase}
+          javaWsEndpoint={javaWsEndpoint}
+          javaWsWebappPath={javaWsWebappPath}
           lastManualRun={lastManualRun}
           lastManualSnapshot={lastManualSnapshot}
           lineAccessTokenInput={lineAccessTokenInput}
@@ -1274,6 +1663,9 @@ export default function OwnerPortal({
           onSetLineTargetProfile={updateLineTargetProfile}
           onSaveDatasourceConfig={saveDatasourceConfig}
           onSaveLineChannelSecrets={saveLineChannelSecretConfig}
+          onSaveSystemConfig={saveSystemConfig}
+          onApplyJavaWsPreset={applyJavaWsPreset}
+          onDiscoverJavaWsDatabases={discoverJavaWsDatabases}
           onTestDatasource={testDatasource}
           onTestLineTarget={testLineTarget}
           onToggleLineTarget={toggleLineTarget}
@@ -1292,11 +1684,21 @@ export default function OwnerPortal({
           selectedTenantLineChannels={selectedTenantLineChannels}
           selectedTenantLineTargets={selectedTenantLineTargets}
           selectedTenantSummary={selectedTenantSummary}
+          smlConnections={smlConnections}
           setDatasourceDatabase={setDatasourceDatabase}
           setDatasourceHost={setDatasourceHost}
+          setDatasourceKind={setDatasourceKind}
           setDatasourcePassword={setDatasourcePassword}
           setDatasourcePort={setDatasourcePort}
           setDatasourceUser={setDatasourceUser}
+          setJavaWsAuthMode={setJavaWsAuthMode}
+          setJavaWsAuthSecret={setJavaWsAuthSecret}
+          setJavaWsAuthUsername={setJavaWsAuthUsername}
+          setJavaWsBaseUrl={setJavaWsBaseUrl}
+          setJavaWsConfigFileName={setJavaWsConfigFileName}
+          setJavaWsDatabase={setJavaWsDatabase}
+          setJavaWsEndpoint={setJavaWsEndpoint}
+          setJavaWsWebappPath={setJavaWsWebappPath}
           setLineAccessTokenInput={setLineAccessTokenInput}
           setLineChannelName={setLineChannelName}
           setLineChannelSecretInput={setLineChannelSecretInput}
@@ -1308,7 +1710,32 @@ export default function OwnerPortal({
           setReportDateFrom={setReportDateFrom}
           setReportDateTo={setReportDateTo}
           setSelectedTenantId={setSelectedTenantId}
+          setSystemAppBaseUrl={setSystemAppBaseUrl}
+          setSystemBackupConfigured={setSystemBackupConfigured}
+          setSystemLastBackupAt={setSystemLastBackupAt}
+          setSystemMorningBriefEnabled={setSystemMorningBriefEnabled}
+          setSystemMorningBriefForce={setSystemMorningBriefForce}
+          setSystemMorningBriefMode={setSystemMorningBriefMode}
+          setSystemMorningBriefTenantIds={setSystemMorningBriefTenantIds}
+          setSystemMorningBriefTime={setSystemMorningBriefTime}
+          setSystemMorningBriefTimezone={setSystemMorningBriefTimezone}
+          setSystemPublicApiBaseUrl={setSystemPublicApiBaseUrl}
+          setSystemWorkerHeartbeatToken={setSystemWorkerHeartbeatToken}
+          setSystemWorkerId={setSystemWorkerId}
           tenants={tenants}
+          systemAppBaseUrl={systemAppBaseUrl}
+          systemBackupConfigured={systemBackupConfigured}
+          systemConfig={systemConfig}
+          systemLastBackupAt={systemLastBackupAt}
+          systemMorningBriefEnabled={systemMorningBriefEnabled}
+          systemMorningBriefForce={systemMorningBriefForce}
+          systemMorningBriefMode={systemMorningBriefMode}
+          systemMorningBriefTenantIds={systemMorningBriefTenantIds}
+          systemMorningBriefTime={systemMorningBriefTime}
+          systemMorningBriefTimezone={systemMorningBriefTimezone}
+          systemPublicApiBaseUrl={systemPublicApiBaseUrl}
+          systemWorkerHeartbeatToken={systemWorkerHeartbeatToken}
+          systemWorkerId={systemWorkerId}
           validationNote={validationNote}
           validationReferenceTotal={validationReferenceTotal}
           validationSignedBy={validationSignedBy}
@@ -1367,10 +1794,20 @@ type OwnerSectionContentProps = {
   datasourceConfig: DatasourceConfigStatus | null;
   datasourceDatabase: string;
   datasourceHost: string;
+  datasourceKind: DatasourceKind;
   datasourcePassword: string;
   datasourcePort: string;
   datasourceUser: string;
   datasourceTests: Record<string, DatasourceTestResult>;
+  javaWsDatabaseDiscovery: JavaWsDatabaseDiscoveryResult | null;
+  javaWsAuthMode: JavaWsAuthMode;
+  javaWsAuthSecret: string;
+  javaWsAuthUsername: string;
+  javaWsBaseUrl: string;
+  javaWsConfigFileName: string;
+  javaWsDatabase: string;
+  javaWsEndpoint: string;
+  javaWsWebappPath: string;
   justCreatedTenantId: string | null;
   lastManualRun: ReportRunRecord | null;
   lastManualSnapshot: SalesGoodsServicesSnapshot | null;
@@ -1396,7 +1833,10 @@ type OwnerSectionContentProps = {
   onRunSalesReport: () => Promise<void>;
   onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
   onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
-  onTestDatasource: (tenantId: string) => Promise<void>;
+  onSaveSystemConfig: (event: FormEvent<HTMLFormElement>) => void;
+  onApplyJavaWsPreset: (preset: JavaWsDatasourcePreset) => void;
+  onDiscoverJavaWsDatabases: (tenantId: string) => Promise<void>;
+  onTestDatasource: (tenantId: string, source?: "form" | "saved") => Promise<void>;
   onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
   onToggleLineTarget: (target: LineTargetRecord) => Promise<void>;
   onUpdateLineTargetRecipientEstimate: (
@@ -1418,11 +1858,21 @@ type OwnerSectionContentProps = {
   selectedTenantLineChannels: LineChannelRecord[];
   selectedTenantLineTargets: LineTargetRecord[];
   selectedTenantSummary?: TenantSummary;
+  smlConnections: SmlConnectionSummary[];
   setDatasourceDatabase: (value: string) => void;
   setDatasourceHost: (value: string) => void;
+  setDatasourceKind: (value: DatasourceKind) => void;
   setDatasourcePassword: (value: string) => void;
   setDatasourcePort: (value: string) => void;
   setDatasourceUser: (value: string) => void;
+  setJavaWsAuthMode: (value: JavaWsAuthMode) => void;
+  setJavaWsAuthSecret: (value: string) => void;
+  setJavaWsAuthUsername: (value: string) => void;
+  setJavaWsBaseUrl: (value: string) => void;
+  setJavaWsConfigFileName: (value: string) => void;
+  setJavaWsDatabase: (value: string) => void;
+  setJavaWsEndpoint: (value: string) => void;
+  setJavaWsWebappPath: (value: string) => void;
   setLineAccessTokenInput: (value: string) => void;
   setLineChannelName: (value: string) => void;
   setLineChannelSecretInput: (value: string) => void;
@@ -1434,6 +1884,31 @@ type OwnerSectionContentProps = {
   setReportDateFrom: (value: string) => void;
   setReportDateTo: (value: string) => void;
   setSelectedTenantId: (value: string) => void;
+  setSystemAppBaseUrl: (value: string) => void;
+  setSystemBackupConfigured: (value: boolean) => void;
+  setSystemLastBackupAt: (value: string) => void;
+  setSystemMorningBriefEnabled: (value: boolean) => void;
+  setSystemMorningBriefForce: (value: boolean) => void;
+  setSystemMorningBriefMode: (value: "dry_run" | "send") => void;
+  setSystemMorningBriefTenantIds: (value: string) => void;
+  setSystemMorningBriefTime: (value: string) => void;
+  setSystemMorningBriefTimezone: (value: string) => void;
+  setSystemPublicApiBaseUrl: (value: string) => void;
+  setSystemWorkerHeartbeatToken: (value: string) => void;
+  setSystemWorkerId: (value: string) => void;
+  systemAppBaseUrl: string;
+  systemBackupConfigured: boolean;
+  systemConfig: SystemConfigStatus | null;
+  systemLastBackupAt: string;
+  systemMorningBriefEnabled: boolean;
+  systemMorningBriefForce: boolean;
+  systemMorningBriefMode: "dry_run" | "send";
+  systemMorningBriefTenantIds: string;
+  systemMorningBriefTime: string;
+  systemMorningBriefTimezone: string;
+  systemPublicApiBaseUrl: string;
+  systemWorkerHeartbeatToken: string;
+  systemWorkerId: string;
   setValidationNote: (value: string) => void;
   setValidationReferenceTotal: (value: string) => void;
   setValidationSignedBy: (value: string) => void;
@@ -1448,6 +1923,9 @@ function OwnerSectionContent(props: OwnerSectionContentProps) {
   if (props.section === "tenants") {
     return <OwnerTenantsContent {...props} />;
   }
+  if (props.section === "sml-connections") {
+    return <OwnerSmlConnectionsContent {...props} />;
+  }
   if (props.section === "reports") {
     return <OwnerReportsContent {...props} />;
   }
@@ -1461,6 +1939,9 @@ function OwnerSectionContent(props: OwnerSectionContentProps) {
         tenants={props.tenants}
       />
     );
+  }
+  if (props.section === "settings") {
+    return <OwnerSettingsContent {...props} />;
   }
   return <OwnerOverviewContent {...props} />;
 }
@@ -1480,7 +1961,13 @@ function getOwnerSectionMeta(section: OwnerPortalSection) {
       eyebrow: "Tenant operations",
       title: "ร้านค้าและการใช้งาน",
       description:
-        "เพิ่มร้าน คุม subscription ตรวจ SML datasource และเปิด dashboard ลูกค้า",
+        "เพิ่มร้าน คุม subscription ดู readiness และเปิด dashboard ลูกค้า",
+    },
+    "sml-connections": {
+      eyebrow: "SML connections",
+      title: "SML datasource cockpit",
+      description:
+        "ตั้งค่า Tomcat JavaWS หรือ PostgreSQL direct ต่อร้าน ค้นหา database ทดสอบ และบันทึกแบบเข้ารหัส",
     },
     reports: {
       eyebrow: "Report operations",
@@ -1499,6 +1986,12 @@ function getOwnerSectionMeta(section: OwnerPortalSection) {
       title: "ประวัติระบบ",
       description:
         "ตรวจรอบรายงานล่าสุด การส่ง LINE ล่าสุด และจุดที่ต้อง trace ต่อ",
+    },
+    settings: {
+      eyebrow: "System config",
+      title: "ตั้งค่าระบบ",
+      description:
+        "แก้ runtime settings และตรวจ bootstrap file โดยไม่ต้องฝังค่าใหม่ใน env",
     },
   };
 
@@ -1872,13 +2365,25 @@ function OwnerTenantsContent({
   datasourceConfig,
   datasourceDatabase,
   datasourceHost,
+  datasourceKind,
   datasourcePassword,
   datasourcePort,
   datasourceUser,
   datasourceTests,
+  javaWsDatabaseDiscovery,
+  javaWsAuthMode,
+  javaWsAuthSecret,
+  javaWsAuthUsername,
+  javaWsBaseUrl,
+  javaWsConfigFileName,
+  javaWsDatabase,
+  javaWsEndpoint,
+  javaWsWebappPath,
   justCreatedTenantId,
   newTenantId,
   newTenantName,
+  onApplyJavaWsPreset,
+  onDiscoverJavaWsDatabases,
   onSaveDatasourceConfig,
   onTestDatasource,
   onUpdateStatus,
@@ -1886,9 +2391,18 @@ function OwnerTenantsContent({
   selectedTenantSummary,
   setDatasourceDatabase,
   setDatasourceHost,
+  setDatasourceKind,
   setDatasourcePassword,
   setDatasourcePort,
   setDatasourceUser,
+  setJavaWsAuthMode,
+  setJavaWsAuthSecret,
+  setJavaWsAuthUsername,
+  setJavaWsBaseUrl,
+  setJavaWsConfigFileName,
+  setJavaWsDatabase,
+  setJavaWsEndpoint,
+  setJavaWsWebappPath,
   setNewTenantId,
   setNewTenantName,
   setSelectedTenantId,
@@ -1912,10 +2426,10 @@ function OwnerTenantsContent({
       {justCreatedTenant ? (
         <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
           <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
-            เพิ่ม {justCreatedTenant.name} แล้ว — ขั้นต่อไป: ตั้งค่า SML datasource
+            เพิ่ม {justCreatedTenant.name} แล้ว, ขั้นต่อไปคือเชื่อม SML datasource
           </p>
           <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
-            เลือกร้านนี้ด้านล่าง แล้วกด "ตั้งค่า SML datasource" เพื่อใส่ host/user/password ของฐานข้อมูล SML
+            เลือกร้านนี้ด้านล่าง แล้วเปิดหน้า SML Connections เพื่อใส่ Tomcat, config file และ database
           </p>
         </div>
       ) : null}
@@ -1969,21 +2483,337 @@ function OwnerTenantsContent({
           datasourceConfig={datasourceConfig}
           datasourceDatabase={datasourceDatabase}
           datasourceHost={datasourceHost}
+          datasourceKind={datasourceKind}
           datasourcePassword={datasourcePassword}
           datasourcePort={datasourcePort}
           datasourceUser={datasourceUser}
+          javaWsDatabaseDiscovery={javaWsDatabaseDiscovery}
+          javaWsAuthMode={javaWsAuthMode}
+          javaWsAuthSecret={javaWsAuthSecret}
+          javaWsAuthUsername={javaWsAuthUsername}
+          javaWsBaseUrl={javaWsBaseUrl}
+          javaWsConfigFileName={javaWsConfigFileName}
+          javaWsDatabase={javaWsDatabase}
+          javaWsEndpoint={javaWsEndpoint}
+          javaWsWebappPath={javaWsWebappPath}
           datasourceTest={
             selectedTenantId ? datasourceTests[selectedTenantId] : undefined
           }
           item={selectedTenantSummary}
+          onApplyJavaWsPreset={onApplyJavaWsPreset}
+          onDiscoverJavaWsDatabases={onDiscoverJavaWsDatabases}
           onSaveDatasourceConfig={onSaveDatasourceConfig}
           onTestDatasource={onTestDatasource}
           setDatasourceDatabase={setDatasourceDatabase}
           setDatasourceHost={setDatasourceHost}
+          setDatasourceKind={setDatasourceKind}
           setDatasourcePassword={setDatasourcePassword}
           setDatasourcePort={setDatasourcePort}
           setDatasourceUser={setDatasourceUser}
+          setJavaWsAuthMode={setJavaWsAuthMode}
+          setJavaWsAuthSecret={setJavaWsAuthSecret}
+          setJavaWsAuthUsername={setJavaWsAuthUsername}
+          setJavaWsBaseUrl={setJavaWsBaseUrl}
+          setJavaWsConfigFileName={setJavaWsConfigFileName}
+          setJavaWsDatabase={setJavaWsDatabase}
+          setJavaWsEndpoint={setJavaWsEndpoint}
+          setJavaWsWebappPath={setJavaWsWebappPath}
         />
+      </section>
+    </div>
+  );
+}
+
+type SmlConnectionFilter =
+  | "all"
+  | "needs_config"
+  | "javaws"
+  | "postgres"
+  | "env"
+  | "test_failed"
+  | "ready";
+
+const SML_CONNECTION_FILTERS: Array<{
+  label: string;
+  value: SmlConnectionFilter;
+}> = [
+  { label: "ทั้งหมด", value: "all" },
+  { label: "ต้องตั้งค่า", value: "needs_config" },
+  { label: "JavaWS", value: "javaws" },
+  { label: "Postgres", value: "postgres" },
+  { label: "Env", value: "env" },
+  { label: "Test failed", value: "test_failed" },
+  { label: "Ready", value: "ready" },
+];
+
+function OwnerSmlConnectionsContent({
+  busy,
+  datasourceConfig,
+  datasourceDatabase,
+  datasourceHost,
+  datasourceKind,
+  datasourcePassword,
+  datasourcePort,
+  datasourceTests,
+  datasourceUser,
+  javaWsAuthMode,
+  javaWsAuthSecret,
+  javaWsAuthUsername,
+  javaWsBaseUrl,
+  javaWsConfigFileName,
+  javaWsDatabase,
+  javaWsDatabaseDiscovery,
+  javaWsEndpoint,
+  javaWsWebappPath,
+  onApplyJavaWsPreset,
+  onDiscoverJavaWsDatabases,
+  onSaveDatasourceConfig,
+  onTestDatasource,
+  selectedTenantId,
+  selectedTenantSummary,
+  setDatasourceDatabase,
+  setDatasourceHost,
+  setDatasourceKind,
+  setDatasourcePassword,
+  setDatasourcePort,
+  setDatasourceUser,
+  setJavaWsAuthMode,
+  setJavaWsAuthSecret,
+  setJavaWsAuthUsername,
+  setJavaWsBaseUrl,
+  setJavaWsConfigFileName,
+  setJavaWsDatabase,
+  setJavaWsEndpoint,
+  setJavaWsWebappPath,
+  setSelectedTenantId,
+  smlConnections,
+  tenants,
+}: OwnerSectionContentProps) {
+  const [filter, setFilter] = useState<SmlConnectionFilter>("all");
+  const connectionRows =
+    smlConnections.length > 0
+      ? smlConnections
+      : tenants.map((item) => ({
+          ...item,
+          datasource: buildFallbackDatasourceStatus(item),
+          last_test: null,
+        }));
+  const selectedRow = connectionRows.find(
+    (item) => item.tenant.id === selectedTenantId,
+  );
+  const selectedTenant = selectedTenantSummary ?? selectedRow;
+  const selectedDatasource = datasourceConfig ?? selectedRow?.datasource ?? null;
+  const selectedTest = selectedTenantId
+    ? datasourceTests[selectedTenantId] ?? selectedRow?.last_test ?? undefined
+    : undefined;
+  const filteredRows = connectionRows.filter((item) =>
+    matchesSmlConnectionFilter(item, datasourceTests[item.tenant.id], filter),
+  );
+  const counts = buildSmlConnectionCounts(connectionRows, datasourceTests);
+  const datasourceBusy = selectedTenantId
+    ? busy === `datasource-${selectedTenantId}`
+    : false;
+  const savedDatasourceBusy = selectedTenantId
+    ? busy === `datasource-saved-${selectedTenantId}`
+    : false;
+  const discoveryBusy = selectedTenantId
+    ? busy === `javaws-databases-${selectedTenantId}`
+    : false;
+
+  return (
+    <div className="space-y-4">
+      <section className="grid gap-3 md:grid-cols-4">
+        <OwnerStatCard
+          label="ร้านทั้งหมด"
+          value={counts.all.toLocaleString("th-TH")}
+        />
+        <OwnerStatCard
+          label="ต้องตั้งค่า"
+          value={counts.needs_config.toLocaleString("th-TH")}
+        />
+        <OwnerStatCard
+          label="Tomcat JavaWS"
+          value={counts.javaws.toLocaleString("th-TH")}
+        />
+        <OwnerStatCard
+          label="Env fallback"
+          value={counts.env.toLocaleString("th-TH")}
+        />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.2fr)]">
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                  ร้านที่ต้องเชื่อม SML
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                  เลือกร้านทางซ้าย แล้วกรอกค่า Tomcat JavaWS หรือ PostgreSQL direct ทางขวา
+                </p>
+              </div>
+              <Badge color={counts.test_failed ? "warning" : "light"}>
+                test failed {counts.test_failed.toLocaleString("th-TH")}
+              </Badge>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {SML_CONNECTION_FILTERS.map((item) => (
+                <button
+                  className={`h-9 rounded-lg border px-3 text-sm font-medium transition ${
+                    filter === item.value
+                      ? "border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                  }`}
+                  key={item.value}
+                  onClick={() => setFilter(item.value)}
+                  type="button"
+                >
+                  {item.label} {counts[item.value].toLocaleString("th-TH")}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+            {filteredRows.length ? (
+              filteredRows.map((item) => (
+                <SmlConnectionTenantRow
+                  datasourceTest={datasourceTests[item.tenant.id] ?? item.last_test ?? undefined}
+                  item={item}
+                  key={item.tenant.id}
+                  onSelectTenant={setSelectedTenantId}
+                  selected={item.tenant.id === selectedTenantId}
+                />
+              ))
+            ) : (
+              <p className="p-5 text-sm text-gray-500 dark:text-gray-400">
+                ไม่มีร้านใน filter นี้
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {selectedTenant ? (
+            <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {selectedTenant.tenant.name}
+                    </h2>
+                    <Badge color={tenantStatusTone(selectedTenant.tenant.status)}>
+                      {formatTenantStatus(selectedTenant.tenant.status)}
+                    </Badge>
+                    <Badge color={datasourceStatusTone(selectedDatasource)}>
+                      {formatDatasourceSource(selectedDatasource)}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+                    {selectedTenant.tenant.id} · ฐานข้อมูล{" "}
+                    {selectedDatasource?.database ??
+                      (selectedTenant.tenant.databaseName || "ยังไม่ระบุ")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={datasourceBusy}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void onTestDatasource(selectedTenant.tenant.id)}
+                  >
+                    {datasourceBusy ? "กำลังทดสอบ..." : "ทดสอบค่าที่กรอก"}
+                  </Button>
+                  <Button
+                    disabled={
+                      savedDatasourceBusy ||
+                      !selectedDatasource ||
+                      selectedDatasource.source === "missing"
+                    }
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void onTestDatasource(selectedTenant.tenant.id, "saved")
+                    }
+                  >
+                    {savedDatasourceBusy ? "กำลังทดสอบ..." : "ทดสอบค่าที่บันทึก"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <HealthFact
+                  label="Mode"
+                  value={formatDatasourceMode(selectedDatasource?.kind)}
+                />
+                <HealthFact
+                  label="Source"
+                  value={formatDatasourceSource(selectedDatasource)}
+                />
+                <HealthFact
+                  label="Secret"
+                  value={
+                    selectedDatasource?.password_configured ||
+                    selectedDatasource?.auth_configured
+                      ? "configured"
+                      : "missing"
+                  }
+                />
+              </div>
+
+              <DatasourceTestSummary result={selectedTest} />
+            </section>
+          ) : (
+            <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+              เลือกร้านทางซ้ายเพื่อเริ่มตั้งค่า SML datasource
+            </section>
+          )}
+
+          {selectedTenant ? (
+            <DatasourceConfigPanel
+              autoOpen
+              busy={busy === `datasource-save-${selectedTenant.tenant.id}`}
+              discoveryBusy={discoveryBusy}
+              config={selectedDatasource}
+              database={datasourceDatabase}
+              host={datasourceHost}
+              kind={datasourceKind}
+              javaWsAuthMode={javaWsAuthMode}
+              javaWsAuthSecret={javaWsAuthSecret}
+              javaWsAuthUsername={javaWsAuthUsername}
+              javaWsBaseUrl={javaWsBaseUrl}
+              javaWsConfigFileName={javaWsConfigFileName}
+              javaWsDatabaseDiscovery={javaWsDatabaseDiscovery}
+              javaWsDatabase={javaWsDatabase}
+              javaWsEndpoint={javaWsEndpoint}
+              javaWsWebappPath={javaWsWebappPath}
+              onDatabaseChange={setDatasourceDatabase}
+              onHostChange={setDatasourceHost}
+              onJavaWsAuthModeChange={setJavaWsAuthMode}
+              onJavaWsAuthSecretChange={setJavaWsAuthSecret}
+              onJavaWsAuthUsernameChange={setJavaWsAuthUsername}
+              onJavaWsBaseUrlChange={setJavaWsBaseUrl}
+              onJavaWsConfigFileNameChange={setJavaWsConfigFileName}
+              onJavaWsDatabaseChange={setJavaWsDatabase}
+              onJavaWsEndpointChange={setJavaWsEndpoint}
+              onJavaWsWebappPathChange={setJavaWsWebappPath}
+              onApplyJavaWsPreset={onApplyJavaWsPreset}
+              onDiscoverJavaWsDatabases={() =>
+                void onDiscoverJavaWsDatabases(selectedTenant.tenant.id)
+              }
+              onKindChange={setDatasourceKind}
+              onPasswordChange={setDatasourcePassword}
+              onPortChange={setDatasourcePort}
+              onSubmit={onSaveDatasourceConfig}
+              password={datasourcePassword}
+              port={datasourcePort}
+              user={datasourceUser}
+              onUserChange={setDatasourceUser}
+            />
+          ) : null}
+        </div>
       </section>
     </div>
   );
@@ -2178,6 +3008,253 @@ function OwnerAuditContent({
 
       <AuditLogPanel auditLogs={operationsStatus?.audit_logs ?? []} />
     </div>
+  );
+}
+
+function OwnerSettingsContent({
+  busy,
+  onSaveSystemConfig,
+  operationsStatus,
+  setSystemAppBaseUrl,
+  setSystemBackupConfigured,
+  setSystemLastBackupAt,
+  setSystemMorningBriefEnabled,
+  setSystemMorningBriefForce,
+  setSystemMorningBriefMode,
+  setSystemMorningBriefTenantIds,
+  setSystemMorningBriefTime,
+  setSystemMorningBriefTimezone,
+  setSystemPublicApiBaseUrl,
+  setSystemWorkerHeartbeatToken,
+  setSystemWorkerId,
+  systemAppBaseUrl,
+  systemBackupConfigured,
+  systemConfig,
+  systemLastBackupAt,
+  systemMorningBriefEnabled,
+  systemMorningBriefForce,
+  systemMorningBriefMode,
+  systemMorningBriefTenantIds,
+  systemMorningBriefTime,
+  systemMorningBriefTimezone,
+  systemPublicApiBaseUrl,
+  systemWorkerHeartbeatToken,
+  systemWorkerId,
+}: OwnerSectionContentProps) {
+  const config = systemConfig ?? operationsStatus?.system_config ?? null;
+  const saveBusy = busy === "system-config-save";
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              Runtime settings
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              ค่าเหล่านี้บันทึกใน encrypted system store และไม่ต้องแก้ env สำหรับการใช้งานประจำ
+            </p>
+          </div>
+          <Badge color={config?.source === "encrypted_store" ? "success" : "warning"}>
+            {formatSystemConfigSource(config?.source)}
+          </Badge>
+        </div>
+
+        <form
+          className="mt-5 space-y-5 border-t border-gray-100 pt-5 dark:border-gray-800"
+          onSubmit={onSaveSystemConfig}
+        >
+          {!config?.encryption_configured ? (
+            <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm leading-6 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+              ยังไม่มี secret key ใน bootstrap config จึงยังบันทึก runtime secret ลง encrypted store ไม่ได้
+            </p>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <OwnerTextInput
+              label="App base URL"
+              onChange={setSystemAppBaseUrl}
+              placeholder="https://app.example.com"
+              value={systemAppBaseUrl}
+            />
+            <OwnerTextInput
+              label="Public API base URL"
+              onChange={setSystemPublicApiBaseUrl}
+              placeholder="https://api.example.com"
+              value={systemPublicApiBaseUrl}
+            />
+          </div>
+
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Morning Brief
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  คุม scheduler defaults ที่ API แสดงและ worker ใช้อ้างอิงเมื่อ restart
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  checked={systemMorningBriefEnabled}
+                  className="h-4 w-4 rounded border-gray-300 text-brand-500"
+                  onChange={(event) =>
+                    setSystemMorningBriefEnabled(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                เปิดใช้
+              </label>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <OwnerTextInput
+                label="Tenant IDs"
+                onChange={setSystemMorningBriefTenantIds}
+                placeholder="tenant_demo_remote, tenant_office_sml1_2026"
+                value={systemMorningBriefTenantIds}
+              />
+              <OwnerTextInput
+                label="Time"
+                onChange={setSystemMorningBriefTime}
+                placeholder="08:00"
+                value={systemMorningBriefTime}
+              />
+              <OwnerTextInput
+                label="Timezone"
+                onChange={setSystemMorningBriefTimezone}
+                placeholder="Asia/Bangkok"
+                value={systemMorningBriefTimezone}
+              />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Mode
+                <select
+                  className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) =>
+                    setSystemMorningBriefMode(event.target.value as "dry_run" | "send")
+                  }
+                  value={systemMorningBriefMode}
+                >
+                  <option value="send">Send</option>
+                  <option value="dry_run">Dry run</option>
+                </select>
+              </label>
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                checked={systemMorningBriefForce}
+                className="h-4 w-4 rounded border-gray-300 text-brand-500"
+                onChange={(event) =>
+                  setSystemMorningBriefForce(event.target.checked)
+                }
+                type="checkbox"
+              />
+              Force send แม้เคยส่งแล้วในวันเดียวกัน
+            </label>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <OwnerTextInput
+              label="Worker ID"
+              onChange={setSystemWorkerId}
+              placeholder="worker_morning_brief_1"
+              value={systemWorkerId}
+            />
+            <OwnerTextInput
+              label="Worker heartbeat token"
+              onChange={setSystemWorkerHeartbeatToken}
+              placeholder={
+                config?.worker_heartbeat_token_configured
+                  ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน token"
+                  : "ใส่ token สำหรับ worker heartbeat"
+              }
+              type="password"
+              value={systemWorkerHeartbeatToken}
+            />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-3 text-sm text-gray-700 dark:border-gray-800 dark:text-gray-300">
+              <input
+                checked={systemBackupConfigured}
+                className="h-4 w-4 rounded border-gray-300 text-brand-500"
+                onChange={(event) =>
+                  setSystemBackupConfigured(event.target.checked)
+                }
+                type="checkbox"
+              />
+              Backup configured
+            </label>
+            <OwnerTextInput
+              label="Last backup at"
+              onChange={setSystemLastBackupAt}
+              placeholder="2026-06-01T08:00:00.000Z"
+              value={systemLastBackupAt}
+            />
+          </div>
+
+          <Button
+            disabled={saveBusy || !config?.encryption_configured}
+            size="sm"
+          >
+            {saveBusy ? "กำลังบันทึก..." : "บันทึก System Config"}
+          </Button>
+        </form>
+      </section>
+
+      <SystemBootstrapPanel config={config} />
+    </div>
+  );
+}
+
+function SystemBootstrapPanel({
+  config,
+}: {
+  config: SystemConfigStatus | null;
+}) {
+  const bootstrap = config?.bootstrap;
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            Bootstrap file
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้เฉพาะค่าที่ระบบต้องรู้ก่อนเปิด system store เช่น DB URL และ master secret key
+          </p>
+        </div>
+        <Badge color={bootstrap?.exists ? "success" : "warning"}>
+          {bootstrap?.exists ? "พบไฟล์" : "ยังไม่พบไฟล์"}
+        </Badge>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <HealthFact label="Path" value={bootstrap?.path ?? "-"} />
+        <HealthFact
+          label="System DB"
+          value={bootstrap?.system_database_configured ? "configured" : "missing"}
+        />
+        <HealthFact
+          label="Secret key"
+          value={bootstrap?.secret_key_present ? "present" : "missing"}
+        />
+        <HealthFact
+          label="Config source"
+          value={formatSystemConfigSource(config?.source)}
+        />
+      </div>
+
+      {bootstrap?.read_error ? (
+        <p className="mt-4 rounded-lg border border-error-200 bg-error-50 p-3 text-sm leading-6 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
+          {bootstrap.read_error}
+        </p>
+      ) : null}
+      <p className="mt-4 rounded-lg border border-warning-100 bg-warning-50 p-3 text-xs leading-5 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">
+        ค่า bootstrap ที่เปลี่ยนแล้วมีผลหลัง restart service ส่วน runtime settings ในหน้านี้อ่านจาก encrypted store
+      </p>
+    </section>
   );
 }
 
@@ -3377,11 +4454,33 @@ function LineChannelPanel({
 function DatasourceConfigPanel({
   autoOpen,
   busy,
+  discoveryBusy,
   config,
   database,
   host,
+  javaWsAuthMode,
+  javaWsAuthSecret,
+  javaWsAuthUsername,
+  javaWsBaseUrl,
+  javaWsConfigFileName,
+  javaWsDatabaseDiscovery,
+  javaWsDatabase,
+  javaWsEndpoint,
+  javaWsWebappPath,
+  kind,
   onDatabaseChange,
   onHostChange,
+  onJavaWsAuthModeChange,
+  onJavaWsAuthSecretChange,
+  onJavaWsAuthUsernameChange,
+  onJavaWsBaseUrlChange,
+  onJavaWsConfigFileNameChange,
+  onJavaWsDatabaseChange,
+  onJavaWsEndpointChange,
+  onJavaWsWebappPathChange,
+  onApplyJavaWsPreset,
+  onDiscoverJavaWsDatabases,
+  onKindChange,
   onPasswordChange,
   onPortChange,
   onSubmit,
@@ -3392,11 +4491,33 @@ function DatasourceConfigPanel({
 }: {
   autoOpen?: boolean;
   busy: boolean;
+  discoveryBusy: boolean;
   config: DatasourceConfigStatus | null;
   database: string;
   host: string;
+  javaWsAuthMode: JavaWsAuthMode;
+  javaWsAuthSecret: string;
+  javaWsAuthUsername: string;
+  javaWsBaseUrl: string;
+  javaWsConfigFileName: string;
+  javaWsDatabaseDiscovery: JavaWsDatabaseDiscoveryResult | null;
+  javaWsDatabase: string;
+  javaWsEndpoint: string;
+  javaWsWebappPath: string;
+  kind: DatasourceKind;
   onDatabaseChange: (value: string) => void;
   onHostChange: (value: string) => void;
+  onJavaWsAuthModeChange: (value: JavaWsAuthMode) => void;
+  onJavaWsAuthSecretChange: (value: string) => void;
+  onJavaWsAuthUsernameChange: (value: string) => void;
+  onJavaWsBaseUrlChange: (value: string) => void;
+  onJavaWsConfigFileNameChange: (value: string) => void;
+  onJavaWsDatabaseChange: (value: string) => void;
+  onJavaWsEndpointChange: (value: string) => void;
+  onJavaWsWebappPathChange: (value: string) => void;
+  onApplyJavaWsPreset: (preset: JavaWsDatasourcePreset) => void;
+  onDiscoverJavaWsDatabases: () => void;
+  onKindChange: (value: DatasourceKind) => void;
   onPasswordChange: (value: string) => void;
   onPortChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -3420,6 +4541,24 @@ function DatasourceConfigPanel({
       : config?.source === "env"
         ? "อ่านจาก env server"
         : "ยังไม่ตั้งค่า";
+  const modeLabel =
+    kind === "sml_javaws" ? "Tomcat JavaWS" : "PostgreSQL direct";
+  const secretRequired =
+    kind === "sml_postgres" ||
+    (kind === "sml_javaws" && javaWsAuthMode !== "none");
+  const secretValue = kind === "sml_postgres" ? password : javaWsAuthSecret;
+  const tomcatUrl = parseTomcatBaseUrl(javaWsBaseUrl);
+  const updateTomcatBaseUrl = (
+    patch: Partial<{ host: string; port: string; protocol: "http" | "https" }>,
+  ) => {
+    onJavaWsBaseUrlChange(
+      buildTomcatBaseUrl({
+        host: patch.host ?? tomcatUrl.host,
+        port: patch.port ?? tomcatUrl.port,
+        protocol: patch.protocol ?? tomcatUrl.protocol,
+      }),
+    );
+  };
 
   return (
     <details ref={detailsRef} className="mt-4 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
@@ -3430,8 +4569,7 @@ function DatasourceConfigPanel({
               ตั้งค่า SML datasource
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              ใส่ host/user/password เพื่อให้ระบบเก็บแบบเข้ารหัส ไม่ต้องแก้ .env
-              ทุกครั้ง
+              เลือกวิธีเชื่อมต่อรายร้าน แล้วบันทึก secret แบบเข้ารหัสใน system store
             </p>
           </div>
           <Badge color={config?.password_configured ? "success" : "warning"}>
@@ -3443,67 +4581,316 @@ function DatasourceConfigPanel({
       <form className="mt-4 space-y-3" onSubmit={onSubmit}>
         {!config?.encryption_configured ? (
           <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
-            Server ยังไม่ได้ตั้ง AI_BCC_SECRET_KEY จึงยังบันทึก password/token
-            แบบเข้ารหัสไม่ได้
+            Server ยังไม่มี secret key ใน bootstrap config จึงยังบันทึก password/token
+            ลง encrypted store ไม่ได้
+          </p>
+        ) : null}
+        {config?.source === "env" ? (
+          <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+            ร้านนี้ยังอ่าน datasource จาก env อยู่ กดบันทึกเพื่อ migrate ค่าเข้าสู่ encrypted store
           </p>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
-          <OwnerTextInput
-            label="Host"
-            onChange={onHostChange}
-            placeholder="demserver.3bbddns.com"
-            value={host}
-          />
-          <OwnerTextInput
-            label="Port"
-            onChange={onPortChange}
-            placeholder="5432"
-            value={port}
-          />
+        <div className="grid grid-cols-2 rounded-lg border border-gray-200 bg-gray-50 p-1 text-sm dark:border-gray-800 dark:bg-white/[0.03]">
+          {[
+            ["sml_postgres", "PostgreSQL direct"],
+            ["sml_javaws", "Tomcat JavaWS"],
+          ].map(([value, label]) => (
+            <button
+              className={`h-9 rounded-md px-3 font-medium transition ${
+                kind === value
+                  ? "bg-white text-brand-600 shadow-theme-xs dark:bg-gray-900 dark:text-brand-300"
+                  : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+              }`}
+              key={value}
+              onClick={() => onKindChange(value as DatasourceKind)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <OwnerTextInput
-          label="Database"
-          onChange={onDatabaseChange}
-          placeholder="demo"
-          value={database}
-        />
-        <OwnerTextInput
-          label="User"
-          onChange={onUserChange}
-          placeholder="sml_readonly"
-          value={user}
-        />
-        <OwnerTextInput
-          label="Password"
-          onChange={onPasswordChange}
-          placeholder={
-            config?.password_configured
-              ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน password"
-              : "ใส่ password ของ DB"
-          }
-          type="password"
-          value={password}
-        />
+
+        {kind === "sml_postgres" ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
+              <OwnerTextInput
+                label="Host"
+                onChange={onHostChange}
+                placeholder="demserver.3bbddns.com"
+                value={host}
+              />
+              <OwnerTextInput
+                label="Port"
+                onChange={onPortChange}
+                placeholder="5432"
+                value={port}
+              />
+            </div>
+            <OwnerTextInput
+              label="Database"
+              onChange={onDatabaseChange}
+              placeholder="demo"
+              value={database}
+            />
+            <OwnerTextInput
+              label="User"
+              onChange={onUserChange}
+              placeholder="sml_readonly"
+              value={user}
+            />
+            <OwnerTextInput
+              label="Password"
+              onChange={onPasswordChange}
+              placeholder={
+                config?.password_configured
+                  ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน password"
+                  : "ใส่ password ของ DB"
+              }
+              type="password"
+              value={password}
+            />
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                Quick fill
+              </p>
+              <div className="mt-2 grid gap-2 2xl:grid-cols-2">
+                {JAVA_WS_DATASOURCE_PRESETS.map((preset) => (
+                  <button
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm transition hover:border-brand-300 hover:text-brand-600 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-500 dark:hover:text-brand-300"
+                    key={preset.id}
+                    onClick={() => onApplyJavaWsPreset(preset)}
+                    type="button"
+                  >
+                    <span className="font-semibold text-gray-900 dark:text-white">
+                      {preset.label}
+                    </span>
+                    <span className="mt-1 block break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
+                      {preset.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)_110px]">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Protocol
+                <select
+                  className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) =>
+                    updateTomcatBaseUrl({
+                      protocol: event.target.value as "http" | "https",
+                    })
+                  }
+                  value={tomcatUrl.protocol}
+                >
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                </select>
+              </label>
+              <OwnerTextInput
+                label="Tomcat URL"
+                onChange={(value) => updateTomcatBaseUrl({ host: value })}
+                placeholder="192.168.1.10"
+                value={tomcatUrl.host}
+              />
+              <OwnerTextInput
+                label="Port"
+                onChange={(value) => updateTomcatBaseUrl({ port: value })}
+                placeholder="8080"
+                value={tomcatUrl.port}
+              />
+            </div>
+            <p className="break-words rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+              Base URL: {javaWsBaseUrl || "ยังไม่ได้ระบุ Tomcat URL"}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <OwnerTextInput
+                label="Webapp path"
+                onChange={onJavaWsWebappPathChange}
+                placeholder="/SMLJavaWebService"
+                value={javaWsWebappPath}
+              />
+              <OwnerTextInput
+                label="Endpoint"
+                onChange={onJavaWsEndpointChange}
+                placeholder="DotNetFrameWork"
+                value={javaWsEndpoint}
+              />
+            </div>
+            <OwnerTextInput
+              label="Config file name"
+              onChange={onJavaWsConfigFileNameChange}
+              placeholder="SMLConfigDATA.xml"
+              value={javaWsConfigFileName}
+            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                disabled={
+                  discoveryBusy ||
+                  !javaWsBaseUrl.trim() ||
+                  !javaWsConfigFileName.trim()
+                }
+                onClick={onDiscoverJavaWsDatabases}
+                type="button"
+              >
+                {discoveryBusy ? "กำลังค้นหา..." : "ค้นหา database จาก JavaWS"}
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                ใช้ `_getDatabaseList`
+              </span>
+            </div>
+
+            <JavaWsDatabaseDiscoverySummary
+              discovery={javaWsDatabaseDiscovery}
+              onSelectDatabase={onJavaWsDatabaseChange}
+            />
+
+            {javaWsDatabaseDiscovery?.databases.length ? (
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Database name
+                <select
+                  className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) => onJavaWsDatabaseChange(event.target.value)}
+                  value={javaWsDatabase}
+                >
+                  <option value="">เลือก database</option>
+                  {javaWsDatabaseDiscovery.databases.map((row) => (
+                    <option
+                      key={`${row.database_name}-${row.code}`}
+                      value={row.database_name}
+                    >
+                      {row.database_name}
+                      {row.name && row.name !== row.database_name
+                        ? ` · ${row.name}`
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <OwnerTextInput
+                label="Database name"
+                onChange={onJavaWsDatabaseChange}
+                placeholder="sml1_2026"
+                value={javaWsDatabase}
+              />
+            )}
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Optional auth
+              <select
+                className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                onChange={(event) =>
+                  onJavaWsAuthModeChange(event.target.value as JavaWsAuthMode)
+                }
+                value={javaWsAuthMode}
+              >
+                <option value="none">No reverse-proxy auth</option>
+                <option value="basic">Basic auth</option>
+                <option value="bearer">Bearer token</option>
+              </select>
+            </label>
+            {javaWsAuthMode === "basic" ? (
+              <OwnerTextInput
+                label="Auth username"
+                onChange={onJavaWsAuthUsernameChange}
+                placeholder="proxy-user"
+                value={javaWsAuthUsername}
+              />
+            ) : null}
+            {javaWsAuthMode !== "none" ? (
+              <OwnerTextInput
+                label={javaWsAuthMode === "basic" ? "Auth password" : "Bearer token"}
+                onChange={onJavaWsAuthSecretChange}
+                placeholder={
+                  config?.auth_configured
+                    ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน secret"
+                    : "ใส่ secret สำหรับ reverse proxy"
+                }
+                type="password"
+                value={javaWsAuthSecret}
+              />
+            ) : null}
+          </>
+        )}
 
         <div className="flex flex-col gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span>
-            สถานะปัจจุบัน: {sourceLabel}
+            สถานะปัจจุบัน: {sourceLabel} · {modeLabel}
             {config?.updated_at ? ` · ${formatDateTime(config.updated_at)}` : ""}
           </span>
           <span>
-            Audit จะเก็บ host/database/user เท่านั้น ไม่เก็บ password แบบอ่านได้
+            Audit จะเก็บ mode, host/base URL และ database เท่านั้น ไม่เก็บ password/token แบบอ่านได้
           </span>
         </div>
 
         <Button
-          disabled={busy || !config?.encryption_configured || !password.trim()}
+          disabled={
+            busy ||
+            !config?.encryption_configured ||
+            (secretRequired && !secretValue.trim())
+          }
           size="sm"
         >
           {busy ? "กำลังบันทึก..." : "บันทึก datasource แบบเข้ารหัส"}
         </Button>
       </form>
     </details>
+  );
+}
+
+function JavaWsDatabaseDiscoverySummary({
+  discovery,
+  onSelectDatabase,
+}: {
+  discovery: JavaWsDatabaseDiscoveryResult | null;
+  onSelectDatabase: (databaseName: string) => void;
+}) {
+  if (!discovery) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge color={discovery.ok ? "success" : "warning"}>
+          {discovery.ok ? "ค้นหาสำเร็จ" : "ต้องตรวจสอบ"}
+        </Badge>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {discovery.config_file_name} · {discovery.latency_ms} ms ·{" "}
+          {formatDateTime(discovery.checked_at)}
+        </span>
+      </div>
+      {discovery.safe_error_message ? (
+        <p className="mt-2 text-xs leading-5 text-warning-700 dark:text-warning-300">
+          {toDatasourceBusinessMessage(discovery.safe_error_message)}
+        </p>
+      ) : null}
+      {discovery.databases.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {discovery.databases.slice(0, 8).map((row) => (
+            <button
+              className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-brand-300 hover:text-brand-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-brand-500 dark:hover:text-brand-300"
+              key={`${row.database_name}-${row.code}`}
+              onClick={() => onSelectDatabase(row.database_name)}
+              type="button"
+            >
+              {row.database_name}
+            </button>
+          ))}
+          {discovery.databases.length > 8 ? (
+            <span className="px-2 py-1.5 text-xs text-gray-500 dark:text-gray-400">
+              +{(discovery.databases.length - 8).toLocaleString("th-TH")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -3649,6 +5036,78 @@ function TenantCard({
   );
 }
 
+function SmlConnectionTenantRow({
+  datasourceTest,
+  item,
+  onSelectTenant,
+  selected,
+}: {
+  datasourceTest?: DatasourceTestResult;
+  item: SmlConnectionSummary;
+  onSelectTenant: (tenantId: string) => void;
+  selected: boolean;
+}) {
+  const datasource = item.datasource;
+  const testTone = datasourceTest
+    ? datasourceTest.ok
+      ? "success"
+      : "error"
+    : datasourceStatusTone(datasource);
+  const modeLabel =
+    datasource.kind === "sml_javaws"
+      ? `${datasource.base_url ?? "Tomcat"} · ${datasource.config_file_name ?? "SMLConfig"}`
+      : datasource.kind === "sml_postgres"
+        ? `${datasource.host ?? "PostgreSQL"}:${datasource.port ?? 5432}`
+        : item.health.datasource_configured
+          ? "มี config เดิม, กดเลือกเพื่อตรวจ"
+          : "ยังไม่ตั้งค่า";
+
+  return (
+    <button
+      className={`block w-full px-4 py-4 text-left transition ${
+        selected
+          ? "bg-brand-50/70 dark:bg-brand-500/[0.08]"
+          : "bg-white hover:bg-gray-50 dark:bg-transparent dark:hover:bg-white/[0.03]"
+      }`}
+      onClick={() => onSelectTenant(item.tenant.id)}
+      type="button"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-gray-900 dark:text-white">
+              {item.tenant.name}
+            </p>
+            <Badge color={tenantStatusTone(item.tenant.status)}>
+              {formatTenantStatus(item.tenant.status)}
+            </Badge>
+            <Badge color={datasourceStatusTone(datasource)}>
+              {formatDatasourceSource(datasource)}
+            </Badge>
+          </div>
+          <p className="mt-1 break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
+            {item.tenant.id} · {modeLabel}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <Badge color={testTone}>
+            {datasourceTest
+              ? datasourceTest.ok
+                ? `${datasourceTest.latency_ms} ms`
+                : "test failed"
+              : datasource.kind
+                ? formatDatasourceMode(datasource.kind)
+                : "not tested"}
+          </Badge>
+          <Badge color={item.health.latest_snapshot_at ? "success" : "light"}>
+            {item.health.latest_snapshot_at ? "มี snapshot" : "ยังไม่มี snapshot"}
+          </Badge>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function TenantDetailPanel({
   autoOpenDatasource,
   item,
@@ -3656,17 +5115,38 @@ function TenantDetailPanel({
   datasourceConfig,
   datasourceDatabase,
   datasourceHost,
+  datasourceKind,
   datasourcePassword,
   datasourcePort,
   datasourceUser,
+  javaWsDatabaseDiscovery,
+  javaWsAuthMode,
+  javaWsAuthSecret,
+  javaWsAuthUsername,
+  javaWsBaseUrl,
+  javaWsConfigFileName,
+  javaWsDatabase,
+  javaWsEndpoint,
+  javaWsWebappPath,
   datasourceTest,
+  onApplyJavaWsPreset,
+  onDiscoverJavaWsDatabases,
   onSaveDatasourceConfig,
   onTestDatasource,
   setDatasourceDatabase,
   setDatasourceHost,
+  setDatasourceKind,
   setDatasourcePassword,
   setDatasourcePort,
   setDatasourceUser,
+  setJavaWsAuthMode,
+  setJavaWsAuthSecret,
+  setJavaWsAuthUsername,
+  setJavaWsBaseUrl,
+  setJavaWsConfigFileName,
+  setJavaWsDatabase,
+  setJavaWsEndpoint,
+  setJavaWsWebappPath,
 }: {
   autoOpenDatasource?: boolean;
   item?: TenantSummary;
@@ -3674,17 +5154,38 @@ function TenantDetailPanel({
   datasourceConfig: DatasourceConfigStatus | null;
   datasourceDatabase: string;
   datasourceHost: string;
+  datasourceKind: DatasourceKind;
   datasourcePassword: string;
   datasourcePort: string;
   datasourceUser: string;
+  javaWsDatabaseDiscovery: JavaWsDatabaseDiscoveryResult | null;
+  javaWsAuthMode: JavaWsAuthMode;
+  javaWsAuthSecret: string;
+  javaWsAuthUsername: string;
+  javaWsBaseUrl: string;
+  javaWsConfigFileName: string;
+  javaWsDatabase: string;
+  javaWsEndpoint: string;
+  javaWsWebappPath: string;
   datasourceTest?: DatasourceTestResult;
+  onApplyJavaWsPreset: (preset: JavaWsDatasourcePreset) => void;
+  onDiscoverJavaWsDatabases: (tenantId: string) => Promise<void>;
   onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
-  onTestDatasource: (tenantId: string) => Promise<void>;
+  onTestDatasource: (tenantId: string, source?: "form" | "saved") => Promise<void>;
   setDatasourceDatabase: (value: string) => void;
   setDatasourceHost: (value: string) => void;
+  setDatasourceKind: (value: DatasourceKind) => void;
   setDatasourcePassword: (value: string) => void;
   setDatasourcePort: (value: string) => void;
   setDatasourceUser: (value: string) => void;
+  setJavaWsAuthMode: (value: JavaWsAuthMode) => void;
+  setJavaWsAuthSecret: (value: string) => void;
+  setJavaWsAuthUsername: (value: string) => void;
+  setJavaWsBaseUrl: (value: string) => void;
+  setJavaWsConfigFileName: (value: string) => void;
+  setJavaWsDatabase: (value: string) => void;
+  setJavaWsEndpoint: (value: string) => void;
+  setJavaWsWebappPath: (value: string) => void;
 }) {
   if (!item) {
     return (
@@ -3696,6 +5197,7 @@ function TenantDetailPanel({
 
   const tenant = item.tenant;
   const datasourceBusy = busy === `datasource-${tenant.id}`;
+  const savedDatasourceBusy = busy === `datasource-saved-${tenant.id}`;
   const readiness = getTenantReadiness(item, datasourceTest);
 
   return (
@@ -3733,65 +5235,59 @@ function TenantDetailPanel({
         />
       </dl>
 
-      <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
-        <details className="mb-4 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-          <summary className="cursor-pointer list-none">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Pilot readiness checklist
-                </p>
-                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  เปิดดูเฉพาะตอนเตรียม rollout ร้านนี้
-                </p>
-              </div>
-              <Badge color={readiness.tone}>{readiness.label}</Badge>
+      <details className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Pilot readiness checklist
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                เปิดดูเฉพาะตอนเตรียม rollout ร้านนี้
+              </p>
             </div>
-          </summary>
-          <div className="mt-3 grid gap-2">
-            {readiness.items.map((check) => (
-              <ReadinessRow key={check.label} item={check} />
-            ))}
+            <Badge color={readiness.tone}>{readiness.label}</Badge>
           </div>
-        </details>
+        </summary>
+        <div className="mt-3 grid gap-2">
+          {readiness.items.map((check) => (
+            <ReadinessRow key={check.label} item={check} />
+          ))}
+        </div>
+      </details>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              SML PostgreSQL datasource
+              SML datasource
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              ตรวจว่า API server เชื่อมฐานข้อมูลได้ และพบตาราง SML ที่รายงานนี้ต้องใช้
+              การกรอกค่าและ migrate จาก env ย้ายไปอยู่หน้า SML Connections เพื่อให้จัดการหลายร้านได้ชัดเจน
             </p>
           </div>
-          <Button
-            disabled={datasourceBusy}
-            size="sm"
-            variant="outline"
-            onClick={() => void onTestDatasource(tenant.id)}
-          >
-            {datasourceBusy ? "กำลังทดสอบ..." : "ทดสอบ SML"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-brand-200 bg-brand-50 px-3 text-sm font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+              href={`/owner/sml-connections?tenant=${encodeURIComponent(tenant.id)}`}
+            >
+              ตั้งค่า SML
+            </Link>
+            <Button
+              disabled={
+                savedDatasourceBusy ||
+                !datasourceConfig ||
+                datasourceConfig.source === "missing"
+              }
+              size="sm"
+              variant="outline"
+              onClick={() => void onTestDatasource(tenant.id, "saved")}
+            >
+              {savedDatasourceBusy ? "กำลังทดสอบ..." : "ทดสอบค่าที่บันทึก"}
+            </Button>
+          </div>
         </div>
-
         <DatasourceTestSummary result={datasourceTest} />
-
-        <DatasourceConfigPanel
-          autoOpen={autoOpenDatasource}
-          busy={busy === `datasource-save-${tenant.id}`}
-          config={datasourceConfig}
-          database={datasourceDatabase}
-          host={datasourceHost}
-          onDatabaseChange={setDatasourceDatabase}
-          onHostChange={setDatasourceHost}
-          onPasswordChange={setDatasourcePassword}
-          onPortChange={setDatasourcePort}
-          onSubmit={onSaveDatasourceConfig}
-          password={datasourcePassword}
-          port={datasourcePort}
-          user={datasourceUser}
-          onUserChange={setDatasourceUser}
-        />
       </div>
     </div>
   );
@@ -3881,6 +5377,7 @@ function DatasourceTestSummary({
         <Badge color={result.ok ? "success" : "warning"}>
           {result.ok ? "เชื่อมต่อได้" : "ควรตรวจสอบ"}
         </Badge>
+        <Badge color="light">{formatDatasourceMode(result.mode)}</Badge>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           ตรวจล่าสุด {formatDateTime(result.checked_at)} · {result.latency_ms} ms
         </span>
@@ -3978,6 +5475,159 @@ function ReadinessRow({ item }: { item: ReadinessCheck }) {
       </Badge>
     </div>
   );
+}
+
+function buildFallbackDatasourceStatus(item: TenantSummary): DatasourceConfigStatus {
+  return {
+    source: "missing",
+    kind: null,
+    host: null,
+    port: null,
+    database: item.tenant.databaseName || null,
+    user: null,
+    password_configured: item.health.datasource_configured,
+    base_url: null,
+    webapp_path: null,
+    endpoint: null,
+    config_file_name: null,
+    query_method: null,
+    auth_mode: null,
+    auth_configured: false,
+    encryption_configured: false,
+    updated_at: null,
+  };
+}
+
+function matchesSmlConnectionFilter(
+  item: SmlConnectionSummary,
+  datasourceTest: DatasourceTestResult | undefined,
+  filter: SmlConnectionFilter,
+) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "needs_config") {
+    return !item.health.datasource_configured || item.datasource.source === "missing";
+  }
+  if (filter === "javaws") {
+    return item.datasource.kind === "sml_javaws";
+  }
+  if (filter === "postgres") {
+    return item.datasource.kind === "sml_postgres";
+  }
+  if (filter === "env") {
+    return item.datasource.source === "env";
+  }
+  if (filter === "test_failed") {
+    return datasourceTest?.ok === false;
+  }
+  return (
+    item.health.datasource_configured &&
+    item.datasource.source !== "missing" &&
+    datasourceTest?.ok !== false
+  );
+}
+
+function buildSmlConnectionCounts(
+  items: SmlConnectionSummary[],
+  datasourceTests: Record<string, DatasourceTestResult>,
+): Record<SmlConnectionFilter, number> {
+  return SML_CONNECTION_FILTERS.reduce(
+    (counts, item) => ({
+      ...counts,
+      [item.value]: items.filter((row) =>
+        matchesSmlConnectionFilter(
+          row,
+          datasourceTests[row.tenant.id] ?? row.last_test ?? undefined,
+          item.value,
+        ),
+      ).length,
+    }),
+    {
+      all: 0,
+      needs_config: 0,
+      javaws: 0,
+      postgres: 0,
+      env: 0,
+      test_failed: 0,
+      ready: 0,
+    } satisfies Record<SmlConnectionFilter, number>,
+  );
+}
+
+function datasourceStatusTone(config: DatasourceConfigStatus | null | undefined) {
+  if (!config || config.source === "missing") {
+    return "warning" as const;
+  }
+  if (config.source === "env") {
+    return "warning" as const;
+  }
+  return "success" as const;
+}
+
+function formatDatasourceSource(
+  config: DatasourceConfigStatus | null | undefined,
+) {
+  if (!config || config.source === "missing") {
+    return "ยังไม่ตั้งค่า";
+  }
+  if (config.source === "env") {
+    return "อ่านจาก env";
+  }
+  return "Encrypted store";
+}
+
+function parseTomcatBaseUrl(value: string): {
+  host: string;
+  port: string;
+  protocol: "http" | "https";
+} {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { host: "", port: "", protocol: "http" };
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const protocol = parsed.protocol === "https:" ? "https" : "http";
+    return {
+      host: parsed.hostname,
+      port: parsed.port || (protocol === "https" ? "443" : "80"),
+      protocol,
+    };
+  } catch {
+    const protocol = trimmed.startsWith("https://") ? "https" : "http";
+    const withoutProtocol = trimmed.replace(/^https?:\/\//, "");
+    const hostPort = withoutProtocol.split(/[/?#]/)[0] ?? "";
+    const [host, port] = hostPort.split(":");
+    return {
+      host: host ?? "",
+      port: port ?? "",
+      protocol,
+    };
+  }
+}
+
+function buildTomcatBaseUrl({
+  host,
+  port,
+  protocol,
+}: {
+  host: string;
+  port: string;
+  protocol: "http" | "https";
+}) {
+  const safeHost = host
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/[/?#].*$/, "");
+  const safePort = port.trim();
+
+  if (!safeHost) {
+    return "";
+  }
+
+  return `${protocol}://${safeHost}${safePort ? `:${safePort}` : ""}`;
 }
 
 function getTenantReadiness(
@@ -4085,7 +5735,7 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
     return {
       actionLabel: "ตรวจ SML",
       description: "ต้องทดสอบ datasource ก่อนรันรายงานหรือส่งให้ลูกค้า",
-      href: "/owner/tenants",
+      href: `/owner/sml-connections?tenant=${encodeURIComponent(item.tenant.id)}`,
     };
   }
   if (firstMissing.label.includes("รายงาน")) {
@@ -4177,6 +5827,23 @@ function formatQualityStatus(status: SalesGoodsServicesSnapshot["quality_status"
   return "บางส่วน";
 }
 
+function formatDatasourceMode(mode: DatasourceKind | null | undefined) {
+  if (mode === "sml_javaws") {
+    return "Tomcat JavaWS";
+  }
+  return "PostgreSQL direct";
+}
+
+function formatSystemConfigSource(source: SystemConfigStatus["source"] | undefined) {
+  if (source === "encrypted_store") {
+    return "Encrypted store";
+  }
+  if (source === "bootstrap_file") {
+    return "Bootstrap file";
+  }
+  return "Env fallback";
+}
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("th-TH", {
     dateStyle: "medium",
@@ -4209,7 +5876,18 @@ function toDatasourceBusinessMessage(value: string | null) {
     return "เชื่อมต่อฐานข้อมูลช้าเกินเวลาที่กำหนด";
   }
   if (value.includes("unreachable")) {
-    return "ติดต่อฐานข้อมูลไม่ได้ กรุณาตรวจ host, port หรือ network/VPN";
+    return value.includes("JavaWS")
+      ? "ติดต่อ Tomcat JavaWS ไม่ได้ กรุณาตรวจ base URL, port Tomcat, VPN หรือ allowlist"
+      : "ติดต่อฐานข้อมูลไม่ได้ กรุณาตรวจ host, port หรือ network/VPN";
+  }
+  if (value.includes("WSDL operation")) {
+    return "ไม่พบ endpoint หรือ SOAP operation กรุณาตรวจ webapp path และ DotNetFrameWork บน Tomcat";
+  }
+  if (value.includes("unreadable response")) {
+    return "JavaWS ตอบกลับอ่านไม่ได้ กรุณาตรวจ config file name, database name และสิทธิ์ query";
+  }
+  if (value.includes("no database rows")) {
+    return "เชื่อม Tomcat ได้ แต่ config file นี้ไม่คืนรายชื่อ database กรุณาตรวจ config file name หรือเลือกกรอก database เอง";
   }
   if (value.includes("required SML tables")) {
     return "เชื่อมต่อได้ แต่ยังไม่พบตาราง SML ที่รายงานนี้ต้องใช้ครบ";

@@ -20,6 +20,7 @@ import {
 } from "@ai-bcc/shared";
 import type { StoredLineTargetRecord } from "./line-targets.js";
 import { createSampleSnapshot } from "./sample-data.js";
+import { readSystemDatabaseUrl } from "./bootstrap-config.js";
 
 export type AuditLogEntry = {
   id?: number;
@@ -147,7 +148,7 @@ type StoreFile = {
 };
 
 export function createSystemStore(): SystemStore {
-  const databaseUrl = process.env.SYSTEM_DATABASE_URL?.trim();
+  const databaseUrl = readSystemDatabaseUrl();
   if (databaseUrl) {
     return new PostgresSystemStore(databaseUrl);
   }

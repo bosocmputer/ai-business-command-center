@@ -31,10 +31,16 @@ import {
   type TenantId,
 } from "@ai-bcc/shared";
 import type { DatasourceConfig } from "./config.js";
+import { SmlJavaWsClient } from "./sml-javaws-client.js";
+import {
+  type QueryConfigLike,
+  renderParameterizedSqlForJavaWs,
+} from "./sql-render.js";
 
 export type DatasourceConnectionTestResult = {
   ok: boolean;
   checked_at: string;
+  mode: DatasourceConfig["kind"];
   latency_ms: number;
   database_name: string;
   user_name_masked: string | null;
@@ -61,6 +67,100 @@ export type ReportPdfPreflightCount = {
   detailRowCount: number;
 };
 
+type SmlDatasourceClient = {
+  source: Exclude<
+    SalesGoodsServicesSnapshot["source"],
+    "sample_snapshot"
+  >;
+  query<T extends Record<string, unknown> = Record<string, unknown>>(
+    query: string | QueryConfigLike,
+    values?: readonly unknown[],
+  ): Promise<{ rows: T[] }>;
+  close(): Promise<void>;
+};
+
+async function withDatasourceClient<T>(
+  datasource: DatasourceConfig,
+  options: {
+    connectionTimeoutMs: number;
+    idleTimeoutMs: number;
+    statementTimeoutMs: number;
+    queryTimeoutMs: number;
+  },
+  action: (client: SmlDatasourceClient) => Promise<T>,
+) {
+  const client = await createDatasourceClient(datasource, options);
+  try {
+    if (datasource.kind === "sml_postgres") {
+      await client.query(`set statement_timeout = ${options.statementTimeoutMs}`);
+    }
+    return await action(client);
+  } finally {
+    await client.close();
+  }
+}
+
+async function createDatasourceClient(
+  datasource: DatasourceConfig,
+  options: {
+    connectionTimeoutMs: number;
+    idleTimeoutMs: number;
+    statementTimeoutMs: number;
+    queryTimeoutMs: number;
+  },
+): Promise<SmlDatasourceClient> {
+  if (datasource.kind === "sml_javaws") {
+    const javaWsClient = new SmlJavaWsClient(datasource, options.queryTimeoutMs);
+    return {
+      source: "sml_javaws",
+      async query<T extends Record<string, unknown> = Record<string, unknown>>(
+        query: string | QueryConfigLike,
+        values?: readonly unknown[],
+      ) {
+        const queryConfig =
+          typeof query === "string" ? { text: query, values } : query;
+        if (/^\s*set\s+statement_timeout\b/i.test(queryConfig.text)) {
+          return { rows: [] as T[] };
+        }
+        const renderedSql = renderParameterizedSqlForJavaWs(queryConfig);
+        return (await javaWsClient.query(renderedSql)) as { rows: T[] };
+      },
+      async close() {},
+    };
+  }
+
+  const pool = new Pool({
+    host: datasource.host,
+    port: datasource.port,
+    database: datasource.database,
+    user: datasource.user,
+    password: datasource.password,
+    max: 1,
+    connectionTimeoutMillis: options.connectionTimeoutMs,
+    idleTimeoutMillis: options.idleTimeoutMs,
+    statement_timeout: options.statementTimeoutMs,
+    query_timeout: options.queryTimeoutMs,
+  });
+  const pgClient = await pool.connect();
+
+  return {
+    source: "sml_postgres",
+    async query<T extends Record<string, unknown> = Record<string, unknown>>(
+      query: string | QueryConfigLike,
+      values?: readonly unknown[],
+    ) {
+      if (typeof query === "string") {
+        return pgClient.query<T>(query, values as unknown[]);
+      }
+      return pgClient.query<T>(query.text, query.values as unknown[]);
+    },
+    async close() {
+      pgClient.release();
+      await pool.end();
+    },
+  };
+}
+
 export async function runSalesGoodsServicesReport(input: {
   tenant_id: TenantId;
   run_id: string;
@@ -68,23 +168,15 @@ export async function runSalesGoodsServicesReport(input: {
   datasource: DatasourceConfig;
 }): Promise<SalesGoodsServicesSnapshot> {
   const params = validateSalesGoodsServicesParams(input.params);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 30000,
-    query_timeout: 35000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 30000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
       const headerQuery = buildSalesHeaderQuery(params);
       const detailQuery = buildSalesDetailQuery(params);
       const branchQuery = buildSmlBranchListQuery();
@@ -101,17 +193,13 @@ export async function runSalesGoodsServicesReport(input: {
         run_id: input.run_id,
         params,
         generated_at: new Date().toISOString(),
-        source: "sml_postgres",
+        source: client.source,
         headers: headerResult.rows.map(mapHeaderRow),
         details: detailResult.rows.map(mapDetailRow),
         branches: branchResult.rows.map(mapBranchRow),
       });
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function fetchSalesGoodsServicesDocumentDetail(input: {
@@ -122,23 +210,15 @@ export async function fetchSalesGoodsServicesDocumentDetail(input: {
 }): Promise<SalesDocumentDetail | null> {
   const params = validateSalesGoodsServicesParams(input.params);
   const query = buildSalesDocumentDetailQuery(params, input.doc_no);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 15000,
-    query_timeout: 20000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 15000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 15000,
+      queryTimeoutMs: 20000,
+    },
+    async (client) => {
       const result = await client.query<Record<string, unknown>>(
         query.text,
         query.values,
@@ -159,12 +239,8 @@ export async function fetchSalesGoodsServicesDocumentDetail(input: {
         document,
         lines,
       };
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function fetchSalesGoodsServicesDocumentPage(input: {
@@ -183,23 +259,15 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
     pageSize,
     search: input.search,
   });
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 15000,
-    query_timeout: 20000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 15000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 15000,
+      queryTimeoutMs: 20000,
+    },
+    async (client) => {
       const branchQuery = buildSmlBranchListQuery();
       const [result, branchResult] = await Promise.all([
         client.query<Record<string, unknown>>(query.text, query.values),
@@ -228,12 +296,8 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
           search: input.search?.trim() || null,
         },
       };
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function fetchSalesGoodsServicesPdfRows(input: {
@@ -242,23 +306,15 @@ export async function fetchSalesGoodsServicesPdfRows(input: {
   datasource: DatasourceConfig;
 }): Promise<ReportPdfRows> {
   const params = validateSalesGoodsServicesParams(input.params);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 30000,
-    query_timeout: 35000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 30000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
       const headerQuery = buildSalesHeaderQuery(params);
       const detailQuery = buildSalesDetailQuery(params);
       const [headerResult, detailResult] = await Promise.all([
@@ -273,12 +329,8 @@ export async function fetchSalesGoodsServicesPdfRows(input: {
         documents: headerResult.rows.map(mapHeaderRow),
         lines: detailResult.rows.map(mapDetailRow),
       };
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function countSalesGoodsServicesPdfRows(input: {
@@ -286,35 +338,23 @@ export async function countSalesGoodsServicesPdfRows(input: {
   datasource: DatasourceConfig;
 }): Promise<ReportPdfPreflightCount> {
   const params = validateSalesGoodsServicesParams(input.params);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 15000,
-    query_timeout: 20000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 15000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 15000,
+      queryTimeoutMs: 20000,
+    },
+    async (client) => {
       const query = buildSalesPdfCountQuery(params);
       const result = await client.query<Record<string, unknown>>(
         query.text,
         query.values,
       );
       return mapPdfPreflightCountRow(result.rows[0] ?? {});
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function runPurchaseGoodsPayablesReport(input: {
@@ -324,23 +364,15 @@ export async function runPurchaseGoodsPayablesReport(input: {
   datasource: DatasourceConfig;
 }): Promise<PurchaseGoodsPayablesSnapshot> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 30000,
-    query_timeout: 35000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 30000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
       const headerQuery = buildPurchaseHeaderQuery(params);
       const detailQuery = buildPurchaseDetailQuery(params);
       const branchQuery = buildSmlBranchListQuery();
@@ -357,17 +389,13 @@ export async function runPurchaseGoodsPayablesReport(input: {
         run_id: input.run_id,
         params,
         generated_at: new Date().toISOString(),
-        source: "sml_postgres",
+        source: client.source,
         headers: headerResult.rows.map(mapHeaderRow),
         details: detailResult.rows.map(mapDetailRow),
         branches: branchResult.rows.map(mapBranchRow),
       });
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function fetchPurchaseGoodsPayablesDocumentDetail(input: {
@@ -378,23 +406,15 @@ export async function fetchPurchaseGoodsPayablesDocumentDetail(input: {
 }): Promise<SalesDocumentDetail | null> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
   const query = buildPurchaseDocumentDetailQuery(params, input.doc_no);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 15000,
-    query_timeout: 20000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 15000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 15000,
+      queryTimeoutMs: 20000,
+    },
+    async (client) => {
       const result = await client.query<Record<string, unknown>>(
         query.text,
         query.values,
@@ -415,12 +435,8 @@ export async function fetchPurchaseGoodsPayablesDocumentDetail(input: {
         document,
         lines,
       };
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
@@ -439,23 +455,15 @@ export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
     pageSize,
     search: input.search,
   });
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 15000,
-    query_timeout: 20000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 15000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 15000,
+      queryTimeoutMs: 20000,
+    },
+    async (client) => {
       const branchQuery = buildSmlBranchListQuery();
       const [result, branchResult] = await Promise.all([
         client.query<Record<string, unknown>>(query.text, query.values),
@@ -484,12 +492,8 @@ export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
           search: input.search?.trim() || null,
         },
       };
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function fetchPurchaseGoodsPayablesPdfRows(input: {
@@ -498,23 +502,15 @@ export async function fetchPurchaseGoodsPayablesPdfRows(input: {
   datasource: DatasourceConfig;
 }): Promise<ReportPdfRows> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 30000,
-    query_timeout: 35000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 30000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
       const headerQuery = buildPurchaseHeaderQuery(params);
       const detailQuery = buildPurchaseDetailQuery(params);
       const [headerResult, detailResult] = await Promise.all([
@@ -529,12 +525,8 @@ export async function fetchPurchaseGoodsPayablesPdfRows(input: {
         documents: headerResult.rows.map(mapHeaderRow),
         lines: detailResult.rows.map(mapDetailRow),
       };
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function countPurchaseGoodsPayablesPdfRows(input: {
@@ -542,35 +534,23 @@ export async function countPurchaseGoodsPayablesPdfRows(input: {
   datasource: DatasourceConfig;
 }): Promise<ReportPdfPreflightCount> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
-  const pool = new Pool({
-    host: input.datasource.host,
-    port: input.datasource.port,
-    database: input.datasource.database,
-    user: input.datasource.user,
-    password: input.datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 15000,
-    query_timeout: 20000,
-  });
-
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 15000");
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 15000,
+      queryTimeoutMs: 20000,
+    },
+    async (client) => {
       const query = buildPurchasePdfCountQuery(params);
       const result = await client.query<Record<string, unknown>>(
         query.text,
         query.values,
       );
       return mapPdfPreflightCountRow(result.rows[0] ?? {});
-    } finally {
-      client.release();
-    }
-  } finally {
-    await pool.end();
-  }
+    },
+  );
 }
 
 export async function testDatasourceConnection(
@@ -578,32 +558,26 @@ export async function testDatasourceConnection(
 ): Promise<DatasourceConnectionTestResult> {
   const checkedAt = new Date().toISOString();
   const startedAt = Date.now();
-  const pool = new Pool({
-    host: datasource.host,
-    port: datasource.port,
-    database: datasource.database,
-    user: datasource.user,
-    password: datasource.password,
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 1000,
-    statement_timeout: 5000,
-    query_timeout: 8000,
-  });
 
   try {
-    const client = await pool.connect();
-    try {
-      await client.query("set statement_timeout = 5000");
-      const result = await client.query<{
-        database_name: string;
-        user_name: string;
-        has_ic_trans: boolean;
-        has_ic_trans_detail: boolean;
-        has_ar_customer: boolean;
-        has_ap_supplier: boolean;
-        has_erp_branch_list: boolean;
-      }>(`
+    return await withDatasourceClient(
+      datasource,
+      {
+        connectionTimeoutMs: 5000,
+        idleTimeoutMs: 1000,
+        statementTimeoutMs: 5000,
+        queryTimeoutMs: 8000,
+      },
+      async (client) => {
+        const result = await client.query<{
+          database_name: string;
+          user_name: string;
+          has_ic_trans: boolean;
+          has_ic_trans_detail: boolean;
+          has_ar_customer: boolean;
+          has_ap_supplier: boolean;
+          has_erp_branch_list: boolean;
+        }>(`
 select
   current_database() as database_name,
   current_user as user_name,
@@ -613,43 +587,35 @@ select
   to_regclass('public.ap_supplier') is not null as has_ap_supplier,
   to_regclass('public.erp_branch_list') is not null as has_erp_branch_list
 `);
-      const row = result.rows[0];
+        const row = result.rows[0];
+        const requiredTables = {
+          ic_trans: toBoolean(row?.has_ic_trans),
+          ic_trans_detail: toBoolean(row?.has_ic_trans_detail),
+          ar_customer: toBoolean(row?.has_ar_customer),
+          ap_supplier: toBoolean(row?.has_ap_supplier),
+          erp_branch_list: toBoolean(row?.has_erp_branch_list),
+        };
+        const ok = Object.values(requiredTables).every(Boolean);
 
-      return {
-        ok: Boolean(
-          row?.has_ic_trans &&
-            row.has_ic_trans_detail &&
-            row.has_ar_customer &&
-            row.has_ap_supplier &&
-            row.has_erp_branch_list,
-        ),
-        checked_at: checkedAt,
-        latency_ms: Date.now() - startedAt,
-        database_name: row?.database_name ?? datasource.database,
-        user_name_masked: row?.user_name ? maskIdentifier(row.user_name) : null,
-        required_tables: {
-          ic_trans: Boolean(row?.has_ic_trans),
-          ic_trans_detail: Boolean(row?.has_ic_trans_detail),
-          ar_customer: Boolean(row?.has_ar_customer),
-          ap_supplier: Boolean(row?.has_ap_supplier),
-          erp_branch_list: Boolean(row?.has_erp_branch_list),
-        },
-        safe_error_message:
-          row?.has_ic_trans &&
-          row.has_ic_trans_detail &&
-          row.has_ar_customer &&
-          row.has_ap_supplier &&
-          row.has_erp_branch_list
+        return {
+          ok,
+          checked_at: checkedAt,
+          mode: datasource.kind,
+          latency_ms: Date.now() - startedAt,
+          database_name: row?.database_name ?? datasource.database,
+          user_name_masked: row?.user_name ? maskIdentifier(row.user_name) : null,
+          required_tables: requiredTables,
+          safe_error_message: ok
             ? null
             : "Datasource connected, but required SML tables are missing.",
-      };
-    } finally {
-      client.release();
-    }
+        };
+      },
+    );
   } catch (error) {
     return {
       ok: false,
       checked_at: checkedAt,
+      mode: datasource.kind,
       latency_ms: Date.now() - startedAt,
       database_name: datasource.database,
       user_name_masked: null,
@@ -662,8 +628,6 @@ select
       },
       safe_error_message: toSafeDatasourceErrorMessage(error),
     };
-  } finally {
-    await pool.end();
   }
 }
 
@@ -675,6 +639,9 @@ export function toSafeErrorMessage(error: unknown): string {
     if (/timeout|canceling statement/i.test(error.message)) {
       return "Report run timed out. Try a smaller date range or review query performance.";
     }
+    if (/JavaWS/i.test(error.message)) {
+      return "Report run failed because SML JavaWS could not return readable data.";
+    }
     if (/connect|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(error.message)) {
       return "Report run failed because the datasource is unreachable.";
     }
@@ -682,13 +649,22 @@ export function toSafeErrorMessage(error: unknown): string {
   return "Report run failed. Check server logs for the internal diagnostic details.";
 }
 
-function toSafeDatasourceErrorMessage(error: unknown): string {
+export function toSafeDatasourceErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     if (/password|credential|secret|authentication|28P01/i.test(error.message)) {
       return "Datasource authentication failed.";
     }
     if (/timeout|canceling statement/i.test(error.message)) {
       return "Datasource connection timed out.";
+    }
+    if (/JavaWS Tomcat endpoint is unreachable/i.test(error.message)) {
+      return "JavaWS Tomcat endpoint is unreachable.";
+    }
+    if (/JavaWS endpoint or WSDL operation is missing/i.test(error.message)) {
+      return "JavaWS endpoint or WSDL operation is missing.";
+    }
+    if (/JavaWS returned an unreadable response/i.test(error.message)) {
+      return "JavaWS returned an unreadable response.";
     }
     if (/connect|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(error.message)) {
       return "Datasource is unreachable.";
@@ -856,6 +832,19 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    return ["true", "t", "1", "yes", "y"].includes(value.trim().toLowerCase());
+  }
+  return false;
 }
 
 function toStringValue(value: unknown): string {

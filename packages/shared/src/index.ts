@@ -255,7 +255,7 @@ export type SalesGoodsServicesSnapshot = {
   run_id: string;
   params: SalesGoodsServicesParams;
   generated_at: string;
-  source: "sml_postgres" | "sample_snapshot";
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
   quality_status: DataQualityStatus;
   summary: {
     total_sales: number;
@@ -286,7 +286,7 @@ export type PurchaseGoodsPayablesSnapshot = {
   run_id: string;
   params: SalesGoodsServicesParams;
   generated_at: string;
-  source: "sml_postgres" | "sample_snapshot";
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
   quality_status: DataQualityStatus;
   summary: {
     total_purchase: number;

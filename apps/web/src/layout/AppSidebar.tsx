@@ -11,6 +11,7 @@ import {
   GroupIcon,
   TableIcon,
   TimeIcon,
+  PlugInIcon,
 } from "../icons/index";
 
 type NavItem = {
@@ -32,6 +33,11 @@ const navItems: NavItem[] = [
     path: "/owner/tenants",
   },
   {
+    icon: <PlugInIcon />,
+    name: "เชื่อม SML",
+    path: "/owner/sml-connections",
+  },
+  {
     icon: <TableIcon />,
     name: "รายงาน",
     path: "/owner/reports",
@@ -45,6 +51,11 @@ const navItems: NavItem[] = [
     icon: <TimeIcon />,
     name: "ประวัติระบบ",
     path: "/owner/audit",
+  },
+  {
+    icon: <GridIcon />,
+    name: "ตั้งค่าระบบ",
+    path: "/owner/settings",
   },
 ];
 
