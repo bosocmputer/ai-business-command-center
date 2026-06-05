@@ -676,11 +676,20 @@ export function toSafeErrorMessage(error: unknown): string {
     if (/timeout|canceling statement/i.test(error.message)) {
       return "Report run timed out. Try a smaller date range or review query performance.";
     }
-    if (/JavaWS/i.test(error.message)) {
-      return "Report run failed because SML JavaWS could not return readable data.";
-    }
     if (/connect|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/i.test(error.message)) {
       return "Report run failed because the datasource is unreachable.";
+    }
+    if (/JavaWS Tomcat endpoint is unreachable/i.test(error.message)) {
+      return "JavaWS Tomcat endpoint is unreachable.";
+    }
+    if (/JavaWS endpoint or WSDL operation is missing/i.test(error.message)) {
+      return "JavaWS endpoint or WSDL operation is missing.";
+    }
+    if (/JavaWS returned an unreadable response/i.test(error.message)) {
+      return "JavaWS returned an unreadable response.";
+    }
+    if (/JavaWS/i.test(error.message)) {
+      return "Report run failed because SML JavaWS could not return readable data.";
     }
   }
   return "Report run failed. Check server logs for the internal diagnostic details.";
