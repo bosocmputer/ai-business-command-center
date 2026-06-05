@@ -51,7 +51,7 @@ Workspace ตอนนี้มี Phase 1 SaaS pilot ที่แยก Owner A
 - Signed report viewer link TTL default `72` ชั่วโมง
 - Duplicate guard สำหรับ Morning Brief delivery ต่อ target
 - Signed owner session cookie สำหรับ route protection
-- Lightweight admin token guard สำหรับ mutation endpoints ระหว่าง MVP transition
+- Owner session guard สำหรับ mutation endpoints ระหว่าง MVP transition
 - `/owner` มี pilot readiness checklist ต่อร้าน และคู่มือ LINE OA onboarding สำหรับให้ผู้บริหาร add OA เป็นเพื่อนแล้วพิมพ์ `test`; group ใช้เป็น optional สำหรับทีมงานเท่านั้น
 - Owner config secret workflow พร้อมใช้งานระดับ pilot:
   - `/owner/tenants` บันทึก SML datasource password แบบ encrypted ผ่าน masked input
@@ -334,7 +334,7 @@ Current status:
 - วันที่ `2026-05-20` ใช้ข้อมูล `2026-05-19`
 - LINE link ชี้ signed report viewer `/command-center/brief`
 - UI confirm ก่อนส่ง LINE จริง
-- mutation endpoints ต้องมี `x-ai-bcc-admin-token`
+- mutation endpoints ต้องมี owner login session cookie
 - scheduler ส่ง Morning Brief เฉพาะ `line_targets` ที่ผ่าน permission check; env fallback target ปิดเป็นค่า default
 
 ## Phase 6: Deploy Test Server
@@ -446,6 +446,6 @@ LINE/Web question
    - polish empty state/brief viewer
    - เพิ่ม report ถัดไปจาก SML query จริง
    - วาง FlowAccount foundation เป็น finance brief channel แยกเมื่อได้คำตอบจาก FlowAccount dev team
-   - วาง lightweight login/role แทน shared admin token
+   - วาง user/role permission แทน single owner admin session
 
 ก่อนเริ่มงานให้เปิด [docs/16_CURRENT_STATUS_2026-05-20_TH.md](./docs/16_CURRENT_STATUS_2026-05-20_TH.md)

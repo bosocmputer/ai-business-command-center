@@ -4,7 +4,6 @@ import Checkbox from "@/components/form/input/Checkbox";
 import Input from "@/components/form/input/InputField";
 import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
-import { rememberAdminToken } from "@/components/command-center/adminAuth";
 import { ChevronLeftIcon, EyeCloseIcon, EyeIcon } from "@/icons";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
@@ -14,6 +13,8 @@ export default function SignInForm() {
   const [remember, setRemember] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [setupMode, setSetupMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,26 +24,29 @@ export default function SignInForm() {
     setLoading(true);
 
     try {
-      const response = await fetch("/auth/login", {
+      const response = await fetch(
+        setupMode ? "/auth/bootstrap-admin" : "/auth/login",
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
           password,
+          display_name: displayName,
           remember,
         }),
-      });
+        },
+      );
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
       };
 
       if (!response.ok) {
+        if (response.status === 428) {
+          setSetupMode(true);
+        }
         throw new Error(payload.error || "เข้าสู่ระบบไม่สำเร็จ");
       }
-
-      // During the MVP transition, the owner password is also the admin mutation token.
-      // This keeps existing protected report/LINE actions from asking for a second token.
-      rememberAdminToken(password);
 
       const params = new URLSearchParams(window.location.search);
       const nextPath = normalizeNextPath(params.get("next"));
@@ -76,10 +80,12 @@ export default function SignInForm() {
               AI Business Owner
             </p>
             <h1 className="mb-2 font-semibold text-gray-800 text-title-sm dark:text-white/90 sm:text-title-md">
-              เข้าสู่ระบบผู้ดูแล
+              {setupMode ? "สร้างบัญชีผู้ดูแลคนแรก" : "เข้าสู่ระบบผู้ดูแล"}
             </h1>
             <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
-              ใช้บัญชีผู้ดูแลเพื่อเข้าหน้า Owner Admin, รายงานระบบ และการตั้งค่า LINE OA
+              {setupMode
+                ? "ระบบยังไม่มี owner admin ใน DB กรุณาสร้างบัญชีแรกเพื่อเลิกพึ่ง username/password ใน env"
+                : "ใช้บัญชีผู้ดูแลเพื่อเข้าหน้า Owner Admin, รายงานระบบ และการตั้งค่า LINE OA"}
             </p>
           </div>
 
@@ -94,6 +100,19 @@ export default function SignInForm() {
 
           <form onSubmit={submitLogin}>
             <div className="space-y-5">
+              {setupMode ? (
+                <div>
+                  <Label htmlFor="owner-display-name">ชื่อที่แสดง</Label>
+                  <Input
+                    autoComplete="name"
+                    id="owner-display-name"
+                    name="display_name"
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    placeholder="เช่น Boss Admin"
+                    type="text"
+                  />
+                </div>
+              ) : null}
               <div>
                 <Label htmlFor="owner-username">
                   Username <span className="text-error-500">*</span>
@@ -133,16 +152,23 @@ export default function SignInForm() {
                     )}
                   </button>
                 </div>
+                {setupMode ? (
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    รหัสผ่านบัญชีแรกต้องยาวอย่างน้อย 12 ตัวอักษร และจะถูกเก็บเป็น encrypted password hash ใน System DB
+                  </p>
+                ) : null}
               </div>
 
-              <div className="flex items-center justify-between">
+              {!setupMode ? (
+                <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Checkbox checked={remember} onChange={setRemember} />
                   <span className="block font-normal text-gray-700 text-theme-sm dark:text-gray-400">
                     จำการเข้าสู่ระบบไว้ 7 วัน
                   </span>
                 </div>
-              </div>
+                </div>
+              ) : null}
 
               {error && (
                 <div className="rounded-xl border border-error-200 bg-error-50 p-3 text-sm text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
@@ -151,7 +177,13 @@ export default function SignInForm() {
               )}
 
               <Button className="w-full" disabled={loading} size="sm">
-                {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+                {loading
+                  ? setupMode
+                    ? "กำลังสร้างบัญชี..."
+                    : "กำลังเข้าสู่ระบบ..."
+                  : setupMode
+                    ? "สร้างบัญชีและเข้าสู่ระบบ"
+                    : "เข้าสู่ระบบ"}
               </Button>
             </div>
           </form>

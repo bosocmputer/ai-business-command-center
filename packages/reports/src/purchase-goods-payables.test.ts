@@ -217,8 +217,12 @@ describe("purchase_goods_payables contract", () => {
 
     expect(preview.line_message_type).toBe("flex");
     expect(preview.flex_message?.type).toBe("flex");
-    expect(preview.flex_message?.altText).toContain("รายงานซื้อ");
+    expect(preview.flex_message?.altText).toContain("ซื้อ/ตั้งหนี้");
     expect(preview.text).not.toContain("token=");
-    expect(JSON.stringify(preview.flex_message)).toContain("เปิดรายงานซื้อ");
+    const flexPayload = JSON.stringify(preview.flex_message);
+    expect(flexPayload).toContain("เปิดรายละเอียด");
+    expect(flexPayload).not.toContain("branch_code");
+    expect(flexPayload).not.toContain("ic_trans");
+    expect(flexPayload).not.toContain("snapshot");
   });
 });

@@ -9,7 +9,7 @@
 ทำให้จบ flow นี้ก่อนสำหรับ SML channel แรก:
 
 ```text
-SML PostgreSQL
+SML JavaWS
   -> approved sales report
   -> dashboard
   -> LINE Morning Brief
@@ -156,7 +156,7 @@ Deploy บนเครื่องทดสอบ:
 
 Acceptance Phase 1:
 
-- รัน report จาก SML DB ได้
+- รัน report จาก SML ผ่าน JavaWS ได้
 - dashboard แสดงข้อมูลจาก snapshot ได้
 - LINE ส่ง morning brief ได้
 - ดู run history และ error ได้
@@ -164,7 +164,7 @@ Acceptance Phase 1:
 
 Current acceptance:
 
-- `sales_goods_services` run จาก SML DB ได้
+- `sales_goods_services` run จาก SML ผ่าน JavaWS ได้
 - dashboard/admin control room ใช้งานได้ที่ `/command-center`
 - customer-facing signed viewer ใช้งานได้ที่ `/command-center/brief`
 - Owner Admin SaaS control plane เริ่มใช้งานที่ `/owner`
@@ -174,7 +174,7 @@ Current acceptance:
 - LINE OA demo ส่งเข้ากลุ่มทดสอบได้
 - worker scheduler พร้อมรอบ `08:00 Asia/Bangkok`
 - system store ใช้ PostgreSQL
-- mutation endpoints มี MVP admin token guard
+- mutation endpoints มี owner session guard
 - latest deployed commit ให้ดูจาก `docs/16_CURRENT_STATUS_2026-05-20_TH.md`
 
 ## Phase 2: SaaS Multi-Tenant Control Plane

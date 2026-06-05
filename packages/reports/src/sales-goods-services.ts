@@ -3,7 +3,6 @@ import {
   getSmlBranchMeaning,
   type BranchSales,
   type DataQualityStatus,
-  type LineFlexMessage,
   type SalesDetailRow,
   type SalesFinancialBreakdown,
   type SalesGoodsServicesParams,
@@ -15,6 +14,11 @@ import {
   type TenantId,
   type TopProduct,
 } from "@ai-bcc/shared";
+import {
+  buildExecutiveDigestFlexMessage,
+  isValidLineUri as isValidExecutiveDigestUri,
+  type ExecutiveDigestStatus,
+} from "./line-flex.js";
 
 export const salesGoodsServicesContract = {
   report_key: "sales_goods_services",
@@ -791,8 +795,8 @@ function buildSalesGoodsServicesFlexMessage(input: {
   insight: string;
   comparisonText: string | null;
   warnings: string[];
-}): LineFlexMessage | undefined {
-  if (!isValidLineUri(input.dashboardUrl)) {
+}) {
+  if (!isValidExecutiveDigestUri(input.dashboardUrl)) {
     return undefined;
   }
 
@@ -801,155 +805,37 @@ function buildSalesGoodsServicesFlexMessage(input: {
     return buildEmptySalesGoodsServicesFlexMessage(input);
   }
 
-  const statusText = formatTrustStatus(snapshot);
-  const statusColor =
-    snapshot.summary.document_count === 0 ||
-    snapshot.quality_status === "reconciled_with_warning"
-      ? "#B45309"
-      : "#047857";
-  const firstBranch = snapshot.branch_sales[0];
   const firstProduct = snapshot.top_products[0];
-  const footerNote =
-    input.warnings[0] ?? "ข้อมูลนี้มาจากรายงานขาย SML ที่ระบบรันและเก็บ snapshot ไว้";
-  const altText = truncateLineText(
-    `รายงานขาย ${input.tenantName} ${formatReportPeriod(
+  return buildExecutiveDigestFlexMessage({
+    title: "ขายสินค้าและบริการ",
+    subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+    )}`,
+    altText: `ขายสินค้าและบริการ ${input.tenantName} ${formatReportPeriod(
       snapshot.params.date_from,
       snapshot.params.date_to,
     )}: ${formatMoney(snapshot.summary.total_sales)} บาท`,
-    300,
-  );
-
-  return {
-    type: "flex",
-    altText,
-    contents: {
-      type: "bubble",
-      size: "mega",
-      header: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        backgroundColor: "#F8FAFC",
-        contents: [
-          {
-            type: "text",
-            text: "รายงานขายสินค้าและบริการ",
-            weight: "bold",
-            size: "lg",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "text",
-            text: `${input.tenantName} · ${formatReportPeriodWithTime(
-              snapshot.params.date_from,
-              snapshot.params.date_to,
-            )}`,
-            size: "sm",
-            color: "#6B7280",
-            margin: "sm",
-            wrap: true,
-          },
-        ],
+    generatedAt: input.generatedAt,
+    status: getSalesDigestStatus(snapshot),
+    primaryAmount: `${formatMoney(snapshot.summary.total_sales)} บาท`,
+    metrics: [
+      { label: "บิลขาย", value: `${formatInteger(snapshot.summary.document_count)} ใบ` },
+      {
+        label: "รายการขาย",
+        value: `${formatInteger(snapshot.summary.line_count)} รายการ`,
       },
-      body: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        spacing: "sm",
-        contents: [
-          {
-            type: "box",
-            layout: "horizontal",
-            contents: [
-              {
-                type: "text",
-                text: statusText,
-                size: "xs",
-                weight: "bold",
-                color: statusColor,
-                flex: 1,
-              },
-              {
-                type: "text",
-                text: `อัปเดต ${input.generatedAt}`,
-                size: "xs",
-                color: "#6B7280",
-                align: "end",
-                flex: 2,
-              },
-            ],
-          },
-          {
-            type: "text",
-            text: `${formatMoney(snapshot.summary.total_sales)} บาท`,
-            weight: "bold",
-            size: "xxl",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "box",
-            layout: "vertical",
-            spacing: "sm",
-            contents: [
-              buildFlexMetricRow("บิลขาย", `${formatInteger(snapshot.summary.document_count)} ใบ`),
-              buildFlexMetricRow(
-                "จำนวนรายการขาย",
-                `${formatInteger(snapshot.summary.line_count)} รายการ`,
-              ),
-              buildFlexMetricRow("จำนวนขายรวม", formatQty(snapshot.summary.total_qty)),
-            ],
-          },
-          { type: "separator", margin: "md" },
-          buildFlexInfoBlock("วันนี้ควรรู้อะไร", input.insight),
-          ...(input.comparisonText
-            ? [buildFlexInfoBlock("เทียบยอด", input.comparisonText)]
-            : []),
-          buildFlexInfoBlock(
-            "ยอดหลัก",
-            firstBranch
-              ? `${firstBranch.branch_label ?? formatBranchLabel(firstBranch.branch_code)} ${formatMoney(
-                  firstBranch.total_amount,
-                )} บาท`
-              : "ยังไม่มีข้อมูลสาขา",
-          ),
-          buildFlexInfoBlock(
-            "สินค้าขายดี",
-            firstProduct
-              ? `${firstProduct.item_name}: ${formatMoney(firstProduct.sum_amount)} บาท`
-              : "ยังไม่มีสินค้าในช่วงเวลานี้",
-          ),
-          {
-            type: "text",
-            text: footerNote,
-            size: "xs",
-            color: "#92400E",
-            wrap: true,
-            margin: "md",
-          },
-        ],
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        contents: [
-          {
-            type: "button",
-            style: "primary",
-            color: "#2563EB",
-            height: "sm",
-            action: {
-              type: "uri",
-              label: "เปิดรายงาน",
-              uri: input.dashboardUrl,
-            },
-          },
-        ],
-      },
-    },
-  };
+      { label: "จำนวนขายรวม", value: formatQty(snapshot.summary.total_qty) },
+    ],
+    insight: input.insight,
+    topLine: firstProduct
+      ? {
+          label: "สินค้าขายดี",
+          value: `${truncateLineText(firstProduct.item_name, 38)}: ${formatMoney(firstProduct.sum_amount)} บาท`,
+        }
+      : { label: "สินค้าขายดี", value: "ยังไม่มีสินค้าในช่วงเวลานี้" },
+    dashboardUrl: input.dashboardUrl,
+  });
 }
 
 function buildEmptySalesGoodsServicesFlexMessage(input: {
@@ -960,148 +846,37 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
   insight: string;
   comparisonText: string | null;
   warnings: string[];
-}): LineFlexMessage | undefined {
-  if (!isValidLineUri(input.dashboardUrl)) {
+}) {
+  if (!isValidExecutiveDigestUri(input.dashboardUrl)) {
     return undefined;
   }
 
   const { snapshot } = input;
   const comparisonText = formatEmptyComparisonSummary(snapshot);
-  const footerNote = input.warnings.find(
-    (warning) => warning !== "ไม่พบยอดขายในช่วงวันที่นี้",
-  );
-  const altText = truncateLineText(
-    `ไม่พบยอดขาย ${input.tenantName} ${formatReportPeriod(
+  return buildExecutiveDigestFlexMessage({
+    title: "ขายสินค้าและบริการ",
+    subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
       snapshot.params.date_to,
     )}`,
-    300,
-  );
-
-  return {
-    type: "flex",
-    altText,
-    contents: {
-      type: "bubble",
-      size: "mega",
-      header: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        backgroundColor: "#F8FAFC",
-        contents: [
-          {
-            type: "text",
-            text: "รายงานขายสินค้าและบริการ",
-            weight: "bold",
-            size: "lg",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "text",
-            text: `${input.tenantName} · ${formatReportPeriodWithTime(
-              snapshot.params.date_from,
-              snapshot.params.date_to,
-            )}`,
-            size: "sm",
-            color: "#6B7280",
-            margin: "sm",
-            wrap: true,
-          },
-        ],
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        spacing: "md",
-        contents: [
-          {
-            type: "box",
-            layout: "horizontal",
-            contents: [
-              {
-                type: "text",
-                text: "ไม่พบยอดขาย",
-                size: "xs",
-                weight: "bold",
-                color: "#B45309",
-                flex: 1,
-              },
-              {
-                type: "text",
-                text: `อัปเดต ${input.generatedAt}`,
-                size: "xs",
-                color: "#6B7280",
-                align: "end",
-                flex: 2,
-              },
-            ],
-          },
-          {
-            type: "text",
-            text: "0.00 บาท",
-            weight: "bold",
-            size: "xxl",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "box",
-            layout: "horizontal",
-            margin: "xs",
-            contents: [
-              buildFlexCompactMetric("บิลขาย", "0 ใบ"),
-              buildFlexCompactMetric("รายการขาย", "0 รายการ"),
-            ],
-          },
-          { type: "separator", margin: "md" },
-          buildFlexInfoBlock(
-            "วันนี้ควรรู้อะไร",
-            "ไม่พบยอดขายในช่วงวันที่นี้ อาจเป็นวันหยุดขาย หรือยังไม่มีการปิดบิลใน SML",
-          ),
-          ...(comparisonText
-            ? [buildFlexInfoBlock("เทียบยอด", comparisonText)]
-            : []),
-          buildFlexInlineSummary([
-            ["ยอดขายตามสาขา", "ไม่มีข้อมูล"],
-            ["สินค้าขายดี", "ไม่มีข้อมูล"],
-          ]),
-          ...(footerNote
-            ? [
-                {
-                  type: "text",
-                  text: footerNote,
-                  size: "xs",
-                  color: "#92400E",
-                  wrap: true,
-                  margin: "sm",
-                },
-              ]
-            : []),
-        ],
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        contents: [
-          {
-            type: "button",
-            style: "primary",
-            color: "#2563EB",
-            height: "sm",
-            action: {
-              type: "uri",
-              label: "เปิดรายงาน",
-              uri: input.dashboardUrl,
-            },
-          },
-        ],
-      },
-    },
-  };
+    altText: `ไม่พบยอดขาย ${input.tenantName} ${formatReportPeriod(
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+    )}`,
+    generatedAt: input.generatedAt,
+    status: { text: "ไม่มีข้อมูล", severity: "notice" },
+    primaryAmount: "0.00 บาท",
+    metrics: [
+      { label: "บิลขาย", value: "0 ใบ" },
+      { label: "รายการขาย", value: "0 รายการ" },
+    ],
+    insight:
+      "ไม่พบยอดขายในช่วงวันที่นี้ อาจเป็นวันหยุดขาย หรือยังไม่มีการปิดบิลใน SML",
+    topLine: comparisonText
+      ? { label: "เทียบยอด", value: comparisonText }
+      : { label: "ข้อมูลประกอบ", value: "ยังไม่มีข้อมูลสาขาหรือสินค้าขายดี" },
+    dashboardUrl: input.dashboardUrl,
+  });
 }
 
 function buildFlexCompactMetric(label: string, value: string) {
@@ -1239,7 +1014,7 @@ function buildBusinessInsight(snapshot: SalesGoodsServicesSnapshot) {
     (branch) => branch.branch_code === "no_branch",
   );
   if (noBranch && noBranch.total_amount > 0) {
-    return "มีรายการขายที่ไม่ระบุสาขา ควรตรวจการตั้งค่า branch_code ใน SML";
+    return "มีรายการขายที่ไม่ระบุสาขา ควรตรวจการตั้งค่าสาขาใน SML";
   }
 
   if (snapshot.quality_status === "reconciled_with_warning") {
@@ -1247,6 +1022,29 @@ function buildBusinessInsight(snapshot: SalesGoodsServicesSnapshot) {
   }
 
   return "รายงานพร้อมใช้สำหรับดูยอดขายและกดเปิดรายละเอียดเพิ่มเติม";
+}
+
+function getSalesDigestStatus(
+  snapshot: SalesGoodsServicesSnapshot,
+): ExecutiveDigestStatus {
+  if (snapshot.summary.total_sales < 0) {
+    return { text: "ควรตรวจทันที", severity: "critical" };
+  }
+  if (snapshot.summary.document_count === 0) {
+    return { text: "ไม่มีข้อมูล", severity: "notice" };
+  }
+  if (snapshot.source === "sample_snapshot" || snapshot.quality_status === "stale") {
+    return { text: "ข้อมูลเก่า", severity: "notice" };
+  }
+  if (
+    snapshot.quality_status === "reconciled_with_warning" ||
+    snapshot.branch_sales.some(
+      (branch) => branch.branch_code === "no_branch" && branch.total_amount > 0,
+    )
+  ) {
+    return { text: "มีข้อสังเกต", severity: "notice" };
+  }
+  return { text: "พร้อมใช้", severity: "ready" };
 }
 
 function formatEmptyComparisonLines(snapshot: SalesGoodsServicesSnapshot) {
@@ -1356,7 +1154,7 @@ function buildLineWarnings(snapshot: SalesGoodsServicesSnapshot): string[] {
 
   if (snapshot.quality_status === "reconciled_with_warning") {
     warnings.push(
-      "ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount เป็นยอดขายหลัก",
+      "ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ยอดหัวเอกสารเป็นยอดขายหลัก",
     );
   }
 

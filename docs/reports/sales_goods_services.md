@@ -2,7 +2,7 @@
 
 ## Goal
 
-รายงานแรกของ Phase 1 สำหรับดูยอดขายสินค้าและบริการจาก SML PostgreSQL แบบใช้ร่วมกันได้ทุก tenant โดย query เดียวกัน แต่ datasource แยกตามบริษัท
+รายงานแรกของ Phase 1 สำหรับดูยอดขายสินค้าและบริการจาก SML ผ่าน JavaWS แบบใช้ร่วมกันได้ทุก tenant โดย query เดียวกัน แต่ connection แยกตามบริษัท
 
 ## Report Key
 
@@ -382,5 +382,5 @@ Interpretation:
 - Query ต้องมี timeout
 - Dashboard, LINE, chatbot ต้องอ่านจาก snapshot/run ที่ trace ได้
 - ถ้า header total และ detail total ไม่ตรงกัน ให้ใช้ header เป็นยอดเงินจริง และแสดง reconciliation warning
-- Mutation run endpoint ต้องใช้ admin token ใน pilot
+- Mutation run endpoint ต้องใช้ owner login session cookie
 - Signed viewer token TTL default = `72` ชั่วโมง

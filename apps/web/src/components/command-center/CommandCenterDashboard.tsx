@@ -311,7 +311,7 @@ export default function CommandCenterDashboard() {
           "ระบบจะ query ฐาน SML ของ tenant นี้และบันทึก snapshot ล่าสุด",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนรันรายงาน");
       }
 
       const response = await fetch(
@@ -397,7 +397,7 @@ export default function CommandCenterDashboard() {
             : "รายการนี้สร้าง preview/dry run โดยไม่ส่งเข้า LINE จริง",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนส่งหรือทดสอบ LINE");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนส่งหรือทดสอบ LINE");
       }
 
       const response = await fetch(

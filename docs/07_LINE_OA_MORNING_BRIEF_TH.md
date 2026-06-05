@@ -1,8 +1,8 @@
-# LINE OA Morning Brief
+# LINE OA Notification Plans
 
 ## เป้าหมายของเอกสาร
 
-ออกแบบ LINE OA strategy สำหรับส่ง Morning Brief ทุกเช้าจากหลาย brief channel และรองรับอนาคตเป็น LINE chatbot โดยยังรักษา tenant isolation และ auditability
+ออกแบบ LINE OA strategy สำหรับส่งแผนแจ้งเตือนจากหลาย brief channel และรองรับอนาคตเป็น LINE chatbot โดยยังรักษา tenant isolation และ auditability
 
 ## Current Implementation Status
 
@@ -14,6 +14,12 @@ GET /api/reports/:tenantId/sales_goods_services/line-deliveries
 POST /api/reports/:tenantId/sales_goods_services/line-send-test
 POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 GET /api/reports/:tenantId/purchase_goods_payables/line-preview
+GET /api/owner/notification-rules
+POST /api/owner/notification-rules
+PATCH /api/owner/notification-rules/:id
+POST /api/owner/notification-rules/:id/test-run
+POST /api/owner/notification-rules/:id/run-now
+POST /api/worker/notification-rules/tick
 GET /api/owner/line-channels
 POST /api/owner/line-channels
 GET /api/line-targets?tenant_id=...
@@ -26,12 +32,13 @@ POST /api/line-targets/:id/test-send
 
 - renderer อ่านจาก `report_snapshots` ล่าสุด หรือ snapshot ที่เพิ่ง run ใน morning brief flow
 - `line-preview` ไม่ส่งข้อความจริง
-- `line-send-test` และ `morning-brief/run-and-send` เป็น mutation endpoint ต้องใช้ `x-ai-bcc-admin-token`
+- `line-send-test`, legacy `morning-brief/run-and-send` และ Owner notification rule endpoints เป็น mutation endpoint ต้องมี owner login session cookie
+- production scheduler หลักคือ `notification_rules` ใน system DB; worker เรียก `/api/worker/notification-rules/tick` ด้วย worker token ทุก 30 วินาที
 - `line_targets` แยกสิทธิ์ระดับ user/group/room ต่อ tenant แล้ว โดยเริ่มจาก profile `executive`, `sales_manager`, `operations`, `staff`
-- Strategy ใหม่สำหรับ pilot/prod คือส่ง Morning Brief ส่วนตัวให้ผู้บริหารเป็น default (`target_type=user`); group/room เป็น optional สำหรับทีมที่ควรเห็นข้อมูลร่วมกันเท่านั้น
+- Strategy ใหม่สำหรับ pilot/prod คือส่งแผนแจ้งเตือนส่วนตัวให้ผู้บริหารเป็น default (`target_type=user`); group/room เป็น optional สำหรับทีมที่ควรเห็นข้อมูลร่วมกันเท่านั้น
 - live send ใช้ LINE Flex Message เป็น default และเก็บ text summary เป็น fallback/preview
 - ข้อความต้องระบุ source เป็นภาษาผู้ใช้ เช่น `ข้อมูลจากระบบขาย SML`
-- Morning Brief รองรับหลาย channel ต่อ tenant ได้ เช่น `sml_reports` และ future `flowaccount_finance`
+- Notification Plan รองรับหลาย report key ต่อ tenant และส่งเป็น digest หนึ่งข้อความต่อปลายทาง LINE
 - FlowAccount เป็น finance/accounting brief channel แยก ไม่ใช่ SML sync target
 - `run_id` ต้อง trace ได้ผ่าน viewer/details และ `line_deliveries` แต่ไม่ต้องโชว์ในข้อความ LINE ส่วนหลัก
 - ถ้ามี reconciliation warning ต้องแสดงเป็นหมายเหตุหรือ insight ที่อ่านรู้เรื่อง
@@ -42,7 +49,7 @@ POST /api/line-targets/:id/test-send
 - target ใหม่ที่พบจาก webhook จะถูกเก็บเป็น pending (`approved=false`, `enabled=false`) ไม่ auto-enable เพื่อกันส่งข้อมูลผิดคนหรือผิดกลุ่ม
 - LINE target ต้องมาจาก target registry/webhook ที่ admin อนุมัติแล้ว; env fallback target ปิดเป็นค่า default เพื่อกันกลุ่มเก่าถูกสร้างกลับมาทุก restart
 - tenant ที่เป็น `suspended` หรือ `cancelled` จะไม่ส่ง Morning Brief แม้ target จะ approved แล้ว
-- Owner Admin เริ่มมี `line_channels` registry เพื่อรองรับหลาย LINE OA ต่อ tenant: 1 tenant มีหลาย OA, 1 OA มีหลาย target
+- Owner Admin มี `line_channels` registry เพื่อรองรับหลาย LINE OA ต่อ tenant และ Owner shared OA: ร้านที่ยังไม่มี OA ของตัวเองใช้ OA ของ Owner ได้, ร้านที่มี OA เองก็ใช้ tenant OA ได้
 - web public URL ใช้ same-origin `/api` rewrite ไปยัง API ภายใน Docker เพื่อลดการพึ่งพา API quick tunnel แยกอีกตัว
 - ระบบพยายามดึงชื่อปลายทางจาก LINE profile/group summary API เพื่อให้ admin เห็นชื่อผู้รับหรือชื่อกลุ่มแทน masked id ถ้า LINE API ให้สิทธิ์
 - `webhook.site` ใช้ได้เฉพาะ debug payload ชั่วคราว ห้ามใช้เป็น pilot/prod webhook หลัก เพราะอาจเห็น `userId`, `groupId`, และข้อความจริง
@@ -51,20 +58,20 @@ POST /api/line-targets/:id/test-send
 
 - LINE OA channel access token
 - target recipient เช่น `userId`, `groupId`, หรือ `roomId`
-- tenant/channel mapping ใน `line_channels`
+- tenant/channel mapping ใน `line_channels` โดย `scope=tenant` หรือ `scope=owner_shared`
 - send log/retry ใน `line_deliveries`
 
 หมายเหตุ production:
 
-- Phase ปัจจุบัน `line_channels` เก็บ metadata และสถานะ configured ก่อน ยังไม่เก็บ token จริงใน DB
-- Production ต้องเพิ่ม encrypted secret store สำหรับ `channel_access_token` และ `channel_secret`
+- `line_channels` เก็บ metadata และสถานะ configured; `channel_access_token` และ `channel_secret` เก็บใน encrypted secret store
+- Owner shared OA ไม่ copy secret ไปหลายร้าน แต่ resolve token จาก channel owner ตอนส่งจริง
 - Webhook หลาย LINE OA ควรมี route หรือ channel mapping ที่ระบุได้ว่า event มาจาก channel ใด ก่อน auto-map target เข้าช่องทางนั้น
 
 ## LINE OA Strategy
 
 ### Demo / Pilot
 
-ใช้ LINE OA ของระบบเราได้ เพื่อ setup เร็วและควบคุม flow ง่าย
+ใช้ LINE OA ของระบบเราได้ เพื่อ setup เร็วและควบคุม flow ง่าย. ในระบบเรียกเป็น `owner_shared` LINE OA และ target ที่พบจาก OA นี้จะถูก expose เป็น virtual target ให้ร้านอื่นเลือกใน Notification Plan ได้
 
 เหมาะสำหรับ:
 
@@ -74,7 +81,7 @@ POST /api/line-targets/:id/test-send
 
 ### Production
 
-ควรรองรับ LINE OA ของลูกค้าเป็นหลัก
+ควรรองรับ LINE OA ของลูกค้าเป็นหลัก แต่ไม่บังคับ ถ้าลูกค้ายังไม่พร้อมใช้ OA ของตัวเอง สามารถใช้ Owner shared OA ต่อได้
 
 เหตุผล:
 
@@ -109,13 +116,13 @@ flowchart TD
 
 ## Schedule
 
-Default:
+Default rule example:
 
 ```text
 08:00 Asia/Bangkok
 ```
 
-Current pilot:
+Legacy env/runtime config ยังมีไว้ migration/fallback ชั่วคราว:
 
 ```text
 MORNING_BRIEF_ENABLED=true
@@ -128,7 +135,7 @@ MORNING_BRIEF_MODE=send
 Period:
 
 ```text
-period = yesterday
+period_preset = yesterday | today_so_far | last_7_days
 ```
 
 ตัวอย่าง:
@@ -136,7 +143,22 @@ period = yesterday
 - ถ้าวันนี้คือ `2026-05-20`
 - report period ที่ส่งคือ `2026-05-19` ถึง `2026-05-19`
 
-ต้อง config ต่อ tenant ได้:
+ต้อง config ต่อ tenant ได้ใน `/owner/notifications`:
+
+- ชื่อกฎ
+- enabled/disabled
+- report keys
+- period preset
+- weekdays
+- time chips ได้หลายเวลา
+- LINE targets ที่ approved/enabled และมีสิทธิ์รับ report ที่เลือก
+
+Worker/API behavior:
+
+- run report สดหนึ่งครั้งต่อ rule execution
+- reuse snapshots สำหรับทุก target ใน rule
+- idempotency กันส่งซ้ำต่อ rule/date/time/attempt
+- retry 1 ครั้งเมื่อ SML/LINE fail
 
 ```text
 send_time
@@ -152,6 +174,8 @@ target_id
 - `enabled=true`
 - มี `receive_morning_brief` ใน `allowed_actions`
 - มี `sales_goods_services` ใน `allowed_report_keys`
+
+สำหรับ Owner shared OA ระบบจะสร้าง virtual target ที่มี `tenant_id` เป็นร้านปลายทาง แต่ยังส่งผ่าน LINE channel ต้นทางเดิม เพื่อให้ permission check ของ rule ต่อร้านทำงานเหมือน target ปกติ
 
 ถ้า target ไม่มีสิทธิ์ ระบบต้อง skip และบันทึก audit โดยไม่ส่งข้อมูลธุรกิจ
 
@@ -337,7 +361,7 @@ LINE_CHANNEL_ACCESS_TOKEN=
 - `line_channels` ต้องผูกกับ `tenant_id`
 - `line_targets` ต้องผูกกับ `tenant_id`
 - access token ต้อง encrypted
-- ห้ามใช้ target/group ข้าม tenant
+- ห้ามใช้ target/group ข้าม tenant แบบ raw; ถ้าใช้ Owner shared OA ต้องผ่าน virtual target และ Notification Plan ของร้านปลายทาง
 - future webhook inbound ต้อง resolve tenant จาก channel id หรือ mapping ที่ชัดเจน
 
 ## LINE Group Permission Profiles
@@ -391,9 +415,9 @@ Phase 1 ยังไม่เปิด inbound chatbot
 
 - ไม่ส่ง LINE ซ้ำถ้า delivery key เดิมเคย success แล้ว ยกเว้น `force=true`
 - UI ต้อง confirm ก่อนส่ง LINE จริง
-- API ต้อง reject mutation ที่ไม่มี admin token:
-  - ไม่มี token: `401`
-  - token ผิด: `403`
+- API ต้อง reject mutation ที่ไม่มี owner session:
+  - ไม่มี/หมดอายุ: `401`
+  - signature ไม่ถูกต้อง: `401`
 - response และ audit ห้าม expose token หรือ target id เต็ม
 - signed viewer link TTL default = `72` ชั่วโมง
 

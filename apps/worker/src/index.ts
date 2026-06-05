@@ -1,24 +1,17 @@
 import {
-  callMorningBriefEndpoint,
+  callNotificationRulesTick,
   callWorkerHeartbeat,
-  getZonedMinute,
-  readMorningBriefWorkerConfig,
-  shouldRunMorningBrief,
+  readNotificationRulesWorkerConfig,
 } from "./scheduler.js";
 
-const config = readMorningBriefWorkerConfig();
-const attemptedKeys = new Set<string>();
+const config = readNotificationRulesWorkerConfig();
 
 console.log("AI Business Command Center worker started");
 console.log(
   JSON.stringify({
     enabled: config.enabled,
     apiBaseUrl: config.apiBaseUrl,
-    tenantIds: config.tenantIds,
-    timeZone: config.timeZone,
-    runAt: config.runAt,
     mode: config.mode,
-    force: config.force,
     workerId: config.workerId,
     heartbeatConfigured: Boolean(config.heartbeatToken),
   }),
@@ -27,11 +20,8 @@ console.log(
 function workerMetadata() {
   return {
     enabled: config.enabled,
-    tenantIds: config.tenantIds,
-    timeZone: config.timeZone,
-    runAt: config.runAt,
     mode: config.mode,
-    force: config.force,
+    scheduler: "db_notification_rules",
   };
 }
 
@@ -66,49 +56,39 @@ async function tick(now = new Date()) {
     return;
   }
 
-  if (
-    !shouldRunMorningBrief({
-      now,
-      timeZone: config.timeZone,
-      runAt: config.runAt,
-    })
-  ) {
-    return;
-  }
-
-  const minute = getZonedMinute({ now, timeZone: config.timeZone });
-  for (const tenantId of config.tenantIds) {
-    const attemptKey = `${tenantId}:${minute.date}:${minute.time}`;
-    if (attemptedKeys.has(attemptKey)) {
-      continue;
-    }
-    attemptedKeys.add(attemptKey);
-
-    try {
-      const result = await callMorningBriefEndpoint({ config, tenantId });
-      console.log(
+  try {
+    const result = await callNotificationRulesTick({ config });
+    if ("skipped" in result) {
+      console.warn(
         JSON.stringify({
-          event: "morning_brief_completed",
-          tenantId,
-          attemptKey,
-          resultStatus:
-            (result.data as { delivery?: { status?: string }; status?: string })
-              ?.delivery?.status ??
-            (result.data as { status?: string })?.status ??
-            "unknown",
+          event: "notification_rule_tick_skipped",
+          reason: result.reason,
+          checkedAt: now.toISOString(),
         }),
       );
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          event: "morning_brief_failed",
-          tenantId,
-          attemptKey,
-          safeError:
-            error instanceof Error ? error.message : "Unknown worker error",
-        }),
-      );
+      return;
     }
+    console.log(
+      JSON.stringify({
+        event: "notification_rule_tick_completed",
+        checkedAt: now.toISOString(),
+        processed:
+          (result.data as { processed?: unknown[] } | undefined)?.processed
+            ?.length ?? 0,
+        skipped:
+          (result.data as { skipped?: unknown[] } | undefined)?.skipped
+            ?.length ?? 0,
+      }),
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "notification_rule_tick_failed",
+        checkedAt: now.toISOString(),
+        safeError:
+          error instanceof Error ? error.message : "Unknown worker error",
+      }),
+    );
   }
 }
 

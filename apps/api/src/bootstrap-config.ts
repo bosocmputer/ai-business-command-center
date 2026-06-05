@@ -11,6 +11,7 @@ const bootstrapConfigSchema = z
     app_base_url: z.string().trim().min(1).optional(),
     public_api_base_url: z.string().trim().min(1).optional(),
     report_viewer_signing_secret: z.string().trim().min(1).optional(),
+    report_viewer_link_ttl_hours: z.coerce.number().min(1).max(2160).optional(),
     morning_brief: z
       .object({
         enabled: z.boolean().optional(),
@@ -74,6 +75,9 @@ export function readBootstrapConfigStatus() {
       public_api_base_url_configured: Boolean(
         config.public_api_base_url || process.env.NEXT_PUBLIC_API_BASE_URL?.trim(),
       ),
+      report_viewer_signing_secret_configured: Boolean(
+        config.report_viewer_signing_secret,
+      ),
       read_error: null as string | null,
     };
   } catch (error) {
@@ -86,6 +90,7 @@ export function readBootstrapConfigStatus() {
       public_api_base_url_configured: Boolean(
         process.env.NEXT_PUBLIC_API_BASE_URL?.trim(),
       ),
+      report_viewer_signing_secret_configured: false,
       read_error:
         error instanceof Error ? error.message : "Bootstrap config is invalid.",
     };

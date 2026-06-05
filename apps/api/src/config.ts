@@ -44,8 +44,6 @@ type TenantDefinition = Pick<
   "id" | "name" | "databaseName" | "description"
 > & {
   customerSlug: string;
-  envPrefix: "SML_DEMO_DB" | "SML_OFFICE_DB";
-  lineEnvPrefix: "LINE_DEMO" | "LINE_OFFICE";
 };
 
 const tenantDefinitions: TenantDefinition[] = [
@@ -53,19 +51,15 @@ const tenantDefinitions: TenantDefinition[] = [
     id: "tenant_demo_remote",
     name: "DEMO SHOP",
     customerSlug: "demo-shop",
-    databaseName: readEnv("SML_DEMO_DB_NAME", "demo"),
+    databaseName: "demo",
     description: "Remote SML demo shop for customer-facing preview.",
-    envPrefix: "SML_DEMO_DB",
-    lineEnvPrefix: "LINE_DEMO",
   },
   {
     id: "tenant_office_sml1_2026",
     name: "248 SHOP",
     customerSlug: "248-shop",
-    databaseName: readEnv("SML_OFFICE_DB_NAME", "sml1_2026"),
+    databaseName: "sml1_2026",
     description: "Office SML shop for local pilot validation.",
-    envPrefix: "SML_OFFICE_DB",
-    lineEnvPrefix: "LINE_OFFICE",
   },
 ];
 
@@ -112,109 +106,29 @@ export function readDatasourceConfig(
     return null;
   }
 
-  const host = process.env[`${tenant.envPrefix}_HOST`];
-  const port = process.env[`${tenant.envPrefix}_PORT`];
-  const database = process.env[`${tenant.envPrefix}_NAME`];
-  const user = process.env[`${tenant.envPrefix}_USER`];
-  const password = process.env[`${tenant.envPrefix}_PASSWORD`];
-
-  if (!host || !port || !database || !user || !password) {
-    return null;
-  }
-
-  return {
-    kind: "sml_postgres",
-    host,
-    port: Number(port),
-    database,
-    user,
-    password,
-  };
+  return null;
 }
 
 export function readLineChannelConfig(
   tenantId: TenantId,
 ): LineChannelConfig | null {
-  const credentials = readLineChannelCredentials(tenantId);
-  if (!credentials) {
-    return null;
-  }
-
-  const tenant = getTenantDefinition(tenantId);
-  if (!tenant) {
-    return null;
-  }
-
-  const targetId =
-    process.env[`${tenant.lineEnvPrefix}_TARGET_ID`] ||
-    process.env.LINE_TARGET_ID;
-  const targetType = normalizeLineTargetType(
-    process.env[`${tenant.lineEnvPrefix}_TARGET_TYPE`] ||
-      process.env.LINE_TARGET_TYPE,
-  );
-
-  if (!targetId) {
-    return null;
-  }
-
-  return {
-    channelAccessToken: credentials.channelAccessToken,
-    targetId,
-    targetType,
-  };
+  void tenantId;
+  return null;
 }
 
 export function readLineChannelCredentials(
   tenantId: TenantId,
 ): LineChannelCredentialConfig | null {
-  const tenant = getTenantDefinition(tenantId);
-  if (!tenant) {
-    return null;
-  }
-
-  const channelAccessToken =
-    process.env[`${tenant.lineEnvPrefix}_CHANNEL_ACCESS_TOKEN`] ||
-    readLegacyLineChannelAccessToken(tenant.id);
-
-  if (!channelAccessToken) {
-    return null;
-  }
-
-  return {
-    channelAccessToken,
-  };
-}
-
-function readLegacyLineChannelAccessToken(tenantId: TenantId) {
-  if (tenantId !== "tenant_demo_remote") {
-    return undefined;
-  }
-
-  return process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  void tenantId;
+  return null;
 }
 
 export function readLineWebhookConfig(): LineWebhookConfig | null {
-  const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
-  if (!channelSecret) {
-    return null;
-  }
-
-  return {
-    channelSecret,
-    debugToken: process.env.LINE_WEBHOOK_DEBUG_TOKEN?.trim() || null,
-  };
+  return null;
 }
 
 function readEnv(name: string, fallback: string) {
   return process.env[name] || fallback;
-}
-
-function normalizeLineTargetType(value: string | undefined) {
-  if (value === "user" || value === "group" || value === "room") {
-    return value;
-  }
-
-  return null;
 }
 
 export type { DatasourceConfig, LineWebhookConfig };

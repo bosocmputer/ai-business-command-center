@@ -3,7 +3,7 @@ import OwnerPortal from "@/components/owner/OwnerPortal";
 
 export const metadata: Metadata = {
   title: "Owner Admin | AI Business",
-  description: "จัดการร้านค้า subscription, SML datasource และ LINE OA",
+  description: "ภาพรวมตั้งค่าร้านค้า SML JavaWS, LINE OA และแผนแจ้งเตือน",
 };
 
 export default function OwnerPage() {

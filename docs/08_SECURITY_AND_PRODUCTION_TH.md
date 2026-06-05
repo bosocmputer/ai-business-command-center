@@ -2,13 +2,13 @@
 
 ## เป้าหมายของเอกสาร
 
-กำหนด security baseline และ production checklist สำหรับระบบที่เชื่อม SML PostgreSQL ของลูกค้าและส่งข้อมูลผ่าน dashboard/LINE OA
+กำหนด security baseline และ production checklist สำหรับระบบที่เชื่อม SML ผ่าน Tomcat JavaWS ของลูกค้าและส่งข้อมูลผ่าน dashboard/LINE OA
 
 ## Core Security Rules
 
-- ใช้ DB user แบบ read-only เท่านั้น
-- ไม่ใช้ superuser เช่น `postgres` ใน production
-- ไม่บันทึก password plaintext
+- SML ของร้านค้าใช้ JavaWS-only ไม่ขอ DB user/password ใน Owner UI
+- ถ้ามี reverse proxy auth ต้องเก็บ secret แบบ encrypted เท่านั้น
+- ไม่บันทึก secret plaintext
 - ไม่ให้ AI generate SQL production เอง
 - ทุก customer data ต้องแยกด้วย `tenant_id`
 - ทุก report run ต้องมี audit/run log
@@ -20,10 +20,10 @@
 - System store ใช้ PostgreSQL แล้ว
 - Signed report viewer ใช้ token ผูกกับ `tenant_id + report_key + run_id + expires_at`
 - Signed viewer TTL default = `72` ชั่วโมง
-- Mutation endpoints ใช้ lightweight admin token ผ่าน header `x-ai-bcc-admin-token`
-- UI ใช้ in-app dialog สำหรับกรอก admin token และเก็บใน `sessionStorage`
+- Mutation endpoints ใช้ owner login session cookie `ai_bcc_owner_session`
+- UI ไม่ prompt shared token แล้ว และไม่เก็บ mutation token ใน `sessionStorage`
 - UI ใช้ in-app confirmation dialog ก่อนส่ง LINE จริง ไม่ใช้ browser alert/prompt
-- API log redact `x-ai-bcc-admin-token`
+- API ไม่รับ shared admin mutation header แล้ว
 - LINE target แสดงแบบ masked เท่านั้น
 - LINE target registry รองรับ group-level permission profile และ target ใหม่จาก webhook จะไม่ถูกเปิดใช้งานอัตโนมัติ
 - Secret จริงอยู่ใน `.env.server` บน server และห้าม commit
@@ -31,10 +31,10 @@
   - เข้ารหัสด้วย AES-256-GCM
   - ผูก associated data กับ tenant/scope/key เพื่อลดโอกาสนำ ciphertext ข้าม tenant ไปใช้ผิด
   - system store มี `secrets` metadata table แล้ว
-  - `/owner/tenants` รับ SML datasource password ผ่าน masked input แล้วบันทึกเป็น encrypted envelope
+  - `/owner/sml-connections` รับ SML JavaWS metadata และ optional reverse-proxy auth แล้วบันทึกเป็น encrypted envelope
   - `/owner/line` รับ LINE channel access token / channel secret ผ่าน masked input แล้วบันทึกเป็น encrypted envelope
-  - audit log บันทึกเฉพาะ metadata เช่น host/database/user/channel id และสถานะ configured ไม่บันทึก secret plaintext
-  - runtime จะ prefer encrypted secret ใน system store ก่อน fallback ไป `.env.server` เพื่อรองรับช่วง migration
+  - audit log บันทึกเฉพาะ metadata เช่น base URL/database/channel id และสถานะ configured ไม่บันทึก secret plaintext
+  - runtime ของ SML ร้านค้าอ่าน JavaWS config จาก encrypted system store เป็นหลัก ไม่ใช้ SML PostgreSQL env fallback
 
 Protected mutation endpoints:
 
@@ -53,11 +53,10 @@ PUT /api/owner/line-channels/:id/secrets
 
 Response policy:
 
-- no token -> `401`
-- wrong token -> `403`
-- server token not configured -> `503`
+- missing/expired owner session -> `401`
+- invalid owner session signature -> `401`
 
-ข้อจำกัด: admin token เป็น MVP guard สำหรับ pilot เท่านั้น ไม่ใช่ replacement ของ login/role permission
+ข้อจำกัด: owner login ยังเป็น single admin pilot user ไม่ใช่ user/role permission เต็ม
 
 ## Database Access
 
@@ -158,7 +157,7 @@ Production ก่อนใช้กับลูกค้าจริง:
 
 - ใช้ encrypted store สำหรับ datasource/LINE secret เป็น default และค่อยลดการพึ่ง `.env.server`
 - resolve tenant จาก channel/OA mapping ไม่ใช้ default webhook tenant
-- ทำ full login/role สำหรับ admin UI แทน shared admin token
+- ทำ full user/role permission สำหรับ Owner UI แทน single admin pilot user
 - เพิ่ม policy สำหรับราย user ถ้าลูกค้าต้องการให้คนในกลุ่มเดียวกันเห็นข้อมูลไม่เท่ากัน
 
 ## Audit Requirements
@@ -220,7 +219,7 @@ Pilot owner portal แสดง backup/monitoring visibility แล้วที�
 
 ## Incident Scenarios
 
-### SML DB connect ไม่ได้
+### SML JavaWS connect ไม่ได้
 
 - mark report run failed
 - dashboard แสดง stale/failed

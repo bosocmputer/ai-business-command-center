@@ -2,13 +2,13 @@
 
 ## เป้าหมายของเอกสาร
 
-อธิบาย full loop ของข้อมูลตั้งแต่ onboarding tenant, connect integration channel, run report/brief, build snapshot, dashboard, LINE Morning Brief, audit และ feedback loop กลับเข้า shared report/brief library
+อธิบาย full loop ของข้อมูลตั้งแต่ onboarding ร้าน, เชื่อม SML ผ่าน JavaWS, run report/brief, build snapshot, dashboard, LINE notification plan, audit และ feedback loop กลับเข้า shared report/brief library
 
 ## Brief Channel Rule
 
 AI-Business เป็น multi-channel brief hub:
 
-- `sml_reports`: SML PostgreSQL approved SQL reports
+- `sml_reports`: SML JavaWS approved SQL reports
 - `flowaccount_finance`: FlowAccount OpenAPI finance/accounting brief foundation
 - future channels เช่น `ecommerce`, `pos`, `crm`
 
@@ -27,12 +27,12 @@ sequenceDiagram
     participant Brief as Signed Report Viewer
     participant LINE as LINE OA
 
-    Admin->>API: create tenant + channel config
+    Admin->>API: create store + SML JavaWS config
     API->>DB: save encrypted channel credential
     Admin->>API: enable report/brief contract
     API->>DB: save tenant report/channel config
     Worker->>DB: load due jobs
-    Worker->>Source: execute approved SQL/API read-only
+    Worker->>Source: execute approved SQL/API read-only via JavaWS
     Source-->>Worker: rows/data
     Worker->>Worker: validate output schema
     Worker->>DB: save report_run + result_json
@@ -42,7 +42,7 @@ sequenceDiagram
     API-->>Web: dashboard JSON
     Worker->>API: request signed viewer URL
     API-->>Worker: /command-center/brief?...token=...
-    Worker->>LINE: send morning brief with signed link
+    Worker->>LINE: send notification digest with signed link
     Worker->>DB: save send/audit log
     LINE->>Brief: user opens signed link
     Brief->>API: read snapshot by tenant/run/token
@@ -58,15 +58,15 @@ sequenceDiagram
 ## Tenant Onboarding Flow
 
 1. สร้าง `tenant`
-2. เพิ่ม channel config เช่น SML datasource หรือ FlowAccount OAuth connection
+2. เพิ่ม SML JavaWS connection หรือ channel config อื่น เช่น FlowAccount OAuth connection
 3. ทดสอบ connection ของ channel นั้น
 4. scan schema/fingerprint หรืออ่าน profile เท่าที่ channel รองรับ
 5. enable report/brief ที่ต้องใช้
-6. ตั้ง schedule
-7. ตั้ง LINE target
+6. ตั้ง LINE OA และอนุมัติผู้รับ LINE จาก webhook
+7. สร้างแผนแจ้งเตือน ว่าส่งรายงานอะไร เวลาไหน ให้ผู้รับใด
 8. run manual ครั้งแรก
 9. ตรวจ dashboard และตัวเลขกับลูกค้า
-10. เปิด scheduled job
+10. ส่งทดสอบ LINE และเปิด scheduled job
 
 ## Report Run Flow
 
@@ -79,7 +79,7 @@ input:
 steps:
   1. validate tenant active
   2. validate subscription allows report
-  3. load channel config/datasource
+  3. load SML JavaWS config หรือ channel config
   4. decrypt secret in memory only
   5. validate params
   6. render approved SQL/API request
@@ -106,38 +106,40 @@ Manual refresh:
 
 ```text
 Dashboard
-  -> API trigger report run with x-ai-bcc-admin-token
+  -> API trigger report run with owner session cookie
   -> Worker run query
   -> save new snapshot
   -> Dashboard reload
 ```
 
-## LINE Morning Brief Flow
+## Notification Rule Flow
 
 ```text
-08:00 Asia/Bangkok
-  -> scheduler selects active tenant reports
-  -> derive period = yesterday
-  -> check duplicate delivery key
-  -> run approved report
-  -> save report_run + report_snapshot
-  -> generate signed report viewer URL
-  -> render message from snapshot summary
-  -> send LINE OA
-  -> save line_delivery + audit log
-  -> alert/log if failed
+Worker tick ทุก 30 วินาที
+  -> API reads enabled notification_rules
+  -> calculate due by rule timezone + ISO weekday + HH:mm
+  -> enforce idempotency key per rule/date/time/attempt
+  -> derive period preset
+  -> run selected approved reports once per rule execution
+  -> save report_runs + report_snapshots
+  -> resolve approved LINE targets/ผู้รับ and permission
+  -> generate signed viewer URLs when target has permission
+  -> render multi-report digest
+  -> send LINE OA per target/ผู้รับ
+  -> save line_deliveries + notification_rule_runs + audit log
+  -> retry once when SML/LINE fails
 ```
 
-Current pilot:
+Current notification plan v1:
 
 ```text
 tenant_id: tenant_demo_remote
-report_key: sales_goods_services
-schedule: 08:00 Asia/Bangkok
-period: yesterday
+report_keys: sales_goods_services, purchase_goods_payables
+schedule: recurring weekly, multiple HH:mm values
+period presets: yesterday, today_so_far, last_7_days
 viewer: /command-center/brief with signed token
 pdf export: /api/reports/:tenantId/:reportKey/pdf/prepare + /pdf with same signed token
-duplicate key: tenant_id + report_key + morning_brief + date_from + date_to
+idempotency key: notification_rule + rule_id + scheduled_local_date + scheduled_local_time + attempt
 ```
 
 Planned FlowAccount channel:
@@ -215,12 +217,12 @@ flowchart TD
 
 กรณีที่ต้องรองรับ:
 
-- SML DB connect ไม่ได้
+- Tomcat JavaWS ติดต่อไม่ได้หรือ SMLConfig/database ผิด
 - FlowAccount token หมดอายุ/revoked หรือ API fail
 - query timeout
 - output column ไม่ตรง contract
 - LINE API fail
-- datasource credential ผิด
+- SML JavaWS/reverse proxy auth ผิด
 - tenant subscription inactive
 
 ทุกกรณีต้องเขียน `report_runs.status` หรือ audit log เพื่อ debug ได้

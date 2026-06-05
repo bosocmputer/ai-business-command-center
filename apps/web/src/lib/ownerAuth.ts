@@ -64,7 +64,6 @@ export async function verifyOwnerSessionToken(
 export function getOwnerAuthSecret() {
   return (
     process.env.OWNER_AUTH_SECRET ||
-    process.env.AI_BCC_ADMIN_TOKEN ||
     "ai-bcc-local-owner-auth-secret"
   );
 }

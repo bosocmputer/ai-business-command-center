@@ -25,7 +25,12 @@ export const lineAccessProfileDefaults: Record<
 > = {
   executive: {
     label: "ผู้บริหาร",
-    allowed_report_keys: ["sales_goods_services", "purchase_goods_payables"],
+    allowed_report_keys: [
+      "sales_goods_services",
+      "purchase_goods_payables",
+      "gross_profit_by_product",
+      "gross_profit_by_ar_customer",
+    ],
     allowed_actions: [
       "receive_morning_brief",
       "ask_report",
@@ -137,15 +142,51 @@ export function buildPendingWebhookLineTarget(input: {
 export function applyLineAccessProfileDefaults(
   target: StoredLineTargetRecord,
   profileKey: LineAccessProfileKey,
+  allowedReportKeys: ReportKey[] = lineAccessProfileDefaults[profileKey]
+    .allowed_report_keys,
 ): StoredLineTargetRecord {
   const defaults = lineAccessProfileDefaults[profileKey];
   return {
     ...target,
     access_profile_key: profileKey,
-    allowed_report_keys: [...defaults.allowed_report_keys],
+    allowed_report_keys: [...allowedReportKeys],
     allowed_actions: [...defaults.allowed_actions],
     updated_at: new Date().toISOString(),
   };
+}
+
+export function buildAssignedLineTarget(input: {
+  tenantId: TenantId;
+  sourceTarget: StoredLineTargetRecord;
+  lineChannelId: string;
+  profileKey: LineAccessProfileKey;
+  allowedReportKeys?: ReportKey[];
+}): StoredLineTargetRecord {
+  const now = new Date().toISOString();
+  return applyLineAccessProfileDefaults(
+    {
+      id: createLineTargetId(input.tenantId, input.sourceTarget.target_id),
+      tenant_id: input.tenantId,
+      line_channel_id: input.lineChannelId,
+      display_name: input.sourceTarget.display_name,
+      target_type: input.sourceTarget.target_type,
+      target_id: input.sourceTarget.target_id,
+      target_id_masked: input.sourceTarget.target_id_masked,
+      target_id_hash: input.sourceTarget.target_id_hash,
+      recipient_count_estimate: input.sourceTarget.recipient_count_estimate,
+      access_profile_key: input.profileKey,
+      allowed_report_keys: [],
+      allowed_actions: [],
+      enabled: true,
+      approved: true,
+      source: "manual",
+      last_delivery_at: null,
+      created_at: now,
+      updated_at: now,
+    },
+    input.profileKey,
+    input.allowedReportKeys,
+  );
 }
 
 export function canAccessLineReport(input: {
@@ -213,7 +254,7 @@ export function estimateRecipientCount(
   return targetType === "user" ? 1 : null;
 }
 
-function createLineTargetId(tenantId: TenantId, targetId: string) {
+export function createLineTargetId(tenantId: TenantId, targetId: string) {
   return `line_target_${tenantId}_${hashLineTargetId(targetId).slice(0, 16)}`;
 }
 

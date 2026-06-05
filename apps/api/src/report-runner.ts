@@ -1,4 +1,3 @@
-import { Pool } from "pg";
 import {
   buildSalesDocumentDetailQuery,
   buildSalesDocumentPageQuery,
@@ -11,13 +10,22 @@ import {
   buildPurchaseDocumentPageQuery,
   buildPurchaseHeaderQuery,
   buildPurchasePdfCountQuery,
+  buildGrossProfitByArCustomerQuery,
+  buildGrossProfitByProductQuery,
   summarizePurchaseGoodsPayables,
+  summarizeGrossProfitByArCustomer,
+  summarizeGrossProfitByProduct,
   summarizeSalesGoodsServices,
+  validateGrossProfitParams,
   validatePurchaseGoodsPayablesParams,
   validateSalesGoodsServicesParams,
 } from "@ai-bcc/reports";
 import {
   getSmlBranchMeaning,
+  type GrossProfitByArCustomerRow,
+  type GrossProfitByArCustomerSnapshot,
+  type GrossProfitByProductRow,
+  type GrossProfitByProductSnapshot,
   type PurchaseGoodsPayablesSnapshot,
   type ReportKey,
   type SalesDocumentDetail,
@@ -30,7 +38,7 @@ import {
   type SmlBranchRecord,
   type TenantId,
 } from "@ai-bcc/shared";
-import type { DatasourceConfig } from "./config.js";
+import type { JavaWsDatasourceConfig } from "./config.js";
 import { SmlJavaWsClient } from "./sml-javaws-client.js";
 import {
   type QueryConfigLike,
@@ -40,7 +48,7 @@ import {
 export type DatasourceConnectionTestResult = {
   ok: boolean;
   checked_at: string;
-  mode: DatasourceConfig["kind"];
+  mode: JavaWsDatasourceConfig["kind"];
   latency_ms: number;
   database_name: string;
   user_name_masked: string | null;
@@ -68,10 +76,7 @@ export type ReportPdfPreflightCount = {
 };
 
 type SmlDatasourceClient = {
-  source: Exclude<
-    SalesGoodsServicesSnapshot["source"],
-    "sample_snapshot"
-  >;
+  source: "sml_javaws";
   query<T extends Record<string, unknown> = Record<string, unknown>>(
     query: string | QueryConfigLike,
     values?: readonly unknown[],
@@ -80,7 +85,7 @@ type SmlDatasourceClient = {
 };
 
 async function withDatasourceClient<T>(
-  datasource: DatasourceConfig,
+  datasource: JavaWsDatasourceConfig,
   options: {
     connectionTimeoutMs: number;
     idleTimeoutMs: number;
@@ -91,9 +96,6 @@ async function withDatasourceClient<T>(
 ) {
   const client = await createDatasourceClient(datasource, options);
   try {
-    if (datasource.kind === "sml_postgres") {
-      await client.query(`set statement_timeout = ${options.statementTimeoutMs}`);
-    }
     return await action(client);
   } finally {
     await client.close();
@@ -101,7 +103,7 @@ async function withDatasourceClient<T>(
 }
 
 async function createDatasourceClient(
-  datasource: DatasourceConfig,
+  datasource: JavaWsDatasourceConfig,
   options: {
     connectionTimeoutMs: number;
     idleTimeoutMs: number;
@@ -109,55 +111,22 @@ async function createDatasourceClient(
     queryTimeoutMs: number;
   },
 ): Promise<SmlDatasourceClient> {
-  if (datasource.kind === "sml_javaws") {
-    const javaWsClient = new SmlJavaWsClient(datasource, options.queryTimeoutMs);
-    return {
-      source: "sml_javaws",
-      async query<T extends Record<string, unknown> = Record<string, unknown>>(
-        query: string | QueryConfigLike,
-        values?: readonly unknown[],
-      ) {
-        const queryConfig =
-          typeof query === "string" ? { text: query, values } : query;
-        if (/^\s*set\s+statement_timeout\b/i.test(queryConfig.text)) {
-          return { rows: [] as T[] };
-        }
-        const renderedSql = renderParameterizedSqlForJavaWs(queryConfig);
-        return (await javaWsClient.query(renderedSql)) as { rows: T[] };
-      },
-      async close() {},
-    };
-  }
-
-  const pool = new Pool({
-    host: datasource.host,
-    port: datasource.port,
-    database: datasource.database,
-    user: datasource.user,
-    password: datasource.password,
-    max: 1,
-    connectionTimeoutMillis: options.connectionTimeoutMs,
-    idleTimeoutMillis: options.idleTimeoutMs,
-    statement_timeout: options.statementTimeoutMs,
-    query_timeout: options.queryTimeoutMs,
-  });
-  const pgClient = await pool.connect();
-
+  const javaWsClient = new SmlJavaWsClient(datasource, options.queryTimeoutMs);
   return {
-    source: "sml_postgres",
+    source: "sml_javaws",
     async query<T extends Record<string, unknown> = Record<string, unknown>>(
       query: string | QueryConfigLike,
       values?: readonly unknown[],
     ) {
-      if (typeof query === "string") {
-        return pgClient.query<T>(query, values as unknown[]);
+      const queryConfig =
+        typeof query === "string" ? { text: query, values } : query;
+      if (/^\s*set\s+statement_timeout\b/i.test(queryConfig.text)) {
+        return { rows: [] as T[] };
       }
-      return pgClient.query<T>(query.text, query.values as unknown[]);
+      const renderedSql = renderParameterizedSqlForJavaWs(queryConfig);
+      return (await javaWsClient.query(renderedSql)) as { rows: T[] };
     },
-    async close() {
-      pgClient.release();
-      await pool.end();
-    },
+    async close() {},
   };
 }
 
@@ -165,7 +134,7 @@ export async function runSalesGoodsServicesReport(input: {
   tenant_id: TenantId;
   run_id: string;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
 }): Promise<SalesGoodsServicesSnapshot> {
   const params = validateSalesGoodsServicesParams(input.params);
   return withDatasourceClient(
@@ -205,7 +174,7 @@ export async function runSalesGoodsServicesReport(input: {
 export async function fetchSalesGoodsServicesDocumentDetail(input: {
   tenant_id: TenantId;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
   doc_no: string;
 }): Promise<SalesDocumentDetail | null> {
   const params = validateSalesGoodsServicesParams(input.params);
@@ -246,7 +215,7 @@ export async function fetchSalesGoodsServicesDocumentDetail(input: {
 export async function fetchSalesGoodsServicesDocumentPage(input: {
   tenant_id: TenantId;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
   page: number;
   page_size: number;
   search?: string | null;
@@ -303,7 +272,7 @@ export async function fetchSalesGoodsServicesDocumentPage(input: {
 export async function fetchSalesGoodsServicesPdfRows(input: {
   tenant_id: TenantId;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
 }): Promise<ReportPdfRows> {
   const params = validateSalesGoodsServicesParams(input.params);
   return withDatasourceClient(
@@ -335,7 +304,7 @@ export async function fetchSalesGoodsServicesPdfRows(input: {
 
 export async function countSalesGoodsServicesPdfRows(input: {
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
 }): Promise<ReportPdfPreflightCount> {
   const params = validateSalesGoodsServicesParams(input.params);
   return withDatasourceClient(
@@ -361,7 +330,7 @@ export async function runPurchaseGoodsPayablesReport(input: {
   tenant_id: TenantId;
   run_id: string;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
 }): Promise<PurchaseGoodsPayablesSnapshot> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
   return withDatasourceClient(
@@ -398,10 +367,78 @@ export async function runPurchaseGoodsPayablesReport(input: {
   );
 }
 
+export async function runGrossProfitByProductReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<GrossProfitByProductSnapshot> {
+  const params = validateGrossProfitParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 45000,
+      queryTimeoutMs: 50000,
+    },
+    async (client) => {
+      const query = buildGrossProfitByProductQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeGrossProfitByProduct({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows.map(mapGrossProfitByProductRow),
+      });
+    },
+  );
+}
+
+export async function runGrossProfitByArCustomerReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<GrossProfitByArCustomerSnapshot> {
+  const params = validateGrossProfitParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 45000,
+      queryTimeoutMs: 50000,
+    },
+    async (client) => {
+      const query = buildGrossProfitByArCustomerQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeGrossProfitByArCustomer({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows.map(mapGrossProfitByArCustomerRow),
+      });
+    },
+  );
+}
+
 export async function fetchPurchaseGoodsPayablesDocumentDetail(input: {
   tenant_id: TenantId;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
   doc_no: string;
 }): Promise<SalesDocumentDetail | null> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
@@ -442,7 +479,7 @@ export async function fetchPurchaseGoodsPayablesDocumentDetail(input: {
 export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
   tenant_id: TenantId;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
   page: number;
   page_size: number;
   search?: string | null;
@@ -499,7 +536,7 @@ export async function fetchPurchaseGoodsPayablesDocumentPage(input: {
 export async function fetchPurchaseGoodsPayablesPdfRows(input: {
   tenant_id: TenantId;
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
 }): Promise<ReportPdfRows> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
   return withDatasourceClient(
@@ -531,7 +568,7 @@ export async function fetchPurchaseGoodsPayablesPdfRows(input: {
 
 export async function countPurchaseGoodsPayablesPdfRows(input: {
   params: SalesGoodsServicesParams;
-  datasource: DatasourceConfig;
+  datasource: JavaWsDatasourceConfig;
 }): Promise<ReportPdfPreflightCount> {
   const params = validatePurchaseGoodsPayablesParams(input.params);
   return withDatasourceClient(
@@ -554,7 +591,7 @@ export async function countPurchaseGoodsPayablesPdfRows(input: {
 }
 
 export async function testDatasourceConnection(
-  datasource: DatasourceConfig,
+  datasource: JavaWsDatasourceConfig,
 ): Promise<DatasourceConnectionTestResult> {
   const checkedAt = new Date().toISOString();
   const startedAt = Date.now();
@@ -823,6 +860,59 @@ function mapPdfPreflightCountRow(
   };
 }
 
+function mapGrossProfitByProductRow(
+  row: Record<string, unknown>,
+): GrossProfitByProductRow {
+  return addGrossProfitDerivedMetrics({
+    code: toStringValue(row.code),
+    name_1: toStringValue(row.name_1),
+    unit_name: toStringValue(row.unit_name),
+    ...mapGrossProfitBaseRow(row),
+  });
+}
+
+function mapGrossProfitByArCustomerRow(
+  row: Record<string, unknown>,
+): GrossProfitByArCustomerRow {
+  return addGrossProfitDerivedMetrics({
+    ar_code: toStringValue(row.ar_code),
+    ar_detail: toStringValue(row.ar_detail),
+    ...mapGrossProfitBaseRow(row),
+  });
+}
+
+function mapGrossProfitBaseRow(row: Record<string, unknown>) {
+  return {
+    qty_sale: toNumber(row.qty_sale),
+    amount_sale: toNumber(row.amount_sale),
+    cost_sale: toNumber(row.cost_sale),
+    qty_sale_return: toNumber(row.qty_sale_return),
+    amount_sale_return: toNumber(row.amount_sale_return),
+    cost_sale_return: toNumber(row.cost_sale_return),
+  };
+}
+
+function addGrossProfitDerivedMetrics<
+  T extends ReturnType<typeof mapGrossProfitBaseRow>,
+>(row: T) {
+  const netQty = roundQty(row.qty_sale - row.qty_sale_return);
+  const netAmount = roundMoney(row.amount_sale - row.amount_sale_return);
+  const netCost = roundMoney(row.cost_sale - row.cost_sale_return);
+  const grossProfit = roundMoney(netAmount - netCost);
+  return {
+    ...row,
+    net_qty: netQty,
+    net_amount: netAmount,
+    net_cost: netCost,
+    gross_profit: grossProfit,
+    gross_margin_percent:
+      Math.abs(netAmount) > 0.000001
+        ? Math.round(((grossProfit / netAmount) * 100 + Number.EPSILON) * 100) /
+          100
+        : null,
+  };
+}
+
 function toNumber(value: unknown): number {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
@@ -832,6 +922,14 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function roundQty(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
 
 function toBoolean(value: unknown): boolean {

@@ -23,7 +23,7 @@ AI-Business Command Center uses a restrained product UI based on the existing Ta
 
 - Owner/Admin uses a sidebar plus content panels.
 - Core owner flows should be full-width task surfaces, not hidden in modal-first flows.
-- SML connection setup uses a cockpit layout: tenant list, selected tenant form, and test/status summary.
+- SML connection setup uses a JavaWS-only cockpit layout: store list, selected store form, and test/status summary.
 - Customer dashboard opens with executive metrics first, then drilldown reports and document detail.
 - Tables must become mobile cards at narrow widths and must not force horizontal overflow.
 

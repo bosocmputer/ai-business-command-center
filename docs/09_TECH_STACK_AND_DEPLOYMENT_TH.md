@@ -85,7 +85,7 @@ Phase 1B implementation ใช้ `SystemStore` abstraction:
 - `.data/` ต้องไม่ commit เข้า git
 - production ต้องใช้ PostgreSQL system DB ไม่ใช้ local JSON
 - system DB ต้องแยกจาก SML customer database
-- SML datasource credential ยังอยู่ใน env/secret manager ไม่เก็บใน `report_snapshots`
+- SML JavaWS config ของร้านต้องอยู่ใน encrypted system store ไม่เก็บใน `report_snapshots`
 
 ### ORM / DB Layer
 
@@ -150,7 +150,7 @@ Pilot tenants: tenant_demo_remote, tenant_office_sml1_2026
 Current reports: sales_goods_services, purchase_goods_payables
 ```
 
-หมายเหตุ: trycloudflare quick tunnel เป็น URL ชั่วคราว ถ้า tunnel restart ต้อง update `APP_BASE_URL` และ `NEXT_PUBLIC_API_BASE_URL` ใน `.env.server` แล้ว rebuild web
+หมายเหตุ: trycloudflare quick tunnel เป็น URL ชั่วคราว ถ้า tunnel restart ต้อง update `APP_BASE_URL`; `NEXT_PUBLIC_API_BASE_URL` ควรเป็น `same-origin` เพื่อให้ owner session cookie ใช้กับ API rewrite ได้
 
 ## Docker Compose Shape
 
@@ -185,7 +185,9 @@ LINE_DEMO_CHANNEL_ACCESS_TOKEN=<SECRET>
 DEFAULT_TIMEZONE=Asia/Bangkok
 REPORT_VIEWER_SIGNING_SECRET=<32_PLUS_RANDOM_CHARS>
 REPORT_VIEWER_LINK_TTL_HOURS=72
-AI_BCC_ADMIN_TOKEN=<SERVER_ONLY_ADMIN_TOKEN>
+OWNER_AUTH_SECRET=<32_PLUS_RANDOM_CHARS>
+OWNER_ADMIN_USERNAME=<OWNER_ADMIN_USERNAME>
+OWNER_ADMIN_PASSWORD=<OWNER_ADMIN_PASSWORD>
 ```
 
 ห้าม commit ค่า secret จริง
@@ -205,7 +207,7 @@ MORNING_BRIEF_MODE=send
 ```mermaid
 flowchart TD
     Test[192.168.2.109 Test Server] --> Platform[Docker Compose Platform]
-    Platform --> SML[SML PostgreSQL in Office LAN]
+    Platform --> SML[SML Tomcat JavaWS in Office LAN]
     Platform --> LINE[LINE Messaging API]
     User[User Browser] --> Test
 ```
@@ -247,7 +249,7 @@ curl http://127.0.0.1:4055/health
 docker compose -f infra/docker-compose.yml --env-file .env.server ps
 ```
 
-ห้าม print `.env.server` ทั้งไฟล์ เพราะมี LINE token, SML credential, admin token และ signing secret
+ห้าม print `.env.server` ทั้งไฟล์ เพราะมี LINE token, SML credential, owner password และ signing secret
 
 ## Why Not OpenHuman Desktop in Phase 1
 

@@ -192,7 +192,16 @@ export function parseJavaWsRows(xml: string): Record<string, unknown>[] {
   }
   const parsed = resultParser.parse(xml) as Record<string, unknown>;
   const resultSet = findObjectKey(parsed, "ResultSet") ?? parsed.ResultSet;
-  if (!resultSet || typeof resultSet !== "object") {
+  if (resultSet == null) {
+    throw new Error("JavaWS XML response did not include ResultSet.");
+  }
+  if (typeof resultSet === "string") {
+    if (!resultSet.trim()) {
+      return [];
+    }
+    throw new Error("JavaWS XML ResultSet was not structured.");
+  }
+  if (typeof resultSet !== "object") {
     throw new Error("JavaWS XML response did not include ResultSet.");
   }
 
@@ -298,7 +307,7 @@ function findObjectKey(value: unknown, key: string): unknown {
   }
   for (const child of Object.values(object)) {
     const found = findObjectKey(child, key);
-    if (found) {
+    if (found !== null) {
       return found;
     }
   }

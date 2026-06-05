@@ -97,12 +97,12 @@ tenant_id + report_key + period_date + delivery_type
 
 ถ้า key นี้เคย `success` แล้ว ห้ามส่งซ้ำ ยกเว้น manual force send จาก admin
 
-### Done for MVP: Mutation endpoints protected by admin token
+### Done for MVP: Mutation endpoints protected by owner session
 
 Mutation endpoints ต้องใช้:
 
 ```text
-x-ai-bcc-admin-token
+ai_bcc_owner_session cookie
 ```
 
 Protected endpoints:
@@ -150,7 +150,7 @@ Quick tunnel ใช้ทดสอบ webhook ได้ แต่ production ต
 ## Production Blockers
 
 - ยังใช้ DB credential จาก env demo, production ต้องเปลี่ยนเป็น read-only user
-- ยังไม่มี login/role permission เต็ม ใช้ admin token แบบ MVP
+- ยังไม่มี login/role permission เต็ม ใช้ single owner admin session แบบ pilot
 - ยังไม่มี system DB backup/restore automation
 - ยังไม่มี permanent webhook URL/domain
 - ยังไม่มี tenant-specific LINE OA onboarding flow

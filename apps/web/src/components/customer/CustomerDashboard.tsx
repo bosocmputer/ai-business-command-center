@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  type BusinessSignalRecord,
   formatSmlBranchLabel,
   type PurchaseGoodsPayablesSnapshot,
   type ReportKey,
@@ -60,6 +61,12 @@ type ExecutiveNoteModel = {
   title: string;
   tone?: "neutral" | "warning" | "success";
 };
+
+type BusinessDigestState =
+  | { status: "loading" }
+  | { status: "ready"; signals: BusinessSignalRecord[] }
+  | { status: "empty" }
+  | { status: "error"; message: string };
 
 type DocumentDrilldownCopy = {
   amountHeader: string;
@@ -436,6 +443,8 @@ function CustomerDashboardContent({
   const [purchaseState, setPurchaseState] = useState<PurchasePanelState>({
     status: "loading",
   });
+  const [businessDigestState, setBusinessDigestState] =
+    useState<BusinessDigestState>({ status: "loading" });
   const purchaseSnapshot =
     purchaseState.status === "ready" ? purchaseState.snapshot : null;
 
@@ -484,6 +493,50 @@ function CustomerDashboardContent({
     snapshot.params.date_to,
   ]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadBusinessDigest() {
+      setBusinessDigestState({ status: "loading" });
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/app/${encodeURIComponent(
+            session.tenant_slug,
+          )}/business-digest?${new URLSearchParams({
+            status: "open",
+            limit: "5",
+          }).toString()}`,
+          { signal: controller.signal },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: BusinessSignalRecord[];
+          error?: string;
+        };
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "โหลดเรื่องที่ควรจัดการไม่สำเร็จ");
+        }
+        setBusinessDigestState(
+          payload.data.length
+            ? { status: "ready", signals: payload.data }
+            : { status: "empty" },
+        );
+      } catch (error) {
+        if ((error as { name?: string }).name === "AbortError") {
+          return;
+        }
+        setBusinessDigestState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดเรื่องที่ควรจัดการไม่สำเร็จ",
+        });
+      }
+    }
+
+    void loadBusinessDigest();
+    return () => controller.abort();
+  }, [session.tenant_slug]);
+
   return (
     <CustomerShell tenant={session.tenant} title="รายงานร้านค้า">
       <CustomerExecutiveCockpit
@@ -495,6 +548,8 @@ function CustomerDashboardContent({
         topProductLabel={topProduct?.item_name ?? null}
         trust={trust}
       />
+
+      <CustomerBusinessDigest state={businessDigestState} />
 
       <section className="overflow-hidden rounded-xl border border-[#E4E7EC] bg-white shadow-sm">
         <div className="border-b border-[#EAECF0] px-4 py-4 sm:px-5">
@@ -698,6 +753,14 @@ function CustomerDashboardContent({
             }
           />
           <DetailItem label="รอบประมวลผล" value={snapshot.run_id} />
+          <DetailItem
+            label="Demo Mode"
+            value={
+              session.tenant.featureFlags?.demo_mode_enabled
+                ? "เปิด, ข้อมูลต้องติดป้ายตัวอย่าง"
+                : "ปิด"
+            }
+          />
         </div>
         <p className="mt-3">
           หน้านี้เป็น read-only และอ่านเฉพาะช่วงรายงานของร้านนี้เท่านั้น
@@ -773,6 +836,9 @@ function CustomerExecutiveCockpit({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            {tenant.featureFlags?.demo_mode_enabled ? (
+              <StatusPill tone="warning">Demo Mode</StatusPill>
+            ) : null}
             <StatusPill tone={trust.color === "warning" ? "warning" : "success"}>
               {trust.label}
             </StatusPill>
@@ -860,6 +926,124 @@ function CustomerExecutiveCockpit({
             ) : null}
           </p>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function CustomerBusinessDigest({
+  state,
+}: {
+  state: BusinessDigestState;
+}) {
+  if (state.status === "loading") {
+    return (
+      <section className="rounded-xl border border-[#E4E7EC] bg-white px-4 py-4 shadow-sm sm:px-5">
+        <div className="h-4 w-40 rounded bg-[#F2F4F7]" />
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {["a", "b", "c"].map((item) => (
+            <div className="h-20 rounded-lg bg-[#F9FAFB]" key={item} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <section className="rounded-xl border border-warning-200 bg-warning-50 px-4 py-3 text-[13px] leading-5 text-warning-700 sm:px-5">
+        ยังโหลดเรื่องที่ควรจัดการไม่ได้: {state.message}
+      </section>
+    );
+  }
+
+  if (state.status === "empty") {
+    return (
+      <section className="rounded-xl border border-[#D1FADF] bg-[#ECFDF3] px-4 py-4 shadow-sm sm:px-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[12px] font-semibold leading-[18px] text-[#027A48]">
+              เรื่องที่ควรจัดการวันนี้
+            </p>
+            <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+              ยังไม่พบเรื่องเร่งด่วนจากรายงานล่าสุด
+            </h2>
+            <p className="mt-1 text-[13px] leading-5 text-[#475467]">
+              ระบบจะขึ้นเตือนเมื่อพบยอดขายหาย กำไรผิดปกติ หรือข้อมูล SML ที่ควรตรวจ
+            </p>
+          </div>
+          <StatusPill tone="success">ปกติ</StatusPill>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] px-4 py-4 shadow-sm sm:px-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[12px] font-semibold leading-[18px] text-[#B54708]">
+            เรื่องที่ควรจัดการวันนี้
+          </p>
+          <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+            ระบบพบ {formatNumber(state.signals.length)} เรื่องจากรายงานล่าสุด
+          </h2>
+          <p className="mt-1 text-[13px] leading-5 text-[#475467]">
+            แต่ละเรื่องผูกกับรายงาน SML ต้นทางและมีเหตุผลว่าควรตรวจอะไรต่อ
+          </p>
+        </div>
+        <StatusPill
+          tone={
+            state.signals.some((signal) => signal.severity === "critical")
+              ? "warning"
+              : "neutral"
+          }
+        >
+          ตรวจตามลำดับ
+        </StatusPill>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        {state.signals.slice(0, 3).map((signal) => (
+          <article
+            className="min-w-0 rounded-lg border border-[#FEDF89] bg-white p-3"
+            key={signal.id}
+          >
+            <div className="flex min-w-0 items-start justify-between gap-2">
+              <h3 className="min-w-0 break-words text-[14px] font-semibold leading-5 text-[#101828]">
+                {signal.title}
+              </h3>
+              <StatusPill
+                tone={signal.severity === "critical" ? "warning" : "neutral"}
+              >
+                {formatBusinessSignalSeverity(signal.severity)}
+              </StatusPill>
+            </div>
+            <p className="mt-2 break-words text-[13px] leading-5 text-[#344054]">
+              {signal.insight}
+            </p>
+            <p className="mt-2 break-words text-[12px] font-semibold leading-5 text-[#B54708]">
+              ควรตรวจ: {signal.recommended_action}
+            </p>
+            <p className="mt-2 text-[12px] leading-5 text-[#667085]">
+              มาจาก {formatCustomerReportLabel(signal.source_report_key)}
+              {signal.amount_impact !== null
+                ? ` · ${formatCurrency(signal.amount_impact)} บาท`
+                : ""}
+            </p>
+            <div className="mt-3 rounded-md border border-[#EAECF0] bg-[#F9FAFB] p-2">
+              <p className="text-[12px] font-semibold leading-5 text-[#344054]">
+                ทำไมระบบแจ้งเรื่องนี้
+              </p>
+              <p className="mt-1 break-words text-[12px] leading-5 text-[#475467]">
+                {formatBusinessSignalEvidence(signal)}
+              </p>
+              <p className="mt-1 break-all text-[11px] leading-4 text-[#667085]">
+                Source: {formatCustomerReportLabel(signal.source_report_key)} · run{" "}
+                {signal.source_run_id}
+              </p>
+            </div>
+          </article>
+        ))}
       </div>
     </section>
   );
@@ -2601,6 +2785,59 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatBusinessSignalSeverity(
+  severity: BusinessSignalRecord["severity"],
+) {
+  if (severity === "critical") {
+    return "ควรตรวจทันที";
+  }
+  if (severity === "warning") {
+    return "มีข้อสังเกต";
+  }
+  return "ข้อมูลประกอบ";
+}
+
+function formatBusinessSignalEvidence(signal: BusinessSignalRecord) {
+  const evidence = signal.evidence_json ?? {};
+  if (
+    signal.signal_key.includes("missing_branch") &&
+    typeof evidence.total_amount === "number"
+  ) {
+    return `พบยอดขายที่ยังไม่ผูกสาขา ${formatCurrency(
+      evidence.total_amount,
+    )} บาท จึงควรตรวจการบันทึกสาขาใน SML`;
+  }
+  if (
+    signal.signal_key.includes("supplier_concentration") &&
+    typeof evidence.concentration_percent === "number"
+  ) {
+    return `ผู้จำหน่ายรายเดียวคิดเป็น ${evidence.concentration_percent}% ของยอดซื้อรวม จึงควรตรวจว่าเป็นรายการปกติหรือความเสี่ยง`;
+  }
+  if (
+    signal.signal_key.includes("low_margin") &&
+    typeof evidence.gross_margin_percent === "number"
+  ) {
+    return `Margin จาก snapshot อยู่ที่ ${evidence.gross_margin_percent}% ต่ำกว่าเกณฑ์ของร้าน`;
+  }
+  if (signal.signal_key.includes("negative")) {
+    return "พบยอดหรือรายการที่กำไรขั้นต้นติดลบ ระบบจึงแนะนำให้ตรวจราคาขาย ต้นทุน และเอกสารคืนสินค้า";
+  }
+  if (signal.category === "data_quality") {
+    return "ระบบพบข้อสังเกตด้านคุณภาพข้อมูล จึงควรตรวจรายละเอียดก่อนใช้ตัดสินใจ";
+  }
+  return "ระบบสร้างจาก report snapshot ล่าสุดและผูกกับ run ต้นทางเพื่อให้ตรวจสอบย้อนหลังได้";
+}
+
+function formatCustomerReportLabel(reportKey: ReportKey) {
+  const labels: Record<ReportKey, string> = {
+    sales_goods_services: "รายงานขาย",
+    purchase_goods_payables: "รายงานซื้อ/ตั้งหนี้",
+    gross_profit_by_product: "รายงานกำไรสินค้า",
+    gross_profit_by_ar_customer: "รายงานกำไรลูกหนี้",
+  };
+  return labels[reportKey];
 }
 
 function safeNumber(value: number | string | null | undefined) {

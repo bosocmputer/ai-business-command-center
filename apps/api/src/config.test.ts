@@ -34,34 +34,24 @@ afterEach(() => {
 });
 
 describe("LINE channel configuration", () => {
-  it("keeps channel credentials usable when no legacy env target is configured", () => {
+  it("does not use LINE env credentials for runtime configuration", () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN = "line-channel-token";
-    delete process.env.LINE_TARGET_ID;
-    delete process.env.LINE_TARGET_TYPE;
-    delete process.env.LINE_DEMO_TARGET_ID;
-    delete process.env.LINE_DEMO_TARGET_TYPE;
 
-    expect(readLineChannelCredentials("tenant_demo_remote")).toEqual({
-      channelAccessToken: "line-channel-token",
-    });
+    expect(readLineChannelCredentials("tenant_demo_remote")).toBeNull();
     expect(readLineChannelConfig("tenant_demo_remote")).toBeNull();
   });
 
-  it("returns the legacy env target only when target id still exists", () => {
+  it("ignores legacy LINE target env values", () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN = "line-channel-token";
     process.env.LINE_TARGET_ID = "C1234567890abcdef1234567890abcdef";
     process.env.LINE_TARGET_TYPE = "group";
 
-    expect(readLineChannelConfig("tenant_demo_remote")).toMatchObject({
-      channelAccessToken: "line-channel-token",
-      targetId: "C1234567890abcdef1234567890abcdef",
-      targetType: "group",
-    });
+    expect(readLineChannelConfig("tenant_demo_remote")).toBeNull();
   });
 
-  it("does not reuse the legacy demo LINE token for non-demo tenants", () => {
-    process.env.LINE_CHANNEL_ACCESS_TOKEN = "line-channel-token";
-    delete process.env.LINE_OFFICE_CHANNEL_ACCESS_TOKEN;
+  it("requires LINE OA to be stored through the encrypted owner flow", () => {
+    process.env.LINE_OFFICE_CHANNEL_ACCESS_TOKEN = "line-channel-token";
+    process.env.LINE_OFFICE_TARGET_ID = "C1234567890abcdef1234567890abcdef";
 
     expect(readLineChannelCredentials("tenant_office_sml1_2026")).toBeNull();
     expect(readLineChannelConfig("tenant_office_sml1_2026")).toBeNull();

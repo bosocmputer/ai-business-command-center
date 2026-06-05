@@ -3,7 +3,6 @@ import {
   getSmlBranchMeaning,
   type BranchSales,
   type DataQualityStatus,
-  type LineFlexMessage,
   type PurchaseGoodsPayablesLinePreview,
   type PurchaseGoodsPayablesSnapshot,
   type SalesDetailRow,
@@ -16,6 +15,11 @@ import {
   type TopProduct,
   type TopSupplier,
 } from "@ai-bcc/shared";
+import {
+  buildExecutiveDigestFlexMessage,
+  isValidLineUri as isValidExecutiveDigestUri,
+  type ExecutiveDigestStatus,
+} from "./line-flex.js";
 
 export const purchaseGoodsPayablesContract = {
   report_key: "purchase_goods_payables",
@@ -644,160 +648,46 @@ function buildPurchaseGoodsPayablesFlexMessage(input: {
   dashboardUrl: string | null;
   insight: string;
   warnings: string[];
-}): LineFlexMessage | undefined {
-  if (!isValidLineUri(input.dashboardUrl)) {
+}) {
+  if (!isValidExecutiveDigestUri(input.dashboardUrl)) {
     return undefined;
   }
 
   const { snapshot } = input;
-  const statusText = formatTrustStatus(snapshot);
-  const statusColor =
-    snapshot.summary.document_count === 0 ||
-    snapshot.quality_status === "reconciled_with_warning"
-      ? "#B45309"
-      : "#047857";
   const topSupplier = snapshot.top_suppliers[0];
-  const topProduct = snapshot.top_products[0];
-  const footerNote =
-    input.warnings[0] ??
-    "ข้อมูลนี้มาจากรายงานซื้อ/ตั้งหนี้ SML ที่ระบบรันและเก็บ snapshot ไว้";
-  const altText = truncateLineText(
-    `รายงานซื้อ ${input.tenantName} ${formatReportPeriod(
+  return buildExecutiveDigestFlexMessage({
+    title: "ซื้อ/ตั้งหนี้",
+    subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+    )}`,
+    altText: `ซื้อ/ตั้งหนี้ ${input.tenantName} ${formatReportPeriod(
       snapshot.params.date_from,
       snapshot.params.date_to,
     )}: ${formatMoney(snapshot.summary.total_purchase)} บาท`,
-    300,
-  );
-
-  return {
-    type: "flex",
-    altText,
-    contents: {
-      type: "bubble",
-      size: "mega",
-      header: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        backgroundColor: "#F8FAFC",
-        contents: [
-          {
-            type: "text",
-            text: "รายงานซื้อ/ตั้งหนี้",
-            weight: "bold",
-            size: "lg",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "text",
-            text: `${input.tenantName} · ${formatReportPeriodWithTime(
-              snapshot.params.date_from,
-              snapshot.params.date_to,
-            )}`,
-            size: "sm",
-            color: "#6B7280",
-            margin: "sm",
-            wrap: true,
-          },
-        ],
+    generatedAt: input.generatedAt,
+    status: getPurchaseDigestStatus(snapshot),
+    primaryAmount: `${formatMoney(snapshot.summary.total_purchase)} บาท`,
+    metrics: [
+      {
+        label: "เอกสารซื้อ",
+        value: `${formatInteger(snapshot.summary.document_count)} ใบ`,
       },
-      body: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        spacing: "sm",
-        contents: [
-          {
-            type: "box",
-            layout: "horizontal",
-            contents: [
-              {
-                type: "text",
-                text: statusText,
-                size: "xs",
-                weight: "bold",
-                color: statusColor,
-                flex: 1,
-              },
-              {
-                type: "text",
-                text: `อัปเดต ${input.generatedAt}`,
-                size: "xs",
-                color: "#6B7280",
-                align: "end",
-                flex: 2,
-              },
-            ],
-          },
-          {
-            type: "text",
-            text: `${formatMoney(snapshot.summary.total_purchase)} บาท`,
-            weight: "bold",
-            size: "xxl",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "box",
-            layout: "vertical",
-            spacing: "sm",
-            contents: [
-              buildFlexMetricRow(
-                "เอกสารซื้อ",
-                `${formatInteger(snapshot.summary.document_count)} ใบ`,
-              ),
-              buildFlexMetricRow(
-                "รายการสินค้า",
-                `${formatInteger(snapshot.summary.line_count)} รายการ`,
-              ),
-              buildFlexMetricRow("จำนวนซื้อรวม", formatQty(snapshot.summary.total_qty)),
-            ],
-          },
-          { type: "separator", margin: "md" },
-          buildFlexInfoBlock("วันนี้ควรรู้อะไร", input.insight),
-          buildFlexInfoBlock(
-            "ผู้จำหน่ายหลัก",
-            topSupplier
-              ? `${topSupplier.supplier_name}: ${formatMoney(topSupplier.total_amount)} บาท`
-              : "ยังไม่มีเอกสารซื้อในช่วงนี้",
-          ),
-          buildFlexInfoBlock(
-            "สินค้าที่ซื้อสูงสุด",
-            topProduct
-              ? `${topProduct.item_name}: ${formatMoney(topProduct.sum_amount)} บาท`
-              : "ยังไม่มีสินค้าในช่วงนี้",
-          ),
-          {
-            type: "text",
-            text: footerNote,
-            size: "xs",
-            color: "#92400E",
-            wrap: true,
-            margin: "md",
-          },
-        ],
+      {
+        label: "รายการสินค้า",
+        value: `${formatInteger(snapshot.summary.line_count)} รายการ`,
       },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        contents: [
-          {
-            type: "button",
-            style: "primary",
-            color: "#2563EB",
-            height: "sm",
-            action: {
-              type: "uri",
-              label: "เปิดรายงานซื้อ",
-              uri: input.dashboardUrl,
-            },
-          },
-        ],
-      },
-    },
-  };
+      { label: "จำนวนซื้อรวม", value: formatQty(snapshot.summary.total_qty) },
+    ],
+    insight: input.insight,
+    topLine: topSupplier
+      ? {
+          label: "ผู้จำหน่ายหลัก",
+          value: `${truncateLineText(topSupplier.supplier_name, 36)}: ${formatMoney(topSupplier.total_amount)} บาท`,
+        }
+      : { label: "ผู้จำหน่ายหลัก", value: "ยังไม่มีเอกสารซื้อในช่วงนี้" },
+    dashboardUrl: input.dashboardUrl,
+  });
 }
 
 function buildFinancialBreakdown(
@@ -900,6 +790,24 @@ function buildPurchaseInsight(snapshot: PurchaseGoodsPayablesSnapshot) {
   return "รายงานพร้อมใช้สำหรับดูยอดซื้อ ผู้จำหน่าย และสินค้าที่รับเข้ามากที่สุด";
 }
 
+function getPurchaseDigestStatus(
+  snapshot: PurchaseGoodsPayablesSnapshot,
+): ExecutiveDigestStatus {
+  if (snapshot.summary.total_purchase < 0) {
+    return { text: "ควรตรวจทันที", severity: "critical" };
+  }
+  if (snapshot.summary.document_count === 0) {
+    return { text: "ไม่มีข้อมูล", severity: "notice" };
+  }
+  if (snapshot.source === "sample_snapshot" || snapshot.quality_status === "stale") {
+    return { text: "ข้อมูลเก่า", severity: "notice" };
+  }
+  if (snapshot.quality_status === "reconciled_with_warning") {
+    return { text: "มีข้อสังเกต", severity: "notice" };
+  }
+  return { text: "พร้อมใช้", severity: "ready" };
+}
+
 function buildLineWarnings(snapshot: PurchaseGoodsPayablesSnapshot): string[] {
   const warnings: string[] = [];
 
@@ -909,7 +817,7 @@ function buildLineWarnings(snapshot: PurchaseGoodsPayablesSnapshot): string[] {
 
   if (snapshot.quality_status === "reconciled_with_warning") {
     warnings.push(
-      "ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ ic_trans.total_amount เป็นยอดซื้อหลัก",
+      "ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ยอดหัวเอกสารเป็นยอดซื้อหลัก",
     );
   }
 

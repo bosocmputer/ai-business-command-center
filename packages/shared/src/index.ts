@@ -12,6 +12,8 @@ export const tenantIdSchema = z
 export const reportKeySchema = z.enum([
   "sales_goods_services",
   "purchase_goods_payables",
+  "gross_profit_by_product",
+  "gross_profit_by_ar_customer",
 ]);
 
 export const tenantStatusSchema = z.enum([
@@ -21,6 +23,21 @@ export const tenantStatusSchema = z.enum([
   "suspended",
   "cancelled",
 ]);
+
+export const tenantFeatureFlagsSchema = z.object({
+  business_signals_enabled: z.boolean().default(true),
+  line_action_digest_v2_enabled: z.boolean().default(false),
+  demo_mode_enabled: z.boolean().default(false),
+});
+
+export const businessSignalThresholdsSchema = z.object({
+  low_gross_margin_percent: z.coerce.number().min(0).max(100).default(5),
+  sales_drop_percent: z.coerce.number().min(0).max(100).default(20),
+  sales_drop_amount: z.coerce.number().min(0).max(1_000_000_000).default(1000),
+  purchase_concentration_percent: z.coerce.number().min(0).max(100).default(80),
+  missing_branch_amount: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  no_sales_enabled: z.boolean().default(true),
+});
 
 export const planCodeSchema = z.enum(["starter", "business", "pro"]);
 
@@ -56,6 +73,10 @@ export const dataQualityStatusSchema = z.enum([
 export type TenantId = z.infer<typeof tenantIdSchema>;
 export type ReportKey = z.infer<typeof reportKeySchema>;
 export type TenantStatus = z.infer<typeof tenantStatusSchema>;
+export type TenantFeatureFlags = z.infer<typeof tenantFeatureFlagsSchema>;
+export type BusinessSignalThresholdsConfig = z.infer<
+  typeof businessSignalThresholdsSchema
+>;
 export type PlanCode = z.infer<typeof planCodeSchema>;
 export type UserRole = z.infer<typeof userRoleSchema>;
 export type SalesGoodsServicesParams = z.infer<
@@ -72,6 +93,8 @@ export type Tenant = {
   datasourceConfigured: boolean;
   status: TenantStatus;
   planCode: PlanCode;
+  featureFlags?: TenantFeatureFlags;
+  businessSignalThresholds?: BusinessSignalThresholdsConfig;
   suspendedReason: string | null;
   currentPeriodEnd: string | null;
 };
@@ -309,9 +332,146 @@ export type PurchaseGoodsPayablesSnapshot = {
   };
 };
 
+export type GrossProfitReportKey =
+  | "gross_profit_by_product"
+  | "gross_profit_by_ar_customer";
+
+export type GrossProfitBaseRow = {
+  qty_sale: number;
+  amount_sale: number;
+  cost_sale: number;
+  qty_sale_return: number;
+  amount_sale_return: number;
+  cost_sale_return: number;
+  net_qty: number;
+  net_amount: number;
+  net_cost: number;
+  gross_profit: number;
+  gross_margin_percent: number | null;
+};
+
+export type GrossProfitByProductRow = GrossProfitBaseRow & {
+  code: string;
+  name_1: string;
+  unit_name: string;
+};
+
+export type GrossProfitByArCustomerRow = GrossProfitBaseRow & {
+  ar_code: string;
+  ar_detail: string;
+};
+
+export type GrossProfitSummary = {
+  row_count: number;
+  document_count: number;
+  line_count: number;
+  total_qty: number;
+  total_sales: number;
+  total_returns: number;
+  net_amount: number;
+  net_cost: number;
+  gross_profit: number;
+  gross_margin_percent: number | null;
+  negative_gross_profit_count: number;
+  top_gross_profit_name: string | null;
+};
+
+export type GrossProfitByProductSnapshot = {
+  tenant_id: TenantId;
+  report_key: "gross_profit_by_product";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  summary: GrossProfitSummary;
+  rows: GrossProfitByProductRow[];
+  top_rows: GrossProfitByProductRow[];
+  negative_rows: GrossProfitByProductRow[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
+export type GrossProfitByArCustomerSnapshot = {
+  tenant_id: TenantId;
+  report_key: "gross_profit_by_ar_customer";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  summary: GrossProfitSummary;
+  rows: GrossProfitByArCustomerRow[];
+  top_rows: GrossProfitByArCustomerRow[];
+  negative_rows: GrossProfitByArCustomerRow[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
 export type ReportSnapshot =
   | SalesGoodsServicesSnapshot
-  | PurchaseGoodsPayablesSnapshot;
+  | PurchaseGoodsPayablesSnapshot
+  | GrossProfitByProductSnapshot
+  | GrossProfitByArCustomerSnapshot;
+
+export const businessSignalSeveritySchema = z.enum([
+  "info",
+  "warning",
+  "critical",
+]);
+
+export const businessSignalCategorySchema = z.enum([
+  "sales",
+  "profit",
+  "purchase",
+  "stock",
+  "ar",
+  "data_quality",
+]);
+
+export const businessSignalStatusSchema = z.enum([
+  "open",
+  "acknowledged",
+  "resolved",
+  "dismissed",
+]);
+
+export const businessSignalEvidenceSchema = z.record(z.string(), z.unknown());
+
+export type BusinessSignalSeverity = z.infer<
+  typeof businessSignalSeveritySchema
+>;
+export type BusinessSignalCategory = z.infer<
+  typeof businessSignalCategorySchema
+>;
+export type BusinessSignalStatus = z.infer<typeof businessSignalStatusSchema>;
+
+export type BusinessSignalRecord = {
+  id: string;
+  tenant_id: TenantId;
+  signal_key: string;
+  category: BusinessSignalCategory;
+  severity: BusinessSignalSeverity;
+  title: string;
+  insight: string;
+  recommended_action: string;
+  amount_impact: number | null;
+  source_report_key: ReportKey;
+  source_run_id: string;
+  period_from: string;
+  period_to: string;
+  dimension_type: string;
+  dimension_id: string;
+  rule_version: string;
+  status: BusinessSignalStatus;
+  evidence_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
 
 export function getSmlBranchMeaning(
   branchCode: string | null | undefined,
@@ -393,12 +553,14 @@ export type LineAccessProfileKey = z.infer<
 export type AllowedLineAction = z.infer<typeof allowedLineActionSchema>;
 export type LineTargetType = "user" | "group" | "room";
 export type LineTargetSource = "env_fallback" | "webhook" | "manual";
+export type LineChannelScope = "tenant" | "owner_shared";
 
 export type LineChannelRecord = {
   id: string;
   tenant_id: TenantId;
   display_name: string;
   channel_type: "line_oa";
+  scope?: LineChannelScope;
   channel_access_token_configured: boolean;
   channel_secret_configured: boolean;
   enabled: boolean;
@@ -426,6 +588,53 @@ export type LineTargetRecord = {
   created_at: string;
   updated_at: string;
 };
+
+export type LineRecipientRecord = {
+  id: string;
+  source_target_id: string;
+  source_tenant_id: TenantId;
+  source_tenant_name: string;
+  display_name: string;
+  target_type: LineTargetType;
+  target_id_masked: string;
+  target_id_hash: string;
+  line_channel_id: string | null;
+  line_channel_display_name: string | null;
+  line_channel_scope: LineChannelScope | null;
+  line_channel_token_configured: boolean;
+  assigned_tenant_ids: TenantId[];
+  assignment_count: number;
+  source: LineTargetSource;
+  last_delivery_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export const tenantReportRolePermissionSchema = z.object({
+  access_profile_key: lineAccessProfileKeySchema,
+  allowed_report_keys: z.array(reportKeySchema).max(50),
+});
+
+export const tenantReportRolePermissionsPayloadSchema = z.object({
+  permissions: z
+    .array(tenantReportRolePermissionSchema)
+    .min(1)
+    .max(lineAccessProfileKeySchema.options.length),
+});
+
+export type TenantReportRolePermission = z.infer<
+  typeof tenantReportRolePermissionSchema
+>;
+
+export type TenantReportRolePermissionsPayload = z.infer<
+  typeof tenantReportRolePermissionsPayloadSchema
+>;
+
+export type TenantReportRolePermissionRecord =
+  TenantReportRolePermission & {
+    tenant_id: TenantId;
+    updated_at: string;
+  };
 
 export type LinePermissionDenyReason =
   | "target_not_found"
@@ -477,9 +686,25 @@ export type PurchaseGoodsPayablesLinePreview = {
   dashboard_url: string | null;
 };
 
+export type GrossProfitLinePreview = {
+  tenant_id: TenantId;
+  report_key: GrossProfitReportKey;
+  run_id: string;
+  generated_at: string;
+  source: GrossProfitByProductSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
 export type ReportLinePreview =
   | SalesGoodsServicesLinePreview
-  | PurchaseGoodsPayablesLinePreview;
+  | PurchaseGoodsPayablesLinePreview
+  | GrossProfitLinePreview;
 
 export type LineDeliveryStatus =
   | "dry_run"
@@ -493,7 +718,7 @@ export type LineDeliveryRecord = {
   report_key: ReportKey;
   report_run_id: string;
   delivery_key: string | null;
-  delivery_type: "manual_test" | "morning_brief";
+  delivery_type: "manual_test" | "morning_brief" | "notification_rule";
   period_from: string | null;
   period_to: string | null;
   target_id_masked: string | null;
@@ -506,6 +731,8 @@ export type LineDeliveryRecord = {
 };
 
 export type LineSendMode = "dry_run" | "send";
+
+export const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 
 export const lineSendRequestSchema = z.object({
   mode: z.enum(["dry_run", "send"]).default("dry_run"),
@@ -520,8 +747,6 @@ export const morningBriefRequestSchema = z.object({
 });
 
 export type MorningBriefRequest = z.infer<typeof morningBriefRequestSchema>;
-
-export const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 
 export function deriveMorningBriefDateRange(input?: {
   period?: MorningBriefRequest["period"];
@@ -563,10 +788,213 @@ function addDays(ymd: string, days: number): string {
 
 export type LineSendResult = {
   delivery: LineDeliveryRecord;
-  preview: SalesGoodsServicesLinePreview;
+  preview: ReportLinePreview;
   configured: boolean;
   mode: LineSendMode;
 };
+
+export const notificationPeriodPresetSchema = z.enum([
+  "yesterday",
+  "today_so_far",
+  "last_7_days",
+]);
+
+export const notificationRuleRunStatusSchema = z.enum([
+  "running",
+  "success",
+  "failed",
+  "skipped",
+]);
+
+export const notificationDigestModeSchema = z.enum([
+  "action_only",
+  "all_reports",
+]);
+
+export const notificationScheduleEntrySchema = z.object({
+  weekdays: z.array(z.coerce.number().int().min(1).max(7)).min(1).max(7),
+  times: z
+    .array(z.string().regex(/^\d{2}:\d{2}$/))
+    .min(1)
+    .max(12),
+});
+
+export const notificationRulePayloadSchema = z.object({
+  tenant_id: tenantIdSchema,
+  name: z.string().trim().min(2).max(120),
+  enabled: z.boolean().default(true),
+  timezone: z.string().trim().min(1).max(80).default(BANGKOK_TIME_ZONE),
+  period_preset: notificationPeriodPresetSchema.default("yesterday"),
+  schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
+  report_keys: z.array(reportKeySchema).min(1).max(5),
+  target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),
+  digest_mode: notificationDigestModeSchema.default("action_only"),
+});
+
+export type NotificationPeriodPreset = z.infer<
+  typeof notificationPeriodPresetSchema
+>;
+export type NotificationRuleRunStatus = z.infer<
+  typeof notificationRuleRunStatusSchema
+>;
+export type NotificationDigestMode = z.infer<
+  typeof notificationDigestModeSchema
+>;
+export type NotificationScheduleEntry = z.infer<
+  typeof notificationScheduleEntrySchema
+>;
+export type NotificationRulePayload = z.infer<
+  typeof notificationRulePayloadSchema
+>;
+
+export type NotificationMessagePackaging = "digest";
+
+export type NotificationRetryPolicy = {
+  max_attempts: number;
+  retry_delay_minutes: number;
+};
+
+export type NotificationRuleRecord = NotificationRulePayload & {
+  id: string;
+  message_packaging: NotificationMessagePackaging;
+  retry_policy: NotificationRetryPolicy;
+  last_run_at: string | null;
+  last_run_status: NotificationRuleRunStatus | null;
+  last_safe_error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotificationRuleRunRecord = {
+  id: string;
+  rule_id: string;
+  tenant_id: TenantId;
+  scheduled_local_date: string;
+  scheduled_local_time: string;
+  timezone: string;
+  period_from: string;
+  period_to: string;
+  status: NotificationRuleRunStatus;
+  attempt: number;
+  idempotency_key: string;
+  report_run_ids: string[];
+  delivery_ids: string[];
+  safe_error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  next_retry_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function deriveNotificationPeriodRange(input: {
+  periodPreset: NotificationPeriodPreset;
+  now?: Date;
+  timeZone?: string;
+}): SalesGoodsServicesParams {
+  const timeZone = input.timeZone ?? BANGKOK_TIME_ZONE;
+  const currentYmd = formatDateInTimeZone(input.now ?? new Date(), timeZone);
+
+  if (input.periodPreset === "today_so_far") {
+    return { date_from: currentYmd, date_to: currentYmd };
+  }
+
+  if (input.periodPreset === "last_7_days") {
+    return { date_from: addDays(currentYmd, -6), date_to: currentYmd };
+  }
+
+  const yesterday = addDays(currentYmd, -1);
+  return { date_from: yesterday, date_to: yesterday };
+}
+
+export function getZonedDateTimeParts(input: { now: Date; timeZone: string }) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: input.timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(input.now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const date = `${values.year}-${values.month}-${values.day}`;
+
+  return {
+    date,
+    time: `${values.hour}:${values.minute}`,
+    isoWeekday: isoWeekdayFromYmd(date),
+  };
+}
+
+export function isNotificationRuleDue(input: {
+  rule: Pick<NotificationRuleRecord, "enabled" | "schedule" | "timezone">;
+  now: Date;
+}) {
+  if (!input.rule.enabled) {
+    return null;
+  }
+
+  const zoned = getZonedDateTimeParts({
+    now: input.now,
+    timeZone: input.rule.timezone || BANGKOK_TIME_ZONE,
+  });
+  const due = input.rule.schedule.some(
+    (entry) =>
+      entry.weekdays.includes(zoned.isoWeekday) &&
+      entry.times.includes(zoned.time),
+  );
+
+  return due ? zoned : null;
+}
+
+export function buildNotificationIdempotencyKey(input: {
+  ruleId: string;
+  scheduledLocalDate: string;
+  scheduledLocalTime: string;
+  attempt?: number;
+}) {
+  return [
+    "notification_rule",
+    input.ruleId,
+    input.scheduledLocalDate,
+    input.scheduledLocalTime,
+    input.attempt ?? 1,
+  ].join(":");
+}
+
+export function getNextNotificationRunAt(input: {
+  rule: Pick<NotificationRuleRecord, "enabled" | "schedule" | "timezone">;
+  now?: Date;
+}): { date: string; time: string; timezone: string } | null {
+  if (!input.rule.enabled) {
+    return null;
+  }
+
+  const timeZone = input.rule.timezone || BANGKOK_TIME_ZONE;
+  const start = input.now ?? new Date();
+  for (let minuteOffset = 1; minuteOffset <= 14 * 24 * 60; minuteOffset += 1) {
+    const candidate = new Date(start.getTime() + minuteOffset * 60_000);
+    const zoned = getZonedDateTimeParts({ now: candidate, timeZone });
+    if (
+      input.rule.schedule.some(
+        (entry) =>
+          entry.weekdays.includes(zoned.isoWeekday) &&
+          entry.times.includes(zoned.time),
+      )
+    ) {
+      return { date: zoned.date, time: zoned.time, timezone: timeZone };
+    }
+  }
+
+  return null;
+}
+
+function isoWeekdayFromYmd(ymd: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return weekday === 0 ? 7 : weekday;
+}
 
 export type LineWebhookSourceType = "user" | "group" | "room" | "unknown";
 

@@ -62,6 +62,8 @@ services:
     restart: unless-stopped
     ports:
       - "${AI_BCC_WEB_PORT:-3055}:3000"
+    env_file:
+      - ${AI_BCC_ENV_FILE:-../.env.server}
     environment:
       HOSTNAME: 0.0.0.0
       PORT: 3000
@@ -78,16 +80,10 @@ services:
     env_file:
       - ${AI_BCC_ENV_FILE:-../.env.server}
     environment:
-      MORNING_BRIEF_ENABLED: ${MORNING_BRIEF_ENABLED:-true}
-      MORNING_BRIEF_API_BASE_URL: http://api:4000
-      MORNING_BRIEF_TENANT_IDS: ${MORNING_BRIEF_TENANT_IDS:-tenant_demo_remote}
-      MORNING_BRIEF_TIMEZONE: ${MORNING_BRIEF_TIMEZONE:-Asia/Bangkok}
-      MORNING_BRIEF_TIME: ${MORNING_BRIEF_TIME:-08:00}
-      MORNING_BRIEF_MODE: ${MORNING_BRIEF_MODE:-send}
-      MORNING_BRIEF_FORCE: ${MORNING_BRIEF_FORCE:-false}
-      WORKER_ID: ${WORKER_ID:-worker_morning_brief_1}
+      AI_BCC_WORKER_API_BASE_URL: http://api:4000
+      WORKER_ID: ${WORKER_ID:-worker_notification_rules_1}
+      WORKER_NOTIFICATION_MODE: ${WORKER_NOTIFICATION_MODE:-send}
       WORKER_HEARTBEAT_TOKEN: ${WORKER_HEARTBEAT_TOKEN:-}
-      AI_BCC_ADMIN_TOKEN: ${AI_BCC_ADMIN_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy

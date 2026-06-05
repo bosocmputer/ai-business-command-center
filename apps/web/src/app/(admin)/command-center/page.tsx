@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import CommandCenterDashboard from "@/components/command-center/CommandCenterDashboard";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Legacy Report Admin | AI Business",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function CommandCenterPage() {
-  return <CommandCenterDashboard />;
+  redirect("/owner");
 }

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import OwnerPortal from "@/components/owner/OwnerPortal";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "ร้านค้า | AI Business Owner",
-  description: "จัดการร้านค้า subscription และ SML datasource",
+  description: "จัดการร้านค้า subscription readiness และ dashboard link",
 };
 
 export default function OwnerTenantsPage() {
-  return <OwnerPortal section="tenants" />;
+  redirect("/owner");
 }

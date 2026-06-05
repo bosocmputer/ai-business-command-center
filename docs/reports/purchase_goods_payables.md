@@ -2,7 +2,7 @@
 
 ## Goal
 
-รายงานตัวที่ 2 สำหรับดูยอดซื้อสินค้า/ตั้งหนี้จาก SML PostgreSQL โดยใช้ query เดียวกันทุก tenant แต่ datasource แยกตามร้านค้า รายงานนี้ใช้คู่กับ `sales_goods_services` ใน dashboard และ Morning Brief
+รายงานตัวที่ 2 สำหรับดูยอดซื้อสินค้า/ตั้งหนี้จาก SML ผ่าน JavaWS โดยใช้ query เดียวกันทุก tenant แต่ connection แยกตามร้านค้า รายงานนี้ใช้คู่กับ `sales_goods_services` ใน dashboard และแผนแจ้งเตือน LINE
 
 ## Report Key
 
@@ -23,7 +23,7 @@ Rules:
 
 - Date format ต้องเป็น `YYYY-MM-DD`
 - `date_from <= date_to`
-- Morning Brief ใช้ช่วง `เดือนนี้ถึงเมื่อวาน` สำหรับ purchase เพื่อให้เห็นยอดซื้อสะสม ไม่ใช่เฉพาะวันเดียวที่อาจไม่มีเอกสาร
+- แผนแจ้งเตือนใช้ช่วง `เดือนนี้ถึงเมื่อวาน` สำหรับ purchase เพื่อให้เห็นยอดซื้อสะสม ไม่ใช่เฉพาะวันเดียวที่อาจไม่มีเอกสาร
 
 ## SQL Truth
 

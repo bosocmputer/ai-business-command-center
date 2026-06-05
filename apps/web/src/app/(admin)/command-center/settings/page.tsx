@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import CommandCenterSettings from "@/components/command-center/CommandCenterSettings";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Legacy LINE Admin | AI Business",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function CommandCenterSettingsPage() {
-  return <CommandCenterSettings />;
+  redirect("/owner/line");
 }

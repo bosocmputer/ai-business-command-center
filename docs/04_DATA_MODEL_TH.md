@@ -2,7 +2,7 @@
 
 ## เป้าหมายของเอกสาร
 
-นิยาม data model กลางสำหรับระบบ subscription, integration channel, datasource/partner secret, report registry, report run, snapshot, LINE config, audit และ future chatbot
+นิยาม data model กลางสำหรับระบบ subscription, integration channel, SML JavaWS/partner secret, report registry, report run, snapshot, LINE config, audit และ future chatbot
 
 ## Design Principles
 
@@ -25,12 +25,14 @@ Current implementation ผ่าน `SystemStore` persist ตารางหล�
 - `line_channels`
 - `line_targets`
 - `line_deliveries`
+- `notification_rules`
+- `notification_rule_runs`
 - `line_webhook_events`
 - `worker_heartbeats`
 - `secrets`
 - `audit_logs`
 
-ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` และ `integration_channels` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง ส่วน datasource/LINE channel secret ยังมาจาก env บน server หรือ metadata ใน `line_channels` โดยไม่ commit secret ลง repo. รอบล่าสุดเพิ่ม `secrets` เป็น encrypted secret foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า workflow config
+ส่วน `datasources`, `roles`, `subscriptions`, `tenant_report_configs` และ `integration_channels` ยังเป็น next expansion หลัง SaaS pilot stable ตอนนี้ subscription status ถูกเก็บบน `tenants` ก่อนเพื่อใช้ gate จริง. SML JavaWS/LINE channel secret ย้ายเข้า encrypted store สำหรับ Owner UI แล้ว และ scheduler หลักของการแจ้งเตือนใช้ `notification_rules` แทน env Morning Brief เป็นหลัก
 
 ### integration_channels / brief_channels (planned)
 
@@ -53,7 +55,7 @@ updated_at
 
 `channel_key` examples:
 
-- `sml_reports`: SML PostgreSQL read-only reports
+- `sml_reports`: SML JavaWS read-only reports
 - `flowaccount_finance`: FlowAccount OpenAPI finance/accounting brief
 - `ecommerce`: future ecommerce marketplace brief
 - `pos`: future POS brief
@@ -74,6 +76,8 @@ name
 database_name
 description
 datasource_configured
+feature_flags_json
+business_signal_thresholds_json
 status
 plan_code
 suspended_reason
@@ -87,10 +91,12 @@ Policy:
 - `trial` / `active`: dashboard และ LINE ใช้งานได้
 - `past_due`: ยังใช้งานได้ แต่ owner เห็น warning
 - `suspended` / `cancelled`: customer viewer ถูก block และ scheduler ไม่ส่ง LINE
+- `feature_flags_json`: rollout gate เช่น Business Signals, LINE Action Digest v2, Demo Mode
+- `business_signal_thresholds_json`: threshold override ต่อร้าน ถ้าไม่มีค่าใช้ default กลาง
 
 ### secrets
 
-เก็บ encrypted secret envelope สำหรับ datasource, LINE channel และ partner channel เช่น FlowAccount ใน phase ถัดไป
+เก็บ encrypted secret envelope สำหรับ SML JavaWS reverse-proxy auth, LINE channel และ partner channel เช่น FlowAccount ใน phase ถัดไป
 
 ```text
 id
@@ -111,6 +117,71 @@ Policy:
 - UI/API ที่ list secret ต้องคืนเฉพาะ metadata และ `has_encrypted_value`
 - decrypt เฉพาะตอน worker/API ต้องใช้งานจริงใน memory
 
+### notification_rules
+
+เก็บแผนแจ้งเตือนต่อร้านที่ Owner ตั้งผ่าน `/owner/notifications`
+
+```text
+id
+tenant_id
+name
+enabled
+timezone
+period_preset
+schedule_json
+report_keys_json
+target_ids_json
+message_packaging
+digest_mode
+retry_policy_json
+last_run_at
+last_run_status
+last_safe_error_message
+created_at
+updated_at
+```
+
+Policy:
+
+- `period_preset` v1: `yesterday`, `today_so_far`, `last_7_days`
+- `schedule_json` v1 เป็น recurring weekly เท่านั้น ใช้ ISO weekday `1-7` และเวลา `HH:mm` ได้หลายเวลา
+- `target_ids_json` ต้องอ้างถึง `line_targets` ที่ approved/enabled และมีสิทธิ์รับ report keys ที่เลือก
+- `message_packaging` v1 คือ `digest` เสมอ
+- `digest_mode`: `action_only` ส่ง Action Digest เป็นหลัก, `all_reports` ส่งรายงานที่เลือกครบทุกใบ
+- UI ไม่ให้กรอก raw LINE userId/groupId/roomId ใน rule
+
+### notification_rule_runs
+
+เก็บประวัติการ execute notification rule หนึ่งรอบเวลา
+
+```text
+id
+rule_id
+tenant_id
+scheduled_local_date
+scheduled_local_time
+timezone
+period_from
+period_to
+status
+attempt
+idempotency_key
+report_run_ids_json
+delivery_ids_json
+safe_error_message
+started_at
+finished_at
+next_retry_at
+created_at
+updated_at
+```
+
+Policy:
+
+- `idempotency_key` unique ต่อ rule + local date + local time + attempt เพื่อกันส่งซ้ำในนาทีเดียวกัน
+- retry v1 ทำได้ 1 ครั้งหลัง delay ตาม `retry_policy_json`
+- `safe_error_message` ต้องไม่เก็บ secret, raw LINE id หรือ SQL เต็ม
+
 ### subscriptions
 
 เก็บ package และสถานะรายเดือน
@@ -128,22 +199,22 @@ cancelled_at
 metadata_json
 ```
 
-### datasources
+### datasources (legacy/planned)
 
-เก็บ connection ไปยัง SML PostgreSQL สำหรับ `sml_reports` channel
+ตารางนี้เป็น schema เดิม/next expansion เท่านั้น. Flow ปัจจุบันไม่ใช้ PostgreSQL direct สำหรับ SML ของร้านค้าแล้ว และเก็บ SML JavaWS metadata + encrypted auth ผ่าน `secrets`/system store
 
 ```text
 id
 tenant_id
 type
 name
-host
-port
+base_url
+webapp_path
+endpoint
+config_file_name
 database_name
-username
-encrypted_password
-ssl_mode
-connection_mode
+query_method
+auth_mode
 status
 last_tested_at
 last_error
@@ -151,9 +222,9 @@ created_at
 updated_at
 ```
 
-`type`: `sml_postgres`
+`type`: `sml_javaws`
 
-`connection_mode`: `direct_ip`, `vpn`, `local_connector`
+ค่าเก่า `sml_postgres` ถ้าพบใน store ให้ถือว่าไม่พร้อมใช้งานและต้องตั้งค่า SML JavaWS ใหม่
 
 ### flowaccount_connections (planned)
 
@@ -277,13 +348,14 @@ created_at
 
 ### line_channels
 
-LINE OA/channel config ต่อ tenant ใน production
+LINE OA/channel config สำหรับส่ง LINE ต่อร้าน หรือใช้เป็น Owner shared OA ให้หลายร้านเลือกใช้
 
 ```text
 id
 tenant_id
 display_name
 channel_type
+scope
 channel_access_token_configured
 channel_secret_configured
 enabled
@@ -292,7 +364,12 @@ created_at
 updated_at
 ```
 
-Phase ปัจจุบัน `line_channels` เป็น registry/metadata สำหรับ Owner Admin ก่อน เช่น มี token/secret แล้วหรือยัง, เปิดใช้งานหรือไม่, source มาจาก env/manual. Token จริงยังอยู่ใน env (`LINE_CHANNEL_ACCESS_TOKEN` หรือ tenant-specific env) จนกว่าจะเพิ่ม encrypted secret store
+`scope`:
+
+- `tenant`: LINE OA ของร้านนั้นเอง
+- `owner_shared`: LINE OA ของ Owner ที่ร้านอื่นเลือกใช้ได้ ถ้าร้านยังไม่มี LINE OA ของตัวเอง
+
+Token/secret จริงเก็บใน `secrets` แบบ encrypted โดยผูกกับ channel owner (`tenant_id` ของ channel) ไม่ copy secret ไปหลายร้าน. ถ้าร้านยังไม่มี LINE OA ของตัวเอง ให้เลือกใช้ Owner shared OA ได้
 
 ### line_targets
 
@@ -328,7 +405,7 @@ updated_at
 
 `access_profile_key`:
 
-- `executive`: รับ Morning Brief/ถาม chatbot ได้ทุก approved report ที่เปิดให้ tenant
+- `executive`: รับแผนแจ้งเตือน/ถาม chatbot ได้ทุก approved report ที่เปิดให้ tenant
 - `sales_manager`: ดูรายงานขายได้ แต่อนาคตต้องแยก margin/profit ถ้ามี
 - `operations`: เตรียมไว้สำหรับ stock/SO/backlog; ไม่เห็นรายงานขายถ้าไม่ได้เปิดสิทธิ์
 - `staff`: ไม่เห็นยอดขายรวม และ chatbot ต้องตอบว่าไม่มีสิทธิ์เมื่อถาม report ที่ถูก deny
@@ -344,6 +421,7 @@ updated_at
 - target ใหม่จาก webhook ต้อง `approved=false`, `enabled=false` เสมอ
 - API response และ audit ใช้ `target_id_masked`/`target_id_hash` ห้ามโชว์ `target_id` เต็ม
 - env fallback target ปิดเป็นค่า default; pilot/production ต้องใช้ target registry ที่ผูก `tenant_id` และผ่านการอนุมัติเท่านั้น
+- target ของ `owner_shared` LINE OA อาจถูก expose เป็น virtual target ต่อร้าน เพื่อให้แผนแจ้งเตือนของร้านนั้นส่งผ่าน Owner OA ได้โดยไม่ copy LINE secret
 
 ### line_deliveries
 
@@ -454,7 +532,7 @@ created_at
 
 ตัวอย่าง `action`:
 
-- `datasource.test_connection`
+- `sml_javaws.test_connection`
 - `report.run`
 - `report.snapshot.created`
 - `line.message.sent`

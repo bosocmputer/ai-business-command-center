@@ -135,7 +135,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
   - บอกให้ใช้ลิงก์ร้านค้าที่ได้รับจากผู้ดูแล
 - `/app/:tenantSlug` เป็น Customer Viewer portal:
   - read-only
-  - ไม่มี config/admin token/manual mutation
+  - ไม่มี config/manual mutation
   - derive tenant จาก slug ฝั่ง server เท่านั้น ไม่ใช้ `tenant_id` จาก query/header
   - ใช้ compact executive report layout:
     - ยอดขายสุทธิเป็นตัวเลขหลักใน first viewport
@@ -242,10 +242,10 @@ tenant_id + sales_goods_services + morning_brief + date_from + date_to + target_
 
 ### Security / Safety
 
-- Mutation endpoints ต้องใช้ header:
+- Mutation endpoints ต้องใช้ owner session cookie:
 
 ```text
-x-ai-bcc-admin-token: <server-only-token>
+Cookie: ai_bcc_owner_session=<signed-owner-session>
 ```
 
 - Protected endpoints:
@@ -270,10 +270,10 @@ x-ai-bcc-admin-token: <server-only-token>
   - `GET /api/reports/:tenantId/:reportKey/pdf` with signed viewer token
 - Legacy customer endpoints ที่ไม่มี slug (`/api/app/session`, `/api/app/reports/...`) จะตอบ safe error และไม่ default ไป DEMO SHOP อีกแล้ว
 - Owner login ใช้ signed cookie ชื่อ `ai_bcc_owner_session`
-- Mutation API เดิมยังใช้ `x-ai-bcc-admin-token` เป็น MVP guard โดยหน้า login จะ bootstrap token ให้หลังเข้าสู่ระบบ
-- UI ใช้ TailAdmin-style dialog สำหรับกรอก admin token เฉพาะกรณี sessionStorage ไม่มี token หรือ token ใช้ไม่ได้
+- Mutation API ใช้ signed owner session cookie เดียวกับหน้า `/owner`
+- UI ไม่ prompt shared mutation token แล้ว
 - UI ใช้ TailAdmin-style confirmation dialog ก่อนส่ง LINE จริง / ส่ง test จริง
-- API log redact `x-ai-bcc-admin-token`
+- API ไม่รับ shared admin mutation header แล้ว
 - LINE target API response/audit ใช้ masked/hash id ไม่ expose target id เต็ม
 - Secret จริงอยู่ใน `.env.server` บน server เท่านั้น ไม่ commit
 
@@ -328,8 +328,8 @@ GET /api/app/unknown-shop/session   -> 404
 GET /api/app/session                -> 400 (slug required)
 GET /api/app/:tenantSlug/reports/sales_goods_services?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
                                     -> read-only approved report run, max 31 days
-POST /run without admin token       -> 401
-POST /run with wrong admin token    -> 403
+POST /run without owner session     -> 401
+POST /run with invalid owner session -> 401
 docker compose ps                   -> api/web/worker/system-db running
 api health                          -> healthy
 system_store                        -> postgres
@@ -364,7 +364,7 @@ Browser QA:
 
 - Owner auth เป็น signed cookie login แล้ว แต่ยังเป็น single admin user ไม่ใช่ user table/role เต็ม
 - ค่า credential เริ่มต้น `superadmin/superadmin` ใช้เฉพาะ owner pilot และไม่แสดงบน UI; production จริงควรย้ายไป user/role table หรือ strong secret ที่หมุนได้
-- Mutation API ยังพึ่ง `x-ai-bcc-admin-token` ระหว่างเปลี่ยนผ่านไป session/role เต็ม
+- Mutation API ใช้ owner session แล้ว แต่ยังไม่ใช่ user/role permission เต็ม
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env; เพิ่ม secret vault/table foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า encrypted datasource workflow
 - Owner portal ทดสอบ datasource ได้แล้ว แต่ยังไม่ได้บันทึก/แก้ host, port, user, password ผ่าน UI แบบ encrypted
@@ -395,7 +395,7 @@ Priority 1:
 
 Priority 2:
 
-1. ทำ login/session จริงสำหรับ owner/customer แทน admin token/slug-only viewer
+1. ทำ user/role permission เต็มสำหรับ owner/customer แทน single admin/slug-only viewer
 2. ต่อ owner datasource config ให้บันทึก secret ผ่าน encrypted secret store
 3. ต่อ LINE channel token/secret ให้บันทึกผ่าน encrypted secret store สำหรับหลาย LINE OA จริง
 4. เพิ่ม `subscriptions` และ `tenant_report_configs` เป็น table/workflow แยก
@@ -433,10 +433,10 @@ curl http://127.0.0.1:4055/health
 ## Reminder สำหรับ Codex รอบถัดไป
 
 - อ่านไฟล์นี้ก่อนเริ่มงาน
-- อย่า print `.env.server`, LINE token, admin token หรือ signed viewer token
+- อย่า print `.env.server`, LINE token, owner password หรือ signed viewer token
 - อย่า hardcode credential จริงลง repo
 - ถ้าจะส่ง LINE จริง ต้อง confirm กับ user ก่อน
-- ถ้าจะทดสอบ mutation endpoint ให้ใช้ token จาก server env โดยไม่ echo ออกมา
-- ค่า admin token สำหรับ pilot อาจตั้งให้ง่ายต่อการจำใน server env ได้ แต่ production ต้องเปลี่ยนเป็น secret ที่ strong และหมุนได้
+- ถ้าจะทดสอบ mutation endpoint ให้ login owner เพื่อรับ session cookie โดยไม่ echo secret ออกมา
+- ค่า owner password/secret สำหรับ production ต้องเป็น strong secret ที่หมุนได้
 - ถ้าเห็นยอด `0` ของวันที่ `2026-05-19` ให้ถือว่าเป็นข้อมูลจริงของ snapshot ล่าสุด ไม่ใช่ error
 - อย่า assume ว่า FlowAccount หรือ integration ใหม่ต้องเชื่อมกับ SML; ให้ถือเป็น independent brief channel เว้นแต่ user ระบุให้ sync/reconcile โดยตรง

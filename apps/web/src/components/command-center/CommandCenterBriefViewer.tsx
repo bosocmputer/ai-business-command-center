@@ -7,6 +7,11 @@ import type { ApexOptions } from "apexcharts";
 import {
   formatSmlBranchLabel,
   type BranchSales,
+  type GrossProfitBaseRow,
+  type GrossProfitByArCustomerRow,
+  type GrossProfitByArCustomerSnapshot,
+  type GrossProfitByProductRow,
+  type GrossProfitByProductSnapshot,
   type ReportKey,
   type ReportSnapshot,
   type SalesComparisonPoint,
@@ -25,12 +30,12 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
 });
 
 type SnapshotResponse = {
-  data?: ReportSnapshot;
+  data?: ViewerReportSnapshot;
   error?: string;
 };
 
 type ViewerRunResponse = {
-  data?: ReportSnapshot;
+  data?: ViewerReportSnapshot;
   error?: string;
 };
 
@@ -59,7 +64,7 @@ type PdfPrepareResponse = {
 
 type LoadState =
   | { status: "loading" }
-  | { status: "ready"; snapshot: ReportSnapshot }
+  | { status: "ready"; snapshot: ViewerReportSnapshot }
   | { status: "error"; message: string };
 
 type DocumentsState =
@@ -88,15 +93,37 @@ type PdfDownloadState =
 
 type ViewerParams = {
   tenantId: string;
-  reportKey: ReportKey;
+  reportKey: ViewerReportKey;
   runId: string;
   token: string;
 };
 
-const DETAILED_PRINT_PAGE_SIZE = 50;
-const DETAILED_PRINT_MAX_DOCUMENTS = 300;
-const DETAILED_PRINT_MAX_DETAIL_LINES = 5000;
-const DETAILED_PRINT_DETAIL_CONCURRENCY = 4;
+type ClassicViewerReportKey = Extract<
+  ReportKey,
+  "sales_goods_services" | "purchase_goods_payables"
+>;
+
+type GrossProfitViewerReportKey = Extract<
+  ReportKey,
+  "gross_profit_by_product" | "gross_profit_by_ar_customer"
+>;
+
+type ViewerReportKey = ClassicViewerReportKey | GrossProfitViewerReportKey;
+
+type ViewerReportSnapshot = Extract<
+  ReportSnapshot,
+  { report_key: ViewerReportKey }
+>;
+
+type ClassicViewerReportSnapshot = Extract<
+  ReportSnapshot,
+  { report_key: ClassicViewerReportKey }
+>;
+
+type GrossProfitViewerReportSnapshot =
+  | GrossProfitByProductSnapshot
+  | GrossProfitByArCustomerSnapshot;
+
 const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 const PDF_PROGRESS_STAGES = [
   { delayMs: 0, progress: 5, stage: "ตรวจสิทธิ์ลิงก์รายงาน" },
@@ -106,33 +133,6 @@ const PDF_PROGRESS_STAGES = [
   { delayMs: 2400, progress: 80, stage: "สร้างไฟล์ PDF" },
   { delayMs: 3800, progress: 95, stage: "บันทึกไฟล์ลง cache" },
 ] as const;
-
-type DetailedPrintDocument = {
-  document: SalesDocumentListItem;
-  detail: SalesDocumentDetail | null;
-  error: string | null;
-};
-
-type DetailedPrintState =
-  | { status: "idle" }
-  | {
-      status: "loading";
-      phase: "documents" | "details";
-      totalDocuments: number | null;
-      loadedDocuments: number;
-      loadedDetails: number;
-      loadedLines: number;
-    }
-  | {
-      status: "ready";
-      generatedAt: string;
-      dateFrom: string;
-      dateTo: string;
-      reportKey: ReportKey;
-      totalDocuments: number;
-      documents: DetailedPrintDocument[];
-    }
-  | { status: "error"; message: string };
 
 type ReportCopy = {
   title: string;
@@ -156,7 +156,7 @@ type ReportCopy = {
   emptyDocuments: string;
 };
 
-const reportCopy: Record<ReportKey, ReportCopy> = {
+const reportCopy: Record<ClassicViewerReportKey, ReportCopy> = {
   sales_goods_services: {
     title: "รายงานขายสินค้าและบริการ",
     shortTitle: "รายงานขาย",
@@ -307,10 +307,10 @@ function PremiumReportViewer({
   initialSnapshot,
   viewer,
 }: {
-  initialSnapshot: ReportSnapshot;
+  initialSnapshot: ViewerReportSnapshot;
   viewer: ViewerParams;
 }) {
-  const [snapshot, setSnapshot] = useState<ReportSnapshot>(initialSnapshot);
+  const [snapshot, setSnapshot] = useState<ViewerReportSnapshot>(initialSnapshot);
   const [dateFrom, setDateFrom] = useState(initialSnapshot.params.date_from);
   const [dateTo, setDateTo] = useState(initialSnapshot.params.date_to);
   const [rangeLoading, setRangeLoading] = useState(false);
@@ -325,29 +325,18 @@ function PremiumReportViewer({
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
-  const [detailedPrintState, setDetailedPrintState] =
-    useState<DetailedPrintState>({ status: "idle" });
-  const [showDetailedPrintView, setShowDetailedPrintView] = useState(false);
   const [pdfDownloadState, setPdfDownloadState] = useState<PdfDownloadState>({
     status: "idle",
   });
 
-  const copy = reportCopy[snapshot.report_key];
-  const totalAmount = getSnapshotTotal(snapshot);
-  const topItem = snapshot.top_products[0] ?? null;
-  const primaryRanking = getPrimaryRanking(snapshot);
+  const title = getViewerReportTitle(snapshot);
   const generatedAt = formatDateTime(snapshot.generated_at);
-  const hasWarning =
-    snapshot.quality_status === "reconciled_with_warning" ||
-    Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
 
   useEffect(() => {
-    document.title = `${copy.title} | AI Business Center`;
-  }, [copy.title]);
+    document.title = `${title} | AI Business Center`;
+  }, [title]);
 
   useEffect(() => {
-    setDetailedPrintState({ status: "idle" });
-    setShowDetailedPrintView(false);
     setPdfDownloadState({ status: "idle" });
   }, [
     snapshot.params.date_from,
@@ -403,6 +392,11 @@ function PremiumReportViewer({
 
   const loadDocuments = useCallback(
     async (nextPage = page, nextSearch = submittedSearch) => {
+      if (isGrossProfitSnapshot(snapshot)) {
+        setDocumentsState({ status: "idle" });
+        return;
+      }
+
       setDocumentsState({ status: "loading" });
       try {
         const params = new URLSearchParams({
@@ -436,16 +430,20 @@ function PremiumReportViewer({
     },
     [
       page,
-      snapshot.params.date_from,
-      snapshot.params.date_to,
+      snapshot,
       submittedSearch,
       viewer,
     ],
   );
 
   useEffect(() => {
+    if (isGrossProfitSnapshot(snapshot)) {
+      setDocumentsState({ status: "idle" });
+      return;
+    }
+
     void loadDocuments(page, submittedSearch);
-  }, [loadDocuments, page, submittedSearch]);
+  }, [loadDocuments, page, submittedSearch, snapshot]);
 
   async function loadDetail(document: SalesDocumentListItem) {
     if (expandedDocNo === document.doc_no) {
@@ -482,214 +480,6 @@ function PremiumReportViewer({
           error instanceof Error
             ? error.message
             : "โหลดรายละเอียดไม่สำเร็จ กรุณาลองใหม่",
-      });
-    }
-  }
-
-  async function fetchPrintDocumentPage(nextPage: number) {
-    const params = new URLSearchParams({
-      token: viewer.token,
-      run_id: viewer.runId,
-      date_from: snapshot.params.date_from,
-      date_to: snapshot.params.date_to,
-      page: String(nextPage),
-      page_size: String(DETAILED_PRINT_PAGE_SIZE),
-      search: "",
-    });
-    const response = await fetch(
-      `${API_BASE_URL}/api/reports/${encodeURIComponent(
-        viewer.tenantId,
-      )}/${encodeURIComponent(viewer.reportKey)}/viewer-documents?${params}`,
-    );
-    const payload = (await response.json()) as DocumentPageResponse;
-    if (!response.ok || !payload.data) {
-      throw new Error(payload.error || "โหลดรายการเอกสารสำหรับ PDF ไม่สำเร็จ");
-    }
-    return payload.data;
-  }
-
-  async function fetchPrintDocumentDetail(document: SalesDocumentListItem) {
-    const params = new URLSearchParams({
-      token: viewer.token,
-      run_id: viewer.runId,
-      date_from: snapshot.params.date_from,
-      date_to: snapshot.params.date_to,
-      doc_no: document.doc_no,
-    });
-    const response = await fetch(
-      `${API_BASE_URL}/api/reports/${encodeURIComponent(
-        viewer.tenantId,
-      )}/${encodeURIComponent(viewer.reportKey)}/viewer-document-detail?${params}`,
-    );
-    const payload = (await response.json()) as DocumentDetailResponse;
-    if (!response.ok || !payload.data) {
-      throw new Error(payload.error || "โหลดรายละเอียดเอกสารไม่สำเร็จ");
-    }
-    return payload.data;
-  }
-
-  async function prepareDetailedPrint() {
-    if (
-      detailedPrintState.status === "ready" &&
-      detailedPrintState.reportKey === snapshot.report_key &&
-      detailedPrintState.dateFrom === snapshot.params.date_from &&
-      detailedPrintState.dateTo === snapshot.params.date_to
-    ) {
-      setShowDetailedPrintView(true);
-      return;
-    }
-
-    setShowDetailedPrintView(false);
-    setDetailedPrintState({
-      status: "loading",
-      phase: "documents",
-      totalDocuments: null,
-      loadedDocuments: 0,
-      loadedDetails: 0,
-      loadedLines: 0,
-    });
-
-    try {
-      const firstPage = await fetchPrintDocumentPage(1);
-      const totalDocuments = firstPage.pagination.total_items;
-      if (snapshot.summary.line_count > DETAILED_PRINT_MAX_DETAIL_LINES) {
-        throw new Error(
-          `รายงานนี้มีรายละเอียด ${formatInteger(
-            snapshot.summary.line_count,
-          )} แถว ซึ่งมากเกินสำหรับพิมพ์ผ่าน browser กรุณาเลือกช่วงวันที่สั้นลงไม่เกิน ${formatInteger(
-            DETAILED_PRINT_MAX_DETAIL_LINES,
-          )} แถว`,
-        );
-      }
-      if (totalDocuments > DETAILED_PRINT_MAX_DOCUMENTS) {
-        throw new Error(
-          `ช่วงนี้มี ${formatInteger(
-            totalDocuments,
-          )} เอกสาร ซึ่งมากเกินสำหรับ PDF รายละเอียดในเบราว์เซอร์ กรุณาเลือกช่วงวันที่ให้ไม่เกิน ${formatInteger(
-            DETAILED_PRINT_MAX_DOCUMENTS,
-          )} เอกสาร`,
-        );
-      }
-
-      const documents = [...firstPage.documents];
-      setDetailedPrintState({
-        status: "loading",
-        phase: "documents",
-        totalDocuments,
-        loadedDocuments: documents.length,
-        loadedDetails: 0,
-        loadedLines: 0,
-      });
-
-      for (let nextPage = 2; nextPage <= firstPage.pagination.total_pages; nextPage += 1) {
-        const pageResult = await fetchPrintDocumentPage(nextPage);
-        documents.push(...pageResult.documents);
-        setDetailedPrintState({
-          status: "loading",
-          phase: "documents",
-          totalDocuments,
-          loadedDocuments: documents.length,
-          loadedDetails: 0,
-          loadedLines: 0,
-        });
-      }
-
-      const detailedDocuments: DetailedPrintDocument[] = new Array(
-        documents.length,
-      );
-      let cursor = 0;
-      let loadedDetails = 0;
-      let loadedLines = 0;
-      let abortError: Error | null = null;
-
-      setDetailedPrintState({
-        status: "loading",
-        phase: "details",
-        totalDocuments,
-        loadedDocuments: documents.length,
-        loadedDetails: 0,
-        loadedLines: 0,
-      });
-
-      async function worker() {
-        for (;;) {
-          if (abortError) {
-            return;
-          }
-          const currentIndex = cursor;
-          cursor += 1;
-          if (currentIndex >= documents.length) {
-            return;
-          }
-          const document = documents[currentIndex];
-          try {
-            const detail = await fetchPrintDocumentDetail(document);
-            loadedLines += detail.lines.length;
-            detailedDocuments[currentIndex] = {
-              document,
-              detail,
-              error: null,
-            };
-            if (loadedLines > DETAILED_PRINT_MAX_DETAIL_LINES) {
-              abortError = new Error(
-                `รายงานนี้มีรายละเอียดมากกว่า ${formatInteger(
-                  DETAILED_PRINT_MAX_DETAIL_LINES,
-                )} แถว ซึ่งมากเกินสำหรับพิมพ์ผ่าน browser กรุณาเลือกช่วงวันที่สั้นลง`,
-              );
-            }
-          } catch (error) {
-            detailedDocuments[currentIndex] = {
-              document,
-              detail: null,
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "โหลดรายละเอียดเอกสารนี้ไม่สำเร็จ",
-            };
-          } finally {
-            loadedDetails += 1;
-            setDetailedPrintState({
-              status: "loading",
-              phase: "details",
-              totalDocuments,
-              loadedDocuments: documents.length,
-              loadedDetails,
-              loadedLines,
-            });
-          }
-        }
-      }
-
-      await Promise.all(
-        Array.from({
-          length: Math.min(
-            DETAILED_PRINT_DETAIL_CONCURRENCY,
-            Math.max(1, documents.length),
-          ),
-        }).map(() => worker()),
-      );
-      if (abortError) {
-        throw abortError;
-      }
-
-      const readyState: DetailedPrintState = {
-        status: "ready",
-        generatedAt: new Date().toISOString(),
-        dateFrom: snapshot.params.date_from,
-        dateTo: snapshot.params.date_to,
-        reportKey: snapshot.report_key,
-        totalDocuments,
-        documents: detailedDocuments,
-      };
-      setDetailedPrintState(readyState);
-      setShowDetailedPrintView(true);
-    } catch (error) {
-      setDetailedPrintState({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "เตรียมรายงาน PDF แบบละเอียดไม่สำเร็จ",
       });
     }
   }
@@ -781,21 +571,39 @@ function PremiumReportViewer({
     documentsState.status === "ready" ? documentsState.page : null;
   const documents = documentPage?.documents ?? [];
   const totalPages = documentPage?.pagination.total_pages ?? 1;
-  const isDetailedPrintReady = detailedPrintState.status === "ready";
-  const showDetailedPrintScreen = isDetailedPrintReady && showDetailedPrintView;
   const detailedPdfUrl = buildViewerPdfUrl({
     viewer,
     dateFrom: snapshot.params.date_from,
     dateTo: snapshot.params.date_to,
   });
 
+  if (isGrossProfitSnapshot(snapshot)) {
+    return (
+      <GrossProfitReportViewer
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        generatedAt={generatedAt}
+        onApplyPreset={applyPreset}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onRunRange={() => void runRange()}
+        rangeError={rangeError}
+        rangeLoading={rangeLoading}
+        snapshot={snapshot}
+      />
+    );
+  }
+
+  const copy = reportCopy[snapshot.report_key];
+  const totalAmount = getSnapshotTotal(snapshot);
+  const topItem = snapshot.top_products[0] ?? null;
+  const primaryRanking = getPrimaryRanking(snapshot);
+  const hasWarning =
+    snapshot.quality_status === "reconciled_with_warning" ||
+    Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
+
   return (
-    <main
-      className={`min-h-screen bg-[#F6F7F9] text-[#101828] ${
-        isDetailedPrintReady ? "detailed-print-ready" : ""
-      } ${showDetailedPrintScreen ? "detailed-print-screen-mode" : ""}`}
-    >
-      <DetailedPrintStyles />
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
       <div className="screen-report-viewer">
       <div className="border-b border-[#E4E7EC] bg-white">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
@@ -869,10 +677,6 @@ function PremiumReportViewer({
               value={formatQty(snapshot.summary.total_qty)}
             />
           </div>
-          <DetailedPrintNotice
-            state={detailedPrintState}
-            onOpenDetailed={() => setShowDetailedPrintView(true)}
-          />
           <PdfDownloadProgressDialog
             downloadUrl={detailedPdfUrl}
             onClose={() => setPdfDownloadState({ status: "idle" })}
@@ -1057,6 +861,367 @@ function PremiumReportViewer({
   );
 }
 
+function GrossProfitReportViewer({
+  snapshot,
+  generatedAt,
+  dateFrom,
+  dateTo,
+  rangeLoading,
+  rangeError,
+  onDateFromChange,
+  onDateToChange,
+  onRunRange,
+  onApplyPreset,
+}: {
+  snapshot: GrossProfitViewerReportSnapshot;
+  generatedAt: string;
+  dateFrom: string;
+  dateTo: string;
+  rangeLoading: boolean;
+  rangeError: string | null;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onRunRange: () => void;
+  onApplyPreset: (preset: "yesterday" | "month" | "quarter" | "year") => void;
+}) {
+  const title = getGrossProfitTitle(snapshot.report_key);
+  const rowLabel =
+    snapshot.report_key === "gross_profit_by_product" ? "สินค้า" : "ลูกหนี้";
+  const hasWarning =
+    snapshot.summary.gross_profit < 0 ||
+    snapshot.summary.negative_gross_profit_count > 0;
+  const topRows = snapshot.top_rows.slice(0, 8);
+  const negativeRows = snapshot.negative_rows.slice(0, 6);
+
+  return (
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="screen-report-viewer">
+        <div className="border-b border-[#E4E7EC] bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                    รายงานผู้บริหาร
+                  </span>
+                  <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
+                    {formatSource(snapshot.source)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 ${
+                      hasWarning
+                        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                        : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                    }`}
+                  >
+                    {hasWarning ? "ควรตรวจต้นทุน" : "พร้อมใช้"}
+                  </span>
+                  <span className="rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[#B54708]">
+                    ข้อมูลต้นทุน
+                  </span>
+                </div>
+                <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
+                  {title}
+                </h1>
+                <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
+                  {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+                  {formatReportPeriod(
+                    snapshot.params.date_from,
+                    snapshot.params.date_to,
+                  )}{" "}
+                  · อัปเดต {generatedAt}
+                </p>
+              </div>
+              <a
+                href="#gross-profit-table"
+                className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] print:hidden"
+              >
+                ดูรายการกำไร
+              </a>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PremiumKpi
+                label="กำไรขั้นต้น"
+                value={`${formatMoney(snapshot.summary.gross_profit)} บาท`}
+                emphasis
+              />
+              <PremiumKpi
+                label="ยอดขายสุทธิหลังคืน"
+                value={`${formatMoney(snapshot.summary.net_amount)} บาท`}
+              />
+              <PremiumKpi
+                label="ต้นทุนสุทธิ"
+                value={`${formatMoney(snapshot.summary.net_cost)} บาท`}
+              />
+              <PremiumKpi
+                label="Margin"
+                value={formatMargin(snapshot.summary.gross_margin_percent)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                    สรุปผู้บริหาร
+                  </p>
+                  <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                    ผู้บริหารควรรู้อะไร
+                  </h2>
+                </div>
+                <span
+                  className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
+                    hasWarning
+                      ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                      : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                  }`}
+                >
+                  {hasWarning ? "ควรตรวจต้นทุน" : "พร้อมใช้"}
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                <InsightCard
+                  index={1}
+                  title="กำไรขั้นต้น"
+                  body={`${formatMoney(snapshot.summary.gross_profit)} บาท จาก ${formatInteger(
+                    snapshot.summary.row_count,
+                  )} ${rowLabel}`}
+                />
+                <InsightCard
+                  index={2}
+                  title={`Top ${rowLabel}`}
+                  body={
+                    topRows[0]
+                      ? `${getGrossProfitRowLabel(snapshot, topRows[0])} กำไร ${formatMoney(
+                          topRows[0].gross_profit,
+                        )} บาท`
+                      : "ยังไม่มีข้อมูลในช่วงวันที่นี้"
+                  }
+                />
+                <InsightCard
+                  index={3}
+                  title="รายการที่ควรตรวจ"
+                  body={
+                    snapshot.summary.negative_gross_profit_count > 0
+                      ? `${formatInteger(
+                          snapshot.summary.negative_gross_profit_count,
+                        )} รายการมีกำไรติดลบ`
+                      : "ยังไม่พบรายการกำไรติดลบ"
+                  }
+                />
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+              <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
+                ความน่าเชื่อถือข้อมูล
+              </h2>
+              <div className="mt-3 space-y-3 text-[14px] leading-[22px] text-[#475467]">
+                <p>
+                  ระบบคำนวณจากยอดขาย หักคืนสินค้า และต้นทุนจาก SML ตามช่วงวันที่ที่เลือก
+                </p>
+                <p className="rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] px-3 py-2 text-[#475467]">
+                  รายงานกำไรขั้นต้นสินค้าและลูกหนี้ใช้ transaction ชุดเดียวกัน
+                  ยอดรวมจึงควรเท่ากัน แต่แยกมุมมองคนละแบบ
+                </p>
+                {hasWarning && (
+                  <p className="rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[#B54708]">
+                    พบยอดสุทธิติดลบหรือรายการกำไรติดลบ ควรตรวจต้นทุนสินค้า ราคาขาย
+                    และเอกสารคืนสินค้า
+                  </p>
+                )}
+                <dl className="grid gap-3 text-[14px] leading-[22px] sm:grid-cols-2">
+                  <Fact
+                    label="ยอดขายรวมก่อนคืน"
+                    value={`${formatMoney(snapshot.summary.total_sales)} บาท`}
+                  />
+                  <Fact
+                    label="ยอดคืนสินค้า"
+                    value={`${formatMoney(snapshot.summary.total_returns)} บาท`}
+                  />
+                  <Fact
+                    label={`${rowLabel}ที่มีรายการ`}
+                    value={`${formatInteger(snapshot.summary.row_count)} รายการ`}
+                  />
+                  <Fact
+                    label="แหล่งข้อมูล"
+                    value={formatSource(snapshot.source)}
+                  />
+                </dl>
+              </div>
+            </section>
+          </div>
+
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
+            <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+                  เลือกช่วงรายงาน
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <PresetButton label="เมื่อวาน" onClick={() => onApplyPreset("yesterday")} />
+                  <PresetButton label="เดือนนี้" onClick={() => onApplyPreset("month")} />
+                  <PresetButton label="ไตรมาสนี้" onClick={() => onApplyPreset("quarter")} />
+                  <PresetButton label="ปีนี้" onClick={() => onApplyPreset("year")} />
+                </div>
+              </div>
+              <form
+                className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onRunRange();
+                }}
+              >
+                <DateInput label="จากวันที่" value={dateFrom} onChange={onDateFromChange} />
+                <DateInput label="ถึงวันที่" value={dateTo} onChange={onDateToChange} />
+                <button
+                  className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
+                  disabled={rangeLoading}
+                  type="submit"
+                >
+                  {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
+                </button>
+              </form>
+            </div>
+            {rangeError && (
+              <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
+                {rangeError}
+              </p>
+            )}
+          </section>
+
+          <section
+            id="gross-profit-table"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                  รายละเอียดกำไรขั้นต้น
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  Top {rowLabel}ตามกำไรขั้นต้น
+                </h2>
+              </div>
+              <span className="rounded-full border border-[#E4E7EC] bg-[#F9FAFB] px-3 py-1 text-[12px] font-semibold leading-[18px] text-[#475467]">
+                {formatInteger(snapshot.summary.row_count)} รายการ
+              </span>
+            </div>
+            <GrossProfitRowsTable
+              emptyText={`ยังไม่มี${rowLabel}ในช่วงวันที่นี้`}
+              rows={topRows}
+              snapshot={snapshot}
+            />
+          </section>
+
+          {negativeRows.length > 0 && (
+            <section className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-3 shadow-sm sm:p-4">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#B54708]">
+                  รายการที่ควรตรวจ
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  {rowLabel}ที่กำไรติดลบ
+                </h2>
+              </div>
+              <GrossProfitRowsTable
+                emptyText="ไม่พบรายการกำไรติดลบ"
+                rows={negativeRows}
+                snapshot={snapshot}
+              />
+            </section>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function GrossProfitRowsTable({
+  snapshot,
+  rows,
+  emptyText,
+}: {
+  snapshot: GrossProfitViewerReportSnapshot;
+  rows: Array<GrossProfitBaseRow | GrossProfitByProductRow | GrossProfitByArCustomerRow>;
+  emptyText: string;
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_130px_130px_130px_90px] md:gap-3">
+        <span>{snapshot.report_key === "gross_profit_by_product" ? "สินค้า" : "ลูกหนี้"}</span>
+        <span className="text-right">ยอดขายสุทธิ</span>
+        <span className="text-right">ต้นทุนสุทธิ</span>
+        <span className="text-right">กำไรขั้นต้น</span>
+        <span className="text-right">Margin</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row, index) => (
+          <div
+            key={`${getGrossProfitRowCode(snapshot, row)}-${index}`}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_130px_130px_130px_90px] md:items-center"
+          >
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {getGrossProfitRowLabel(snapshot, row)}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                {getGrossProfitRowCode(snapshot, row)}
+              </p>
+            </div>
+            <MobileFact label="ยอดขายสุทธิ" value={`${formatMoney(row.net_amount)} บาท`} />
+            <MobileFact label="ต้นทุนสุทธิ" value={`${formatMoney(row.net_cost)} บาท`} />
+            <MobileFact
+              danger={row.gross_profit < 0}
+              label="กำไรขั้นต้น"
+              value={`${formatMoney(row.gross_profit)} บาท`}
+            />
+            <MobileFact label="Margin" value={formatMargin(row.gross_margin_percent)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MobileFact({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 md:block md:text-right">
+      <span className="text-[12px] font-medium leading-[18px] text-[#667085] md:hidden">
+        {label}
+      </span>
+      <span
+        className={`break-words font-semibold ${
+          danger ? "text-[#B42318]" : "text-[#101828]"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function ExecutiveInsights({
   copy,
   snapshot,
@@ -1065,7 +1230,7 @@ function ExecutiveInsights({
   hasWarning,
 }: {
   copy: ReportCopy;
-  snapshot: ReportSnapshot;
+  snapshot: ClassicViewerReportSnapshot;
   topItem: TopProduct | null;
   primaryRanking: Array<{ label: string; meta: string; value: number }>;
   hasWarning: boolean;
@@ -1201,7 +1366,7 @@ function ChartPanel({
   );
 }
 
-function ComparisonPanel({ snapshot }: { snapshot: ReportSnapshot }) {
+function ComparisonPanel({ snapshot }: { snapshot: ClassicViewerReportSnapshot }) {
   const total = getSnapshotTotal(snapshot);
   const dayCount = getInclusiveDayCount(
     snapshot.params.date_from,
@@ -1259,7 +1424,7 @@ function ComparisonPanel({ snapshot }: { snapshot: ReportSnapshot }) {
   );
 }
 
-function TrustPanel({ snapshot }: { snapshot: ReportSnapshot }) {
+function TrustPanel({ snapshot }: { snapshot: ClassicViewerReportSnapshot }) {
   const hasWarning = Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
   return (
     <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
@@ -1515,82 +1680,6 @@ function LineItem({ index, line }: { index: number; line: SalesDetailRow }) {
   );
 }
 
-function DetailedPrintNotice({
-  state,
-  onOpenDetailed,
-}: {
-  state: DetailedPrintState;
-  onOpenDetailed: () => void;
-}) {
-  if (state.status === "idle") {
-    return null;
-  }
-
-  if (state.status === "error") {
-    return (
-      <div className="mt-4 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-4 py-3 text-[14px] leading-[22px] text-[#B42318] print:hidden">
-        {state.message}
-      </div>
-    );
-  }
-
-  if (state.status === "ready") {
-    const failedCount = state.documents.filter((item) => item.error).length;
-    return (
-      <div className="mt-4 flex flex-col gap-3 rounded-lg border border-[#ABEFC6] bg-[#ECFDF3] px-4 py-3 text-[14px] leading-[22px] text-[#027A48] sm:flex-row sm:items-center sm:justify-between print:hidden">
-        <span>
-          รายงานละเอียดพร้อมเปิดดูแล้ว ·{" "}
-          {formatInteger(state.totalDocuments)} เอกสาร
-          {failedCount ? ` · มี ${formatInteger(failedCount)} เอกสารที่โหลดรายละเอียดไม่ครบ` : ""}
-        </span>
-        <button
-          className="h-9 rounded-lg bg-[#027A48] px-4 text-[14px] font-semibold leading-[22px] text-white"
-          onClick={onOpenDetailed}
-          type="button"
-        >
-          เปิดรายงานละเอียด
-        </button>
-      </div>
-    );
-  }
-
-  const total = state.totalDocuments ?? state.loadedDocuments;
-  const loaded =
-    state.phase === "documents" ? state.loadedDocuments : state.loadedDetails;
-  const progress =
-    total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 12;
-  const label =
-    state.phase === "documents"
-      ? "กำลังโหลดหัวเอกสาร"
-      : "กำลังโหลดรายละเอียดสินค้าในเอกสาร";
-
-  return (
-    <div className="mt-4 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 print:hidden">
-      <div className="flex items-center justify-between gap-3 text-[14px] leading-[22px]">
-        <span className="font-semibold text-[#1D4ED8]">{label}</span>
-        <span className="text-[#475467]">
-          {formatInteger(loaded)}
-          {total ? ` / ${formatInteger(total)}` : ""} เอกสาร
-          {state.phase === "details"
-            ? ` · ${formatInteger(state.loadedLines)} แถว`
-            : ""}
-        </span>
-      </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
-        <div
-          className="h-full rounded-full bg-[#2563EB] transition-all"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      <p className="mt-2 text-[12px] leading-[18px] text-[#667085]">
-        รายงานออนไลน์จะดึงข้อมูลจาก SML ตามช่วงวันที่นี้ จำกัดไม่เกิน{" "}
-        {formatInteger(DETAILED_PRINT_MAX_DOCUMENTS)} เอกสาร และ{" "}
-        {formatInteger(DETAILED_PRINT_MAX_DETAIL_LINES)} แถวรายละเอียด
-      </p>
-    </div>
-  );
-}
-
 function PdfDownloadProgressDialog({
   downloadUrl,
   onClose,
@@ -1685,1069 +1774,6 @@ function PdfDownloadProgressDialog({
         </div>
       </div>
     </div>
-  );
-}
-
-function DetailedPrintReport({
-  copy,
-  onBack,
-  onPrint,
-  printState,
-  snapshot,
-}: {
-  copy: ReportCopy;
-  onBack: () => void;
-  onPrint: () => void;
-  printState: DetailedPrintState;
-  snapshot: ReportSnapshot;
-}) {
-  if (printState.status !== "ready") {
-    return <section aria-hidden="true" className="detailed-print-report" />;
-  }
-
-  const totalLines = printState.documents.reduce(
-    (sum, item) => sum + (item.detail?.lines.length ?? 0),
-    0,
-  );
-  const failedCount = printState.documents.filter((item) => item.error).length;
-
-  return (
-    <section className="detailed-print-report bg-white text-[#101828]">
-      <div className="print-screen-toolbar">
-        <div>
-          <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
-            รายงานละเอียดออนไลน์
-          </p>
-          <p className="mt-1 text-[14px] leading-[22px] text-[#475467]">
-            ใช้หน้านี้สำหรับตรวจรายละเอียดเอกสาร ส่วนไฟล์ PDF ให้ดาวน์โหลดจากปุ่มหลักด้านบน
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="h-10 rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054]"
-            onClick={onBack}
-            type="button"
-          >
-            กลับหน้าสรุป
-          </button>
-          <button
-            className="h-10 rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white"
-            onClick={onPrint}
-            type="button"
-          >
-            เปิดหน้าต่างพิมพ์
-          </button>
-        </div>
-      </div>
-      <div className="print-page">
-        <header className="print-report-header">
-          <div>
-            <p className="print-eyebrow">AI Business Center · รายงานละเอียดจาก SML</p>
-            <h1>{copy.title}</h1>
-            <p className="print-subtitle">
-              {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
-              {formatReportPeriod(printState.dateFrom, printState.dateTo)}
-            </p>
-          </div>
-          <div className="print-header-meta">
-            <p>จัดทำเมื่อ {formatDateTime(printState.generatedAt)}</p>
-            <p>{formatReportPeriod(printState.dateFrom, printState.dateTo)}</p>
-          </div>
-        </header>
-
-        <section className="print-summary-grid">
-          <PrintSummaryItem label={copy.totalLabel} value={`${formatMoney(getSnapshotTotal(snapshot))} บาท`} />
-          <PrintSummaryItem label={copy.documentLabel} value={`${formatInteger(snapshot.summary.document_count)} ใบ`} />
-          <PrintSummaryItem label={copy.lineLabel} value={`${formatInteger(snapshot.summary.line_count)} รายการ`} />
-          <PrintSummaryItem label={copy.qtyLabel} value={formatQty(snapshot.summary.total_qty)} />
-          <PrintSummaryItem label="เอกสารใน PDF" value={`${formatInteger(printState.totalDocuments)} ใบ`} />
-          <PrintSummaryItem label="แถวรายละเอียด" value={`${formatInteger(totalLines)} แถว`} />
-        </section>
-
-        {failedCount > 0 && (
-          <p className="print-warning">
-            หมายเหตุ: มี {formatInteger(failedCount)} เอกสารที่โหลดรายละเอียดไม่ครบ
-            กรุณาตรวจซ้ำในหน้ารายงานออนไลน์
-          </p>
-        )}
-
-        <div className="print-sml-table-wrap">
-          <table className="print-sml-table">
-            <colgroup>
-              <col className="sml-col-date" />
-              <col className="sml-col-doc" />
-              <col className="sml-col-time" />
-              <col className="sml-col-ref" />
-              <col className="sml-col-code" />
-              <col className="sml-col-name" />
-              <col className="sml-col-money" />
-              <col className="sml-col-money" />
-              <col className="sml-col-money" />
-              <col className="sml-col-money" />
-              <col className="sml-col-rate" />
-              <col className="sml-col-money" />
-              <col className="sml-col-tax" />
-              <col className="sml-col-money" />
-              <col className="sml-col-user" />
-            </colgroup>
-            <thead>
-              <tr className="print-sml-section-row">
-                <th colSpan={15}>หัวเอกสาร</th>
-              </tr>
-              <tr className="print-sml-doc-header">
-                <th>เอกสารวันที่</th>
-                <th>เอกสารเลขที่</th>
-                <th>เวลา</th>
-                <th>เอกสารอ้างอิง</th>
-                <th>รหัส{copy.partyLabel}</th>
-                <th>ชื่อ{copy.partyLabel}</th>
-                <th className="numeric">มูลค่าสินค้า</th>
-                <th className="numeric">มูลค่าส่วนลด</th>
-                <th className="numeric">มูลค่าหลังหักส่วนลด</th>
-                <th className="numeric">มูลค่ายกเว้นภาษี</th>
-                <th className="numeric">อัตราภาษี</th>
-                <th className="numeric">ภาษีมูลค่าเพิ่ม</th>
-                <th>ประเภทภาษี</th>
-                <th className="numeric">มูลค่าสุทธิ</th>
-                <th>Cashier</th>
-              </tr>
-              <tr className="print-sml-detail-header">
-                <th>เอกสารวันที่</th>
-                <th>ชื่อ{copy.partyLabel}</th>
-                <th>รหัสสินค้า</th>
-                <th>ชื่อสินค้า</th>
-                <th>คลัง</th>
-                <th>พื้นที่เก็บ</th>
-                <th>หน่วยนับ</th>
-                <th className="numeric">จำนวน</th>
-                <th className="numeric">ราคา</th>
-                <th>ส่วนลด</th>
-                <th className="numeric">มูลค่าส่วนลด</th>
-                <th className="numeric">รวมมูลค่า</th>
-                <th>ประเภทภาษี</th>
-                <th />
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {printState.documents.map((entry, index) => (
-                <DetailedPrintSmlRows
-                  entry={entry}
-                  index={index + 1}
-                  key={`${entry.document.doc_date}-${entry.document.doc_no}`}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <footer className="print-footer">
-          AI Business Center · {formatTenantName(snapshot.tenant_id)} ·{" "}
-          {copy.title} · รายงานนี้ใช้ยอดหัวเอกสารจาก SML เป็นยอดหลัก
-        </footer>
-      </div>
-    </section>
-  );
-}
-
-function PrintSummaryItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="print-summary-item">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function DetailedPrintSmlRows({
-  entry,
-  index,
-}: {
-  entry: DetailedPrintDocument;
-  index: number;
-}) {
-  const document = entry.detail?.document ?? entry.document;
-  const party = document.cust_name || document.cust_code || "-";
-  const lines = entry.detail?.lines ?? [];
-
-  return (
-    <>
-      <tr className="print-sml-doc-row">
-        <td>{formatSmlDate(document.doc_date)}</td>
-        <td>
-          <strong>{document.doc_no}</strong>
-          <span className="print-muted">ลำดับ {formatInteger(index)}</span>
-        </td>
-        <td>{document.doc_time ? formatTime(document.doc_time) : ""}</td>
-        <td>{document.doc_ref || ""}</td>
-        <td>{document.cust_code || ""}</td>
-        <td>{party}</td>
-        <td className="numeric">{formatMoney(document.total_value)}</td>
-        <td className="numeric">{formatSmlOptionalMoney(document.total_discount)}</td>
-        <td className="numeric">{formatMoney(document.total_except_discount)}</td>
-        <td className="numeric">{formatMoney(document.total_except_vat)}</td>
-        <td className="numeric">{formatSmlOptionalQty(document.vat_rate)}</td>
-        <td className="numeric">{formatSmlOptionalMoney(document.total_vat_value)}</td>
-        <td>{document.vat_type || ""}</td>
-        <td className="numeric">
-          <strong>{formatMoney(document.total_amount)}</strong>
-        </td>
-        <td>{document.cashier_code || ""}</td>
-      </tr>
-      {entry.error ? (
-        <tr className="print-sml-error-row">
-          <td colSpan={15}>{entry.error}</td>
-        </tr>
-      ) : lines.length ? (
-        lines.map((line, lineIndex) => (
-          <tr
-            className="print-sml-detail-row"
-            key={`${line.doc_no}-${line.line_number ?? lineIndex}`}
-          >
-            <td>{formatSmlDate(line.doc_date || document.doc_date)}</td>
-            <td>{line.cust_name || party}</td>
-            <td>
-              {line.item_code || ""}
-              {line.barcode ? (
-                <span className="print-muted">Barcode: {line.barcode}</span>
-              ) : null}
-            </td>
-            <td>{line.item_name || ""}</td>
-            <td>{line.wh_code || ""}</td>
-            <td>{line.shelf_code || ""}</td>
-            <td>{line.unit_name || line.unit_code || ""}</td>
-            <td className="numeric">{formatQty(line.qty)}</td>
-            <td className="numeric">{formatSmlOptionalMoney(line.price)}</td>
-            <td>{line.discount || ""}</td>
-            <td className="numeric">{formatSmlOptionalMoney(line.discount_amount)}</td>
-            <td className="numeric">{formatMoney(line.sum_amount)}</td>
-            <td>{[line.vat_type, line.tax_type].filter(Boolean).join(" / ")}</td>
-            <td />
-            <td />
-          </tr>
-        ))
-      ) : (
-        <tr className="print-sml-empty-row">
-          <td colSpan={15}>ไม่พบรายละเอียดสินค้าในเอกสารนี้</td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function DetailedPrintStyles() {
-  return (
-    <style>{`
-      @media screen {
-        .detailed-print-report {
-          display: none;
-        }
-
-        .detailed-print-screen-mode .screen-report-viewer {
-          display: none;
-        }
-
-        .detailed-print-screen-mode .detailed-print-report {
-          display: block;
-          min-height: 100vh;
-          overflow-x: auto;
-          padding: 16px;
-        }
-
-        .detailed-print-screen-mode .print-screen-toolbar {
-          align-items: flex-start;
-          background: #ffffff;
-          border: 1px solid #e4e7ec;
-          border-radius: 12px;
-          box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
-          display: flex;
-          gap: 16px;
-          justify-content: space-between;
-          margin: 0 auto 12px;
-          max-width: 1280px;
-          padding: 14px 16px;
-        }
-
-        .detailed-print-screen-mode .print-page {
-          background: #ffffff;
-          border: 1px solid #e4e7ec;
-          border-radius: 12px;
-          box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
-          color: #101828;
-          font-family: Arial, "Noto Sans Thai", "Tahoma", sans-serif;
-          font-size: 11px;
-          line-height: 1.45;
-          margin: 0 auto;
-          max-width: 1280px;
-          min-width: 1100px;
-          padding: 18px;
-        }
-
-        .detailed-print-screen-mode .print-report-header {
-          align-items: flex-start;
-          border-bottom: 1px solid #d0d5dd;
-          display: flex;
-          justify-content: space-between;
-          gap: 18px;
-          padding-bottom: 10px;
-        }
-
-        .detailed-print-screen-mode .print-report-header h1 {
-          color: #101828;
-          font-size: 22px;
-          font-weight: 700;
-          line-height: 1.25;
-          margin: 4px 0 0;
-        }
-
-        .detailed-print-screen-mode .print-eyebrow,
-        .detailed-print-screen-mode .print-subtitle,
-        .detailed-print-screen-mode .print-header-meta,
-        .detailed-print-screen-mode .print-footer,
-        .detailed-print-screen-mode .print-muted {
-          color: #667085;
-        }
-
-        .detailed-print-screen-mode .print-eyebrow {
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0;
-          margin: 0;
-        }
-
-        .detailed-print-screen-mode .print-subtitle,
-        .detailed-print-screen-mode .print-header-meta p {
-          font-size: 11px;
-          margin: 3px 0 0;
-        }
-
-        .detailed-print-screen-mode .print-header-meta {
-          text-align: right;
-          white-space: nowrap;
-        }
-
-        .detailed-print-screen-mode .print-summary-grid {
-          display: grid;
-          grid-template-columns: repeat(6, minmax(0, 1fr));
-          gap: 8px;
-          margin: 12px 0;
-        }
-
-        .detailed-print-screen-mode .print-summary-item {
-          border: 1px solid #e4e7ec;
-          border-radius: 8px;
-          padding: 8px 10px;
-        }
-
-        .detailed-print-screen-mode .print-summary-item span {
-          color: #667085;
-          display: block;
-          font-size: 10px;
-        }
-
-        .detailed-print-screen-mode .print-summary-item strong {
-          color: #101828;
-          display: block;
-          font-size: 13px;
-          margin-top: 3px;
-        }
-
-        .detailed-print-screen-mode .print-warning {
-          background: #fffaeb;
-          border: 1px solid #fedf89;
-          border-radius: 8px;
-          color: #93370d;
-          margin: 0 0 10px;
-          padding: 8px 10px;
-        }
-
-        .detailed-print-screen-mode .print-sml-table-wrap {
-          border: 1px solid #d0d5dd;
-          border-radius: 8px;
-          overflow-x: auto;
-        }
-
-        .detailed-print-screen-mode .print-sml-table {
-          border-collapse: collapse;
-          min-width: 1320px;
-          table-layout: fixed;
-          width: 100%;
-        }
-
-        .detailed-print-screen-mode .print-sml-table th,
-        .detailed-print-screen-mode .print-sml-table td {
-          border: 1px solid #d0d5dd;
-          padding: 5px 6px;
-          text-align: left;
-          vertical-align: top;
-          word-break: break-word;
-        }
-
-        .detailed-print-screen-mode .print-sml-table th {
-          color: #344054;
-          font-size: 10px;
-          font-weight: 700;
-        }
-
-        .detailed-print-screen-mode .print-sml-section-row th {
-          background: #e0f2fe;
-          color: #075985;
-          font-size: 11px;
-          text-align: left;
-        }
-
-        .detailed-print-screen-mode .print-sml-doc-header th {
-          background: #f2f4f7;
-        }
-
-        .detailed-print-screen-mode .print-sml-detail-header th {
-          background: #f9fafb;
-          color: #667085;
-        }
-
-        .detailed-print-screen-mode .print-sml-doc-row td {
-          background: #ffffff;
-          color: #101828;
-          font-size: 10.5px;
-          font-weight: 600;
-        }
-
-        .detailed-print-screen-mode .print-sml-detail-row td {
-          background: #fcfcfd;
-          color: #344054;
-          font-size: 10px;
-        }
-
-        .detailed-print-screen-mode .print-sml-error-row td,
-        .detailed-print-screen-mode .print-sml-empty-row td {
-          background: #fff7ed;
-          color: #b42318;
-          font-size: 10px;
-        }
-
-        .detailed-print-screen-mode .sml-col-date {
-          width: 78px;
-        }
-
-        .detailed-print-screen-mode .sml-col-doc,
-        .detailed-print-screen-mode .sml-col-ref {
-          width: 104px;
-        }
-
-        .detailed-print-screen-mode .sml-col-time,
-        .detailed-print-screen-mode .sml-col-rate,
-        .detailed-print-screen-mode .sml-col-tax {
-          width: 58px;
-        }
-
-        .detailed-print-screen-mode .sml-col-code,
-        .detailed-print-screen-mode .sml-col-user {
-          width: 78px;
-        }
-
-        .detailed-print-screen-mode .sml-col-name {
-          width: 220px;
-        }
-
-        .detailed-print-screen-mode .sml-col-money {
-          width: 88px;
-        }
-
-        .detailed-print-screen-mode .print-document-list {
-          display: grid;
-          gap: 12px;
-        }
-
-        .detailed-print-screen-mode .print-document-block {
-          background: #ffffff;
-          border: 1px solid #d0d5dd;
-          border-radius: 10px;
-          overflow: hidden;
-        }
-
-        .detailed-print-screen-mode .print-document-heading {
-          background: #f8fafc;
-          border-bottom: 1px solid #e4e7ec;
-          display: grid;
-          gap: 12px;
-          grid-template-columns: 220px minmax(0, 1fr);
-          padding: 10px 12px;
-        }
-
-        .detailed-print-screen-mode .print-document-title span,
-        .detailed-print-screen-mode .print-meta-item span,
-        .detailed-print-screen-mode .print-amount-item span {
-          color: #667085;
-          display: block;
-          font-size: 10px;
-          font-weight: 600;
-        }
-
-        .detailed-print-screen-mode .print-document-title strong {
-          color: #101828;
-          display: block;
-          font-size: 16px;
-          line-height: 1.25;
-          margin-top: 3px;
-        }
-
-        .detailed-print-screen-mode .print-document-title small {
-          color: #667085;
-          display: block;
-          font-size: 10px;
-          margin-top: 3px;
-        }
-
-        .detailed-print-screen-mode .print-document-meta-grid {
-          display: grid;
-          gap: 8px;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-
-        .detailed-print-screen-mode .print-meta-item strong {
-          color: #101828;
-          display: block;
-          font-size: 11px;
-          line-height: 1.35;
-          margin-top: 2px;
-        }
-
-        .detailed-print-screen-mode .print-amount-strip {
-          display: grid;
-          gap: 0;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-        }
-
-        .detailed-print-screen-mode .print-amount-item {
-          border-bottom: 1px solid #e4e7ec;
-          border-right: 1px solid #e4e7ec;
-          padding: 8px 10px;
-        }
-
-        .detailed-print-screen-mode .print-amount-item:last-child {
-          border-right: 0;
-        }
-
-        .detailed-print-screen-mode .print-amount-item strong {
-          color: #101828;
-          display: block;
-          font-size: 12px;
-          line-height: 1.25;
-          margin-top: 3px;
-        }
-
-        .detailed-print-screen-mode .print-amount-item.is-emphasis strong {
-          color: #1d4ed8;
-          font-size: 14px;
-        }
-
-        .detailed-print-screen-mode .print-document-technical {
-          align-items: center;
-          background: #f9fafb;
-          border-top: 1px solid #e4e7ec;
-          color: #667085;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px 12px;
-          padding: 7px 10px;
-        }
-
-        .detailed-print-screen-mode .print-document-technical span {
-          color: #344054;
-          font-weight: 700;
-        }
-
-        .detailed-print-screen-mode .print-document-technical small {
-          font-size: 10px;
-        }
-
-        .detailed-print-screen-mode .print-line-table {
-          border-collapse: collapse;
-          table-layout: fixed;
-          width: 100%;
-        }
-
-        .detailed-print-screen-mode .print-line-table th,
-        .detailed-print-screen-mode .print-line-table td {
-          border: 1px solid #d0d5dd;
-          padding: 5px 6px;
-          text-align: left;
-          vertical-align: top;
-          word-break: break-word;
-        }
-
-        .detailed-print-screen-mode .print-line-table th {
-          background: #f2f4f7;
-          color: #344054;
-          font-size: 10px;
-          font-weight: 700;
-        }
-
-        .detailed-print-screen-mode .print-line-table td strong,
-        .detailed-print-screen-mode .print-muted {
-          display: block;
-        }
-
-        .detailed-print-screen-mode .print-muted {
-          font-size: 9px;
-          margin-top: 2px;
-        }
-
-        .detailed-print-screen-mode .print-line-table th,
-        .detailed-print-screen-mode .print-line-table td {
-          border-color: #e4e7ec;
-        }
-
-        .detailed-print-screen-mode .line-index-col {
-          width: 42px;
-        }
-
-        .detailed-print-screen-mode .line-code-col {
-          width: 138px;
-        }
-
-        .detailed-print-screen-mode .line-location-col {
-          width: 142px;
-        }
-
-        .detailed-print-screen-mode .line-number-col {
-          width: 82px;
-        }
-
-        .detailed-print-screen-mode .line-money-col {
-          width: 110px;
-        }
-
-        .detailed-print-screen-mode .line-tax-col {
-          width: 82px;
-        }
-
-        .detailed-print-screen-mode .numeric {
-          text-align: right !important;
-          white-space: nowrap;
-        }
-
-        .detailed-print-screen-mode .print-detail-error,
-        .detailed-print-screen-mode .print-empty-line {
-          color: #b42318;
-          padding: 8px 10px;
-        }
-
-        .detailed-print-screen-mode .print-footer {
-          border-top: 1px solid #d0d5dd;
-          font-size: 10px;
-          margin-top: 10px;
-          padding-top: 8px;
-        }
-      }
-
-      @media print {
-        @page {
-          size: A4 landscape;
-          margin: 8mm;
-        }
-
-        html,
-        body {
-          background: #ffffff !important;
-        }
-
-        .detailed-print-ready .screen-report-viewer {
-          display: none !important;
-        }
-
-        .detailed-print-ready .detailed-print-report {
-          display: block !important;
-        }
-
-        .detailed-print-report {
-          display: none;
-          color: #111827;
-          font-family: Arial, "Noto Sans Thai", "Tahoma", sans-serif;
-          font-size: 9px;
-          line-height: 1.35;
-        }
-
-        .print-screen-toolbar {
-          display: none !important;
-        }
-
-        .print-page {
-          width: 100%;
-        }
-
-        .print-report-header {
-          align-items: flex-start;
-          border-bottom: 1px solid #d0d5dd;
-          display: flex;
-          justify-content: space-between;
-          gap: 18px;
-          padding-bottom: 8px;
-        }
-
-        .print-report-header h1 {
-          color: #101828;
-          font-size: 18px;
-          font-weight: 700;
-          line-height: 1.2;
-          margin: 2px 0 0;
-        }
-
-        .print-eyebrow,
-        .print-subtitle,
-        .print-header-meta,
-        .print-footer,
-        .print-muted {
-          color: #667085;
-        }
-
-        .print-eyebrow {
-          font-size: 8.5px;
-          font-weight: 700;
-          letter-spacing: 0;
-          margin: 0;
-        }
-
-        .print-subtitle,
-        .print-header-meta p {
-          font-size: 9px;
-          margin: 2px 0 0;
-        }
-
-        .print-header-meta {
-          text-align: right;
-          white-space: nowrap;
-        }
-
-        .print-summary-grid {
-          display: grid;
-          grid-template-columns: repeat(6, minmax(0, 1fr));
-          gap: 5px;
-          margin: 8px 0;
-        }
-
-        .print-summary-item {
-          border: 1px solid #e4e7ec;
-          border-radius: 4px;
-          padding: 5px 6px;
-        }
-
-        .print-summary-item span {
-          color: #667085;
-          display: block;
-          font-size: 8px;
-        }
-
-        .print-summary-item strong {
-          color: #101828;
-          display: block;
-          font-size: 10px;
-          margin-top: 2px;
-        }
-
-        .print-warning {
-          background: #fffaeb;
-          border: 1px solid #fedf89;
-          border-radius: 4px;
-          color: #93370d;
-          margin: 0 0 8px;
-          padding: 5px 6px;
-        }
-
-        .print-sml-table-wrap {
-          overflow: visible;
-        }
-
-        .print-sml-table {
-          border-collapse: collapse;
-          table-layout: fixed;
-          width: 100%;
-        }
-
-        .print-sml-table thead {
-          display: table-header-group;
-        }
-
-        .print-sml-table th,
-        .print-sml-table td {
-          border: 1px solid #cbd5e1;
-          padding: 2.5px 3px;
-          text-align: left;
-          vertical-align: top;
-          word-break: break-word;
-        }
-
-        .print-sml-table th {
-          color: #344054;
-          font-size: 6.8px;
-          font-weight: 700;
-        }
-
-        .print-sml-table td {
-          font-size: 6.8px;
-        }
-
-        .print-sml-section-row th {
-          background: #e0f2fe;
-          color: #075985;
-          text-align: left;
-        }
-
-        .print-sml-doc-header th {
-          background: #f2f4f7;
-        }
-
-        .print-sml-detail-header th {
-          background: #f9fafb;
-          color: #667085;
-        }
-
-        .print-sml-doc-row {
-          break-after: avoid;
-          page-break-after: avoid;
-        }
-
-        .print-sml-doc-row td {
-          background: #ffffff;
-          color: #101828;
-          font-weight: 700;
-        }
-
-        .print-sml-detail-row {
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .print-sml-detail-row td {
-          background: #fcfcfd;
-          color: #344054;
-        }
-
-        .print-sml-error-row td,
-        .print-sml-empty-row td {
-          background: #fff7ed;
-          color: #b42318;
-        }
-
-        .sml-col-date {
-          width: 7%;
-        }
-
-        .sml-col-doc,
-        .sml-col-ref {
-          width: 8%;
-        }
-
-        .sml-col-time,
-        .sml-col-rate,
-        .sml-col-tax {
-          width: 4.8%;
-        }
-
-        .sml-col-code,
-        .sml-col-user {
-          width: 6.3%;
-        }
-
-        .sml-col-name {
-          width: 15%;
-        }
-
-        .sml-col-money {
-          width: 7%;
-        }
-
-        .print-document-list {
-          display: grid;
-          gap: 7px;
-        }
-
-        .print-document-block {
-          background: #ffffff;
-          border: 1px solid #d0d5dd;
-          border-radius: 4px;
-          break-inside: avoid;
-          overflow: hidden;
-          page-break-inside: avoid;
-        }
-
-        .print-document-heading {
-          background: #f8fafc;
-          border-bottom: 1px solid #e4e7ec;
-          display: grid;
-          gap: 7px;
-          grid-template-columns: 142px minmax(0, 1fr);
-          padding: 5px 6px;
-        }
-
-        .print-document-title span,
-        .print-meta-item span,
-        .print-amount-item span {
-          color: #667085;
-          display: block;
-          font-size: 7px;
-          font-weight: 700;
-        }
-
-        .print-document-title strong {
-          color: #101828;
-          display: block;
-          font-size: 11px;
-          line-height: 1.2;
-          margin-top: 1px;
-        }
-
-        .print-document-title small {
-          color: #667085;
-          display: block;
-          font-size: 7px;
-          margin-top: 1px;
-        }
-
-        .print-document-meta-grid {
-          display: grid;
-          gap: 4px 6px;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-
-        .print-meta-item strong {
-          color: #101828;
-          display: block;
-          font-size: 8px;
-          line-height: 1.25;
-          margin-top: 1px;
-        }
-
-        .print-amount-strip {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-        }
-
-        .print-amount-item {
-          border-bottom: 1px solid #e4e7ec;
-          border-right: 1px solid #e4e7ec;
-          padding: 4px 5px;
-        }
-
-        .print-amount-item:last-child {
-          border-right: 0;
-        }
-
-        .print-amount-item strong {
-          color: #101828;
-          display: block;
-          font-size: 8px;
-          line-height: 1.2;
-          margin-top: 1px;
-        }
-
-        .print-amount-item.is-emphasis strong {
-          color: #1d4ed8;
-          font-size: 9px;
-        }
-
-        .print-document-technical {
-          align-items: center;
-          background: #f9fafb;
-          border-top: 1px solid #e4e7ec;
-          color: #667085;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 3px 8px;
-          padding: 4px 5px;
-        }
-
-        .print-document-technical span {
-          color: #344054;
-          font-weight: 700;
-        }
-
-        .print-document-technical small {
-          font-size: 7px;
-        }
-
-        .print-line-table {
-          border-collapse: collapse;
-          table-layout: fixed;
-          width: 100%;
-        }
-
-        .print-line-table th,
-        .print-line-table td {
-          border: 1px solid #d0d5dd;
-          padding: 3px 4px;
-          text-align: left;
-          vertical-align: top;
-          word-break: break-word;
-        }
-
-        .print-line-table th {
-          background: #f2f4f7;
-          color: #344054;
-          font-size: 8px;
-          font-weight: 700;
-        }
-
-        .print-line-table td strong,
-        .print-muted {
-          display: block;
-          font-size: 7.5px;
-          margin-top: 1px;
-        }
-
-        .print-line-table th,
-        .print-line-table td {
-          border-color: #e4e7ec;
-        }
-
-        .print-line-table tr {
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .line-index-col {
-          width: 28px;
-        }
-
-        .line-code-col {
-          width: 98px;
-        }
-
-        .line-location-col {
-          width: 98px;
-        }
-
-        .line-number-col {
-          width: 58px;
-        }
-
-        .line-money-col {
-          width: 76px;
-        }
-
-        .line-tax-col {
-          width: 58px;
-        }
-
-        .numeric {
-          text-align: right !important;
-          white-space: nowrap;
-        }
-
-        .print-detail-error,
-        .print-empty-line {
-          color: #b42318;
-          padding: 5px 6px;
-        }
-
-        .print-footer {
-          border-top: 1px solid #d0d5dd;
-          font-size: 8px;
-          margin-top: 8px;
-          padding-top: 5px;
-        }
-      }
-    `}</style>
   );
 }
 
@@ -2909,13 +1935,56 @@ function BriefErrorState({ message }: { message: string }) {
   );
 }
 
-function getSnapshotTotal(snapshot: ReportSnapshot) {
+function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
+  return isGrossProfitSnapshot(snapshot)
+    ? getGrossProfitTitle(snapshot.report_key)
+    : reportCopy[snapshot.report_key].title;
+}
+
+function isGrossProfitSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is GrossProfitViewerReportSnapshot {
+  return (
+    snapshot.report_key === "gross_profit_by_product" ||
+    snapshot.report_key === "gross_profit_by_ar_customer"
+  );
+}
+
+function getGrossProfitTitle(reportKey: GrossProfitViewerReportKey) {
+  return reportKey === "gross_profit_by_product"
+    ? "รายงานกำไรขั้นต้นสินค้า"
+    : "รายงานกำไรขั้นต้นลูกหนี้";
+}
+
+function getGrossProfitRowLabel(
+  snapshot: GrossProfitViewerReportSnapshot,
+  row: GrossProfitBaseRow | GrossProfitByProductRow | GrossProfitByArCustomerRow,
+) {
+  return snapshot.report_key === "gross_profit_by_product"
+    ? (row as GrossProfitByProductRow).name_1 ||
+        (row as GrossProfitByProductRow).code ||
+        "ไม่ระบุสินค้า"
+    : (row as GrossProfitByArCustomerRow).ar_detail ||
+        (row as GrossProfitByArCustomerRow).ar_code ||
+        "ไม่ระบุลูกหนี้";
+}
+
+function getGrossProfitRowCode(
+  snapshot: GrossProfitViewerReportSnapshot,
+  row: GrossProfitBaseRow | GrossProfitByProductRow | GrossProfitByArCustomerRow,
+) {
+  return snapshot.report_key === "gross_profit_by_product"
+    ? (row as GrossProfitByProductRow).code || "-"
+    : (row as GrossProfitByArCustomerRow).ar_code || "-";
+}
+
+function getSnapshotTotal(snapshot: ClassicViewerReportSnapshot) {
   return snapshot.report_key === "purchase_goods_payables"
     ? snapshot.summary.total_purchase
     : snapshot.summary.total_sales;
 }
 
-function getPrimaryRanking(snapshot: ReportSnapshot) {
+function getPrimaryRanking(snapshot: ClassicViewerReportSnapshot) {
   if (snapshot.report_key === "purchase_goods_payables") {
     return snapshot.top_suppliers.slice(0, 6).map((supplier: TopSupplier) => ({
       label: supplier.supplier_name,
@@ -2981,8 +2050,13 @@ function toIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function isReportKey(value: string): value is ReportKey {
-  return value === "sales_goods_services" || value === "purchase_goods_payables";
+function isReportKey(value: string): value is ViewerReportKey {
+  return (
+    value === "sales_goods_services" ||
+    value === "purchase_goods_payables" ||
+    value === "gross_profit_by_product" ||
+    value === "gross_profit_by_ar_customer"
+  );
 }
 
 function buildViewerPdfUrl(input: {
@@ -3057,7 +2131,7 @@ function formatTenantName(tenantId: string) {
 }
 
 function formatSource(source: ReportSnapshot["source"]) {
-  return source === "sml_postgres" ? "ข้อมูลจาก SML" : "ข้อมูลตัวอย่าง";
+  return source === "sample_snapshot" ? "ข้อมูลตัวอย่าง" : "ข้อมูลจาก SML";
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {
@@ -3077,14 +2151,6 @@ function formatThaiDate(value: string) {
     month: "short",
     year: "numeric",
   }).format(new Date(year, month - 1, day));
-}
-
-function formatSmlDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  if (!year || !month || !day) {
-    return value;
-  }
-  return `${day}/${month}/${year + 543}`;
 }
 
 function formatDateTime(value: string) {
@@ -3113,10 +2179,6 @@ function formatMoney(value: number) {
   }).format(value || 0);
 }
 
-function formatSmlOptionalMoney(value: number) {
-  return value ? formatMoney(value) : "";
-}
-
 function formatInteger(value: number) {
   return new Intl.NumberFormat("th-TH", {
     maximumFractionDigits: 0,
@@ -3129,8 +2191,15 @@ function formatQty(value: number) {
   }).format(value || 0);
 }
 
-function formatSmlOptionalQty(value: number) {
-  return value ? formatQty(value) : "";
+function formatMargin(value: number | null) {
+  if (value === null) {
+    return "ตรวจสอบ";
+  }
+
+  return `${new Intl.NumberFormat("th-TH", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(value)}%`;
 }
 
 function formatSignedMoney(value: number) {

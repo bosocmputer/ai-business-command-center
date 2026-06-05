@@ -96,7 +96,7 @@ describe("sendLineBrief", () => {
     });
 
     expect(result.status).toBe("skipped");
-    expect(result.safe_error_message).toContain("LINE channel is not configured");
+    expect(result.safe_error_message).toContain("Set LINE OA and recipients");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

@@ -25,7 +25,7 @@ sales_by_branch v1
   "version": 1,
   "name": "ยอดขายสินค้าแยกตามสาขา",
   "category": "sales",
-  "erp": "sml_postgres",
+  "erp": "sml_javaws",
   "parameters_schema": {},
   "output_schema": {},
   "sql_template": "",

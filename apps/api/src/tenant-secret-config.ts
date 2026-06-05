@@ -281,7 +281,11 @@ export async function readStoredLineChannelCredentials(input: {
     })
   | null
 > {
-  const channels = await input.store.listLineChannels(input.tenantId);
+  const channels = (await input.store.listLineChannels()).filter(
+    (channel) =>
+      channel.tenant_id === input.tenantId ||
+      channel.scope === "owner_shared",
+  );
   const ordered = [
     ...channels.filter((channel) => channel.id === input.preferredLineChannelId),
     ...channels.filter((channel) => channel.id !== input.preferredLineChannelId),
@@ -304,7 +308,7 @@ export async function readStoredLineChannelCredentials(input: {
       envelope: secret.encrypted_value,
       encryptionSecret: requireEncryptionSecret(),
       aad: lineChannelSecretAad(
-        input.tenantId,
+        channel.tenant_id,
         channel.id,
         LINE_ACCESS_TOKEN_SECRET_KEY,
       ),

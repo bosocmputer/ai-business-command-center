@@ -391,7 +391,7 @@ describe("sales_goods_services contract", () => {
           cust_name: "Cash",
           branch_code: "0000",
           item_code: "SKU-1",
-          item_name: "Product A",
+          item_name: "เหล็กข้ออ้อย SD40 12มม(4หุน) (8.88KG)-พับ น้ำเงิน 10ม.",
           wh_code: "MAIN",
           shelf_code: null,
           unit_code: "ชิ้น",
@@ -415,18 +415,30 @@ describe("sales_goods_services contract", () => {
     expect(preview.line_message_type).toBe("flex");
     expect(preview.flex_message).toBeTruthy();
     expect(preview.flex_message?.type).toBe("flex");
-    expect(preview.flex_message?.altText).toContain("รายงานขาย");
+    expect(preview.flex_message?.altText).toContain("ขายสินค้าและบริการ");
     expect(preview.flex_message?.altText).not.toContain("token=");
     expect(preview.text).toContain("บริษัท: Demo Remote");
-    expect(preview.text).toContain("วันที่ข้อมูล: 10 พ.ค. 2026 - 19 พ.ค. 2026");
+    expect(preview.text).toContain(
+      "วันที่ข้อมูล: 10/05/2026 00:00 - 19/05/2026 23:59",
+    );
     expect(preview.text).toContain("ยอดขายสุทธิ: 107.00 บาท");
     expect(preview.text).toContain("1. สาขาหลัก (0000): 107.00 บาท");
-    expect(preview.text).toContain("Product A");
+    expect(preview.text).toContain(
+      "เหล็กข้ออ้อย SD40 12มม(4หุน) (8.88KG)-พับ น้ำเงิน 10ม.",
+    );
     expect(preview.text).not.toContain("AI Business Center");
     expect(preview.text).not.toContain("Run ID: run_line_preview");
     expect(preview.text).not.toContain("token=signed-token");
     expect(JSON.stringify(preview.flex_message)).toContain(dashboardUrl);
-    expect(JSON.stringify(preview.flex_message)).toContain("เปิดรายงาน");
+    const flexPayload = JSON.stringify(preview.flex_message);
+    expect(flexPayload).toContain("เปิดรายละเอียด");
+    expect(flexPayload).toContain("เหล็กข้ออ้อย SD40 12มม(4หุน) (8.88KG)…");
+    expect(flexPayload).not.toContain(
+      "เหล็กข้ออ้อย SD40 12มม(4หุน) (8.88KG)-พับ น้ำเงิน 10ม.",
+    );
+    expect(flexPayload).not.toContain("branch_code");
+    expect(flexPayload).not.toContain("ic_trans");
+    expect(flexPayload).not.toContain("snapshot");
   });
 
   it("falls back to text when the signed viewer URL is missing or too long", () => {
@@ -490,13 +502,16 @@ describe("sales_goods_services contract", () => {
     expect(flexJson).toContain(
       "ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย 6,161.10 บาท จาก 4 บิล",
     );
-    expect(flexJson).toContain("ยอดขายตามสาขา");
-    expect(flexJson).toContain("สินค้าขายดี");
-    expect(flexJson).toContain("ไม่มีข้อมูล");
+    expect(flexJson).toContain("บิลขาย");
+    expect(flexJson).toContain("รายการขาย");
+    expect(flexJson).toContain("เปิดรายละเอียด");
     expect(flexJson).not.toContain("-100%");
     expect(flexJson).not.toContain("สิ่งที่ควรตรวจ");
     expect(flexJson).not.toContain("ยังไม่มีข้อมูลสาขา");
     expect(flexJson).not.toContain("ยังไม่มีสินค้า");
+    expect(flexJson).not.toContain("branch_code");
+    expect(flexJson).not.toContain("ic_trans");
+    expect(flexJson).not.toContain("snapshot");
     expect(preview.text).toContain("วันนี้ควรรู้อะไร");
     expect(preview.text).toContain("จำนวนรายการขาย: 0 รายการ");
     expect(preview.text).toContain("ยอดขายตามสาขา");

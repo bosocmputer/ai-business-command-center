@@ -204,6 +204,54 @@ describe("tenant secret config", () => {
       }
     }
   });
+
+  it("resolves owner-shared LINE channel credentials for another tenant", async () => {
+    const store = createFakeStore([
+      {
+        id: "line_channel_owner",
+        tenant_id: tenantId,
+        display_name: "Owner OA",
+        channel_type: "line_oa",
+        scope: "owner_shared",
+        channel_access_token_configured: true,
+        channel_secret_configured: false,
+        enabled: true,
+        source: "manual",
+        created_at: "2026-05-21T00:00:00.000Z",
+        updated_at: "2026-05-21T00:00:00.000Z",
+      },
+    ]);
+    const previousKey = process.env.AI_BCC_SECRET_KEY;
+    process.env.AI_BCC_SECRET_KEY = encryptionSecret;
+
+    try {
+      await saveLineChannelSecrets({
+        store,
+        config: {
+          tenantId,
+          lineChannelId: "line_channel_owner",
+          channelAccessToken: "owner-line-token",
+        },
+      });
+
+      await expect(
+        readStoredLineChannelCredentials({
+          store,
+          tenantId: "seaandhill_demo",
+          preferredLineChannelId: "line_channel_owner",
+        }),
+      ).resolves.toMatchObject({
+        channelAccessToken: "owner-line-token",
+        lineChannel: { id: "line_channel_owner", scope: "owner_shared" },
+      });
+    } finally {
+      if (previousKey === undefined) {
+        delete process.env.AI_BCC_SECRET_KEY;
+      } else {
+        process.env.AI_BCC_SECRET_KEY = previousKey;
+      }
+    }
+  });
 });
 
 function createFakeStore(lineChannels: LineChannelRecord[] = []) {

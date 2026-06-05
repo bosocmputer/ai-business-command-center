@@ -1,17 +1,36 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import {
   deriveMorningBriefDateRange,
+  type BusinessSignalThresholdsConfig,
+  type BusinessSignalRecord,
   type LineAccessProfileKey,
   type LineChannelRecord,
   type LineDeliveryRecord,
+  type LineRecipientRecord,
   type LineTargetRecord,
+  type NotificationPeriodPreset,
+  type NotificationDigestMode,
+  type NotificationRuleRecord,
+  type NotificationRuleRunRecord,
+  type GrossProfitByArCustomerSnapshot,
+  type GrossProfitByProductSnapshot,
   type PurchaseGoodsPayablesSnapshot,
+  type ReportKey,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type Tenant,
+  type TenantFeatureFlags,
+  type TenantReportRolePermissionRecord,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -25,6 +44,7 @@ import {
 import { getCommandCenterApiBaseUrl } from "@/components/command-center/apiBaseUrl";
 import {
   formatLineAccessProfile,
+  OwnerLineRecipientLibraryPanel,
   OwnerLineTargetsPanel,
 } from "./OwnerLineTargetsPanel";
 
@@ -55,6 +75,7 @@ const JAVA_WS_DATASOURCE_PRESETS = [
 ] as const;
 
 type JavaWsDatasourcePreset = (typeof JAVA_WS_DATASOURCE_PRESETS)[number];
+type LineChannelScope = NonNullable<LineChannelRecord["scope"]>;
 
 type TenantSummary = {
   tenant: Tenant;
@@ -75,12 +96,94 @@ type TenantSummary = {
     latest_snapshot_at: string | null;
     latest_line_delivery_at: string | null;
     latest_line_delivery_status: string | null;
+    notification_rules_total: number;
+    notification_rules_enabled: number;
+    latest_notification_run_at: string | null;
+    latest_notification_run_status: string | null;
+    latest_notification_run_error: string | null;
+    open_business_signals: number;
+    critical_business_signals: number;
+    latest_business_signal_at: string | null;
   };
+};
+
+type TenantPatchInput = {
+  name: string;
+  description: string;
+  plan_code: Tenant["planCode"];
+  status?: Exclude<Tenant["status"], "cancelled">;
+  feature_flags?: Partial<TenantFeatureFlags>;
+  business_signal_thresholds?: Partial<BusinessSignalThresholdsConfig>;
+  current_period_end: string | null;
+  suspended_reason: string | null;
+};
+
+type TenantDeleteImpact = {
+  tenant_id: string;
+  tenant_name: string;
+  tenant_status: Tenant["status"];
+  dashboard_path: string | null;
+  notification_rules_total: number;
+  notification_rules_enabled: number;
+  notification_rule_runs_recent: number;
+  notification_rule_runs_running: number;
+  line_targets_total: number;
+  line_targets_enabled: number;
+  line_channels_total: number;
+  report_runs_recent: number;
+  latest_report_run_at: string | null;
+  latest_snapshot_at: string | null;
+  latest_line_delivery_at: string | null;
+  can_cancel: boolean;
+  blockers: Array<{
+    reason: string;
+    message: string;
+    count: number;
+  }>;
 };
 
 type SmlConnectionSummary = TenantSummary & {
   datasource: DatasourceConfigStatus;
   last_test: DatasourceTestResult | null;
+};
+
+type StoreSetupReadinessCheck = ReadinessCheck & {
+  key: string;
+  href: string;
+};
+
+type StoreSetupDetail = {
+  summary: TenantSummary;
+  datasource: DatasourceConfigStatus;
+  line_channels: LineChannelRecord[];
+  line_targets: LineTargetRecord[];
+  notification_rules: OwnerNotificationRule[];
+  business_signals: BusinessSignalRecord[];
+  readiness: {
+    ready: boolean;
+    completed: number;
+    total: number;
+    next_action: StoreSetupReadinessCheck | null;
+    checks: StoreSetupReadinessCheck[];
+  };
+};
+
+type OwnerNotificationRule = NotificationRuleRecord & {
+  next_run: {
+    date: string;
+    time: string;
+    timezone: string;
+  } | null;
+};
+
+type NotificationRuleRunResult = {
+  ok: boolean;
+  status?: "sent" | "processed" | "skipped";
+  run?: NotificationRuleRunRecord;
+  deliveries?: LineDeliveryRecord[];
+  report_run_ids?: string[];
+  mode?: "dry_run" | "send";
+  error?: string;
 };
 
 type ActionResult = {
@@ -186,6 +289,14 @@ type OwnerOperationsStatus = {
     last_backup_at: string | null;
     recommendation: string;
   };
+  signal_metrics?: {
+    open: number;
+    critical_open: number;
+    generated_recent: number;
+    digest_sent_recent: number;
+    skipped_permission_recent: number;
+    lifecycle_updates_recent: number;
+  };
   audit_logs: OwnerAuditLogEntry[];
   system_config?: SystemConfigStatus;
 };
@@ -194,6 +305,8 @@ type SystemConfigStatus = {
   source: "encrypted_store" | "bootstrap_file" | "env";
   app_base_url: string | null;
   public_api_base_url: string | null;
+  report_viewer_link_ttl_hours: number;
+  report_viewer_signing_secret_configured: boolean;
   morning_brief_enabled: boolean;
   morning_brief_tenant_ids: string[];
   morning_brief_time: string;
@@ -213,6 +326,7 @@ type SystemConfigStatus = {
     secret_key_present: boolean;
     app_base_url_configured: boolean;
     public_api_base_url_configured: boolean;
+    report_viewer_signing_secret_configured: boolean;
     read_error: string | null;
   };
   restart_required_for_bootstrap_changes: boolean;
@@ -224,10 +338,51 @@ type ValidationSignoffResult = {
   difference_amount: number;
 };
 
+type ReportPermissionCatalogItem = {
+  report_key: ReportKey;
+  label: string;
+  description: string;
+  sensitive: boolean;
+};
+
+type ReportPermissionRoleItem = {
+  access_profile_key: LineAccessProfileKey;
+  label: string;
+  target_count: number;
+};
+
+type ReportPermissionImpact = {
+  rule_id: string;
+  rule_name: string;
+  target_id: string;
+  target_display_name: string;
+  access_profile_key: LineAccessProfileKey;
+  report_key: ReportKey;
+  report_label: string;
+};
+
+type ReportPermissionsState = {
+  tenants: Array<{
+    id: string;
+    name: string;
+    status: Tenant["status"];
+  }>;
+  selected_tenant_id: string | null;
+  reports: ReportPermissionCatalogItem[];
+  roles: ReportPermissionRoleItem[];
+  permissions: TenantReportRolePermissionRecord[];
+  matrix: Partial<Record<LineAccessProfileKey, ReportKey[]>>;
+  target_counts: Partial<Record<LineAccessProfileKey, number>>;
+  impacted_notification_plans: ReportPermissionImpact[];
+  updated_line_targets?: number;
+};
+
 export type OwnerPortalSection =
   | "overview"
   | "tenants"
   | "sml-connections"
+  | "notifications"
+  | "report-permissions"
   | "reports"
   | "line"
   | "audit"
@@ -242,8 +397,43 @@ export default function OwnerPortal({
   const [smlConnections, setSmlConnections] = useState<SmlConnectionSummary[]>(
     [],
   );
+  const [storeSetupDetail, setStoreSetupDetail] =
+    useState<StoreSetupDetail | null>(null);
   const [lineChannels, setLineChannels] = useState<LineChannelRecord[]>([]);
+  const [lineRecipients, setLineRecipients] = useState<LineRecipientRecord[]>([]);
   const [lineTargets, setLineTargets] = useState<LineTargetRecord[]>([]);
+  const [notificationRules, setNotificationRules] = useState<
+    OwnerNotificationRule[]
+  >([]);
+  const [notificationRuleRuns, setNotificationRuleRuns] = useState<
+    NotificationRuleRunRecord[]
+  >([]);
+  const [reportPermissions, setReportPermissions] =
+    useState<ReportPermissionsState | null>(null);
+  const [reportPermissionDraft, setReportPermissionDraft] = useState<
+    Partial<Record<LineAccessProfileKey, ReportKey[]>>
+  >({});
+  const [editingNotificationRuleId, setEditingNotificationRuleId] =
+    useState<string | null>(null);
+  const [notificationName, setNotificationName] = useState("Daily SML digest");
+  const [notificationEnabled, setNotificationEnabled] = useState(false);
+  const [notificationPeriodPreset, setNotificationPeriodPreset] =
+    useState<NotificationPeriodPreset>("yesterday");
+  const [notificationDigestMode, setNotificationDigestMode] =
+    useState<NotificationDigestMode>("action_only");
+  const [notificationWeekdays, setNotificationWeekdays] = useState<number[]>([
+    1, 2, 3, 4, 5, 6, 7,
+  ]);
+  const [notificationTimes, setNotificationTimes] = useState<string[]>(["08:00"]);
+  const [notificationTimeInput, setNotificationTimeInput] = useState("08:00");
+  const [notificationReportKeys, setNotificationReportKeys] = useState<
+    ReportKey[]
+  >(["sales_goods_services", "purchase_goods_payables"]);
+  const [notificationTargetIds, setNotificationTargetIds] = useState<string[]>(
+    [],
+  );
+  const [lastNotificationRunResult, setLastNotificationRunResult] =
+    useState<NotificationRuleRunResult | null>(null);
   const [datasourceTests, setDatasourceTests] = useState<
     Record<string, DatasourceTestResult>
   >({});
@@ -251,13 +441,6 @@ export default function OwnerPortal({
     useState<DatasourceConfigStatus | null>(null);
   const [javaWsDatabaseDiscovery, setJavaWsDatabaseDiscovery] =
     useState<JavaWsDatabaseDiscoveryResult | null>(null);
-  const [datasourceKind, setDatasourceKind] =
-    useState<DatasourceKind>("sml_postgres");
-  const [datasourceHost, setDatasourceHost] = useState("");
-  const [datasourcePort, setDatasourcePort] = useState("5432");
-  const [datasourceDatabase, setDatasourceDatabase] = useState("");
-  const [datasourceUser, setDatasourceUser] = useState("");
-  const [datasourcePassword, setDatasourcePassword] = useState("");
   const [javaWsBaseUrl, setJavaWsBaseUrl] = useState("");
   const [javaWsWebappPath, setJavaWsWebappPath] =
     useState("/SMLJavaWebService");
@@ -275,6 +458,10 @@ export default function OwnerPortal({
   );
   const [systemAppBaseUrl, setSystemAppBaseUrl] = useState("");
   const [systemPublicApiBaseUrl, setSystemPublicApiBaseUrl] = useState("");
+  const [systemReportViewerSigningSecret, setSystemReportViewerSigningSecret] =
+    useState("");
+  const [systemReportViewerLinkTtlHours, setSystemReportViewerLinkTtlHours] =
+    useState("72");
   const [systemMorningBriefEnabled, setSystemMorningBriefEnabled] =
     useState(true);
   const [systemMorningBriefTenantIds, setSystemMorningBriefTenantIds] =
@@ -286,7 +473,7 @@ export default function OwnerPortal({
     useState<"dry_run" | "send">("send");
   const [systemMorningBriefForce, setSystemMorningBriefForce] = useState(false);
   const [systemWorkerId, setSystemWorkerId] =
-    useState("worker_morning_brief_1");
+    useState("worker_notification_rules_1");
   const [systemWorkerHeartbeatToken, setSystemWorkerHeartbeatToken] =
     useState("");
   const [systemBackupConfigured, setSystemBackupConfigured] = useState(false);
@@ -315,6 +502,7 @@ export default function OwnerPortal({
   const [validationSignoffResult, setValidationSignoffResult] =
     useState<ValidationSignoffResult | null>(null);
   const [lineChannelName, setLineChannelName] = useState("");
+  const [lineChannelShared, setLineChannelShared] = useState(false);
   const [lineTokenConfigured, setLineTokenConfigured] = useState(false);
   const [lineSecretConfigured, setLineSecretConfigured] = useState(false);
   const [lineSecretChannelId, setLineSecretChannelId] = useState("");
@@ -338,157 +526,273 @@ export default function OwnerPortal({
   const selectedTenantSummary = tenants.find(
     (item) => item.tenant.id === selectedTenantId,
   );
-  const selectedTenantLineChannels = selectedTenantId
-    ? lineChannels.filter((channel) => channel.tenant_id === selectedTenantId)
-    : lineChannels;
-  const selectedTenantLineTargets = selectedTenantId
-    ? lineTargets.filter((target) => target.tenant_id === selectedTenantId)
-    : [];
+  const showCancelledTenants =
+    section === "overview" ||
+    section === "tenants" ||
+    section === "audit" ||
+    section === "settings";
+  const visibleSectionTenants = showCancelledTenants
+    ? tenants
+    : tenants.filter((item) => item.tenant.status !== "cancelled");
+  const visibleSectionSmlConnections = showCancelledTenants
+    ? smlConnections
+    : smlConnections.filter((item) => item.tenant.status !== "cancelled");
+  const selectedTenantLineChannels = useMemo(
+    () =>
+      selectedTenantId
+        ? lineChannels.filter(
+            (channel) =>
+              channel.tenant_id === selectedTenantId ||
+              channel.scope === "owner_shared",
+          )
+        : lineChannels,
+    [lineChannels, selectedTenantId],
+  );
+  const selectedTenantLineTargets = useMemo(
+    () =>
+      selectedTenantId
+        ? lineTargets.filter((target) => target.tenant_id === selectedTenantId)
+        : [],
+    [lineTargets, selectedTenantId],
+  );
   const sectionMeta = getOwnerSectionMeta(section);
+  const selectedTenantIdRef = useRef(selectedTenantId);
 
-  useEffect(() => {
-    void loadOwnerData({ promptForToken: false });
+  const applySystemConfigState = useCallback((config: SystemConfigStatus) => {
+    setSystemConfig(config);
+    setSystemAppBaseUrl(config.app_base_url ?? "");
+    setSystemPublicApiBaseUrl(config.public_api_base_url ?? "");
+    setSystemReportViewerSigningSecret("");
+    setSystemReportViewerLinkTtlHours(
+      String(config.report_viewer_link_ttl_hours ?? 72),
+    );
+    setSystemMorningBriefEnabled(config.morning_brief_enabled);
+    setSystemMorningBriefTenantIds(config.morning_brief_tenant_ids.join(", "));
+    setSystemMorningBriefTime(config.morning_brief_time);
+    setSystemMorningBriefTimezone(config.morning_brief_timezone);
+    setSystemMorningBriefMode(config.morning_brief_mode);
+    setSystemMorningBriefForce(config.morning_brief_force);
+    setSystemWorkerId(config.worker_id);
+    setSystemWorkerHeartbeatToken("");
+    setSystemBackupConfigured(config.backup_configured);
+    setSystemLastBackupAt(config.system_last_backup_at ?? "");
   }, []);
 
-  useEffect(() => {
-    setPublicOrigin(window.location.origin);
-  }, []);
+  const loadOwnerData = useCallback(
+    async ({ promptForToken = true }: { promptForToken?: boolean } = {}) => {
+      setResult(null);
+      try {
+        const headers = promptForToken
+          ? await buildAdminJsonHeaders({
+              actionLabel: "เปิด Owner Admin Portal",
+              description:
+                "หน้านี้เห็นทุกร้านและใช้จัดการ subscription/config ระดับระบบ",
+            })
+          : buildRememberedAdminJsonHeaders();
+        if (!headers) {
+          setDataStatus("auth_required");
+          return;
+        }
 
-  useEffect(() => {
-    if (!selectedTenantId && tenants[0]) {
-      setSelectedTenantId(tenants[0].tenant.id);
-    }
-  }, [selectedTenantId, tenants]);
-
-  useEffect(() => {
-    if (section !== "sml-connections" || !tenants.length) {
-      return;
-    }
-
-    const tenantId = new URLSearchParams(window.location.search).get("tenant");
-    if (
-      tenantId &&
-      tenantId !== selectedTenantId &&
-      tenants.some((item) => item.tenant.id === tenantId)
-    ) {
-      setSelectedTenantId(tenantId);
-    }
-  }, [section, selectedTenantId, tenants]);
-
-  useEffect(() => {
-    if (selectedTenantId) {
-      void loadDatasourceConfig(selectedTenantId);
-    } else {
-      setDatasourceConfig(null);
-    }
-  }, [selectedTenantId]);
-
-  useEffect(() => {
-    if (
-      selectedTenantLineChannels.length &&
-      !selectedTenantLineChannels.some(
-        (channel) => channel.id === lineSecretChannelId,
-      )
-    ) {
-      setLineSecretChannelId(selectedTenantLineChannels[0].id);
-      return;
-    }
-    if (!selectedTenantLineChannels.length && lineSecretChannelId) {
-      setLineSecretChannelId("");
-    }
-  }, [lineSecretChannelId, selectedTenantLineChannels]);
-
-  async function loadOwnerData({
-    promptForToken = true,
-  }: { promptForToken?: boolean } = {}) {
-    setResult(null);
-    try {
-      const headers = promptForToken
-        ? await buildAdminJsonHeaders({
-            actionLabel: "เปิด Owner Admin Portal",
-            description:
-              "หน้านี้เห็นทุกร้านและใช้จัดการ subscription/config ระดับระบบ",
-          })
-        : buildRememberedAdminJsonHeaders();
-      if (!headers) {
-        setDataStatus("auth_required");
-        return;
-      }
-
-      const [
-        tenantsResponse,
-        smlConnectionsResponse,
-        channelsResponse,
-        lineTargetsResponse,
-        operationsResponse,
-        systemConfigResponse,
-      ] =
-        await Promise.all([
-          fetch(`${API_BASE_URL}/api/owner/tenants`, { headers }),
+        const currentTenantId = selectedTenantIdRef.current;
+        const [
+          storeSetupResponse,
+          smlConnectionsResponse,
+          channelsResponse,
+          lineRecipientsResponse,
+          lineTargetsResponse,
+          notificationRulesResponse,
+          operationsResponse,
+          systemConfigResponse,
+        ] = await Promise.all([
+          fetch(
+            `${API_BASE_URL}/api/owner/store-setup${
+              currentTenantId
+                ? `?tenant_id=${encodeURIComponent(currentTenantId)}`
+                : ""
+            }`,
+            { headers },
+          ),
           fetch(`${API_BASE_URL}/api/owner/sml-connections`, { headers }),
           fetch(`${API_BASE_URL}/api/owner/line-channels`, { headers }),
+          fetch(`${API_BASE_URL}/api/owner/line-recipients`, { headers }),
           fetch(`${API_BASE_URL}/api/line-targets`),
+          fetch(`${API_BASE_URL}/api/owner/notification-rules`, { headers }),
           fetch(`${API_BASE_URL}/api/owner/operations/status`, { headers }),
           fetch(`${API_BASE_URL}/api/owner/system/config`, { headers }),
         ]);
 
-      if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
-        forgetAdminToken();
-        setDataStatus("auth_required");
-        setResult({
-          tone: "warning",
-          message: "Admin token ใช้ไม่ได้หรือหมดอายุ กรุณายืนยันสิทธิ์อีกครั้ง",
-        });
-        return;
-      }
+        if (
+          storeSetupResponse.status === 401 ||
+          storeSetupResponse.status === 403
+        ) {
+          forgetAdminToken();
+          setDataStatus("auth_required");
+          setResult({
+            tone: "warning",
+            message: "Session ผู้ดูแลหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+          });
+          return;
+        }
 
-      if (!tenantsResponse.ok) {
-        const payload = (await tenantsResponse.json().catch(() => ({}))) as {
-          error?: string;
+        if (!storeSetupResponse.ok) {
+          const payload = (await storeSetupResponse.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(payload.error || "โหลดภาพรวมร้านค้าไม่สำเร็จ");
+        }
+
+        const storeSetupPayload = (await storeSetupResponse.json()) as {
+          data: {
+            tenants: TenantSummary[];
+            selected_tenant_id: string | null;
+            selected: StoreSetupDetail | null;
+          };
         };
-        throw new Error(payload.error || "โหลด tenant ไม่สำเร็จ");
+        const smlConnectionsPayload = smlConnectionsResponse.ok
+          ? ((await smlConnectionsResponse.json()) as {
+              data: SmlConnectionSummary[];
+            })
+          : { data: [] };
+        const channelsPayload = channelsResponse.ok
+          ? ((await channelsResponse.json()) as { data: LineChannelRecord[] })
+          : { data: [] };
+        const lineRecipientsPayload = lineRecipientsResponse.ok
+          ? ((await lineRecipientsResponse.json()) as {
+              data: LineRecipientRecord[];
+            })
+          : { data: [] };
+        const lineTargetsPayload = lineTargetsResponse.ok
+          ? ((await lineTargetsResponse.json()) as { data: LineTargetRecord[] })
+          : { data: [] };
+        const notificationRulesPayload = notificationRulesResponse.ok
+          ? ((await notificationRulesResponse.json()) as {
+              data: OwnerNotificationRule[];
+              runs?: NotificationRuleRunRecord[];
+            })
+          : { data: [], runs: [] };
+        const operationsPayload = operationsResponse.ok
+          ? ((await operationsResponse.json()) as { data: OwnerOperationsStatus })
+          : { data: null };
+        const systemConfigPayload = systemConfigResponse.ok
+          ? ((await systemConfigResponse.json()) as { data: SystemConfigStatus })
+          : { data: null };
+        setTenants(storeSetupPayload.data.tenants);
+        setStoreSetupDetail(storeSetupPayload.data.selected);
+        setSmlConnections(smlConnectionsPayload.data);
+        setLineChannels(channelsPayload.data);
+        setLineRecipients(lineRecipientsPayload.data);
+        setLineTargets(lineTargetsPayload.data);
+        setNotificationRules(notificationRulesPayload.data);
+        setNotificationRuleRuns(notificationRulesPayload.runs ?? []);
+        setOperationsStatus(operationsPayload.data);
+        if (systemConfigPayload.data) {
+          applySystemConfigState(systemConfigPayload.data);
+        }
+        setDataStatus("ready");
+      } catch (error) {
+        setDataStatus("error");
+        setResult({
+          tone: "error",
+          message:
+            error instanceof Error ? error.message : "โหลด Owner Admin ไม่สำเร็จ",
+        });
       }
+    },
+    [applySystemConfigState],
+  );
 
-      const tenantsPayload = (await tenantsResponse.json()) as {
-        data: TenantSummary[];
-      };
-      const smlConnectionsPayload = smlConnectionsResponse.ok
-        ? ((await smlConnectionsResponse.json()) as {
-            data: SmlConnectionSummary[];
-          })
-        : { data: [] };
-      const channelsPayload = channelsResponse.ok
-        ? ((await channelsResponse.json()) as { data: LineChannelRecord[] })
-        : { data: [] };
-      const lineTargetsPayload = lineTargetsResponse.ok
-        ? ((await lineTargetsResponse.json()) as { data: LineTargetRecord[] })
-        : { data: [] };
-      const operationsPayload = operationsResponse.ok
-        ? ((await operationsResponse.json()) as { data: OwnerOperationsStatus })
-        : { data: null };
-      const systemConfigPayload = systemConfigResponse.ok
-        ? ((await systemConfigResponse.json()) as { data: SystemConfigStatus })
-        : { data: null };
-      setTenants(tenantsPayload.data);
-      setSmlConnections(smlConnectionsPayload.data);
-      setLineChannels(channelsPayload.data);
-      setLineTargets(lineTargetsPayload.data);
-      setOperationsStatus(operationsPayload.data);
-      if (systemConfigPayload.data) {
-        applySystemConfigState(systemConfigPayload.data);
-      }
-      setDataStatus("ready");
-    } catch (error) {
-      setDataStatus("error");
-      setResult({
-        tone: "error",
-        message:
-          error instanceof Error ? error.message : "โหลด Owner Admin ไม่สำเร็จ",
-      });
+  const applyNotificationRuleToForm = useCallback(
+    (rule: OwnerNotificationRule) => {
+      setEditingNotificationRuleId(rule.id);
+      setNotificationName(rule.name);
+      setNotificationEnabled(rule.enabled);
+      setNotificationPeriodPreset(rule.period_preset);
+      setNotificationDigestMode(rule.digest_mode ?? "action_only");
+      setNotificationWeekdays(
+        rule.schedule[0]?.weekdays ?? [1, 2, 3, 4, 5, 6, 7],
+      );
+      setNotificationTimes(rule.schedule[0]?.times ?? ["08:00"]);
+      setNotificationTimeInput(rule.schedule[0]?.times?.[0] ?? "08:00");
+      setNotificationReportKeys(rule.report_keys);
+      setNotificationTargetIds(rule.target_ids);
+      setLastNotificationRunResult(null);
+    },
+    [],
+  );
+
+  const resetNotificationRuleForm = useCallback(() => {
+    const defaultTargets = selectedTenantLineTargets
+      .filter(
+        (target) =>
+          target.approved &&
+          target.enabled &&
+          target.allowed_actions.includes("receive_morning_brief"),
+      )
+      .map((target) => target.id);
+    setEditingNotificationRuleId(null);
+    setNotificationName("Daily SML digest");
+    setNotificationEnabled(false);
+    setNotificationPeriodPreset("yesterday");
+    setNotificationDigestMode("action_only");
+    setNotificationWeekdays([1, 2, 3, 4, 5, 6, 7]);
+    setNotificationTimes(["08:00"]);
+    setNotificationTimeInput("08:00");
+    setNotificationReportKeys(["sales_goods_services", "purchase_goods_payables"]);
+    setNotificationTargetIds(defaultTargets);
+    setLastNotificationRunResult(null);
+  }, [selectedTenantLineTargets]);
+
+  const loadStoreSetupDetail = useCallback(async (tenantId: string) => {
+    const headers = buildRememberedAdminJsonHeaders();
+    if (!headers) {
+      return;
     }
-  }
 
-  async function loadDatasourceConfig(tenantId: string) {
+    const response = await fetch(
+      `${API_BASE_URL}/api/owner/store-setup?tenant_id=${encodeURIComponent(
+        tenantId,
+      )}`,
+      { headers },
+    );
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      data: {
+        tenants: TenantSummary[];
+        selected: StoreSetupDetail | null;
+      };
+    };
+    setTenants(payload.data.tenants);
+    setStoreSetupDetail(payload.data.selected);
+  }, []);
+
+  const loadReportPermissions = useCallback(async (tenantId?: string) => {
+    const headers = buildRememberedAdminJsonHeaders();
+    if (!headers) {
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/owner/report-permissions${
+        tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""
+      }`,
+      { headers },
+    );
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      data: ReportPermissionsState;
+    };
+    setReportPermissions(payload.data);
+    setReportPermissionDraft(payload.data.matrix);
+  }, []);
+
+  const loadDatasourceConfig = useCallback(async (tenantId: string) => {
     const headers = buildRememberedAdminJsonHeaders();
     if (!headers) {
       return;
@@ -510,12 +814,6 @@ export default function OwnerPortal({
     };
     setDatasourceConfig(payload.data);
     setJavaWsDatabaseDiscovery(null);
-    setDatasourceKind(payload.data.kind ?? "sml_postgres");
-    setDatasourceHost(payload.data.host ?? "");
-    setDatasourcePort(String(payload.data.port ?? 5432));
-    setDatasourceDatabase(payload.data.database ?? "");
-    setDatasourceUser(payload.data.user ?? "");
-    setDatasourcePassword("");
     setJavaWsBaseUrl(payload.data.base_url ?? "");
     setJavaWsWebappPath(payload.data.webapp_path ?? "/SMLJavaWebService");
     setJavaWsEndpoint(payload.data.endpoint ?? "DotNetFrameWork");
@@ -524,41 +822,148 @@ export default function OwnerPortal({
     setJavaWsAuthMode(payload.data.auth_mode ?? "none");
     setJavaWsAuthUsername("");
     setJavaWsAuthSecret("");
-  }
+  }, []);
+
+  useEffect(() => {
+    void loadOwnerData({ promptForToken: false });
+  }, [loadOwnerData]);
+
+  useEffect(() => {
+    selectedTenantIdRef.current = selectedTenantId;
+  }, [selectedTenantId]);
+
+  useEffect(() => {
+    setPublicOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTenantId && tenants[0]) {
+      setSelectedTenantId(tenants[0].tenant.id);
+    }
+  }, [selectedTenantId, tenants]);
+
+  useEffect(() => {
+    if (
+      ![
+        "overview",
+        "tenants",
+        "sml-connections",
+        "notifications",
+        "report-permissions",
+        "line",
+      ].includes(section) ||
+      !tenants.length
+    ) {
+      return;
+    }
+
+    const tenantId = new URLSearchParams(window.location.search).get("tenant");
+    if (
+      tenantId &&
+      tenantId !== selectedTenantId &&
+      tenants.some((item) => item.tenant.id === tenantId)
+    ) {
+      setSelectedTenantId(tenantId);
+    }
+  }, [section, selectedTenantId, tenants]);
+
+  useEffect(() => {
+    if (selectedTenantId) {
+      void loadDatasourceConfig(selectedTenantId);
+      void loadStoreSetupDetail(selectedTenantId);
+      if (section === "report-permissions") {
+        void loadReportPermissions(selectedTenantId);
+      }
+    } else {
+      setDatasourceConfig(null);
+      setStoreSetupDetail(null);
+      setReportPermissions(null);
+      setReportPermissionDraft({});
+    }
+  }, [
+    loadDatasourceConfig,
+    loadReportPermissions,
+    loadStoreSetupDetail,
+    section,
+    selectedTenantId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedTenantId) {
+      return;
+    }
+
+    const currentRule = notificationRules.find(
+      (rule) => rule.id === editingNotificationRuleId,
+    );
+    if (currentRule?.tenant_id === selectedTenantId) {
+      return;
+    }
+
+    const firstRule = notificationRules.find(
+      (rule) => rule.tenant_id === selectedTenantId,
+    );
+    if (firstRule) {
+      applyNotificationRuleToForm(firstRule);
+      return;
+    }
+
+    resetNotificationRuleForm();
+  }, [
+    applyNotificationRuleToForm,
+    editingNotificationRuleId,
+    notificationRules,
+    resetNotificationRuleForm,
+    selectedTenantId,
+  ]);
+
+  useEffect(() => {
+    if (
+      selectedTenantLineChannels.length &&
+      !selectedTenantLineChannels.some(
+        (channel) => channel.id === lineSecretChannelId,
+      )
+    ) {
+      setLineSecretChannelId(selectedTenantLineChannels[0].id);
+      return;
+    }
+    if (!selectedTenantLineChannels.length && lineSecretChannelId) {
+      setLineSecretChannelId("");
+    }
+  }, [lineSecretChannelId, selectedTenantLineChannels]);
 
   function buildDatasourcePayload() {
-    if (datasourceKind === "sml_javaws") {
-      return {
-        kind: "sml_javaws" as const,
-        baseUrl: javaWsBaseUrl.trim(),
-        webappPath: javaWsWebappPath.trim() || "/SMLJavaWebService",
-        endpoint: "DotNetFrameWork" as const,
-        configFileName: javaWsConfigFileName.trim(),
-        database: javaWsDatabase.trim(),
-        queryMethod: "_queryCompress" as const,
-        auth:
-          javaWsAuthMode === "basic"
-            ? {
-                mode: "basic" as const,
-                username: javaWsAuthUsername.trim(),
-                password: javaWsAuthSecret,
-              }
-            : javaWsAuthMode === "bearer"
-              ? {
-                  mode: "bearer" as const,
-                  token: javaWsAuthSecret,
-                }
-              : { mode: "none" as const },
-      };
+    if (!javaWsBaseUrl.trim()) {
+      throw new Error("กรุณากรอก Tomcat host/URL และ port ก่อนบันทึก");
+    }
+    if (!javaWsConfigFileName.trim()) {
+      throw new Error("กรุณากรอกชื่อไฟล์ SMLConfigxxxx.xml");
+    }
+    if (!javaWsDatabase.trim()) {
+      throw new Error("กรุณากรอกชื่อ database ของร้าน");
     }
 
     return {
-      kind: "sml_postgres" as const,
-      host: datasourceHost.trim(),
-      port: Number(datasourcePort),
-      database: datasourceDatabase.trim(),
-      user: datasourceUser.trim(),
-      password: datasourcePassword,
+      kind: "sml_javaws" as const,
+      baseUrl: javaWsBaseUrl.trim(),
+      webappPath: javaWsWebappPath.trim() || "/SMLJavaWebService",
+      endpoint: "DotNetFrameWork" as const,
+      configFileName: javaWsConfigFileName.trim(),
+      database: javaWsDatabase.trim(),
+      queryMethod: "_queryCompress" as const,
+      auth:
+        javaWsAuthMode === "basic"
+          ? {
+              mode: "basic" as const,
+              username: javaWsAuthUsername.trim(),
+              password: javaWsAuthSecret,
+            }
+          : javaWsAuthMode === "bearer"
+            ? {
+                mode: "bearer" as const,
+                token: javaWsAuthSecret,
+              }
+            : { mode: "none" as const },
     };
   }
 
@@ -586,7 +991,6 @@ export default function OwnerPortal({
   }
 
   function applyJavaWsPreset(preset: JavaWsDatasourcePreset) {
-    setDatasourceKind("sml_javaws");
     setJavaWsBaseUrl(preset.baseUrl);
     setJavaWsWebappPath(preset.webappPath);
     setJavaWsEndpoint(preset.endpoint);
@@ -598,50 +1002,30 @@ export default function OwnerPortal({
     setJavaWsDatabaseDiscovery(null);
   }
 
-  function applySystemConfigState(config: SystemConfigStatus) {
-    setSystemConfig(config);
-    setSystemAppBaseUrl(config.app_base_url ?? "");
-    setSystemPublicApiBaseUrl(config.public_api_base_url ?? "");
-    setSystemMorningBriefEnabled(config.morning_brief_enabled);
-    setSystemMorningBriefTenantIds(config.morning_brief_tenant_ids.join(", "));
-    setSystemMorningBriefTime(config.morning_brief_time);
-    setSystemMorningBriefTimezone(config.morning_brief_timezone);
-    setSystemMorningBriefMode(config.morning_brief_mode);
-    setSystemMorningBriefForce(config.morning_brief_force);
-    setSystemWorkerId(config.worker_id);
-    setSystemWorkerHeartbeatToken("");
-    setSystemBackupConfigured(config.backup_configured);
-    setSystemLastBackupAt(config.system_last_backup_at ?? "");
-  }
-
   async function saveDatasourceConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const tenant = selectedTenantSummary?.tenant;
     if (!tenant) {
-      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนบันทึก datasource" });
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนบันทึกการเชื่อม SML" });
       return;
     }
 
     await runOwnerAction(`datasource-save-${tenant.id}`, async () => {
       const payload = buildDatasourcePayload();
       const confirmed = await requestAdminConfirmation({
-        title: "ยืนยันบันทึก SML datasource",
+        title: "ยืนยันบันทึกการเชื่อม SML",
         message:
-          "ระบบจะเข้ารหัส password/token ก่อนเก็บใน system store และบันทึก audit โดยไม่แสดง secret เต็ม",
-        confirmLabel: "บันทึก datasource",
+          "ระบบจะเข้ารหัส token ของ reverse proxy ถ้ามี และบันทึก audit โดยไม่แสดง secret เต็ม",
+        confirmLabel: "บันทึกการเชื่อม",
         details: [
           { label: "ร้านค้า", value: tenant.name },
           {
-            label: "Mode",
-            value:
-              payload.kind === "sml_javaws"
-                ? "Tomcat JavaWS"
-                : "PostgreSQL direct",
+            label: "วิธีเชื่อม",
+            value: "Tomcat JavaWS",
           },
           {
-            label: payload.kind === "sml_javaws" ? "Tomcat" : "Host",
-            value:
-              payload.kind === "sml_javaws" ? payload.baseUrl : payload.host,
+            label: "Tomcat",
+            value: payload.baseUrl,
           },
           { label: "Database", value: payload.database },
         ],
@@ -651,12 +1035,12 @@ export default function OwnerPortal({
       }
 
       const headers = await buildAdminJsonHeaders({
-        actionLabel: `บันทึก datasource ของ ${tenant.name}`,
+        actionLabel: `บันทึกการเชื่อม SML ของ ${tenant.name}`,
         description:
-          "ใช้สำหรับให้ API/worker ต่อ SML ผ่าน PostgreSQL direct หรือ Tomcat JavaWS โดย secret จะถูกเข้ารหัสฝั่ง server",
+          "ใช้สำหรับให้ API/worker อ่านข้อมูล SML ผ่าน Tomcat JavaWS โดย secret จะถูกเข้ารหัสฝั่ง server",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนบันทึก datasource");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึกการเชื่อม SML");
       }
 
       const response = await fetch(
@@ -672,15 +1056,14 @@ export default function OwnerPortal({
         error?: string;
       };
       if (!response.ok || !responsePayload.data) {
-        throw new Error(responsePayload.error || "บันทึก datasource ไม่สำเร็จ");
+        throw new Error(responsePayload.error || "บันทึกการเชื่อม SML ไม่สำเร็จ");
       }
 
       setDatasourceConfig(responsePayload.data);
-      setDatasourcePassword("");
       setJavaWsAuthSecret("");
       setResult({
         tone: "success",
-        message: "บันทึก datasource แบบเข้ารหัสแล้ว",
+        message: "บันทึกการเชื่อม SML แบบเข้ารหัสแล้ว",
       });
       await loadOwnerData();
     });
@@ -693,9 +1076,6 @@ export default function OwnerPortal({
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
-      if (!tenantIds.length) {
-        throw new Error("กรุณาระบุ tenant id สำหรับ Morning Brief อย่างน้อย 1 ร้าน");
-      }
 
       const headers = await buildAdminJsonHeaders({
         actionLabel: "บันทึก System Config",
@@ -703,7 +1083,7 @@ export default function OwnerPortal({
           "บันทึก runtime settings ลง encrypted system store โดยไม่เก็บ worker token แบบอ่านได้",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนบันทึก System Config");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึก System Config");
       }
 
       const response = await fetch(`${API_BASE_URL}/api/owner/system/config`, {
@@ -712,8 +1092,14 @@ export default function OwnerPortal({
         body: JSON.stringify({
           app_base_url: systemAppBaseUrl.trim(),
           public_api_base_url: systemPublicApiBaseUrl.trim(),
+          report_viewer_signing_secret:
+            systemReportViewerSigningSecret.trim() || undefined,
+          report_viewer_link_ttl_hours:
+            Number(systemReportViewerLinkTtlHours.trim()) || 72,
           morning_brief_enabled: systemMorningBriefEnabled,
-          morning_brief_tenant_ids: tenantIds,
+          morning_brief_tenant_ids: tenantIds.length
+            ? tenantIds
+            : ["tenant_demo_remote"],
           morning_brief_time: systemMorningBriefTime,
           morning_brief_timezone: systemMorningBriefTimezone.trim(),
           morning_brief_mode: systemMorningBriefMode,
@@ -754,10 +1140,10 @@ export default function OwnerPortal({
     await runOwnerAction("create", async () => {
       const headers = await buildAdminJsonHeaders({
         actionLabel: "เพิ่มร้านค้าใหม่",
-        description: "สร้าง tenant ใหม่ในระบบ SaaS pilot",
+        description: "สร้างร้านใหม่ในระบบ SaaS pilot",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนเพิ่มร้านค้า");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเพิ่มร้านค้า");
       }
 
       const response = await fetch(`${API_BASE_URL}/api/owner/tenants`, {
@@ -802,10 +1188,10 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: "เพิ่ม LINE OA ให้ร้านค้า",
         description:
-          "บันทึก LINE OA metadata สำหรับ tenant นี้ โดยไม่แสดง token/secret ใน UI",
+          "บันทึก LINE OA metadata สำหรับร้านนี้ โดยไม่แสดง token/secret ใน UI",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนเพิ่ม LINE OA");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเพิ่ม LINE OA");
       }
 
       const response = await fetch(`${API_BASE_URL}/api/owner/line-channels`, {
@@ -814,6 +1200,7 @@ export default function OwnerPortal({
         body: JSON.stringify({
           tenant_id: selectedTenantId,
           display_name: displayName,
+          scope: lineChannelShared ? "owner_shared" : "tenant",
           channel_access_token_configured: lineTokenConfigured,
           channel_secret_configured: lineSecretConfigured,
           enabled: true,
@@ -828,6 +1215,7 @@ export default function OwnerPortal({
       }
 
       setLineChannelName("");
+      setLineChannelShared(false);
       setResult({ tone: "success", message: "เพิ่ม LINE OA ให้ร้านค้าแล้ว" });
       await loadOwnerData();
     });
@@ -875,10 +1263,10 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: `บันทึก LINE secret ของ ${channel.display_name}`,
         description:
-          "ใช้สำหรับส่ง Morning Brief และตรวจ webhook ของ LINE OA นี้",
+          "ใช้สำหรับส่งแผนแจ้งเตือนและตรวจ webhook ของ LINE OA นี้",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนบันทึก LINE secret");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึก LINE secret");
       }
 
       const response = await fetch(
@@ -907,6 +1295,109 @@ export default function OwnerPortal({
     });
   }
 
+  async function updateLineChannel(input: {
+    channel: LineChannelRecord;
+    displayName: string;
+    scope: LineChannelScope;
+    enabled: boolean;
+  }) {
+    const displayName = input.displayName.trim();
+    if (!displayName) {
+      setResult({ tone: "warning", message: "กรุณากรอกชื่อ LINE OA" });
+      return;
+    }
+
+    await runOwnerAction(`line-channel-update-${input.channel.id}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `แก้ไข LINE OA ${input.channel.display_name}`,
+        description:
+          "แก้ชื่อ สถานะเปิดใช้งาน และกำหนดว่า LINE OA นี้เป็น OA กลางหรือของร้าน",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนแก้ไข LINE OA");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/line-channels/${input.channel.id}`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            display_name: displayName,
+            scope: input.scope,
+            enabled: input.enabled,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: LineChannelRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "แก้ไข LINE OA ไม่สำเร็จ");
+      }
+
+      setResult({ tone: "success", message: "บันทึกการแก้ไข LINE OA แล้ว" });
+      await loadOwnerData();
+    });
+  }
+
+  async function assignLineRecipientToTenant(input: {
+    recipient: LineRecipientRecord;
+    lineChannelId: string;
+    profileKey: LineAccessProfileKey;
+  }) {
+    if (!selectedTenantId) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนเพิ่มผู้รับ LINE" });
+      return;
+    }
+    if (!input.lineChannelId) {
+      setResult({ tone: "warning", message: "กรุณาเลือก LINE OA ที่ใช้ส่งให้ผู้รับนี้" });
+      return;
+    }
+
+    await runOwnerAction(
+      `assign-line-recipient-${selectedTenantId}-${input.recipient.id}`,
+      async () => {
+        const headers = await buildAdminJsonHeaders({
+          actionLabel: "เพิ่มผู้รับ LINE เข้าร้าน",
+          description:
+            "สร้าง assignment ผู้รับ LINE ให้ร้านนี้ โดยสิทธิ์รายงานจะแยกจากร้านอื่น",
+        });
+        if (!headers) {
+          throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเพิ่มผู้รับ LINE เข้าร้าน");
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/owner/tenants/${selectedTenantId}/line-target-assignments`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              source_target_id: input.recipient.source_target_id,
+              line_channel_id: input.lineChannelId,
+              access_profile_key: input.profileKey,
+            }),
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: LineTargetRecord;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "เพิ่มผู้รับ LINE เข้าร้านไม่สำเร็จ");
+        }
+
+        setResult({
+          tone: "success",
+          message: `${payload.data.display_name}: เพิ่มเป็นผู้รับของร้านนี้แล้ว`,
+        });
+        await loadOwnerData();
+      },
+    );
+  }
+
   async function approveLineTarget(
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
@@ -915,10 +1406,10 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: "อนุมัติผู้รับ LINE",
         description:
-          "เปิดให้ปลายทางนี้รับ Morning Brief ตามสิทธิ์ที่เลือก โดยไม่เปิดเผย target id เต็ม",
+          "เปิดให้ผู้รับนี้รับแผนแจ้งเตือนตามสิทธิ์ที่เลือก โดยไม่เปิดเผย LINE id เต็ม",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนอนุมัติผู้รับ LINE");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนอนุมัติผู้รับ LINE");
       }
 
       const response = await fetch(
@@ -963,7 +1454,7 @@ export default function OwnerPortal({
             "ปรับสิทธิ์รายงานของปลายทางนี้ เช่น ผู้บริหาร ฝ่ายขาย ปฏิบัติการ หรือพนักงาน",
         });
         if (!headers) {
-          throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสิทธิ์ผู้รับ LINE");
+          throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเปลี่ยนสิทธิ์ผู้รับ LINE");
         }
 
         const response = await fetch(
@@ -996,13 +1487,13 @@ export default function OwnerPortal({
     await runOwnerAction(`line-target-toggle-${target.id}`, async () => {
       const headers = await buildAdminJsonHeaders({
         actionLabel: target.enabled
-          ? "ปิดรับ Morning Brief"
-          : "เปิดรับ Morning Brief",
+          ? "ปิดรับแผนแจ้งเตือน"
+          : "เปิดรับแผนแจ้งเตือน",
         description:
           "เปลี่ยนเฉพาะสถานะเปิด/ปิดของปลายทางนี้ ไม่เปลี่ยน profile สิทธิ์รายงาน",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสถานะผู้รับ LINE");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเปลี่ยนสถานะผู้รับ LINE");
       }
 
       const response = await fetch(
@@ -1025,8 +1516,8 @@ export default function OwnerPortal({
       setResult({
         tone: "success",
         message: payload.data.enabled
-          ? "เปิดรับ Morning Brief ให้ปลายทางนี้แล้ว"
-          : "ปิดรับ Morning Brief ให้ปลายทางนี้แล้ว",
+          ? "เปิดรับแผนแจ้งเตือนให้ผู้รับนี้แล้ว"
+          : "ปิดรับแผนแจ้งเตือนให้ผู้รับนี้แล้ว",
       });
       await loadOwnerData();
     });
@@ -1037,7 +1528,7 @@ export default function OwnerPortal({
       const confirmed = await requestAdminConfirmation({
         title: "ยืนยันส่ง LINE test จริง",
         message:
-          "ระบบจะส่ง Flex Morning Brief ทดสอบไปยังปลายทางนี้เท่านั้น เพื่อยืนยันว่าผู้รับได้รับข้อความจริง",
+          "ระบบจะส่ง Flex ทดสอบไปยังผู้รับนี้เท่านั้น เพื่อยืนยันว่าผู้รับได้รับข้อความจริง",
         confirmLabel: "ส่งทดสอบ",
         tone: "danger",
         details: [
@@ -1059,7 +1550,7 @@ export default function OwnerPortal({
           "ใช้ทดสอบเฉพาะปลายทางนี้หลัง owner อนุมัติสิทธิ์แล้ว",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนส่ง LINE test");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนส่ง LINE test");
       }
 
       const response = await fetch(
@@ -1100,10 +1591,10 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: "บันทึกจำนวนผู้รับโดยประมาณ",
         description:
-          "ใช้ประเมิน LINE quota ต่อเดือนเท่านั้น ไม่กระทบ target id หรือสิทธิ์รายงาน",
+          "ใช้ประเมิน LINE quota ต่อเดือนเท่านั้น ไม่กระทบ LINE id หรือสิทธิ์รายงาน",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนบันทึกจำนวนผู้รับ");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึกจำนวนผู้รับ");
       }
 
       const response = await fetch(
@@ -1133,10 +1624,239 @@ export default function OwnerPortal({
     });
   }
 
+  async function updateTenantDetails(tenant: Tenant, input: TenantPatchInput) {
+    if (!input.name.trim()) {
+      setResult({ tone: "warning", message: "กรุณากรอกชื่อร้านค้า" });
+      return;
+    }
+
+    if (
+      input.status &&
+      input.status !== tenant.status &&
+      (input.status === "suspended" ||
+        tenant.status === "suspended" ||
+        tenant.status === "cancelled")
+    ) {
+      const confirmed = await requestAdminConfirmation({
+        title:
+          input.status === "suspended"
+            ? `ระงับร้าน ${tenant.name}?`
+            : `เปิดใช้งานร้าน ${tenant.name}?`,
+        message:
+          input.status === "suspended"
+            ? "ร้านนี้จะถูกบล็อก dashboard และหยุดส่ง LINE จริงจนกว่าจะเปิดใช้งานอีกครั้ง"
+            : "ระบบจะไม่เปิดแผนแจ้งเตือนที่เคยถูกปิดกลับให้อัตโนมัติ เพื่อกันการส่ง LINE โดยไม่ตั้งใจ",
+        details: [
+          { label: "สถานะเดิม", value: formatTenantStatus(tenant.status) },
+          { label: "สถานะใหม่", value: formatTenantStatus(input.status) },
+        ],
+        confirmLabel: "ยืนยัน",
+        tone: input.status === "suspended" ? "danger" : "primary",
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    await runOwnerAction(`${tenant.id}-save`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `แก้ไขร้าน ${tenant.name}`,
+        description: "บันทึกชื่อร้าน แพ็กเกจ และสถานะ subscription",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนแก้ไขร้าน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenant.id}`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(input),
+        },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(payload.error || "บันทึกร้านไม่สำเร็จ");
+      }
+
+      setResult({ tone: "success", message: "บันทึกข้อมูลร้านแล้ว" });
+      await loadOwnerData();
+      await loadStoreSetupDetail(tenant.id);
+    });
+  }
+
+  async function updateBusinessSignalStatus(
+    signal: BusinessSignalRecord,
+    status: BusinessSignalRecord["status"],
+  ) {
+    const tenant = tenants.find((item) => item.tenant.id === signal.tenant_id)?.tenant;
+    await runOwnerAction(`business-signal-${signal.id}-${status}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: formatBusinessSignalStatusAction(status),
+        description:
+          "บันทึกสถานะเรื่องที่ต้องจัดการ เพื่อให้ Owner cockpit และ audit log ตรงกัน",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเปลี่ยนสถานะ signal");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${signal.tenant_id}/business-signals/${encodeURIComponent(
+          signal.id,
+        )}`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ status }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: BusinessSignalRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "เปลี่ยนสถานะ signal ไม่สำเร็จ");
+      }
+
+      setResult({
+        tone: "success",
+        message: `${tenant?.name ?? signal.tenant_id}: ${formatBusinessSignalStatusAction(status)}สำเร็จ`,
+      });
+      await loadStoreSetupDetail(signal.tenant_id);
+    });
+  }
+
+  async function previewTenantDeleteImpact(tenantId: string) {
+    const headers = await buildAdminJsonHeaders({
+      actionLabel: "ตรวจผลกระทบก่อนยกเลิกร้าน",
+      description:
+        "อ่านจำนวนแผนแจ้งเตือน ผู้รับ LINE และ report history ก่อน soft delete",
+    });
+    if (!headers) {
+      throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนตรวจผลกระทบ");
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/owner/tenants/${tenantId}/delete-impact`,
+      { headers },
+    );
+    const payload = (await response.json().catch(() => ({}))) as {
+      data?: TenantDeleteImpact;
+      error?: string;
+    };
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.error || "โหลดผลกระทบก่อนยกเลิกร้านไม่สำเร็จ");
+    }
+
+    return payload.data;
+  }
+
+  async function cancelTenant(
+    tenant: Tenant,
+    input: { confirmName: string; reason: string },
+  ) {
+    const confirmed = await requestAdminConfirmation({
+      title: `ยกเลิกร้าน ${tenant.name}?`,
+      message:
+        "ระบบจะ soft delete โดยตั้งสถานะเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ และเก็บ logs, LINE targets, snapshots ไว้ตรวจย้อนหลัง",
+      details: [
+        { label: "ร้าน", value: tenant.name },
+        { label: "ผลหลังยกเลิก", value: "ไม่ส่ง LINE และไม่เปิด dashboard ลูกค้า" },
+      ],
+      confirmLabel: "ยืนยันยกเลิก",
+      tone: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    await runOwnerAction(`${tenant.id}-cancel`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `ยกเลิกร้าน ${tenant.name}`,
+        description: "Soft delete ร้านและปิดแผนแจ้งเตือนที่ยัง enabled",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนยกเลิกร้าน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenant.id}`,
+        {
+          method: "DELETE",
+          headers,
+          body: JSON.stringify({
+            confirm_name: input.confirmName,
+            reason: input.reason.trim() || undefined,
+          }),
+        },
+      );
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: {
+          disabled_notification_rules?: number;
+          already_cancelled?: boolean;
+        };
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "ยกเลิกร้านไม่สำเร็จ");
+      }
+
+      setResult({
+        tone: "success",
+        message: payload.data?.already_cancelled
+          ? "ร้านนี้ถูกยกเลิกอยู่แล้ว ระบบตรวจสอบแล้วว่าไม่มี action ซ้ำที่ทำข้อมูลเสีย"
+          : `ยกเลิกร้านแล้ว และปิดแผนแจ้งเตือน ${payload.data?.disabled_notification_rules ?? 0} แผน`,
+      });
+      await loadOwnerData();
+      await loadStoreSetupDetail(tenant.id);
+    });
+  }
+
   async function updateTenantStatus(
     tenant: Tenant,
     status: Tenant["status"],
   ) {
+    if (status === "cancelled") {
+      setResult({
+        tone: "warning",
+        message: "การยกเลิกร้านต้องใช้กล่องยืนยันด้านขวาและพิมพ์ชื่อร้าน",
+      });
+      return;
+    }
+    if (status === tenant.status) {
+      return;
+    }
+    if (
+      status === "suspended" ||
+      tenant.status === "suspended" ||
+      tenant.status === "cancelled"
+    ) {
+      const confirmed = await requestAdminConfirmation({
+        title:
+          status === "suspended"
+            ? `ระงับร้าน ${tenant.name}?`
+            : `เปิดใช้งานร้าน ${tenant.name}?`,
+        message:
+          status === "suspended"
+            ? "ร้านนี้จะถูกบล็อก dashboard และหยุดส่ง LINE จริง"
+            : "การเปิดร้านกลับจะไม่เปิดแผนแจ้งเตือนเดิมให้อัตโนมัติ",
+        details: [
+          { label: "สถานะเดิม", value: formatTenantStatus(tenant.status) },
+          { label: "สถานะใหม่", value: formatTenantStatus(status) },
+        ],
+        confirmLabel: "ยืนยัน",
+        tone: status === "suspended" ? "danger" : "primary",
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+
     await runOwnerAction(`${tenant.id}-${status}`, async () => {
       const headers = await buildAdminJsonHeaders({
         actionLabel: `เปลี่ยนสถานะร้าน ${tenant.name}`,
@@ -1146,7 +1866,7 @@ export default function OwnerPortal({
             : "อัปเดตสถานะ subscription ของร้านนี้",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนเปลี่ยนสถานะร้าน");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเปลี่ยนสถานะร้าน");
       }
 
       const response = await fetch(
@@ -1189,7 +1909,7 @@ export default function OwnerPortal({
           "เรียก SOAP _getDatabaseList เพื่ออ่านรายชื่อ database จาก config file โดยไม่ส่ง SQL จาก UI",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนค้นหา JavaWS database");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนค้นหา JavaWS database");
       }
 
       const response = await fetch(
@@ -1235,50 +1955,50 @@ export default function OwnerPortal({
     await runOwnerAction(
       source === "saved" ? `datasource-saved-${tenantId}` : `datasource-${tenantId}`,
       async () => {
-      const datasourcePayload = source === "form" ? buildDatasourcePayload() : null;
-      const headers = await buildAdminJsonHeaders({
-        actionLabel:
-          source === "saved"
-            ? `ทดสอบ SML datasource ที่บันทึกแล้วของ ${tenant.name}`
-            : `ทดสอบ SML datasource ของ ${tenant.name}`,
-        description:
-          source === "saved"
-            ? "ตรวจการเชื่อมต่อ SML จาก encrypted store โดยไม่ต้องกรอก secret ซ้ำ"
-            : "ตรวจการเชื่อมต่อ SML ด้วย mode ที่เลือกในฟอร์ม โดยไม่แสดง password หรือ credential เต็มใน UI",
-      });
-      if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนทดสอบ SML datasource");
-      }
-
-      const response = await fetch(
-        `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/test`,
-        {
-          method: "POST",
-          headers,
-          body: datasourcePayload ? JSON.stringify(datasourcePayload) : undefined,
-        },
-      );
-      const payload = (await response.json().catch(() => ({}))) as {
-        data?: DatasourceTestResult;
-        error?: string;
-      };
-
-      if (payload.data) {
-        setDatasourceTests((previous) => ({
-          ...previous,
-          [tenantId]: payload.data as DatasourceTestResult,
-        }));
-        await loadOwnerData();
-        setResult({
-          tone: payload.data.ok ? "success" : "warning",
-          message: payload.data.ok
-            ? `เชื่อมต่อ SML ของ ${tenant.name} สำเร็จ`
-            : toDatasourceBusinessMessage(payload.data.safe_error_message),
+        const datasourcePayload = source === "form" ? buildDatasourcePayload() : null;
+        const headers = await buildAdminJsonHeaders({
+          actionLabel:
+            source === "saved"
+              ? `ทดสอบการเชื่อม SML ที่บันทึกแล้วของ ${tenant.name}`
+              : `ทดสอบการเชื่อม SML ของ ${tenant.name}`,
+          description:
+            source === "saved"
+              ? "ตรวจการเชื่อมต่อ SML จาก encrypted store โดยไม่ต้องกรอก secret ซ้ำ"
+              : "ตรวจการเชื่อมต่อ SML ผ่าน JavaWS จากค่าที่กรอก โดยไม่แสดง token หรือ credential เต็มใน UI",
         });
-        return;
-      }
+        if (!headers) {
+          throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนทดสอบการเชื่อม SML");
+        }
 
-      throw new Error(payload.error || "ทดสอบ SML datasource ไม่สำเร็จ");
+        const response = await fetch(
+          `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/test`,
+          {
+            method: "POST",
+            headers,
+            body: datasourcePayload ? JSON.stringify(datasourcePayload) : undefined,
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: DatasourceTestResult;
+          error?: string;
+        };
+
+        if (payload.data) {
+          setDatasourceTests((previous) => ({
+            ...previous,
+            [tenantId]: payload.data as DatasourceTestResult,
+          }));
+          await loadOwnerData();
+          setResult({
+            tone: payload.data.ok ? "success" : "warning",
+            message: payload.data.ok
+              ? `เชื่อมต่อ SML ของ ${tenant.name} สำเร็จ`
+              : toDatasourceBusinessMessage(payload.data.safe_error_message),
+          });
+          return;
+        }
+
+        throw new Error(payload.error || "ทดสอบการเชื่อม SML ไม่สำเร็จ");
       },
     );
   }
@@ -1322,10 +2042,10 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: "รันรายงานขายสินค้าและบริการ",
         description:
-          "ระบบจะ query ฐาน SML ของ tenant นี้และบันทึก snapshot ล่าสุด",
+          "ระบบจะ query ฐาน SML ของร้านนี้ผ่าน JavaWS และบันทึก snapshot ล่าสุด",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนรันรายงาน");
       }
 
       const response = await fetch(
@@ -1402,10 +2122,10 @@ export default function OwnerPortal({
       const headers = await buildAdminJsonHeaders({
         actionLabel: "รันรายงานซื้อสินค้า/ตั้งหนี้",
         description:
-          "ระบบจะ query ฐาน SML ของ tenant นี้และบันทึก snapshot รายงานซื้อ",
+          "ระบบจะ query ฐาน SML ของร้านนี้ผ่าน JavaWS และบันทึก snapshot รายงานซื้อ",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนรันรายงาน");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนรันรายงาน");
       }
 
       const response = await fetch(
@@ -1441,6 +2161,90 @@ export default function OwnerPortal({
       setResult({
         tone: "success",
         message: `${tenant.name}: รันรายงานซื้อสำเร็จ ยอดซื้อ ${formatCurrency(payload.data.summary.total_purchase)} จาก ${payload.data.summary.document_count.toLocaleString("th-TH")} เอกสาร`,
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function runGrossProfitReport(
+    reportKey: "gross_profit_by_product" | "gross_profit_by_ar_customer",
+  ) {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนรันรายงาน" });
+      return;
+    }
+    if (!reportDateFrom || !reportDateTo || reportDateFrom > reportDateTo) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาเลือกช่วงวันที่ให้ถูกต้อง",
+      });
+      return;
+    }
+
+    const reportLabel = formatOwnerReportLabel(reportKey);
+    await runOwnerAction(`gross-profit-report-run-${reportKey}-${tenant.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: `ยืนยันรัน${reportLabel}`,
+        message:
+          "รายงานนี้มีข้อมูลต้นทุนและกำไรขั้นต้น ระบบจะ query ฐาน SML ผ่าน JavaWS และบันทึก snapshot สำหรับสิทธิ์ผู้บริหารเท่านั้น",
+        confirmLabel: "รันรายงาน",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          { label: "รายงาน", value: reportLabel },
+          {
+            label: "ช่วงวันที่",
+            value: formatReportPeriod(reportDateFrom, reportDateTo),
+          },
+          { label: "ข้อมูลอ่อนไหว", value: "มีต้นทุนและ margin" },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `รัน${reportLabel}`,
+        description:
+          "ระบบจะ query ฐาน SML ของร้านนี้ผ่าน JavaWS และบันทึก snapshot กำไรขั้นต้น",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนรันรายงาน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/reports/${tenant.id}/${reportKey}/run`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            date_from: reportDateFrom,
+            date_to: reportDateTo,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: GrossProfitByProductSnapshot | GrossProfitByArCustomerSnapshot;
+        run?: ReportRunRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
+        if (payload.run) {
+          setLastManualRun(payload.run);
+        }
+        throw new Error(payload.error || `รัน${reportLabel}ไม่สำเร็จ`);
+      }
+
+      setLastManualSnapshot(null);
+      setLastManualRun(payload.run ?? null);
+      setValidationSignoffResult(null);
+      setResult({
+        tone: "success",
+        message: `${tenant.name}: ${reportLabel} สำเร็จ กำไรขั้นต้น ${formatCurrency(payload.data.summary.gross_profit)} จาก ${payload.data.summary.row_count.toLocaleString("th-TH")} รายการ`,
       });
       await loadOwnerData();
     });
@@ -1516,7 +2320,7 @@ export default function OwnerPortal({
           "ใช้ยืนยันว่า report snapshot รอบนี้ถูกเทียบกับรายงาน SML เดิมแล้ว",
       });
       if (!headers) {
-        throw new Error("ต้องกรอก Admin token ก่อนบันทึกการรับรองยอด");
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึกการรับรองยอด");
       }
 
       const response = await fetch(
@@ -1553,6 +2357,321 @@ export default function OwnerPortal({
       });
       await loadOwnerData();
     });
+  }
+
+  function buildNotificationRulePayload() {
+    if (!selectedTenantId) {
+      throw new Error("กรุณาเลือกร้านค้าก่อนสร้างแผนแจ้งเตือน");
+    }
+    if (!notificationTimes.length) {
+      throw new Error("กรุณาเพิ่มเวลาแจ้งเตือนอย่างน้อย 1 รอบ");
+    }
+    if (!notificationWeekdays.length) {
+      throw new Error("กรุณาเลือกวันที่ต้องการแจ้งเตือน");
+    }
+    if (!notificationReportKeys.length) {
+      throw new Error("กรุณาเลือกรายงานอย่างน้อย 1 รายงาน");
+    }
+    if (notificationEnabled && !notificationTargetIds.length) {
+      throw new Error("กรุณาเลือกปลายทาง LINE อย่างน้อย 1 รายการ");
+    }
+
+    return {
+      tenant_id: selectedTenantId,
+      name: notificationName.trim(),
+      enabled: notificationEnabled,
+      timezone: "Asia/Bangkok",
+      period_preset: notificationPeriodPreset,
+      digest_mode: notificationDigestMode,
+      schedule: [
+        {
+          weekdays: [...new Set(notificationWeekdays)].sort((a, b) => a - b),
+          times: [...new Set(notificationTimes)].sort(),
+        },
+      ],
+      report_keys: notificationReportKeys,
+      target_ids: notificationTargetIds,
+    };
+  }
+
+  async function saveNotificationRule() {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนบันทึกแผนแจ้งเตือน" });
+      return;
+    }
+
+    await runOwnerAction(
+      editingNotificationRuleId
+        ? `notification-save-${editingNotificationRuleId}`
+        : `notification-create-${tenant.id}`,
+      async () => {
+        const payload = buildNotificationRulePayload();
+        const headers = await buildAdminJsonHeaders({
+          actionLabel: editingNotificationRuleId
+            ? `แก้แผนแจ้งเตือนของ ${tenant.name}`
+            : `สร้างแผนแจ้งเตือนของ ${tenant.name}`,
+          description:
+            "ระบบจะบันทึกตารางเวลา รายงาน และปลายทาง LINE ลงใน system store โดยไม่ให้ผู้ใช้กรอก raw LINE id",
+        });
+        if (!headers) {
+          throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึกแผนแจ้งเตือน");
+        }
+
+        const response = await fetch(
+          editingNotificationRuleId
+            ? `${API_BASE_URL}/api/owner/notification-rules/${editingNotificationRuleId}`
+            : `${API_BASE_URL}/api/owner/notification-rules`,
+          {
+            method: editingNotificationRuleId ? "PATCH" : "POST",
+            headers,
+            body: JSON.stringify(
+              editingNotificationRuleId
+                ? {
+                    name: payload.name,
+                    enabled: payload.enabled,
+                    timezone: payload.timezone,
+                    period_preset: payload.period_preset,
+                    digest_mode: payload.digest_mode,
+                    schedule: payload.schedule,
+                    report_keys: payload.report_keys,
+                    target_ids: payload.target_ids,
+                  }
+                : payload,
+            ),
+          },
+        );
+        const responsePayload = (await response.json().catch(() => ({}))) as {
+          data?: OwnerNotificationRule;
+          error?: string;
+          details?: unknown;
+        };
+        if (!response.ok || !responsePayload.data) {
+          throw new Error(
+            responsePayload.error || "บันทึกแผนแจ้งเตือนไม่สำเร็จ",
+          );
+        }
+
+        applyNotificationRuleToForm(responsePayload.data);
+        setResult({
+          tone: "success",
+          message: `${tenant.name}: บันทึกแผนแจ้งเตือนแล้ว`,
+        });
+        await loadOwnerData();
+      },
+    );
+  }
+
+  async function executeSelectedNotificationRule(mode: "dry_run" | "send") {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant || !editingNotificationRuleId) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาบันทึกแผนแจ้งเตือนก่อนทดสอบหรือส่งจริง",
+      });
+      return;
+    }
+
+    await runOwnerAction(
+      `notification-run-${editingNotificationRuleId}-${mode}`,
+      async () => {
+        if (mode === "send") {
+          const confirmed = await requestAdminConfirmation({
+            title: "ยืนยันส่งแผนแจ้งเตือนตอนนี้",
+            message:
+              "ระบบจะรันรายงานสดตาม period ที่ตั้งไว้ แล้วส่ง digest ไปยังปลายทาง LINE ที่เลือก",
+            confirmLabel: "ส่งตอนนี้",
+            details: [
+              { label: "ร้านค้า", value: tenant.name },
+              { label: "แผน", value: notificationName },
+              { label: "โหมด", value: "ส่งจริงผ่าน LINE" },
+            ],
+          });
+          if (!confirmed) {
+            return;
+          }
+        }
+
+        const headers = await buildAdminJsonHeaders({
+          actionLabel:
+            mode === "send"
+              ? `ส่งแผนแจ้งเตือนของ ${tenant.name}`
+              : `ทดสอบแผนแจ้งเตือนของ ${tenant.name}`,
+          description:
+            mode === "send"
+              ? "ส่ง digest จริงผ่าน LINE ด้วยแผนที่บันทึกไว้"
+              : "dry run จะสร้าง message และบันทึก audit โดยไม่ส่งออก LINE",
+        });
+        if (!headers) {
+          throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนทดสอบแผนแจ้งเตือน");
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/owner/notification-rules/${editingNotificationRuleId}/${
+            mode === "send" ? "run-now" : "test-run"
+          }`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ mode }),
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: NotificationRuleRunResult;
+          error?: string;
+        };
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.error || "รันแผนแจ้งเตือนไม่สำเร็จ");
+        }
+
+        setLastNotificationRunResult(payload.data);
+        setResult({
+          tone: payload.data.ok ? "success" : "warning",
+          message:
+            mode === "send"
+              ? "ส่งแผนแจ้งเตือนแล้ว ตรวจผลล่าสุดในตาราง run"
+              : "ทดสอบแผนแจ้งเตือนแบบ dry run แล้ว",
+        });
+        await loadOwnerData();
+      },
+    );
+  }
+
+  function toggleNotificationReportKey(reportKey: ReportKey) {
+    setNotificationReportKeys((current) =>
+      current.includes(reportKey)
+        ? current.filter((item) => item !== reportKey)
+        : [...current, reportKey],
+    );
+  }
+
+  function toggleReportPermission(
+    profileKey: LineAccessProfileKey,
+    reportKey: ReportKey,
+  ) {
+    setReportPermissionDraft((current) => {
+      const currentReports = current[profileKey] ?? [];
+      return {
+        ...current,
+        [profileKey]: currentReports.includes(reportKey)
+          ? currentReports.filter((item) => item !== reportKey)
+          : [...currentReports, reportKey],
+      };
+    });
+  }
+
+  async function saveReportPermissions() {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant || !reportPermissions) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาเลือกร้านค้าก่อนบันทึกสิทธิ์รายงาน",
+      });
+      return;
+    }
+
+    await runOwnerAction(`report-permissions-save-${tenant.id}`, async () => {
+      const targetCount = selectedTenantLineTargets.length;
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันบันทึกสิทธิ์รายงาน",
+        message:
+          "ระบบจะ sync สิทธิ์รายงานไปยัง LINE ID เดิมของร้านนี้ตาม role ที่ตั้งไว้",
+        confirmLabel: "บันทึกสิทธิ์รายงาน",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          { label: "LINE target ที่จะตรวจ sync", value: `${targetCount} ราย` },
+          { label: "ขอบเขต", value: "เฉพาะร้านนี้" },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `บันทึกสิทธิ์รายงานของ ${tenant.name}`,
+        description:
+          "กำหนดว่าผู้บริหาร ฝ่ายขาย ปฏิบัติการ และพนักงานของร้านนี้ดูรายงานใดได้บ้าง",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึกสิทธิ์รายงาน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/tenants/${tenant.id}/report-permissions`,
+        {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            permissions: reportPermissions.roles.map((role) => ({
+              access_profile_key: role.access_profile_key,
+              allowed_report_keys:
+                reportPermissionDraft[role.access_profile_key] ?? [],
+            })),
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: ReportPermissionsState;
+        error?: string;
+        impacted_notification_plans?: ReportPermissionImpact[];
+      };
+
+      if (!response.ok || !payload.data) {
+        const impacted = payload.impacted_notification_plans ?? [];
+        throw new Error(
+          impacted.length
+            ? `${payload.error ?? "บันทึกสิทธิ์รายงานไม่สำเร็จ"}: ${impacted
+                .slice(0, 3)
+                .map(
+                  (item) =>
+                    `${item.rule_name} / ${item.target_display_name} / ${item.report_label}`,
+                )
+                .join(", ")}`
+            : payload.error || "บันทึกสิทธิ์รายงานไม่สำเร็จ",
+        );
+      }
+
+      setReportPermissions(payload.data);
+      setReportPermissionDraft(payload.data.matrix);
+      setResult({
+        tone: "success",
+        message: `${tenant.name}: บันทึกสิทธิ์รายงานแล้ว และ sync LINE target ${
+          payload.data.updated_line_targets ?? 0
+        } ราย`,
+      });
+      await loadOwnerData({ promptForToken: false });
+      await loadReportPermissions(tenant.id);
+    });
+  }
+
+  function toggleNotificationWeekday(weekday: number) {
+    setNotificationWeekdays((current) =>
+      current.includes(weekday)
+        ? current.filter((item) => item !== weekday)
+        : [...current, weekday].sort((a, b) => a - b),
+    );
+  }
+
+  function toggleNotificationTarget(targetId: string) {
+    setNotificationTargetIds((current) =>
+      current.includes(targetId)
+        ? current.filter((item) => item !== targetId)
+        : [...current, targetId],
+    );
+  }
+
+  function addNotificationTime() {
+    if (!/^\d{2}:\d{2}$/.test(notificationTimeInput)) {
+      setResult({ tone: "warning", message: "เวลาแจ้งเตือนต้องอยู่ในรูปแบบ HH:mm" });
+      return;
+    }
+    setNotificationTimes((current) =>
+      [...new Set([...current, notificationTimeInput])].sort(),
+    );
+  }
+
+  function removeNotificationTime(time: string) {
+    setNotificationTimes((current) => current.filter((item) => item !== time));
   }
 
   async function runOwnerAction(name: string, action: () => Promise<void>) {
@@ -1597,6 +2716,16 @@ export default function OwnerPortal({
             <Badge color="light">
               {dataStatus === "ready" ? lineChannels.length : "-"} LINE OA
             </Badge>
+            {selectedTenantSummary && section !== "overview" ? (
+              <Link
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                href={`/owner?tenant=${encodeURIComponent(
+                  selectedTenantSummary.tenant.id,
+                )}`}
+              >
+                แก้ไขร้านนี้
+              </Link>
+            ) : null}
             <Button size="sm" variant="outline" onClick={() => void loadOwnerData()}>
               รีเฟรช
             </Button>
@@ -1630,12 +2759,6 @@ export default function OwnerPortal({
           createLineChannel={createLineChannel}
           createTenant={createTenant}
           datasourceConfig={datasourceConfig}
-          datasourceDatabase={datasourceDatabase}
-          datasourceHost={datasourceHost}
-          datasourceKind={datasourceKind}
-          datasourcePassword={datasourcePassword}
-          datasourcePort={datasourcePort}
-          datasourceUser={datasourceUser}
           datasourceTests={datasourceTests}
           javaWsDatabaseDiscovery={javaWsDatabaseDiscovery}
           javaWsAuthMode={javaWsAuthMode}
@@ -1650,29 +2773,63 @@ export default function OwnerPortal({
           lastManualSnapshot={lastManualSnapshot}
           lineAccessTokenInput={lineAccessTokenInput}
           lineChannelName={lineChannelName}
+          lineChannelShared={lineChannelShared}
           lineChannelSecretInput={lineChannelSecretInput}
           lineChannels={lineChannels}
+          lineRecipients={lineRecipients}
           lineTargets={lineTargets}
           lineSecretChannelId={lineSecretChannelId}
           lineSecretConfigured={lineSecretConfigured}
           lineTokenConfigured={lineTokenConfigured}
+          notificationEnabled={notificationEnabled}
+          notificationDigestMode={notificationDigestMode}
+          notificationName={notificationName}
+          notificationPeriodPreset={notificationPeriodPreset}
+          notificationReportKeys={notificationReportKeys}
+          notificationRuleRuns={notificationRuleRuns}
+          notificationRules={notificationRules}
+          notificationTargetIds={notificationTargetIds}
+          notificationTimeInput={notificationTimeInput}
+          notificationTimes={notificationTimes}
+          notificationWeekdays={notificationWeekdays}
+          reportPermissionDraft={reportPermissionDraft}
+          reportPermissions={reportPermissions}
+          editingNotificationRuleId={editingNotificationRuleId}
+          lastNotificationRunResult={lastNotificationRunResult}
           justCreatedTenantId={justCreatedTenantId}
           newTenantId={newTenantId}
           newTenantName={newTenantName}
+          onAssignLineRecipient={assignLineRecipientToTenant}
           onApproveLineTarget={approveLineTarget}
           onSetLineTargetProfile={updateLineTargetProfile}
+          onUpdateLineChannel={updateLineChannel}
           onSaveDatasourceConfig={saveDatasourceConfig}
           onSaveLineChannelSecrets={saveLineChannelSecretConfig}
+          onSaveNotificationRule={saveNotificationRule}
           onSaveSystemConfig={saveSystemConfig}
           onApplyJavaWsPreset={applyJavaWsPreset}
           onDiscoverJavaWsDatabases={discoverJavaWsDatabases}
           onTestDatasource={testDatasource}
           onTestLineTarget={testLineTarget}
+          onExecuteNotificationRule={executeSelectedNotificationRule}
+          onSelectNotificationRule={applyNotificationRuleToForm}
+          onNewNotificationRule={resetNotificationRuleForm}
+          onToggleNotificationReportKey={toggleNotificationReportKey}
+          onToggleReportPermission={toggleReportPermission}
+          onSaveReportPermissions={saveReportPermissions}
+          onToggleNotificationTarget={toggleNotificationTarget}
+          onToggleNotificationWeekday={toggleNotificationWeekday}
+          onAddNotificationTime={addNotificationTime}
+          onRemoveNotificationTime={removeNotificationTime}
           onToggleLineTarget={toggleLineTarget}
           onUpdateLineTargetRecipientEstimate={
             updateLineTargetRecipientEstimate
           }
+          onCancelTenant={cancelTenant}
+          onPreviewTenantDeleteImpact={previewTenantDeleteImpact}
+          onUpdateTenant={updateTenantDetails}
           onUpdateStatus={updateTenantStatus}
+          onUpdateBusinessSignalStatus={updateBusinessSignalStatus}
           onSaveValidationSignoff={saveValidationSignoff}
           operationsStatus={operationsStatus}
           publicOrigin={publicOrigin}
@@ -1684,27 +2841,27 @@ export default function OwnerPortal({
           selectedTenantLineChannels={selectedTenantLineChannels}
           selectedTenantLineTargets={selectedTenantLineTargets}
           selectedTenantSummary={selectedTenantSummary}
-          smlConnections={smlConnections}
-          setDatasourceDatabase={setDatasourceDatabase}
-          setDatasourceHost={setDatasourceHost}
-          setDatasourceKind={setDatasourceKind}
-          setDatasourcePassword={setDatasourcePassword}
-          setDatasourcePort={setDatasourcePort}
-          setDatasourceUser={setDatasourceUser}
+          smlConnections={visibleSectionSmlConnections}
+          storeSetupDetail={storeSetupDetail}
           setJavaWsAuthMode={setJavaWsAuthMode}
           setJavaWsAuthSecret={setJavaWsAuthSecret}
           setJavaWsAuthUsername={setJavaWsAuthUsername}
           setJavaWsBaseUrl={setJavaWsBaseUrl}
           setJavaWsConfigFileName={setJavaWsConfigFileName}
           setJavaWsDatabase={setJavaWsDatabase}
-          setJavaWsEndpoint={setJavaWsEndpoint}
           setJavaWsWebappPath={setJavaWsWebappPath}
           setLineAccessTokenInput={setLineAccessTokenInput}
           setLineChannelName={setLineChannelName}
+          setLineChannelShared={setLineChannelShared}
           setLineChannelSecretInput={setLineChannelSecretInput}
           setLineSecretChannelId={setLineSecretChannelId}
           setLineSecretConfigured={setLineSecretConfigured}
           setLineTokenConfigured={setLineTokenConfigured}
+          setNotificationEnabled={setNotificationEnabled}
+          setNotificationDigestMode={setNotificationDigestMode}
+          setNotificationName={setNotificationName}
+          setNotificationPeriodPreset={setNotificationPeriodPreset}
+          setNotificationTimeInput={setNotificationTimeInput}
           setNewTenantId={setNewTenantId}
           setNewTenantName={setNewTenantName}
           setReportDateFrom={setReportDateFrom}
@@ -1720,9 +2877,15 @@ export default function OwnerPortal({
           setSystemMorningBriefTime={setSystemMorningBriefTime}
           setSystemMorningBriefTimezone={setSystemMorningBriefTimezone}
           setSystemPublicApiBaseUrl={setSystemPublicApiBaseUrl}
+          setSystemReportViewerLinkTtlHours={
+            setSystemReportViewerLinkTtlHours
+          }
+          setSystemReportViewerSigningSecret={
+            setSystemReportViewerSigningSecret
+          }
           setSystemWorkerHeartbeatToken={setSystemWorkerHeartbeatToken}
           setSystemWorkerId={setSystemWorkerId}
-          tenants={tenants}
+          tenants={visibleSectionTenants}
           systemAppBaseUrl={systemAppBaseUrl}
           systemBackupConfigured={systemBackupConfigured}
           systemConfig={systemConfig}
@@ -1734,6 +2897,8 @@ export default function OwnerPortal({
           systemMorningBriefTime={systemMorningBriefTime}
           systemMorningBriefTimezone={systemMorningBriefTimezone}
           systemPublicApiBaseUrl={systemPublicApiBaseUrl}
+          systemReportViewerLinkTtlHours={systemReportViewerLinkTtlHours}
+          systemReportViewerSigningSecret={systemReportViewerSigningSecret}
           systemWorkerHeartbeatToken={systemWorkerHeartbeatToken}
           systemWorkerId={systemWorkerId}
           validationNote={validationNote}
@@ -1745,6 +2910,7 @@ export default function OwnerPortal({
           setValidationSignedBy={setValidationSignedBy}
           onRunSalesReport={runSalesReport}
           onRunPurchaseReport={runPurchaseReport}
+          onRunGrossProfitReport={runGrossProfitReport}
         />
       ) : null}
 
@@ -1759,7 +2925,7 @@ function OwnerAuthGate({ onVerify }: { onVerify: () => void }) {
         <div>
           <Badge color="warning">ต้องยืนยันสิทธิ์</Badge>
           <h2 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
-            ยืนยัน Admin token เพื่อโหลดข้อมูลร้านค้า
+            ยืนยัน session ผู้ดูแล เพื่อโหลดข้อมูลร้านค้า
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">
             เพื่อไม่ให้หน้า owner แสดงข้อมูลผิดหรือโหลดค้าง ระบบจะยังไม่แสดง tenant,
@@ -1792,12 +2958,6 @@ type OwnerSectionContentProps = {
   createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
   createTenant: (event: FormEvent<HTMLFormElement>) => void;
   datasourceConfig: DatasourceConfigStatus | null;
-  datasourceDatabase: string;
-  datasourceHost: string;
-  datasourceKind: DatasourceKind;
-  datasourcePassword: string;
-  datasourcePort: string;
-  datasourceUser: string;
   datasourceTests: Record<string, DatasourceTestResult>;
   javaWsDatabaseDiscovery: JavaWsDatabaseDiscoveryResult | null;
   javaWsAuthMode: JavaWsAuthMode;
@@ -1813,14 +2973,42 @@ type OwnerSectionContentProps = {
   lastManualSnapshot: SalesGoodsServicesSnapshot | null;
   lineAccessTokenInput: string;
   lineChannelName: string;
+  lineChannelShared: boolean;
   lineChannelSecretInput: string;
   lineChannels: LineChannelRecord[];
+  lineRecipients: LineRecipientRecord[];
   lineTargets: LineTargetRecord[];
   lineSecretChannelId: string;
   lineSecretConfigured: boolean;
   lineTokenConfigured: boolean;
+  notificationEnabled: boolean;
+  notificationDigestMode: NotificationDigestMode;
+  notificationName: string;
+  notificationPeriodPreset: NotificationPeriodPreset;
+  notificationReportKeys: ReportKey[];
+  notificationRuleRuns: NotificationRuleRunRecord[];
+  notificationRules: OwnerNotificationRule[];
+  notificationTargetIds: string[];
+  notificationTimeInput: string;
+  notificationTimes: string[];
+  notificationWeekdays: number[];
+  reportPermissionDraft: Partial<Record<LineAccessProfileKey, ReportKey[]>>;
+  reportPermissions: ReportPermissionsState | null;
+  editingNotificationRuleId: string | null;
+  lastNotificationRunResult: NotificationRuleRunResult | null;
   newTenantId: string;
   newTenantName: string;
+  onAssignLineRecipient: (input: {
+    recipient: LineRecipientRecord;
+    lineChannelId: string;
+    profileKey: LineAccessProfileKey;
+  }) => Promise<void>;
+  onUpdateLineChannel: (input: {
+    channel: LineChannelRecord;
+    displayName: string;
+    scope: LineChannelScope;
+    enabled: boolean;
+  }) => Promise<void>;
   onApproveLineTarget: (
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
@@ -1829,23 +3017,52 @@ type OwnerSectionContentProps = {
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
   ) => Promise<void>;
+  onRunGrossProfitReport: (
+    reportKey: "gross_profit_by_product" | "gross_profit_by_ar_customer",
+  ) => Promise<void>;
   onRunPurchaseReport: () => Promise<void>;
   onRunSalesReport: () => Promise<void>;
   onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
   onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveNotificationRule: () => Promise<void>;
   onSaveSystemConfig: (event: FormEvent<HTMLFormElement>) => void;
   onApplyJavaWsPreset: (preset: JavaWsDatasourcePreset) => void;
   onDiscoverJavaWsDatabases: (tenantId: string) => Promise<void>;
   onTestDatasource: (tenantId: string, source?: "form" | "saved") => Promise<void>;
   onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
+  onExecuteNotificationRule: (mode: "dry_run" | "send") => Promise<void>;
+  onSelectNotificationRule: (rule: OwnerNotificationRule) => void;
+  onNewNotificationRule: () => void;
+  onToggleNotificationReportKey: (reportKey: ReportKey) => void;
+  onToggleReportPermission: (
+    profileKey: LineAccessProfileKey,
+    reportKey: ReportKey,
+  ) => void;
+  onSaveReportPermissions: () => Promise<void>;
+  onToggleNotificationTarget: (targetId: string) => void;
+  onToggleNotificationWeekday: (weekday: number) => void;
+  onAddNotificationTime: () => void;
+  onRemoveNotificationTime: (time: string) => void;
   onToggleLineTarget: (target: LineTargetRecord) => Promise<void>;
   onUpdateLineTargetRecipientEstimate: (
     target: LineTargetRecord,
     recipientCountEstimate: number | null,
   ) => Promise<void>;
+  onCancelTenant: (
+    tenant: Tenant,
+    input: { confirmName: string; reason: string },
+  ) => Promise<void>;
+  onPreviewTenantDeleteImpact: (
+    tenantId: string,
+  ) => Promise<TenantDeleteImpact | null>;
+  onUpdateTenant: (tenant: Tenant, input: TenantPatchInput) => Promise<void>;
   onUpdateStatus: (
     tenant: Tenant,
     status: Tenant["status"],
+  ) => Promise<void>;
+  onUpdateBusinessSignalStatus: (
+    signal: BusinessSignalRecord,
+    status: BusinessSignalRecord["status"],
   ) => Promise<void>;
   onSaveValidationSignoff: () => Promise<void>;
   operationsStatus: OwnerOperationsStatus | null;
@@ -1859,26 +3076,26 @@ type OwnerSectionContentProps = {
   selectedTenantLineTargets: LineTargetRecord[];
   selectedTenantSummary?: TenantSummary;
   smlConnections: SmlConnectionSummary[];
-  setDatasourceDatabase: (value: string) => void;
-  setDatasourceHost: (value: string) => void;
-  setDatasourceKind: (value: DatasourceKind) => void;
-  setDatasourcePassword: (value: string) => void;
-  setDatasourcePort: (value: string) => void;
-  setDatasourceUser: (value: string) => void;
+  storeSetupDetail: StoreSetupDetail | null;
   setJavaWsAuthMode: (value: JavaWsAuthMode) => void;
   setJavaWsAuthSecret: (value: string) => void;
   setJavaWsAuthUsername: (value: string) => void;
   setJavaWsBaseUrl: (value: string) => void;
   setJavaWsConfigFileName: (value: string) => void;
   setJavaWsDatabase: (value: string) => void;
-  setJavaWsEndpoint: (value: string) => void;
   setJavaWsWebappPath: (value: string) => void;
   setLineAccessTokenInput: (value: string) => void;
   setLineChannelName: (value: string) => void;
+  setLineChannelShared: (value: boolean) => void;
   setLineChannelSecretInput: (value: string) => void;
   setLineSecretChannelId: (value: string) => void;
   setLineSecretConfigured: (value: boolean) => void;
   setLineTokenConfigured: (value: boolean) => void;
+  setNotificationEnabled: (value: boolean) => void;
+  setNotificationDigestMode: (value: NotificationDigestMode) => void;
+  setNotificationName: (value: string) => void;
+  setNotificationPeriodPreset: (value: NotificationPeriodPreset) => void;
+  setNotificationTimeInput: (value: string) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
   setReportDateFrom: (value: string) => void;
@@ -1894,6 +3111,8 @@ type OwnerSectionContentProps = {
   setSystemMorningBriefTime: (value: string) => void;
   setSystemMorningBriefTimezone: (value: string) => void;
   setSystemPublicApiBaseUrl: (value: string) => void;
+  setSystemReportViewerLinkTtlHours: (value: string) => void;
+  setSystemReportViewerSigningSecret: (value: string) => void;
   setSystemWorkerHeartbeatToken: (value: string) => void;
   setSystemWorkerId: (value: string) => void;
   systemAppBaseUrl: string;
@@ -1907,6 +3126,8 @@ type OwnerSectionContentProps = {
   systemMorningBriefTime: string;
   systemMorningBriefTimezone: string;
   systemPublicApiBaseUrl: string;
+  systemReportViewerLinkTtlHours: string;
+  systemReportViewerSigningSecret: string;
   systemWorkerHeartbeatToken: string;
   systemWorkerId: string;
   setValidationNote: (value: string) => void;
@@ -1920,11 +3141,17 @@ type OwnerSectionContentProps = {
 };
 
 function OwnerSectionContent(props: OwnerSectionContentProps) {
-  if (props.section === "tenants") {
+  if (props.section === "overview" || props.section === "tenants") {
     return <OwnerTenantsContent {...props} />;
   }
   if (props.section === "sml-connections") {
     return <OwnerSmlConnectionsContent {...props} />;
+  }
+  if (props.section === "notifications") {
+    return <OwnerNotificationsContent {...props} />;
+  }
+  if (props.section === "report-permissions") {
+    return <OwnerReportPermissionsContent {...props} />;
   }
   if (props.section === "reports") {
     return <OwnerReportsContent {...props} />;
@@ -1952,43 +3179,55 @@ function getOwnerSectionMeta(section: OwnerPortalSection) {
     { eyebrow: string; title: string; description: string }
   > = {
     overview: {
-      eyebrow: "Owner cockpit",
-      title: "ภาพรวมระบบลูกค้า",
+      eyebrow: "ตั้งค่าร้าน",
+      title: "ภาพรวมร้านค้าและขั้นตอนเปิดใช้งาน",
       description:
-        "ดูสถานะทุกร้าน งานที่ต้องทำต่อ และจุดเสี่ยงก่อนส่งรายงานให้ลูกค้า",
+        "เลือกร้าน ดูสิ่งที่ยังขาด และทำขั้นตอนถัดไปให้พร้อมส่งแผนแจ้งเตือน",
     },
     tenants: {
-      eyebrow: "Tenant operations",
+      eyebrow: "จัดการร้าน",
       title: "ร้านค้าและการใช้งาน",
       description:
-        "เพิ่มร้าน คุม subscription ดู readiness และเปิด dashboard ลูกค้า",
+        "เพิ่มร้าน ดูสถานะบริการ เช็คความพร้อม และเปิดรายงานลูกค้า",
     },
     "sml-connections": {
-      eyebrow: "SML connections",
-      title: "SML datasource cockpit",
+      eyebrow: "SML JavaWS",
+      title: "เชื่อม SML ผ่าน Tomcat JavaWS",
       description:
-        "ตั้งค่า Tomcat JavaWS หรือ PostgreSQL direct ต่อร้าน ค้นหา database ทดสอบ และบันทึกแบบเข้ารหัส",
+        "กรอก Tomcat URL, port, SMLConfig และ database ต่อร้าน แล้วทดสอบก่อนใช้งานจริง",
+    },
+    notifications: {
+      eyebrow: "แผนแจ้งเตือน",
+      title: "แผนแจ้งเตือน LINE ต่อร้าน",
+      description:
+        "ตั้งว่าร้านไหนส่งรายงานอะไร เวลาไหน และส่งให้ผู้รับ LINE ใด",
+    },
+    "report-permissions": {
+      eyebrow: "สิทธิ์รายงาน",
+      title: "สิทธิ์รายงานตาม Role",
+      description:
+        "กำหนดต่อร้านว่า role ใดดูรายงานใดได้ แล้ว sync ไปยัง LINE ID ของร้านนั้น",
     },
     reports: {
-      eyebrow: "Report operations",
+      eyebrow: "รายงาน",
       title: "รายงานและ snapshot",
       description:
-        "ติดตามรายงานขายล่าสุดต่อร้าน และเข้า runner เฉพาะเมื่อต้องรัน manual",
+        "ติดตามรายงานล่าสุดต่อร้าน และรันรายงานเมื่อจำเป็น",
     },
     line: {
-      eyebrow: "LINE operations",
+      eyebrow: "LINE OA",
       title: "LINE OA และผู้รับรายงาน",
       description:
-        "จัดการช่องทาง LINE OA ผู้บริหารรายคน กลุ่มทีมงาน สิทธิ์การรับ Morning Brief และ test send",
+        "จัดการ LINE OA กลางหรือ OA ของร้าน ผู้รับรายคน กลุ่มทีมงาน สิทธิ์รายงาน และส่งทดสอบ",
     },
     audit: {
-      eyebrow: "System history",
+      eyebrow: "ประวัติ",
       title: "ประวัติระบบ",
       description:
         "ตรวจรอบรายงานล่าสุด การส่ง LINE ล่าสุด และจุดที่ต้อง trace ต่อ",
     },
     settings: {
-      eyebrow: "System config",
+      eyebrow: "ตั้งค่า",
       title: "ตั้งค่าระบบ",
       description:
         "แก้ runtime settings และตรวจ bootstrap file โดยไม่ต้องฝังค่าใหม่ใน env",
@@ -2066,7 +3305,7 @@ function TenantOperationsTable({ tenants }: { tenants: TenantSummary[] }) {
               </p>
             </div>
             <CompactFact
-              label="Pilot"
+              label="ความพร้อม"
               value={readiness.label}
             />
             <CompactFact
@@ -2083,7 +3322,7 @@ function TenantOperationsTable({ tenants }: { tenants: TenantSummary[] }) {
                 href={item.customer_dashboard_path ?? "/app"}
                 target="_blank"
               >
-                Dashboard
+                เปิดรายงาน
               </Link>
             </div>
           </div>
@@ -2100,13 +3339,14 @@ function OwnerFlowCard() {
     "รันรายงาน",
     "ตั้ง LINE OA",
     "อนุมัติผู้รับ",
+    "สร้างแผนแจ้งเตือน",
     "ส่งทดสอบ",
   ];
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-        Flow เปิดร้านใหม่
+        ขั้นตอนเปิดร้านใหม่
       </h2>
       <div className="mt-4 space-y-2">
         {steps.map((step, index) => (
@@ -2125,7 +3365,12 @@ function OwnerFlowCard() {
 function OwnerOverviewContent({
   tenants,
   lineChannels,
+  onUpdateBusinessSignalStatus,
   operationsStatus,
+  selectedTenantId,
+  selectedTenantSummary,
+  setSelectedTenantId,
+  storeSetupDetail,
 }: OwnerSectionContentProps) {
   const activeTenants = tenants.filter((item) => item.access.enabled);
   const readyTenants = tenants.filter(
@@ -2138,9 +3383,39 @@ function OwnerOverviewContent({
       <section className="grid gap-3 md:grid-cols-4">
         <OwnerStatCard label="ร้านทั้งหมด" value={`${tenants.length}`} />
         <OwnerStatCard label="เปิดใช้งาน" value={`${activeTenants.length}`} />
-        <OwnerStatCard label="พร้อม pilot" value={`${readyTenants.length}`} />
+        <OwnerStatCard label="พร้อมใช้งาน" value={`${readyTenants.length}`} />
         <OwnerStatCard label="LINE OA" value={`${lineChannels.length}`} />
       </section>
+
+      {operationsStatus?.signal_metrics ? (
+        <section className="grid gap-3 md:grid-cols-4">
+          <OwnerStatCard
+            label="เรื่องที่เปิดอยู่"
+            value={operationsStatus.signal_metrics.open.toLocaleString("th-TH")}
+          />
+          <OwnerStatCard
+            label="ควรตรวจทันที"
+            value={operationsStatus.signal_metrics.critical_open.toLocaleString("th-TH")}
+          />
+          <OwnerStatCard
+            label="Action Digest ส่งล่าสุด"
+            value={operationsStatus.signal_metrics.digest_sent_recent.toLocaleString("th-TH")}
+          />
+          <OwnerStatCard
+            label="อัปเดตสถานะ"
+            value={operationsStatus.signal_metrics.lifecycle_updates_recent.toLocaleString("th-TH")}
+          />
+        </section>
+      ) : null}
+
+      <StoreSetupCockpitCard
+        selectedTenantId={selectedTenantId}
+        selectedTenantSummary={selectedTenantSummary}
+        setSelectedTenantId={setSelectedTenantId}
+        storeSetupDetail={storeSetupDetail}
+        onUpdateBusinessSignalStatus={onUpdateBusinessSignalStatus}
+        tenants={tenants}
+      />
 
       <OwnerRolloutBoard tenants={tenants} />
 
@@ -2154,7 +3429,7 @@ function OwnerOverviewContent({
           <OwnerPanelHeader
             title="ร้านค้า"
             description="มุมมองรวมสำหรับติดตามว่าแต่ละร้านพร้อมให้บริการหรือยัง"
-            actionHref="/owner/tenants"
+            actionHref="/owner"
             actionLabel="จัดการร้านค้า"
           />
           <TenantOperationsTable tenants={tenants} />
@@ -2166,7 +3441,7 @@ function OwnerOverviewContent({
               สิ่งที่ควรทำต่อ
             </h2>
             <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              แสดงเฉพาะงานที่กระทบ rollout หรือการส่ง Morning Brief
+              แสดงเฉพาะงานที่กระทบการเปิดร้านหรือการส่งแผนแจ้งเตือน
             </p>
             <div className="mt-4 space-y-3">
               {actionItems.length ? (
@@ -2190,7 +3465,7 @@ function OwnerOverviewContent({
                 ))
               ) : (
                 <p className="rounded-lg border border-success-100 bg-success-50 p-3 text-sm text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-300">
-                  ทุก tenant หลักพร้อมสำหรับ pilot รอบนี้
+                  ร้านหลักพร้อมใช้งานในรอบนี้
                 </p>
               )}
             </div>
@@ -2203,12 +3478,165 @@ function OwnerOverviewContent({
   );
 }
 
+function StoreSetupCockpitCard({
+  onUpdateBusinessSignalStatus,
+  selectedTenantId,
+  selectedTenantSummary,
+  setSelectedTenantId,
+  storeSetupDetail,
+  tenants,
+}: {
+  onUpdateBusinessSignalStatus: (
+    signal: BusinessSignalRecord,
+    status: BusinessSignalRecord["status"],
+  ) => Promise<void>;
+  selectedTenantId: string;
+  selectedTenantSummary?: TenantSummary;
+  setSelectedTenantId: (tenantId: string) => void;
+  storeSetupDetail: StoreSetupDetail | null;
+  tenants: TenantSummary[];
+}) {
+  const apiDetail =
+    storeSetupDetail &&
+    (!selectedTenantId || storeSetupDetail.summary.tenant.id === selectedTenantId)
+      ? storeSetupDetail
+      : null;
+  const selected = selectedTenantSummary ?? apiDetail?.summary ?? tenants[0];
+  const readiness = selected
+    ? apiDetail
+      ? buildReadinessFromStoreSetup(apiDetail)
+      : getTenantReadiness(selected)
+    : null;
+  const nextStep =
+    selected && readiness ? getStoreSetupNextStep(selected, readiness.items, apiDetail) : null;
+  const progressPercent =
+    readiness && readiness.items.length
+      ? Math.round((readiness.readyCount / readiness.items.length) * 100)
+      : 0;
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            ภาพรวมตั้งค่าร้าน
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+            เลือกร้าน แล้วทำขั้นตอนถัดไปให้จบก่อนขยับไปงานต่อไป
+          </p>
+        </div>
+        <select
+          className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+          onChange={(event) => setSelectedTenantId(event.target.value)}
+          value={selectedTenantId || selected?.tenant.id || ""}
+        >
+          {tenants.map((item) => (
+            <option key={item.tenant.id} value={item.tenant.id}>
+              {item.tenant.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && readiness && nextStep ? (
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {selected.tenant.name}
+              </h3>
+              <Badge color={readiness.tone}>{readiness.label}</Badge>
+              <Badge color={tenantStatusTone(selected.tenant.status)}>
+                {formatTenantStatus(selected.tenant.status)}
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-400">
+              {nextStep.description}
+            </p>
+            {apiDetail?.business_signals?.length ? (
+              <div className="mt-4 rounded-lg border border-warning-200 bg-warning-50 p-3 dark:border-warning-500/30 dark:bg-warning-500/10">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-warning-800 dark:text-warning-100">
+                      เรื่องที่ต้องจัดการวันนี้
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-warning-700 dark:text-warning-200/80">
+                      ระบบจับจาก report snapshot ล่าสุด ไม่ยิง SML เพิ่มตอนเปิดหน้านี้
+                    </p>
+                  </div>
+                  <Badge
+                    color={
+                      apiDetail.summary.health.critical_business_signals > 0
+                        ? "error"
+                        : "warning"
+                    }
+                  >
+                    {apiDetail.summary.health.open_business_signals} เรื่อง
+                  </Badge>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {apiDetail.business_signals.slice(0, 3).map((signal) => (
+                    <BusinessSignalCompactRow
+                      key={signal.id}
+                      onUpdateStatus={onUpdateBusinessSignalStatus}
+                      signal={signal}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
+              <div
+                className={`h-full rounded-full ${
+                  readiness.tone === "success"
+                    ? "bg-success-500"
+                    : readiness.tone === "warning"
+                      ? "bg-warning-500"
+                      : "bg-error-500"
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {readiness.items.map((check) => (
+                <ReadinessRow item={check} key={check.label} />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              ขั้นต่อไป
+            </p>
+            <p className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
+              {nextStep.actionLabel}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-400">
+              {nextStep.description}
+            </p>
+            <Link
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-semibold text-white hover:bg-brand-600"
+              href={nextStep.href}
+            >
+              {nextStep.actionLabel}
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-4 rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+          ยังไม่มีร้านค้า ให้เพิ่มร้านใหม่จากหน้า “ร้านค้า”
+        </p>
+      )}
+    </section>
+  );
+}
+
 function OwnerRolloutBoard({ tenants }: { tenants: TenantSummary[] }) {
   return (
     <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <OwnerPanelHeader
-        title="Pilot rollout board"
-        description="สรุปขั้นตอนที่เหลือของแต่ละร้าน เพื่อให้ owner รู้ทันทีว่าต้องไปทำอะไรต่อก่อนส่งให้ลูกค้า"
+        title="บอร์ดเตรียมร้าน"
+        description="สรุปขั้นตอนที่เหลือของแต่ละร้าน เพื่อให้ผู้ดูแลรู้ทันทีว่าต้องทำอะไรต่อก่อนส่งให้ลูกค้า"
       />
       <div className="grid gap-3 border-t border-gray-100 p-4 dark:border-gray-800 lg:grid-cols-2">
         {tenants.map((item) => {
@@ -2299,15 +3727,15 @@ function OwnerProductionReadinessBoard({
   return (
     <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <OwnerPanelHeader
-        title="Production readiness"
-        description="เช็คความพร้อมก่อนเปิดให้ลูกค้าใช้จริง: ระบบ, worker, backup, datasource, LINE และรายงานล่าสุด"
+            title="ความพร้อมของระบบ"
+        description="เช็คความพร้อมก่อนเปิดให้ลูกค้าใช้จริง: ระบบ, งานเบื้องหลัง, สำรองข้อมูล, SML JavaWS, LINE และรายงานล่าสุด"
         actionHref="/owner/audit"
-        actionLabel="ดู Monitoring"
+        actionLabel="ดูสถานะระบบ"
       />
       <div className="grid gap-4 border-t border-gray-100 p-4 dark:border-gray-800 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
           <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-            Readiness score
+            คะแนนความพร้อม
           </p>
           <div className="mt-2 flex items-end gap-2">
             <p className="text-4xl font-semibold text-gray-900 dark:text-white">
@@ -2359,58 +3787,64 @@ function OwnerProductionReadinessBoard({
   );
 }
 
+type TenantListFilter =
+  | "active_flow"
+  | "all"
+  | "active"
+  | "trial"
+  | "suspended"
+  | "cancelled";
+
+const TENANT_LIST_FILTERS: Array<{
+  label: string;
+  value: TenantListFilter;
+}> = [
+  { label: "ใช้งาน/ทดลอง", value: "active_flow" },
+  { label: "ทั้งหมด", value: "all" },
+  { label: "ใช้งาน", value: "active" },
+  { label: "ทดลองใช้", value: "trial" },
+  { label: "ระงับ", value: "suspended" },
+  { label: "ยกเลิก", value: "cancelled" },
+];
+
 function OwnerTenantsContent({
   busy,
   createTenant,
   datasourceConfig,
-  datasourceDatabase,
-  datasourceHost,
-  datasourceKind,
-  datasourcePassword,
-  datasourcePort,
-  datasourceUser,
   datasourceTests,
-  javaWsDatabaseDiscovery,
-  javaWsAuthMode,
-  javaWsAuthSecret,
-  javaWsAuthUsername,
-  javaWsBaseUrl,
-  javaWsConfigFileName,
-  javaWsDatabase,
-  javaWsEndpoint,
-  javaWsWebappPath,
   justCreatedTenantId,
   newTenantId,
   newTenantName,
-  onApplyJavaWsPreset,
-  onDiscoverJavaWsDatabases,
-  onSaveDatasourceConfig,
+  onCancelTenant,
+  onPreviewTenantDeleteImpact,
   onTestDatasource,
+  onUpdateTenant,
   onUpdateStatus,
   selectedTenantId,
   selectedTenantSummary,
-  setDatasourceDatabase,
-  setDatasourceHost,
-  setDatasourceKind,
-  setDatasourcePassword,
-  setDatasourcePort,
-  setDatasourceUser,
-  setJavaWsAuthMode,
-  setJavaWsAuthSecret,
-  setJavaWsAuthUsername,
-  setJavaWsBaseUrl,
-  setJavaWsConfigFileName,
-  setJavaWsDatabase,
-  setJavaWsEndpoint,
-  setJavaWsWebappPath,
   setNewTenantId,
   setNewTenantName,
   setSelectedTenantId,
   tenants,
 }: OwnerSectionContentProps) {
+  const [tenantFilter, setTenantFilter] =
+    useState<TenantListFilter>("active_flow");
   const justCreatedTenant = justCreatedTenantId
     ? tenants.find((item) => item.tenant.id === justCreatedTenantId)?.tenant
     : null;
+  const filteredTenants = tenants.filter((item) =>
+    matchesTenantListFilter(item.tenant.status, tenantFilter),
+  );
+  const tenantOptions = filteredTenants.length ? filteredTenants : tenants;
+  const tenantCounts = TENANT_LIST_FILTERS.reduce(
+    (acc, item) => ({
+      ...acc,
+      [item.value]: tenants.filter((tenant) =>
+        matchesTenantListFilter(tenant.tenant.status, item.value),
+      ).length,
+    }),
+    {} as Record<TenantListFilter, number>,
+  );
 
   return (
     <div className="space-y-4">
@@ -2426,7 +3860,7 @@ function OwnerTenantsContent({
       {justCreatedTenant ? (
         <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
           <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
-            เพิ่ม {justCreatedTenant.name} แล้ว, ขั้นต่อไปคือเชื่อม SML datasource
+            เพิ่ม {justCreatedTenant.name} แล้ว, ขั้นต่อไปคือเชื่อม SML ผ่าน JavaWS
           </p>
           <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
             เลือกร้านนี้ด้านล่าง แล้วเปิดหน้า SML Connections เพื่อใส่ Tomcat, config file และ database
@@ -2441,9 +3875,9 @@ function OwnerTenantsContent({
               <h2 className="text-base font-semibold text-gray-900 dark:text-white">
                 ร้านค้าและสิทธิ์การใช้งาน
               </h2>
-              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                ร้านที่ถูกระงับจะเข้า `/app` ไม่ได้ และ scheduler จะไม่ส่ง Morning Brief
-                ให้ทุกปลายทางของร้านนั้น
+                <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                ระงับร้านเพื่อหยุดส่ง LINE ชั่วคราว หรือยกเลิกร้านแบบ soft delete
+                เพื่อเก็บประวัติไว้ตรวจย้อนหลัง
               </p>
             </div>
             <select
@@ -2451,7 +3885,7 @@ function OwnerTenantsContent({
               onChange={(event) => setSelectedTenantId(event.target.value)}
               value={selectedTenantId}
             >
-              {tenants.map((item) => (
+              {tenantOptions.map((item) => (
                 <option key={item.tenant.id} value={item.tenant.id}>
                   {item.tenant.name}
                 </option>
@@ -2459,65 +3893,56 @@ function OwnerTenantsContent({
             </select>
           </div>
 
-          <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
-            {tenants.map((item) => (
-              <TenantCard
-                busy={busy}
-                datasourceTest={datasourceTests[item.tenant.id]}
-                item={item}
-                key={item.tenant.id}
-                onSelectTenant={setSelectedTenantId}
-                onUpdateStatus={onUpdateStatus}
-                selected={item.tenant.id === selectedTenantId}
-              />
+          <div className="flex flex-wrap gap-2 border-t border-gray-100 px-5 py-3 dark:border-gray-800">
+            {TENANT_LIST_FILTERS.map((item) => (
+              <button
+                className={`h-9 rounded-lg border px-3 text-sm font-medium transition ${
+                  tenantFilter === item.value
+                    ? "border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                }`}
+                key={item.value}
+                onClick={() => setTenantFilter(item.value)}
+                type="button"
+              >
+                {item.label} {tenantCounts[item.value]}
+              </button>
             ))}
+          </div>
+
+          <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+            {filteredTenants.length ? (
+              filteredTenants.map((item) => (
+                <TenantCard
+                  busy={busy}
+                  datasourceTest={datasourceTests[item.tenant.id]}
+                  item={item}
+                  key={item.tenant.id}
+                  onSelectTenant={setSelectedTenantId}
+                  onUpdateStatus={onUpdateStatus}
+                  selected={item.tenant.id === selectedTenantId}
+                />
+              ))
+            ) : (
+              <p className="p-5 text-sm text-gray-500 dark:text-gray-400">
+                ไม่มีร้านใน filter นี้
+              </p>
+            )}
           </div>
         </div>
 
         <TenantDetailPanel
-          autoOpenDatasource={
-            !!justCreatedTenantId &&
-            selectedTenantId === justCreatedTenantId
-          }
           busy={busy}
           datasourceConfig={datasourceConfig}
-          datasourceDatabase={datasourceDatabase}
-          datasourceHost={datasourceHost}
-          datasourceKind={datasourceKind}
-          datasourcePassword={datasourcePassword}
-          datasourcePort={datasourcePort}
-          datasourceUser={datasourceUser}
-          javaWsDatabaseDiscovery={javaWsDatabaseDiscovery}
-          javaWsAuthMode={javaWsAuthMode}
-          javaWsAuthSecret={javaWsAuthSecret}
-          javaWsAuthUsername={javaWsAuthUsername}
-          javaWsBaseUrl={javaWsBaseUrl}
-          javaWsConfigFileName={javaWsConfigFileName}
-          javaWsDatabase={javaWsDatabase}
-          javaWsEndpoint={javaWsEndpoint}
-          javaWsWebappPath={javaWsWebappPath}
           datasourceTest={
             selectedTenantId ? datasourceTests[selectedTenantId] : undefined
           }
           item={selectedTenantSummary}
-          onApplyJavaWsPreset={onApplyJavaWsPreset}
-          onDiscoverJavaWsDatabases={onDiscoverJavaWsDatabases}
-          onSaveDatasourceConfig={onSaveDatasourceConfig}
+          onCancelTenant={onCancelTenant}
+          onPreviewTenantDeleteImpact={onPreviewTenantDeleteImpact}
           onTestDatasource={onTestDatasource}
-          setDatasourceDatabase={setDatasourceDatabase}
-          setDatasourceHost={setDatasourceHost}
-          setDatasourceKind={setDatasourceKind}
-          setDatasourcePassword={setDatasourcePassword}
-          setDatasourcePort={setDatasourcePort}
-          setDatasourceUser={setDatasourceUser}
-          setJavaWsAuthMode={setJavaWsAuthMode}
-          setJavaWsAuthSecret={setJavaWsAuthSecret}
-          setJavaWsAuthUsername={setJavaWsAuthUsername}
-          setJavaWsBaseUrl={setJavaWsBaseUrl}
-          setJavaWsConfigFileName={setJavaWsConfigFileName}
-          setJavaWsDatabase={setJavaWsDatabase}
-          setJavaWsEndpoint={setJavaWsEndpoint}
-          setJavaWsWebappPath={setJavaWsWebappPath}
+          onUpdateTenant={onUpdateTenant}
+          onUpdateStatus={onUpdateStatus}
         />
       </section>
     </div>
@@ -2528,8 +3953,6 @@ type SmlConnectionFilter =
   | "all"
   | "needs_config"
   | "javaws"
-  | "postgres"
-  | "env"
   | "test_failed"
   | "ready";
 
@@ -2540,22 +3963,14 @@ const SML_CONNECTION_FILTERS: Array<{
   { label: "ทั้งหมด", value: "all" },
   { label: "ต้องตั้งค่า", value: "needs_config" },
   { label: "JavaWS", value: "javaws" },
-  { label: "Postgres", value: "postgres" },
-  { label: "Env", value: "env" },
-  { label: "Test failed", value: "test_failed" },
-  { label: "Ready", value: "ready" },
+  { label: "ทดสอบไม่ผ่าน", value: "test_failed" },
+  { label: "พร้อมใช้", value: "ready" },
 ];
 
 function OwnerSmlConnectionsContent({
   busy,
   datasourceConfig,
-  datasourceDatabase,
-  datasourceHost,
-  datasourceKind,
-  datasourcePassword,
-  datasourcePort,
   datasourceTests,
-  datasourceUser,
   javaWsAuthMode,
   javaWsAuthSecret,
   javaWsAuthUsername,
@@ -2571,19 +3986,12 @@ function OwnerSmlConnectionsContent({
   onTestDatasource,
   selectedTenantId,
   selectedTenantSummary,
-  setDatasourceDatabase,
-  setDatasourceHost,
-  setDatasourceKind,
-  setDatasourcePassword,
-  setDatasourcePort,
-  setDatasourceUser,
   setJavaWsAuthMode,
   setJavaWsAuthSecret,
   setJavaWsAuthUsername,
   setJavaWsBaseUrl,
   setJavaWsConfigFileName,
   setJavaWsDatabase,
-  setJavaWsEndpoint,
   setJavaWsWebappPath,
   setSelectedTenantId,
   smlConnections,
@@ -2636,8 +4044,8 @@ function OwnerSmlConnectionsContent({
           value={counts.javaws.toLocaleString("th-TH")}
         />
         <OwnerStatCard
-          label="Env fallback"
-          value={counts.env.toLocaleString("th-TH")}
+          label="พร้อมใช้"
+          value={counts.ready.toLocaleString("th-TH")}
         />
       </section>
 
@@ -2650,11 +4058,11 @@ function OwnerSmlConnectionsContent({
                   ร้านที่ต้องเชื่อม SML
                 </h2>
                 <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  เลือกร้านทางซ้าย แล้วกรอกค่า Tomcat JavaWS หรือ PostgreSQL direct ทางขวา
+                  เลือกร้านทางซ้าย แล้วกรอก Tomcat URL, port, SMLConfig และ database ทางขวา
                 </p>
               </div>
               <Badge color={counts.test_failed ? "warning" : "light"}>
-                test failed {counts.test_failed.toLocaleString("th-TH")}
+                ทดสอบไม่ผ่าน {counts.test_failed.toLocaleString("th-TH")}
               </Badge>
             </div>
 
@@ -2730,7 +4138,8 @@ function OwnerSmlConnectionsContent({
                     disabled={
                       savedDatasourceBusy ||
                       !selectedDatasource ||
-                      selectedDatasource.source === "missing"
+                      selectedDatasource.source === "missing" ||
+                      selectedDatasource.kind !== "sml_javaws"
                     }
                     size="sm"
                     variant="outline"
@@ -2745,20 +4154,20 @@ function OwnerSmlConnectionsContent({
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <HealthFact
-                  label="Mode"
+                  label="วิธีเชื่อม"
                   value={formatDatasourceMode(selectedDatasource?.kind)}
                 />
                 <HealthFact
-                  label="Source"
+                  label="สถานะค่า"
                   value={formatDatasourceSource(selectedDatasource)}
                 />
                 <HealthFact
-                  label="Secret"
+                  label="การยืนยันตัวตน"
                   value={
                     selectedDatasource?.password_configured ||
                     selectedDatasource?.auth_configured
-                      ? "configured"
-                      : "missing"
+                      ? "ตั้งแล้ว"
+                      : "ไม่ใช้ auth"
                   }
                 />
               </div>
@@ -2766,9 +4175,9 @@ function OwnerSmlConnectionsContent({
               <DatasourceTestSummary result={selectedTest} />
             </section>
           ) : (
-            <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
-              เลือกร้านทางซ้ายเพื่อเริ่มตั้งค่า SML datasource
-            </section>
+	            <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+	              เลือกร้านทางซ้ายเพื่อเริ่มตั้งค่า SML JavaWS
+	            </section>
           )}
 
           {selectedTenant ? (
@@ -2777,9 +4186,6 @@ function OwnerSmlConnectionsContent({
               busy={busy === `datasource-save-${selectedTenant.tenant.id}`}
               discoveryBusy={discoveryBusy}
               config={selectedDatasource}
-              database={datasourceDatabase}
-              host={datasourceHost}
-              kind={datasourceKind}
               javaWsAuthMode={javaWsAuthMode}
               javaWsAuthSecret={javaWsAuthSecret}
               javaWsAuthUsername={javaWsAuthUsername}
@@ -2789,32 +4195,812 @@ function OwnerSmlConnectionsContent({
               javaWsDatabase={javaWsDatabase}
               javaWsEndpoint={javaWsEndpoint}
               javaWsWebappPath={javaWsWebappPath}
-              onDatabaseChange={setDatasourceDatabase}
-              onHostChange={setDatasourceHost}
               onJavaWsAuthModeChange={setJavaWsAuthMode}
               onJavaWsAuthSecretChange={setJavaWsAuthSecret}
               onJavaWsAuthUsernameChange={setJavaWsAuthUsername}
               onJavaWsBaseUrlChange={setJavaWsBaseUrl}
               onJavaWsConfigFileNameChange={setJavaWsConfigFileName}
               onJavaWsDatabaseChange={setJavaWsDatabase}
-              onJavaWsEndpointChange={setJavaWsEndpoint}
               onJavaWsWebappPathChange={setJavaWsWebappPath}
               onApplyJavaWsPreset={onApplyJavaWsPreset}
               onDiscoverJavaWsDatabases={() =>
                 void onDiscoverJavaWsDatabases(selectedTenant.tenant.id)
               }
-              onKindChange={setDatasourceKind}
-              onPasswordChange={setDatasourcePassword}
-              onPortChange={setDatasourcePort}
               onSubmit={onSaveDatasourceConfig}
-              password={datasourcePassword}
-              port={datasourcePort}
-              user={datasourceUser}
-              onUserChange={setDatasourceUser}
             />
           ) : null}
         </div>
       </section>
+    </div>
+  );
+}
+
+const NOTIFICATION_WEEKDAYS = [
+  { label: "จ", value: 1 },
+  { label: "อ", value: 2 },
+  { label: "พ", value: 3 },
+  { label: "พฤ", value: 4 },
+  { label: "ศ", value: 5 },
+  { label: "ส", value: 6 },
+  { label: "อา", value: 7 },
+];
+
+const NOTIFICATION_REPORTS: Array<{ key: ReportKey; label: string }> = [
+  { key: "sales_goods_services", label: "ยอดขายสินค้า/บริการ" },
+  { key: "purchase_goods_payables", label: "ยอดซื้อ/ตั้งหนี้" },
+  { key: "gross_profit_by_product", label: "กำไรขั้นต้นสินค้า" },
+  { key: "gross_profit_by_ar_customer", label: "กำไรขั้นต้นลูกหนี้" },
+];
+
+const NOTIFICATION_PERIOD_OPTIONS: Array<{
+  value: NotificationPeriodPreset;
+  label: string;
+}> = [
+  { value: "yesterday", label: "เมื่อวาน" },
+  { value: "today_so_far", label: "วันนี้ถึงตอนนี้" },
+  { value: "last_7_days", label: "ย้อนหลัง 7 วัน" },
+];
+
+const NOTIFICATION_DIGEST_MODE_OPTIONS: Array<{
+  value: NotificationDigestMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "action_only",
+    label: "ส่งเรื่องที่ต้องดูเป็นหลัก",
+    description:
+      "ใช้ Action Digest สูงสุด 3 เรื่องเมื่อเปิด rollout gate ของร้าน ถ้ายังไม่มีเรื่องต้องดูจะ fallback เป็นรายงานเดิม",
+  },
+  {
+    value: "all_reports",
+    label: "ส่งครบทุก report",
+    description:
+      "ส่งรายงานที่เลือกทุกใบเหมือน digest เดิม เหมาะกับช่วงตรวจระบบหรือร้านที่อยากอ่านตัวเลขครบ",
+  },
+];
+
+function OwnerNotificationsContent({
+  busy,
+  editingNotificationRuleId,
+  lastNotificationRunResult,
+  notificationEnabled,
+  notificationDigestMode,
+  notificationName,
+  notificationPeriodPreset,
+  notificationReportKeys,
+  notificationRuleRuns,
+  notificationRules,
+  notificationTargetIds,
+  notificationTimeInput,
+  notificationTimes,
+  notificationWeekdays,
+  onAddNotificationTime,
+  onExecuteNotificationRule,
+  onNewNotificationRule,
+  onRemoveNotificationTime,
+  onSaveNotificationRule,
+  onSelectNotificationRule,
+  onToggleNotificationReportKey,
+  onToggleNotificationTarget,
+  onToggleNotificationWeekday,
+  selectedTenantId,
+  selectedTenantLineTargets,
+  selectedTenantSummary,
+  setNotificationEnabled,
+  setNotificationDigestMode,
+  setNotificationName,
+  setNotificationPeriodPreset,
+  setNotificationTimeInput,
+  setSelectedTenantId,
+  tenants,
+}: OwnerSectionContentProps) {
+  const selectedRules = notificationRules.filter(
+    (rule) => rule.tenant_id === selectedTenantId,
+  );
+  const selectedRuns = notificationRuleRuns.filter(
+    (run) =>
+      run.tenant_id === selectedTenantId &&
+      (!editingNotificationRuleId || run.rule_id === editingNotificationRuleId),
+  );
+  const failedRuns = notificationRuleRuns.filter((run) => run.status === "failed");
+  const saveBusy =
+    busy === `notification-save-${editingNotificationRuleId}` ||
+    (selectedTenantId ? busy === `notification-create-${selectedTenantId}` : false);
+  const dryRunBusy = editingNotificationRuleId
+    ? busy === `notification-run-${editingNotificationRuleId}-dry_run`
+    : false;
+  const sendBusy = editingNotificationRuleId
+    ? busy === `notification-run-${editingNotificationRuleId}-send`
+    : false;
+  const selectedTenantName =
+    selectedTenantSummary?.tenant.name ?? "เลือกร้านค้า";
+  const approvedTargets = selectedTenantLineTargets.filter(
+    (target) => target.approved && target.enabled,
+  );
+  const targetsWithPermission = approvedTargets.filter((target) =>
+    notificationReportKeys.every((reportKey) =>
+      canLineTargetReceiveReport(target, reportKey),
+    ),
+  );
+
+  return (
+    <div className="space-y-4">
+      <section className="grid gap-3 md:grid-cols-4">
+        <OwnerStatCard
+          label="แผนทั้งหมด"
+          value={notificationRules.length.toLocaleString("th-TH")}
+        />
+        <OwnerStatCard
+          label="เปิดใช้งาน"
+          value={notificationRules
+            .filter((rule) => rule.enabled)
+            .length.toLocaleString("th-TH")}
+        />
+        <OwnerStatCard
+          label="ร้านที่มีแผน"
+          value={new Set(notificationRules.map((rule) => rule.tenant_id)).size.toLocaleString("th-TH")}
+        />
+        <OwnerStatCard
+          label="Failed run"
+          value={failedRuns.length.toLocaleString("th-TH")}
+        />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.25fr)]">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+            <OwnerPanelHeader
+              title="ร้านค้า"
+              description="เลือกร้านเพื่อดูและแก้แผนแจ้งเตือนของร้านนั้น"
+            />
+            <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+              {tenants.map((item) => {
+                const rules = notificationRules.filter(
+                  (rule) => rule.tenant_id === item.tenant.id,
+                );
+                const failed = notificationRuleRuns.some(
+                  (run) =>
+                    run.tenant_id === item.tenant.id && run.status === "failed",
+                );
+                return (
+                  <button
+                    className={`w-full p-4 text-left transition ${
+                      selectedTenantId === item.tenant.id
+                        ? "bg-brand-50/70 dark:bg-brand-500/10"
+                        : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+                    }`}
+                    key={item.tenant.id}
+                    onClick={() => setSelectedTenantId(item.tenant.id)}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                          {item.tenant.name}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {rules.length} แผน · {item.health.line_targets_enabled}/
+                          {item.health.line_targets_total} ผู้รับ LINE
+                        </p>
+                      </div>
+                      <Badge color={failed ? "warning" : rules.length ? "success" : "light"}>
+                        {failed ? "มีปัญหา" : rules.length ? "มีแผนแล้ว" : "ยังไม่ตั้ง"}
+                      </Badge>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+            <OwnerPanelHeader
+              title="แผนของร้านนี้"
+              description="ถ้าต้องส่งคนละรายงานหรือคนละกลุ่มผู้รับ ให้สร้างแผนแยก"
+            />
+            <div className="space-y-2 border-t border-gray-100 p-4 dark:border-gray-800">
+              <Button size="sm" variant="outline" onClick={onNewNotificationRule}>
+                สร้างแผนใหม่
+              </Button>
+              {selectedRules.length ? (
+                selectedRules.map((rule) => (
+                  <button
+                    className={`w-full rounded-lg border p-3 text-left transition ${
+                      editingNotificationRuleId === rule.id
+                        ? "border-brand-200 bg-brand-50 text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-white"
+                        : "border-gray-100 bg-gray-50 hover:bg-gray-100 dark:border-gray-800 dark:bg-white/[0.02] dark:hover:bg-white/[0.04]"
+                    }`}
+                    key={rule.id}
+                    onClick={() => onSelectNotificationRule(rule)}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">
+                          {rule.name}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                          {formatNotificationSchedule(rule)} · {rule.target_ids.length} ปลายทาง
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                          {formatNotificationDigestMode(rule.digest_mode)}
+                        </p>
+                      </div>
+                      <Badge color={rule.enabled ? "success" : "light"}>
+                        {rule.enabled ? "เปิด" : "ปิด"}
+                      </Badge>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p className="rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                  ร้านนี้ยังไม่มีแผนแจ้งเตือน
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase text-gray-400">
+                  {selectedTenantName}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
+                  ตั้งค่าแผนแจ้งเตือน
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                  ตั้งรายงาน ผู้รับ วัน เวลา และช่วงข้อมูลของร้านนี้
+                </p>
+              </div>
+              <Badge color={editingNotificationRuleId ? "success" : "light"}>
+                {editingNotificationRuleId ? "แก้แผนเดิม" : "draft ใหม่"}
+              </Badge>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  ชื่อแผน
+                </span>
+                <input
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) => setNotificationName(event.target.value)}
+                  value={notificationName}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  ช่วงข้อมูล
+                </span>
+                <select
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) =>
+                    setNotificationPeriodPreset(
+                      event.target.value as NotificationPeriodPreset,
+                    )
+                  }
+                  value={notificationPeriodPreset}
+                >
+                  {NOTIFICATION_PERIOD_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                รูปแบบข้อความ LINE
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้กำหนดว่ารอบนี้ควรขายเป็น “เรื่องที่ต้องทำ” หรือส่งรายงานเต็มทุกใบ
+              </p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {NOTIFICATION_DIGEST_MODE_OPTIONS.map((option) => (
+                  <button
+                    className={`min-h-11 rounded-lg border p-3 text-left text-sm transition ${
+                      notificationDigestMode === option.value
+                        ? "border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
+                    }`}
+                    key={option.value}
+                    onClick={() => setNotificationDigestMode(option.value)}
+                    type="button"
+                  >
+                    <span className="block font-semibold">{option.label}</span>
+                    <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                      {option.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="mt-4 flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+              <input
+                checked={notificationEnabled}
+                className="h-4 w-4 rounded border-gray-300 text-brand-600"
+                onChange={(event) => setNotificationEnabled(event.target.checked)}
+                type="checkbox"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                เปิดใช้งานแผนนี้
+              </span>
+            </label>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  รายงานที่ส่ง
+                </p>
+                <div className="mt-2 grid gap-2">
+                  {NOTIFICATION_REPORTS.map((report) => (
+                    <label
+                      className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+                      key={report.key}
+                    >
+                      <input
+                        checked={notificationReportKeys.includes(report.key)}
+                        className="h-4 w-4 rounded border-gray-300 text-brand-600"
+                        onChange={() => onToggleNotificationReportKey(report.key)}
+                        type="checkbox"
+                      />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {report.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  วันที่ส่ง
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {NOTIFICATION_WEEKDAYS.map((weekday) => (
+                    <button
+                      className={`h-10 min-w-10 rounded-lg border px-3 text-sm font-semibold ${
+                        notificationWeekdays.includes(weekday.value)
+                          ? "border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+                          : "border-gray-200 bg-white text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
+                      }`}
+                      key={weekday.value}
+                      onClick={() => onToggleNotificationWeekday(weekday.value)}
+                      type="button"
+                    >
+                      {weekday.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                รอบเวลาแจ้งเตือน
+              </p>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <input
+                  className="h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) => setNotificationTimeInput(event.target.value)}
+                  type="time"
+                  value={notificationTimeInput}
+                />
+                <Button size="sm" variant="outline" onClick={onAddNotificationTime}>
+                  เพิ่มเวลา
+                </Button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {notificationTimes.map((time) => (
+                  <button
+                    className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+                    key={time}
+                    onClick={() => onRemoveNotificationTime(time)}
+                    type="button"
+                  >
+                    {time} ×
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    ปลายทาง LINE
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    เลือกจากผู้รับที่อนุมัติผ่าน webhook แล้วเท่านั้น
+                  </p>
+                </div>
+                <Badge color={targetsWithPermission.length ? "success" : "warning"}>
+                  {targetsWithPermission.length}/{approvedTargets.length} พร้อมรับรายงาน
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {selectedTenantLineTargets.length ? (
+                  selectedTenantLineTargets.map((target) => {
+                    const allowed = notificationReportKeys.every((reportKey) =>
+                      canLineTargetReceiveReport(target, reportKey),
+                    );
+                    return (
+                      <label
+                        className={`rounded-lg border p-3 ${
+                          allowed
+                            ? "border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-white/[0.02]"
+                            : "border-warning-200 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10"
+                        }`}
+                        key={target.id}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            checked={notificationTargetIds.includes(target.id)}
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600"
+                            disabled={!allowed}
+                            onChange={() => onToggleNotificationTarget(target.id)}
+                            type="checkbox"
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                              {target.display_name}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                              <span>
+                                {formatLineAccessProfile(target.access_profile_key)} · {target.target_type}
+                              </span>
+                              {isOwnerSharedLineTarget(target) ? (
+                                <Badge color="info">Owner LINE OA</Badge>
+                              ) : null}
+                            </div>
+                            {!allowed ? (
+                              <p className="mt-1 text-xs text-warning-700 dark:text-warning-300">
+                                ยังไม่มีสิทธิ์รับรายงานที่เลือก
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                    ยังไม่มีผู้รับ LINE ของร้านนี้ กลับไปหน้า LINE OA เพื่ออนุมัติผู้รับก่อน
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button disabled={saveBusy} onClick={() => void onSaveNotificationRule()} size="sm">
+                {saveBusy ? "กำลังบันทึก..." : "บันทึก draft/แผน"}
+              </Button>
+              <Button
+                disabled={!editingNotificationRuleId || dryRunBusy}
+                onClick={() => void onExecuteNotificationRule("dry_run")}
+                size="sm"
+                variant="outline"
+              >
+                {dryRunBusy ? "กำลังทดสอบ..." : "ทดสอบแบบไม่ส่งจริง"}
+              </Button>
+              <Button
+                disabled={!editingNotificationRuleId || sendBusy}
+                onClick={() => void onExecuteNotificationRule("send")}
+                size="sm"
+                variant="outline"
+              >
+                {sendBusy ? "กำลังส่ง..." : "ส่งจริงตอนนี้"}
+              </Button>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                  Run ล่าสุด
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                  แสดงสถานะ claim, retry และ delivery โดยไม่แสดง LINE id จริง
+                </p>
+              </div>
+              {lastNotificationRunResult ? (
+                <Badge color={lastNotificationRunResult.ok ? "success" : "warning"}>
+                  {lastNotificationRunResult.mode ?? "dry_run"}
+                </Badge>
+              ) : null}
+            </div>
+
+            <div className="mt-4 divide-y divide-gray-100 rounded-lg border border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+              {selectedRuns.length ? (
+                selectedRuns.slice(0, 8).map((run) => (
+                  <div
+                    className="grid gap-3 p-3 text-sm md:grid-cols-[minmax(0,1fr)_120px_120px_160px]"
+                    key={run.id}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-gray-900 dark:text-white">
+                        {formatNotificationPeriod(run.period_from, run.period_to)}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {run.scheduled_local_date} {run.scheduled_local_time} · attempt {run.attempt}
+                      </p>
+                    </div>
+                    <Badge color={notificationRunTone(run.status)}>
+                      {formatNotificationRunStatus(run.status)}
+                    </Badge>
+                    <CompactFact
+                      label="Reports"
+                      value={run.report_run_ids.length.toLocaleString("th-TH")}
+                    />
+                    <CompactFact
+                      label="Deliveries"
+                      value={run.delivery_ids.length.toLocaleString("th-TH")}
+                    />
+                    {run.safe_error_message ? (
+                      <p className="md:col-span-4 text-xs leading-5 text-warning-700 dark:text-warning-300">
+                        {run.safe_error_message}
+                      </p>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <p className="p-3 text-sm text-gray-500 dark:text-gray-400">
+                  ยังไม่มีประวัติรันของแผนนี้
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OwnerReportPermissionsContent({
+  busy,
+  onSaveReportPermissions,
+  onToggleReportPermission,
+  reportPermissionDraft,
+  reportPermissions,
+  selectedTenantId,
+  setSelectedTenantId,
+  tenants,
+}: OwnerSectionContentProps) {
+  const selectedTenant = tenants.find(
+    (item) => item.tenant.id === selectedTenantId,
+  );
+  const saveBusy = busy === `report-permissions-save-${selectedTenantId}`;
+  const totalTargets = reportPermissions?.roles.reduce(
+    (sum, role) => sum + role.target_count,
+    0,
+  ) ?? 0;
+
+  if (!reportPermissions) {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+        <Badge color="light">กำลังโหลด</Badge>
+        <h2 className="mt-3 text-base font-semibold text-gray-900 dark:text-white">
+          โหลดสิทธิ์รายงานของร้าน
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          ถ้ายังไม่ขึ้น กรุณาเลือกร้านค้าทางซ้ายหรือกดรีเฟรชหน้า Owner อีกครั้ง
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.28fr)]">
+      <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <OwnerPanelHeader
+          title="ร้านค้า"
+          description="สิทธิ์รายงานตั้งแยกต่อร้านและ sync เฉพาะ LINE ID ของร้านนั้น"
+        />
+        <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+          {tenants.map((item) => (
+            <button
+              className={`w-full p-4 text-left transition ${
+                item.tenant.id === selectedTenantId
+                  ? "bg-brand-50/70 dark:bg-brand-500/10"
+                  : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+              }`}
+              key={item.tenant.id}
+              onClick={() => setSelectedTenantId(item.tenant.id)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                    {item.tenant.name}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {item.health.line_targets_enabled}/
+                    {item.health.line_targets_total} ผู้รับ LINE พร้อมใช้งาน
+                  </p>
+                </div>
+                <Badge color={item.tenant.id === selectedTenantId ? "success" : "light"}>
+                  {item.tenant.id === selectedTenantId ? "กำลังแก้" : "เลือก"}
+                </Badge>
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="space-y-4">
+        <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <Badge color="info">{selectedTenant?.tenant.name ?? "เลือกร้าน"}</Badge>
+              <h2 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
+                Matrix สิทธิ์รายงานตาม Role
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                ติ๊กว่า role ไหนดูรายงานไหนได้บ้าง แล้วระบบจะ sync ไปยัง LINE ID เดิมของร้านนี้
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge color="light">{reportPermissions.reports.length} รายงาน</Badge>
+              <Badge color="light">{totalTargets} LINE targets</Badge>
+            </div>
+          </div>
+
+          {reportPermissions.impacted_notification_plans.length ? (
+            <div className="mt-4 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm leading-6 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+              มีแผนแจ้งเตือนที่สิทธิ์ปัจจุบันไม่สอดคล้องกันแล้ว:
+              {" "}
+              {reportPermissions.impacted_notification_plans
+                .slice(0, 3)
+                .map((item) => item.rule_name)
+                .join(", ")}
+            </div>
+          ) : null}
+
+          <div className="mt-5 hidden overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-800 lg:block">
+            <table className="min-w-full divide-y divide-gray-100 text-sm dark:divide-gray-800">
+              <thead className="bg-gray-50 text-left dark:bg-white/[0.02]">
+                <tr>
+                  <th className="w-[34%] px-4 py-3 font-semibold text-gray-700 dark:text-gray-300">
+                    รายงาน
+                  </th>
+                  {reportPermissions.roles.map((role) => (
+                    <th
+                      className="px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300"
+                      key={role.access_profile_key}
+                    >
+                      <span className="block">{role.label}</span>
+                      <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-gray-400">
+                        {role.target_count} LINE ID
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {reportPermissions.reports.map((report) => (
+                  <tr key={report.report_key}>
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-gray-900 dark:text-white">
+                          {report.label}
+                        </span>
+                        {report.sensitive ? (
+                          <Badge color="warning">ข้อมูลต้นทุน</Badge>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 max-w-[56ch] text-xs leading-5 text-gray-500 dark:text-gray-400">
+                        {report.description}
+                      </p>
+                    </td>
+                    {reportPermissions.roles.map((role) => {
+                      const checked = Boolean(
+                        reportPermissionDraft[
+                          role.access_profile_key
+                        ]?.includes(report.report_key),
+                      );
+                      return (
+                        <td
+                          className="px-3 py-3 text-center align-top"
+                          key={role.access_profile_key}
+                        >
+                          <label className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]">
+                            <input
+                              checked={checked}
+                              className="h-4 w-4 rounded border-gray-300 text-brand-600"
+                              onChange={() =>
+                                onToggleReportPermission(
+                                  role.access_profile_key,
+                                  report.report_key,
+                                )
+                              }
+                              type="checkbox"
+                            />
+                          </label>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-5 space-y-3 lg:hidden">
+            {reportPermissions.reports.map((report) => (
+              <div
+                className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+                key={report.report_key}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {report.label}
+                  </p>
+                  {report.sensitive ? <Badge color="warning">ข้อมูลต้นทุน</Badge> : null}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {report.description}
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {reportPermissions.roles.map((role) => {
+                    const checked = Boolean(
+                      reportPermissionDraft[role.access_profile_key]?.includes(
+                        report.report_key,
+                      ),
+                    );
+                    return (
+                      <label
+                        className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-900"
+                        key={role.access_profile_key}
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-medium text-gray-800 dark:text-white/90">
+                            {role.label}
+                          </span>
+                          <span className="block text-xs text-gray-500 dark:text-gray-400">
+                            {role.target_count} LINE ID
+                          </span>
+                        </span>
+                        <input
+                          checked={checked}
+                          className="h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600"
+                          onChange={() =>
+                            onToggleReportPermission(
+                              role.access_profile_key,
+                              report.report_key,
+                            )
+                          }
+                          type="checkbox"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">
+              เมื่อบันทึก ระบบจะอัปเดตสิทธิ์รายงานของ LINE ID ทุกตัวในร้านนี้ตาม role
+            </p>
+            <Button
+              disabled={!selectedTenantId || saveBusy}
+              onClick={() => void onSaveReportPermissions()}
+              size="sm"
+            >
+              {saveBusy ? "กำลังบันทึก..." : "บันทึกและ sync LINE"}
+            </Button>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -2825,6 +5011,7 @@ function OwnerReportsContent({
   lastManualSnapshot,
   onRunPurchaseReport,
   onRunSalesReport,
+  onRunGrossProfitReport,
   onSaveValidationSignoff,
   reportDateFrom,
   reportDateTo,
@@ -2847,7 +5034,7 @@ function OwnerReportsContent({
       <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
         <OwnerPanelHeader
           title="รายงานที่เปิดใช้ใน pilot"
-          description="รอบนี้มีรายงานขายสินค้าและบริการ และรายงานซื้อสินค้า/ตั้งหนี้ เพื่อรองรับการคิดเงินเพิ่มตาม report ในอนาคต"
+          description="รอบนี้มี 4 รายงาน: ขาย, ซื้อ/ตั้งหนี้, กำไรขั้นต้นสินค้า และกำไรขั้นต้นลูกหนี้ โดยรายงานกำไรมีข้อมูลต้นทุนจึงควรให้เฉพาะผู้บริหาร"
         />
         <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
           {tenants.map((item) => (
@@ -2870,6 +5057,7 @@ function OwnerReportsContent({
         onDateFromChange={setReportDateFrom}
         onDateToChange={setReportDateTo}
         onRun={onRunSalesReport}
+        onRunGrossProfit={onRunGrossProfitReport}
         onRunPurchase={onRunPurchaseReport}
         onSaveValidationSignoff={onSaveValidationSignoff}
         selectedTenant={selectedTenantSummary}
@@ -2893,15 +5081,20 @@ function OwnerLineContent({
   createLineChannel,
   lineAccessTokenInput,
   lineChannelName,
+  lineChannelShared,
   lineChannelSecretInput,
+  lineChannels,
+  lineRecipients,
   lineSecretConfigured,
   lineSecretChannelId,
   lineTokenConfigured,
+  onAssignLineRecipient,
   onApproveLineTarget,
   onSaveLineChannelSecrets,
   onSetLineTargetProfile,
   onTestLineTarget,
   onToggleLineTarget,
+  onUpdateLineChannel,
   onUpdateLineTargetRecipientEstimate,
   publicOrigin,
   selectedTenant,
@@ -2910,6 +5103,7 @@ function OwnerLineContent({
   selectedTenantLineTargets,
   setLineAccessTokenInput,
   setLineChannelName,
+  setLineChannelShared,
   setLineChannelSecretInput,
   setLineSecretChannelId,
   setLineSecretConfigured,
@@ -2921,10 +5115,14 @@ function OwnerLineContent({
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
       <div className="space-y-4">
         <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <OwnerPanelHeader
-            title="LINE OA และผู้รับรายงาน"
-            description="รวมสถานะ LINE ต่อร้าน เลือกร้านแล้วจัดการผู้บริหารรายคน กลุ่มทีมงาน และสิทธิ์รับ Morning Brief"
-          />
+        <OwnerPanelHeader
+          actionHref={`/owner/report-permissions?tenant=${encodeURIComponent(
+            selectedTenantId,
+          )}`}
+          actionLabel="แก้สิทธิ์รายงาน"
+          title="LINE OA และผู้รับรายงาน"
+          description="รวมสถานะ LINE ต่อร้าน เลือกร้านแล้วจัดการผู้บริหารรายคน กลุ่มทีมงาน และสิทธิ์รับแผนแจ้งเตือน"
+        />
           <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
             {tenants.map((item) => (
               <LineTenantRow
@@ -2937,8 +5135,19 @@ function OwnerLineContent({
           </div>
         </section>
 
+        <OwnerLineRecipientLibraryPanel
+          busy={busy}
+          lineChannels={selectedTenantLineChannels}
+          onAssign={onAssignLineRecipient}
+          recipients={lineRecipients}
+          selectedTenantId={selectedTenantId}
+          selectedTenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
+          selectedTenantTargets={selectedTenantLineTargets}
+        />
+
         <OwnerLineTargetsPanel
           busy={busy}
+          lineChannels={lineChannels}
           onApprove={onApproveLineTarget}
           onSetProfile={onSetLineTargetProfile}
           onTestSend={onTestLineTarget}
@@ -2959,16 +5168,19 @@ function OwnerLineContent({
           createLineChannel={createLineChannel}
           lineAccessTokenInput={lineAccessTokenInput}
           lineChannelName={lineChannelName}
+          lineChannelShared={lineChannelShared}
           lineChannelSecretInput={lineChannelSecretInput}
           lineSecretChannelId={lineSecretChannelId}
           lineSecretConfigured={lineSecretConfigured}
           lineTokenConfigured={lineTokenConfigured}
           onSaveLineChannelSecrets={onSaveLineChannelSecrets}
+          onUpdateLineChannel={onUpdateLineChannel}
           selectedTenant={selectedTenant}
           selectedTenantId={selectedTenantId}
           selectedTenantLineChannels={selectedTenantLineChannels}
           setLineAccessTokenInput={setLineAccessTokenInput}
           setLineChannelName={setLineChannelName}
+          setLineChannelShared={setLineChannelShared}
           setLineChannelSecretInput={setLineChannelSecretInput}
           setLineSecretChannelId={setLineSecretChannelId}
           setLineSecretConfigured={setLineSecretConfigured}
@@ -2995,9 +5207,7 @@ function OwnerAuditContent({
       <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
         <OwnerPanelHeader
           title="ประวัติระบบล่าสุด"
-          description="มุมมอง audit แบบ owner: รอบรายงานและการส่ง LINE ล่าสุดต่อร้าน"
-          actionHref="/command-center#run-history"
-          actionLabel="เปิด run history"
+          description="มุมมอง logs แบบ owner: รอบรายงาน การส่ง LINE และ audit ล่าสุดต่อร้าน"
         />
         <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
           {tenants.map((item) => (
@@ -3018,26 +5228,18 @@ function OwnerSettingsContent({
   setSystemAppBaseUrl,
   setSystemBackupConfigured,
   setSystemLastBackupAt,
-  setSystemMorningBriefEnabled,
-  setSystemMorningBriefForce,
-  setSystemMorningBriefMode,
-  setSystemMorningBriefTenantIds,
-  setSystemMorningBriefTime,
-  setSystemMorningBriefTimezone,
   setSystemPublicApiBaseUrl,
+  setSystemReportViewerLinkTtlHours,
+  setSystemReportViewerSigningSecret,
   setSystemWorkerHeartbeatToken,
   setSystemWorkerId,
   systemAppBaseUrl,
   systemBackupConfigured,
   systemConfig,
   systemLastBackupAt,
-  systemMorningBriefEnabled,
-  systemMorningBriefForce,
-  systemMorningBriefMode,
-  systemMorningBriefTenantIds,
-  systemMorningBriefTime,
-  systemMorningBriefTimezone,
   systemPublicApiBaseUrl,
+  systemReportViewerLinkTtlHours,
+  systemReportViewerSigningSecret,
   systemWorkerHeartbeatToken,
   systemWorkerId,
 }: OwnerSectionContentProps) {
@@ -3071,14 +5273,18 @@ function OwnerSettingsContent({
             </p>
           ) : null}
 
+          <SystemSetupChecklist config={config} />
+
           <div className="grid gap-3 md:grid-cols-2">
             <OwnerTextInput
+              description="ใช้สร้างลิงก์ dashboard ที่ส่งใน LINE Flex ต้องเป็น URL ที่ผู้รับเปิดจากมือถือได้"
               label="App base URL"
               onChange={setSystemAppBaseUrl}
               placeholder="https://app.example.com"
               value={systemAppBaseUrl}
             />
             <OwnerTextInput
+              description="ใช้เมื่อ webhook หรือ public callback ต้องชี้ API แยกจากหน้าเว็บ ถ้าใช้ same-origin ให้กรอก URL เว็บหลักได้"
               label="Public API base URL"
               onChange={setSystemPublicApiBaseUrl}
               placeholder="https://api.example.com"
@@ -3086,82 +5292,42 @@ function OwnerSettingsContent({
             />
           </div>
 
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Morning Brief
-                </h3>
-                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  คุม scheduler defaults ที่ API แสดงและ worker ใช้อ้างอิงเมื่อ restart
-                </p>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <input
-                  checked={systemMorningBriefEnabled}
-                  className="h-4 w-4 rounded border-gray-300 text-brand-500"
-                  onChange={(event) =>
-                    setSystemMorningBriefEnabled(event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                เปิดใช้
-              </label>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <OwnerTextInput
-                label="Tenant IDs"
-                onChange={setSystemMorningBriefTenantIds}
-                placeholder="tenant_demo_remote, tenant_office_sml1_2026"
-                value={systemMorningBriefTenantIds}
-              />
-              <OwnerTextInput
-                label="Time"
-                onChange={setSystemMorningBriefTime}
-                placeholder="08:00"
-                value={systemMorningBriefTime}
-              />
-              <OwnerTextInput
-                label="Timezone"
-                onChange={setSystemMorningBriefTimezone}
-                placeholder="Asia/Bangkok"
-                value={systemMorningBriefTimezone}
-              />
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Mode
-                <select
-                  className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  onChange={(event) =>
-                    setSystemMorningBriefMode(event.target.value as "dry_run" | "send")
-                  }
-                  value={systemMorningBriefMode}
-                >
-                  <option value="send">Send</option>
-                  <option value="dry_run">Dry run</option>
-                </select>
-              </label>
-            </div>
-            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                checked={systemMorningBriefForce}
-                className="h-4 w-4 rounded border-gray-300 text-brand-500"
-                onChange={(event) =>
-                  setSystemMorningBriefForce(event.target.checked)
-                }
-                type="checkbox"
-              />
-              Force send แม้เคยส่งแล้วในวันเดียวกัน
-            </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <OwnerTextInput
+              description={
+                config?.report_viewer_signing_secret_configured
+                  ? "ตั้งค่าแล้ว ใส่ค่าใหม่เฉพาะเมื่อต้องการหมุน secret เพื่อเซ็นลิงก์ dashboard จาก LINE"
+                  : "ใช้เซ็นลิงก์ dashboard จาก LINE เพื่อป้องกันลิงก์ปลอม ต้องยาวอย่างน้อย 32 ตัวอักษร"
+              }
+              label="Report signing secret"
+              onChange={setSystemReportViewerSigningSecret}
+              placeholder={
+                config?.report_viewer_signing_secret_configured
+                  ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน secret"
+                  : "กรอก secret 32 ตัวอักษรขึ้นไป"
+              }
+              type="password"
+              value={systemReportViewerSigningSecret}
+            />
+            <OwnerTextInput
+              description="กำหนดอายุลิงก์ dashboard ที่ส่งจาก LINE หน่วยเป็นชั่วโมง ค่าแนะนำคือ 72"
+              label="Report link TTL (hours)"
+              onChange={setSystemReportViewerLinkTtlHours}
+              placeholder="72"
+              value={systemReportViewerLinkTtlHours}
+            />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <OwnerTextInput
+              description="ชื่อ worker ที่ใช้บันทึก heartbeat และ trace งานเบื้องหลัง"
               label="Worker ID"
               onChange={setSystemWorkerId}
-              placeholder="worker_morning_brief_1"
+              placeholder="worker_notification_rules_1"
               value={systemWorkerId}
             />
             <OwnerTextInput
+              description="token สำหรับให้ worker เรียก API tick/heartbeat ระบบจะไม่แสดงค่ากลับมา"
               label="Worker heartbeat token"
               onChange={setSystemWorkerHeartbeatToken}
               placeholder={
@@ -3184,9 +5350,15 @@ function OwnerSettingsContent({
                 }
                 type="checkbox"
               />
-              Backup configured
+              <span>
+                <span className="block font-medium">Backup configured</span>
+                <span className="block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  ใช้บอกว่า System DB มีแผนสำรองและ restore test แล้ว
+                </span>
+              </span>
             </label>
             <OwnerTextInput
+              description="เวลาสำรองข้อมูลล่าสุด เพื่อให้ admin เห็นว่า production ยังถูกดูแลอยู่"
               label="Last backup at"
               onChange={setSystemLastBackupAt}
               placeholder="2026-06-01T08:00:00.000Z"
@@ -3204,6 +5376,66 @@ function OwnerSettingsContent({
       </section>
 
       <SystemBootstrapPanel config={config} />
+    </div>
+  );
+}
+
+function SystemSetupChecklist({ config }: { config: SystemConfigStatus | null }) {
+  const items = [
+    {
+      label: "System DB พร้อม",
+      ok: Boolean(config?.bootstrap.system_database_configured),
+      detail: "ใช้เก็บร้านค้า, LINE, แผนแจ้งเตือน, logs และ encrypted secrets",
+    },
+    {
+      label: "Encryption key พร้อม",
+      ok: Boolean(config?.encryption_configured),
+      detail: "ใช้เข้ารหัส token, secret และ config สำคัญก่อนบันทึกใน DB",
+    },
+    {
+      label: "App base URL พร้อม",
+      ok: Boolean(config?.app_base_url),
+      detail: "ใช้สร้างลิงก์ dashboard ที่ส่งให้ผู้รับทาง LINE",
+    },
+    {
+      label: "Report signing พร้อม",
+      ok: Boolean(config?.report_viewer_signing_secret_configured),
+      detail: "ใช้เซ็นลิงก์ dashboard เพื่อป้องกันการเปิดรายงานด้วยลิงก์ปลอม",
+    },
+    {
+      label: "Worker token พร้อม",
+      ok: Boolean(config?.worker_heartbeat_token_configured),
+      detail: "ใช้ยืนยัน worker ที่เรียก tick แผนแจ้งเตือนจาก DB",
+    },
+  ];
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+        System Setup Checklist
+      </h3>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {items.map((item) => (
+          <div
+            className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+            key={item.label}
+          >
+            <div className="flex items-start gap-2">
+              <Badge color={item.ok ? "success" : "warning"}>
+                {item.ok ? "พร้อม" : "ต้องกรอก"}
+              </Badge>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {item.label}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {item.detail}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3241,6 +5473,16 @@ function SystemBootstrapPanel({
           value={bootstrap?.secret_key_present ? "present" : "missing"}
         />
         <HealthFact
+          label="Report signing"
+          value={
+            bootstrap?.report_viewer_signing_secret_configured
+              ? "bootstrap fallback"
+              : config?.report_viewer_signing_secret_configured
+                ? "encrypted store"
+                : "missing"
+          }
+        />
+        <HealthFact
           label="Config source"
           value={formatSystemConfigSource(config?.source)}
         />
@@ -3266,7 +5508,7 @@ function OperationsStatusPanel({
   if (!operationsStatus) {
     return (
       <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
-        ยังโหลด monitoring status ไม่สำเร็จ กดรีเฟรชอีกครั้งหรือตรวจ API owner token
+        ยังโหลด monitoring status ไม่สำเร็จ กดรีเฟรชอีกครั้งหรือตรวจ session ผู้ดูแล
       </section>
     );
   }
@@ -3283,7 +5525,7 @@ function OperationsStatusPanel({
     <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
       <OwnerPanelHeader
         title="Monitoring / Backup readiness"
-        description="ดูสถานะ API, worker, scheduler และแผน backup ในหน้าเดียว ก่อนเรียกว่าพร้อม production"
+        description="ดูสถานะ API, worker สำหรับแผนแจ้งเตือน และแผน backup ก่อนเรียกว่าพร้อม production"
       />
       <div className="grid gap-3 border-t border-gray-100 p-4 dark:border-gray-800 md:grid-cols-2 xl:grid-cols-4">
         <HealthFact
@@ -3295,11 +5537,11 @@ function OperationsStatusPanel({
           }
         />
         <HealthFact
-          label="Scheduler"
+          label="Notification rules"
           value={
             operationsStatus.scheduler.enabled
-              ? `${operationsStatus.scheduler.time} ${operationsStatus.scheduler.timezone}`
-              : "ปิดอยู่"
+              ? "DB-backed"
+              : "ยังไม่พร้อม"
           }
         />
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
@@ -3345,11 +5587,11 @@ function AuditLogPanel({ auditLogs }: { auditLogs: OwnerAuditLogEntry[] }) {
         {auditLogs.length ? (
           auditLogs.slice(0, 12).map((entry) => (
             <div
-              className="grid gap-3 p-4 lg:grid-cols-[180px_minmax(0,1fr)_170px]"
+              className="grid min-w-0 gap-3 p-4 lg:grid-cols-[180px_minmax(0,1fr)]"
               key={`${entry.id ?? entry.created_at}-${entry.action}-${entry.target_id ?? ""}`}
             >
-              <div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              <div className="min-w-0">
+                <p className="break-words text-sm font-semibold text-gray-900 dark:text-white">
                   {formatAuditAction(entry.action)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -3357,17 +5599,23 @@ function AuditLogPanel({ auditLogs }: { auditLogs: OwnerAuditLogEntry[] }) {
                 </p>
               </div>
               <div className="min-w-0 text-sm leading-6 text-gray-600 dark:text-gray-400">
-                <p className="truncate">
-                  tenant: {entry.tenant_id ?? "-"} · {entry.target_type}:{" "}
-                  {entry.target_id ?? "-"}
+                <p className="break-words">
+                  ร้าน: {entry.tenant_id ?? "-"} · {entry.target_type}:{" "}
+                  <span className="break-all">{entry.target_id ?? "-"}</span>
                 </p>
-                <p className="truncate text-xs text-gray-500 dark:text-gray-500">
+                <p className="break-words text-xs text-gray-500 dark:text-gray-500">
                   {formatAuditMetadata(entry.metadata_json)}
                 </p>
+                <div className="mt-2 flex min-w-0">
+                  <span
+                    className={`min-w-0 rounded-full px-2.5 py-0.5 text-sm font-medium ${auditActionToneClass(
+                      entry.action,
+                    )}`}
+                  >
+                    <span className="break-all">{entry.action}</span>
+                  </span>
+                </div>
               </div>
-              <Badge color={auditActionTone(entry.action)}>
-                {entry.action}
-              </Badge>
             </div>
           ))
         ) : (
@@ -3389,6 +5637,7 @@ function OwnerReportRunnerPanel({
   onDateFromChange,
   onDateToChange,
   onRun,
+  onRunGrossProfit,
   onRunPurchase,
   onSaveValidationSignoff,
   selectedTenant,
@@ -3411,6 +5660,9 @@ function OwnerReportRunnerPanel({
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
   onRun: () => Promise<void>;
+  onRunGrossProfit: (
+    reportKey: "gross_profit_by_product" | "gross_profit_by_ar_customer",
+  ) => Promise<void>;
   onRunPurchase: () => Promise<void>;
   onSaveValidationSignoff: () => Promise<void>;
   selectedTenant?: TenantSummary;
@@ -3427,6 +5679,12 @@ function OwnerReportRunnerPanel({
 }) {
   const isRunning = busy === `report-run-${selectedTenantId}`;
   const isPurchaseRunning = busy === `purchase-report-run-${selectedTenantId}`;
+  const isGrossProductRunning =
+    busy === `gross-profit-report-run-gross_profit_by_product-${selectedTenantId}`;
+  const isGrossArRunning =
+    busy === `gross-profit-report-run-gross_profit_by_ar_customer-${selectedTenantId}`;
+  const anyReportRunning =
+    isRunning || isPurchaseRunning || isGrossProductRunning || isGrossArRunning;
   const selectedSnapshotMatches =
     lastSnapshot?.tenant_id === selectedTenantId &&
     lastSnapshot.params.date_from === dateFrom &&
@@ -3491,7 +5749,7 @@ function OwnerReportRunnerPanel({
         <div className="grid gap-2 sm:grid-cols-2">
           <Button
             className="w-full"
-            disabled={isRunning || isPurchaseRunning || !selectedTenantId}
+            disabled={anyReportRunning || !selectedTenantId}
             onClick={() => void onRun()}
             size="sm"
           >
@@ -3499,14 +5757,40 @@ function OwnerReportRunnerPanel({
           </Button>
           <Button
             className="w-full"
-            disabled={isRunning || isPurchaseRunning || !selectedTenantId}
+            disabled={anyReportRunning || !selectedTenantId}
             onClick={() => void onRunPurchase()}
             size="sm"
             variant="outline"
           >
             {isPurchaseRunning ? "กำลังรันรายงานซื้อ..." : "รันรายงานซื้อ/ตั้งหนี้"}
           </Button>
+          <Button
+            className="w-full"
+            disabled={anyReportRunning || !selectedTenantId}
+            onClick={() => void onRunGrossProfit("gross_profit_by_product")}
+            size="sm"
+            variant="outline"
+          >
+            {isGrossProductRunning
+              ? "กำลังรันกำไรสินค้า..."
+              : "รันกำไรขั้นต้นสินค้า"}
+          </Button>
+          <Button
+            className="w-full"
+            disabled={anyReportRunning || !selectedTenantId}
+            onClick={() => void onRunGrossProfit("gross_profit_by_ar_customer")}
+            size="sm"
+            variant="outline"
+          >
+            {isGrossArRunning
+              ? "กำลังรันกำไรลูกหนี้..."
+              : "รันกำไรขั้นต้นลูกหนี้"}
+          </Button>
         </div>
+
+        <p className="rounded-xl border border-warning-100 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">
+          รายงานกำไรขั้นต้นมีข้อมูลต้นทุนและ margin ควรเปิดสิทธิ์เฉพาะ role ผู้บริหารในเมนูสิทธิ์รายงาน
+        </p>
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
           <p className="text-xs font-semibold uppercase text-gray-400">
@@ -3793,7 +6077,7 @@ function LineTenantRow({
           </Badge>
         </div>
         <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
-          Morning Brief · {item.tenant.id}
+	          แผนแจ้งเตือน · {item.tenant.id}
         </p>
       </div>
       <CompactFact
@@ -3881,10 +6165,10 @@ function buildOwnerActionItems(tenants: TenantSummary[]) {
     }
     if (!item.health.datasource_configured) {
       actions.push({
-        description: "ยังไม่มี datasource config สำหรับ SML",
+        description: "ยังไม่ได้ตั้งค่า Tomcat URL, port, SMLConfig และ database",
         label: "ต้องทำ",
         tenantName: item.tenant.name,
-        title: "เชื่อม SML datasource",
+        title: "เชื่อม SML ผ่าน JavaWS",
         tone: "warning",
       });
     }
@@ -3908,7 +6192,7 @@ function buildOwnerActionItems(tenants: TenantSummary[]) {
     }
     if (item.health.line_channels > 0 && item.health.line_targets_enabled === 0) {
       actions.push({
-        description: "มี LINE OA แล้ว แต่ยังไม่มีผู้รับที่อนุมัติรับ Morning Brief",
+        description: "มี LINE OA แล้ว แต่ยังไม่มีผู้รับที่อนุมัติรับแผนแจ้งเตือน",
         label: "ตรวจ",
         tenantName: item.tenant.name,
         title: "อนุมัติผู้รับ LINE",
@@ -3961,29 +6245,29 @@ function buildProductionReadiness(
   const schedulerEnabled = Boolean(operationsStatus?.scheduler.enabled);
   items.push({
     description: schedulerEnabled
-      ? `ส่งอัตโนมัติ ${operationsStatus?.scheduler.time} ${operationsStatus?.scheduler.timezone}`
-      : "Morning Brief scheduler ยังปิดอยู่หรืออ่านสถานะไม่ได้",
+      ? "worker อ่านแผนแจ้งเตือนจาก notification_rules ใน System DB"
+      : "ยังอ่านสถานะแผนแจ้งเตือนจาก DB ไม่สำเร็จ",
     label: schedulerEnabled ? "พร้อม" : "ต้องทำ",
     ok: schedulerEnabled,
-    title: "Morning Brief scheduler",
+    title: "แผนแจ้งเตือนจาก DB",
     tone: schedulerEnabled ? "success" : "error",
   });
 
   const workerOk = operationsStatus?.worker.status === "ok";
   items.push({
     description: workerOk
-      ? `heartbeat ล่าสุด ${operationsStatus?.worker.age_seconds ?? "-"} วินาที`
+      ? `สัญญาณล่าสุด ${operationsStatus?.worker.age_seconds ?? "-"} วินาที`
       : `worker ${formatWorkerStatus(operationsStatus?.worker.status ?? "missing")}`,
     label: workerOk ? "พร้อม" : "ตรวจ",
     ok: workerOk,
-    title: "Worker heartbeat",
+    title: "สถานะ worker",
     tone: workerOk ? "success" : "warning",
   });
 
   const backupConfigured = Boolean(operationsStatus?.backup.configured);
   items.push({
     description: backupConfigured
-      ? `backup ล่าสุด ${
+      ? `สำรองข้อมูลล่าสุด ${
           operationsStatus?.backup.last_backup_at
             ? formatDateTime(operationsStatus.backup.last_backup_at)
             : "มี config แล้ว"
@@ -3992,7 +6276,7 @@ function buildProductionReadiness(
         "ควรตั้ง backup ก่อนใช้งานจริงกับลูกค้า",
     label: backupConfigured ? "พร้อม" : "ตรวจ",
     ok: backupConfigured,
-    title: "Backup readiness",
+    title: "ความพร้อมสำรองข้อมูล",
     tone: backupConfigured ? "success" : "warning",
   });
 
@@ -4001,11 +6285,11 @@ function buildProductionReadiness(
   );
   items.push({
     description: datasourceReady
-      ? "ร้านที่เปิดใช้งานมี datasource config ครบ"
-      : "มีร้านที่เปิดใช้งานแล้วยังไม่ได้ตั้งค่า SML datasource",
+      ? "ร้านที่เปิดใช้งานตั้งค่า SML JavaWS ครบ"
+      : "มีร้านที่เปิดใช้งานแล้วยังไม่ได้ตั้งค่า SML JavaWS",
     label: datasourceReady ? "พร้อม" : "ต้องทำ",
     ok: datasourceReady,
-    title: "SML datasource ต่อร้าน",
+    title: "SML JavaWS ต่อร้าน",
     tone: datasourceReady ? "success" : "error",
   });
 
@@ -4018,7 +6302,7 @@ function buildProductionReadiness(
       : "มีร้านที่ยังไม่มี snapshot ล่าสุด ต้องรันรายงานก่อนส่งลิงก์ให้ลูกค้า",
     label: reportReady ? "พร้อม" : "ต้องทำ",
     ok: reportReady,
-    title: "Report snapshot",
+    title: "รายงานล่าสุด",
     tone: reportReady ? "success" : "warning",
   });
 
@@ -4029,10 +6313,10 @@ function buildProductionReadiness(
   items.push({
     description: lineReady
       ? "ร้านที่เปิดใช้งานมี LINE OA และผู้รับที่อนุมัติแล้ว"
-      : "มีร้านที่ยังไม่มี LINE OA หรือยังไม่มีผู้รับ Morning Brief",
+      : "มีร้านที่ยังไม่มี LINE OA หรือยังไม่มีผู้รับแผนแจ้งเตือน",
     label: lineReady ? "พร้อม" : "ตรวจ",
     ok: lineReady,
-    title: "LINE delivery path",
+    title: "เส้นทางส่ง LINE",
     tone: lineReady ? "success" : "warning",
   });
 
@@ -4043,11 +6327,11 @@ function buildProductionReadiness(
   );
   items.push({
     description: noRecentFailures
-      ? "ไม่พบ run หรือ LINE delivery ล่าสุดที่ล้มเหลว"
-      : "มี run หรือ LINE delivery ล่าสุดล้มเหลว ต้องเปิดประวัติระบบเพื่อตรวจต่อ",
+      ? "ไม่พบรายงานหรือการส่ง LINE ล่าสุดที่ล้มเหลว"
+      : "มีรายงานหรือการส่ง LINE ล่าสุดล้มเหลว ต้องเปิดประวัติระบบเพื่อตรวจต่อ",
     label: noRecentFailures ? "พร้อม" : "ตรวจ",
     ok: noRecentFailures,
-    title: "Recent failures",
+    title: "ข้อผิดพลาดล่าสุด",
     tone: noRecentFailures ? "success" : "error",
   });
 
@@ -4055,10 +6339,10 @@ function buildProductionReadiness(
   const score = Math.round((okCount / items.length) * 100);
   const summary =
     score >= 90
-      ? "พร้อมสำหรับ pilot ที่มีลูกค้าใช้งานจริง โดยยังควรติดตาม monitoring ต่อเนื่อง"
+      ? "พร้อมสำหรับลูกค้าใช้งานจริง โดยยังควรติดตามสถานะระบบต่อเนื่อง"
       : score >= 70
-        ? "พร้อมทดลองใช้งาน แต่ยังมีจุดที่ควรแก้ก่อน scale หลายร้าน"
-        : "ยังไม่ควร rollout เพิ่ม จัดการรายการเสี่ยงก่อน";
+        ? "พร้อมทดลองใช้งาน แต่ยังมีจุดที่ควรแก้ก่อนเพิ่มหลายร้าน"
+        : "ยังไม่ควรเปิดร้านเพิ่ม จัดการรายการเสี่ยงก่อน";
 
   return { items, score, summary };
 }
@@ -4099,11 +6383,16 @@ function formatAuditAction(action: string) {
   const labels: Record<string, string> = {
     datasource_test_succeeded: "ทดสอบ SML สำเร็จ",
     datasource_test_failed: "ทดสอบ SML ไม่สำเร็จ",
+    line_channel_created: "เพิ่ม LINE OA",
+    line_channel_updated: "แก้ไข LINE OA",
+    line_channel_secrets_updated: "บันทึก LINE secret",
+    line_target_assigned: "เพิ่มผู้รับเข้าร้าน",
+    line_target_assignment_updated: "อัปเดตผู้รับเข้าร้าน",
     line_target_approved: "อนุมัติผู้รับ LINE",
     line_target_updated: "แก้สิทธิ์ผู้รับ LINE",
     line_delivery_succeeded: "ส่ง LINE สำเร็จ",
     line_delivery_failed: "ส่ง LINE ไม่สำเร็จ",
-    morning_brief_report_run_requested: "รัน Morning Brief",
+    morning_brief_report_run_requested: "รันแผนแจ้งเตือน",
     report_run_requested: "รันรายงาน",
     report_run_succeeded: "รันรายงานสำเร็จ",
     report_run_failed: "รันรายงานไม่สำเร็จ",
@@ -4125,6 +6414,19 @@ function auditActionTone(action: string): "success" | "warning" | "error" | "lig
     return "warning";
   }
   return "light";
+}
+
+function auditActionToneClass(action: string) {
+  const tone = auditActionTone(action);
+  const classes = {
+    error: "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500",
+    light: "bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-white/80",
+    success:
+      "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500",
+    warning:
+      "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400",
+  };
+  return classes[tone];
 }
 
 function formatAuditMetadata(metadata: Record<string, unknown>) {
@@ -4159,28 +6461,24 @@ function OwnerSetupPanel({
   setNewTenantName: (value: string) => void;
 }) {
   return (
-    <details className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <summary className="cursor-pointer list-none">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              ตั้งค่าเพิ่มเติม
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              เพิ่มร้านใหม่เมื่อเริ่ม pilot ลูกค้ารายถัดไป ส่วน flow หลักคือเลือก tenant ด้านล่างแล้วจัดการต่อ
-            </p>
-          </div>
-          <Badge color="light">คลิกเพื่อเปิด</Badge>
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <Badge color="primary">เพิ่มร้านค้า</Badge>
+          <h2 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
+            สร้างร้านใหม่
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            เริ่ม flow เพิ่มร้าน → เชื่อม SML → ตั้ง LINE → สร้างแผนแจ้งเตือน
+          </p>
         </div>
-      </summary>
+        <Badge color="light">tenant_id แก้ไม่ได้หลังสร้าง</Badge>
+      </div>
 
       <form
         className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
         onSubmit={createTenant}
       >
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-          เพิ่มร้านค้าใหม่
-        </h3>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1 space-y-1">
             <input
@@ -4194,7 +6492,7 @@ function OwnerSetupPanel({
             />
             {newTenantName.trim() ? (
               <p className="px-1 text-xs text-gray-400 dark:text-gray-500">
-                Tenant ID:{" "}
+                รหัสร้าน:{" "}
                 <span className="font-mono font-medium text-gray-600 dark:text-gray-300">
                   {newTenantId.trim() || slugifyTenantId(newTenantName)}
                 </span>
@@ -4214,8 +6512,8 @@ function OwnerSetupPanel({
             {newTenantId.trim() ? (
               <input
                 className="h-9 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 dark:border-gray-700 dark:text-white"
-                onChange={(event) => setNewTenantId(event.target.value)}
-                placeholder="tenant_id"
+	                onChange={(event) => setNewTenantId(event.target.value)}
+	                placeholder="tenant_id"
                 value={newTenantId}
               />
             ) : null}
@@ -4225,7 +6523,7 @@ function OwnerSetupPanel({
           </Button>
         </div>
       </form>
-    </details>
+    </section>
   );
 }
 
@@ -4234,16 +6532,19 @@ function LineChannelPanel({
   createLineChannel,
   lineAccessTokenInput,
   lineChannelName,
+  lineChannelShared,
   lineChannelSecretInput,
   lineSecretChannelId,
   lineSecretConfigured,
   lineTokenConfigured,
   onSaveLineChannelSecrets,
+  onUpdateLineChannel,
   selectedTenant,
   selectedTenantId,
   selectedTenantLineChannels,
   setLineAccessTokenInput,
   setLineChannelName,
+  setLineChannelShared,
   setLineChannelSecretInput,
   setLineSecretChannelId,
   setLineSecretConfigured,
@@ -4255,16 +6556,24 @@ function LineChannelPanel({
   createLineChannel: (event: FormEvent<HTMLFormElement>) => void;
   lineAccessTokenInput: string;
   lineChannelName: string;
+  lineChannelShared: boolean;
   lineChannelSecretInput: string;
   lineSecretChannelId: string;
   lineSecretConfigured: boolean;
   lineTokenConfigured: boolean;
   onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
+  onUpdateLineChannel: (input: {
+    channel: LineChannelRecord;
+    displayName: string;
+    scope: LineChannelScope;
+    enabled: boolean;
+  }) => Promise<void>;
   selectedTenant?: Tenant;
   selectedTenantId: string;
   selectedTenantLineChannels: LineChannelRecord[];
   setLineAccessTokenInput: (value: string) => void;
   setLineChannelName: (value: string) => void;
+  setLineChannelShared: (value: boolean) => void;
   setLineChannelSecretInput: (value: string) => void;
   setLineSecretChannelId: (value: string) => void;
   setLineSecretConfigured: (value: boolean) => void;
@@ -4320,6 +6629,18 @@ function LineChannelPanel({
             />
           </label>
 
+          <label className="flex items-start gap-3 rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200">
+            <input
+              checked={lineChannelShared}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) => setLineChannelShared(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              ใช้เป็น LINE OA กลาง ให้ร้านอื่นเลือกใช้ได้เมื่อยังไม่มี OA ของตัวเอง
+            </span>
+          </label>
+
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
               <input
@@ -4361,7 +6682,7 @@ function LineChannelPanel({
               บันทึก token/secret แบบเข้ารหัส
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              ใช้เมื่อสร้าง LINE OA แล้ว ต้องการให้ระบบส่ง Morning Brief และรับ
+              ใช้เมื่อสร้าง LINE OA แล้ว ต้องการให้ระบบส่งแผนแจ้งเตือนและรับ
               webhook ของช่องทางนี้
             </p>
           </div>
@@ -4379,6 +6700,7 @@ function LineChannelPanel({
               {selectedTenantLineChannels.map((channel) => (
                 <option key={channel.id} value={channel.id}>
                   {channel.display_name}
+                  {channel.scope === "owner_shared" ? " · LINE OA กลาง" : ""}
                 </option>
               ))}
             </select>
@@ -4414,31 +6736,17 @@ function LineChannelPanel({
 
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
         <p className="text-xs font-semibold uppercase text-gray-400">
-          LINE OA ที่ผูกกับ {selectedTenant?.name ?? "ร้านนี้"}
+          LINE OA ที่ใช้กับ {selectedTenant?.name ?? "ร้านนี้"}
         </p>
         <div className="mt-3 space-y-2">
           {selectedTenantLineChannels.length ? (
             selectedTenantLineChannels.map((channel) => (
-              <div
-                className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+              <LineChannelEditableCard
+                busy={busy}
+                channel={channel}
                 key={channel.id}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                    {channel.display_name}
-                  </p>
-                  <Badge color={channel.enabled ? "success" : "warning"}>
-                    {channel.enabled ? "เปิดใช้" : "ปิด"}
-                  </Badge>
-                </div>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  token:{" "}
-                  {channel.channel_access_token_configured ? "มี" : "ยังไม่มี"}{" "}
-                  · secret:{" "}
-                  {channel.channel_secret_configured ? "มี" : "ยังไม่มี"} ·
-                  source: {channel.source}
-                </p>
-              </div>
+                onUpdateLineChannel={onUpdateLineChannel}
+              />
             ))
           ) : (
             <p className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
@@ -4451,13 +6759,148 @@ function LineChannelPanel({
   );
 }
 
+function LineChannelEditableCard({
+  busy,
+  channel,
+  onUpdateLineChannel,
+}: {
+  busy: string | null;
+  channel: LineChannelRecord;
+  onUpdateLineChannel: (input: {
+    channel: LineChannelRecord;
+    displayName: string;
+    scope: LineChannelScope;
+    enabled: boolean;
+  }) => Promise<void>;
+}) {
+  const [displayName, setDisplayName] = useState(channel.display_name);
+  const [scope, setScope] = useState<LineChannelScope>(
+    channel.scope ?? "tenant",
+  );
+  const [enabled, setEnabled] = useState(channel.enabled);
+
+  useEffect(() => {
+    setDisplayName(channel.display_name);
+    setScope(channel.scope ?? "tenant");
+    setEnabled(channel.enabled);
+  }, [channel.display_name, channel.enabled, channel.scope]);
+
+  const updateBusyKey = `line-channel-update-${channel.id}`;
+  const trimmedDisplayName = displayName.trim();
+  const dirty =
+    trimmedDisplayName !== channel.display_name ||
+    scope !== (channel.scope ?? "tenant") ||
+    enabled !== channel.enabled;
+  const isEnvChannel = channel.source === "env";
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge color={enabled ? "success" : "warning"}>
+          {enabled ? "เปิดใช้" : "ปิด"}
+        </Badge>
+        <Badge color={scope === "owner_shared" ? "info" : "light"}>
+          {scope === "owner_shared" ? "LINE OA กลาง" : "OA ร้าน"}
+        </Badge>
+        <Badge
+          color={channel.channel_access_token_configured ? "success" : "warning"}
+        >
+          {channel.channel_access_token_configured ? "มี token" : "ขาด token"}
+        </Badge>
+        <Badge
+          color={channel.channel_secret_configured ? "success" : "warning"}
+        >
+          {channel.channel_secret_configured ? "มี secret" : "ขาด secret"}
+        </Badge>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          ชื่อ LINE OA
+          <input
+            className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            disabled={isEnvChannel}
+            onChange={(event) => setDisplayName(event.target.value)}
+            value={displayName}
+          />
+        </label>
+
+        <label className="flex items-start gap-3 rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200">
+          <input
+            checked={scope === "owner_shared"}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+            disabled={isEnvChannel}
+            onChange={(event) =>
+              setScope(event.target.checked ? "owner_shared" : "tenant")
+            }
+            type="checkbox"
+          />
+          <span className="leading-5">
+            ใช้เป็น LINE OA กลาง ให้ร้านอื่นเลือกใช้ได้เมื่อยังไม่มี OA
+            ของตัวเอง
+          </span>
+        </label>
+
+        <label className="flex items-start gap-3 rounded-lg border border-gray-100 bg-white p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+          <input
+            checked={enabled}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+            disabled={isEnvChannel}
+            onChange={(event) => setEnabled(event.target.checked)}
+            type="checkbox"
+          />
+          <span className="leading-5">
+            เปิดใช้งานช่องทางนี้สำหรับส่งแผนแจ้งเตือน
+          </span>
+        </label>
+
+        <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {scope === "owner_shared"
+            ? "ร้านอื่นจะเห็น LINE OA นี้ในคลังกลาง และเลือกผู้รับจากช่องทางนี้เข้าร้านได้"
+            : "LINE OA นี้ใช้เป็นช่องทางของร้านที่สร้างไว้เท่านั้น"}{" "}
+          ถ้ายังขาด token ต้องบันทึก Channel access token ก่อนจึงส่งจริงได้
+        </p>
+
+        {isEnvChannel ? (
+          <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-xs leading-5 text-warning-700">
+            ช่องทางนี้มาจาก env fallback จึงแก้ metadata จาก UI ไม่ได้
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] uppercase tracking-wide text-gray-400">
+            ที่มา: {channel.source}
+          </p>
+          <Button
+            disabled={
+              isEnvChannel ||
+              busy === updateBusyKey ||
+              !dirty ||
+              !trimmedDisplayName
+            }
+            onClick={() =>
+              void onUpdateLineChannel({
+                channel,
+                displayName: trimmedDisplayName,
+                scope,
+                enabled,
+              })
+            }
+            size="sm"
+          >
+            {busy === updateBusyKey ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DatasourceConfigPanel({
   autoOpen,
   busy,
   discoveryBusy,
   config,
-  database,
-  host,
   javaWsAuthMode,
   javaWsAuthSecret,
   javaWsAuthUsername,
@@ -4467,34 +6910,21 @@ function DatasourceConfigPanel({
   javaWsDatabase,
   javaWsEndpoint,
   javaWsWebappPath,
-  kind,
-  onDatabaseChange,
-  onHostChange,
   onJavaWsAuthModeChange,
   onJavaWsAuthSecretChange,
   onJavaWsAuthUsernameChange,
   onJavaWsBaseUrlChange,
   onJavaWsConfigFileNameChange,
   onJavaWsDatabaseChange,
-  onJavaWsEndpointChange,
   onJavaWsWebappPathChange,
   onApplyJavaWsPreset,
   onDiscoverJavaWsDatabases,
-  onKindChange,
-  onPasswordChange,
-  onPortChange,
   onSubmit,
-  onUserChange,
-  password,
-  port,
-  user,
 }: {
   autoOpen?: boolean;
   busy: boolean;
   discoveryBusy: boolean;
   config: DatasourceConfigStatus | null;
-  database: string;
-  host: string;
   javaWsAuthMode: JavaWsAuthMode;
   javaWsAuthSecret: string;
   javaWsAuthUsername: string;
@@ -4504,27 +6934,16 @@ function DatasourceConfigPanel({
   javaWsDatabase: string;
   javaWsEndpoint: string;
   javaWsWebappPath: string;
-  kind: DatasourceKind;
-  onDatabaseChange: (value: string) => void;
-  onHostChange: (value: string) => void;
   onJavaWsAuthModeChange: (value: JavaWsAuthMode) => void;
   onJavaWsAuthSecretChange: (value: string) => void;
   onJavaWsAuthUsernameChange: (value: string) => void;
   onJavaWsBaseUrlChange: (value: string) => void;
   onJavaWsConfigFileNameChange: (value: string) => void;
   onJavaWsDatabaseChange: (value: string) => void;
-  onJavaWsEndpointChange: (value: string) => void;
   onJavaWsWebappPathChange: (value: string) => void;
   onApplyJavaWsPreset: (preset: JavaWsDatasourcePreset) => void;
   onDiscoverJavaWsDatabases: () => void;
-  onKindChange: (value: DatasourceKind) => void;
-  onPasswordChange: (value: string) => void;
-  onPortChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onUserChange: (value: string) => void;
-  password: string;
-  port: string;
-  user: string;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
@@ -4541,12 +6960,9 @@ function DatasourceConfigPanel({
       : config?.source === "env"
         ? "อ่านจาก env server"
         : "ยังไม่ตั้งค่า";
-  const modeLabel =
-    kind === "sml_javaws" ? "Tomcat JavaWS" : "PostgreSQL direct";
-  const secretRequired =
-    kind === "sml_postgres" ||
-    (kind === "sml_javaws" && javaWsAuthMode !== "none");
-  const secretValue = kind === "sml_postgres" ? password : javaWsAuthSecret;
+  const modeLabel = "Tomcat JavaWS";
+  const secretRequired = javaWsAuthMode !== "none";
+  const secretValue = javaWsAuthSecret;
   const tomcatUrl = parseTomcatBaseUrl(javaWsBaseUrl);
   const updateTomcatBaseUrl = (
     patch: Partial<{ host: string; port: string; protocol: "http" | "https" }>,
@@ -4566,10 +6982,10 @@ function DatasourceConfigPanel({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              ตั้งค่า SML datasource
+              เชื่อม SML ผ่าน Tomcat JavaWS
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              เลือกวิธีเชื่อมต่อรายร้าน แล้วบันทึก secret แบบเข้ารหัสใน system store
+              กรอก 4 ค่าหลักของร้าน: Tomcat, port, SMLConfig และ database
             </p>
           </div>
           <Badge color={config?.password_configured ? "success" : "warning"}>
@@ -4587,75 +7003,22 @@ function DatasourceConfigPanel({
         ) : null}
         {config?.source === "env" ? (
           <p className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
-            ร้านนี้ยังอ่าน datasource จาก env อยู่ กดบันทึกเพื่อ migrate ค่าเข้าสู่ encrypted store
+            ร้านนี้ยังมีค่าเก่าที่ไม่ได้อยู่ใน JavaWS flow ใหม่ กรุณาบันทึกค่า JavaWS เพื่อเริ่มใช้งานใหม่
           </p>
         ) : null}
 
-        <div className="grid grid-cols-2 rounded-lg border border-gray-200 bg-gray-50 p-1 text-sm dark:border-gray-800 dark:bg-white/[0.03]">
-          {[
-            ["sml_postgres", "PostgreSQL direct"],
-            ["sml_javaws", "Tomcat JavaWS"],
-          ].map(([value, label]) => (
-            <button
-              className={`h-9 rounded-md px-3 font-medium transition ${
-                kind === value
-                  ? "bg-white text-brand-600 shadow-theme-xs dark:bg-gray-900 dark:text-brand-300"
-                  : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-              }`}
-              key={value}
-              onClick={() => onKindChange(value as DatasourceKind)}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
+        <div className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
+          SML ของร้านค้าใช้ JavaWS เท่านั้น ระบบจะไม่ขอ user/password ของฐานข้อมูล PostgreSQL
         </div>
+        {config?.kind && config.kind !== "sml_javaws" ? (
+          <div className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+            พบค่าเชื่อมต่อแบบเก่า กรุณากรอก JavaWS ใหม่ ร้านนี้จะยังไม่พร้อมส่งแจ้งเตือนจนกว่าจะบันทึกและทดสอบผ่าน
+          </div>
+        ) : null}
 
-        {kind === "sml_postgres" ? (
-          <>
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
-              <OwnerTextInput
-                label="Host"
-                onChange={onHostChange}
-                placeholder="demserver.3bbddns.com"
-                value={host}
-              />
-              <OwnerTextInput
-                label="Port"
-                onChange={onPortChange}
-                placeholder="5432"
-                value={port}
-              />
-            </div>
-            <OwnerTextInput
-              label="Database"
-              onChange={onDatabaseChange}
-              placeholder="demo"
-              value={database}
-            />
-            <OwnerTextInput
-              label="User"
-              onChange={onUserChange}
-              placeholder="sml_readonly"
-              value={user}
-            />
-            <OwnerTextInput
-              label="Password"
-              onChange={onPasswordChange}
-              placeholder={
-                config?.password_configured
-                  ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน password"
-                  : "ใส่ password ของ DB"
-              }
-              type="password"
-              value={password}
-            />
-          </>
-        ) : (
-          <>
-            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
               <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                Quick fill
+                กรอกเร็ว
               </p>
               <div className="mt-2 grid gap-2 2xl:grid-cols-2">
                 {JAVA_WS_DATASOURCE_PRESETS.map((preset) => (
@@ -4676,29 +7039,16 @@ function DatasourceConfigPanel({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)_110px]">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Protocol
-                <select
-                  className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  onChange={(event) =>
-                    updateTomcatBaseUrl({
-                      protocol: event.target.value as "http" | "https",
-                    })
-                  }
-                  value={tomcatUrl.protocol}
-                >
-                  <option value="http">http</option>
-                  <option value="https">https</option>
-                </select>
-              </label>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
               <OwnerTextInput
-                label="Tomcat URL"
+                description="เครื่องที่เปิด Tomcat ของ SML JavaWS จะกรอกเป็น IP, host หรือ URL เต็มก็ได้"
+                label="Tomcat host / URL"
                 onChange={(value) => updateTomcatBaseUrl({ host: value })}
-                placeholder="192.168.1.10"
+                placeholder="147.50.69.68 หรือ demserver.3bbddns.com"
                 value={tomcatUrl.host}
               />
               <OwnerTextInput
+                description="port ที่ Tomcat เปิดให้เรียก SMLJavaWebService เช่น 80, 8080 หรือ port ที่ SML DEV แจ้ง"
                 label="Port"
                 onChange={(value) => updateTomcatBaseUrl({ port: value })}
                 placeholder="8080"
@@ -4708,22 +7058,9 @@ function DatasourceConfigPanel({
             <p className="break-words rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
               Base URL: {javaWsBaseUrl || "ยังไม่ได้ระบุ Tomcat URL"}
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <OwnerTextInput
-                label="Webapp path"
-                onChange={onJavaWsWebappPathChange}
-                placeholder="/SMLJavaWebService"
-                value={javaWsWebappPath}
-              />
-              <OwnerTextInput
-                label="Endpoint"
-                onChange={onJavaWsEndpointChange}
-                placeholder="DotNetFrameWork"
-                value={javaWsEndpoint}
-              />
-            </div>
             <OwnerTextInput
-              label="Config file name"
+              description="ไฟล์ config ที่ JavaWS ใช้เลือก connection ของ SML เช่น SMLConfigDATA.xml"
+              label="SMLConfig file"
               onChange={onJavaWsConfigFileNameChange}
               placeholder="SMLConfigDATA.xml"
               value={javaWsConfigFileName}
@@ -4753,7 +7090,7 @@ function DatasourceConfigPanel({
 
             {javaWsDatabaseDiscovery?.databases.length ? (
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Database name
+                ชื่อฐานข้อมูล
                 <select
                   className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   onChange={(event) => onJavaWsDatabaseChange(event.target.value)}
@@ -4775,49 +7112,89 @@ function DatasourceConfigPanel({
               </label>
             ) : (
               <OwnerTextInput
-                label="Database name"
+                description="ชื่อฐานข้อมูล SML ที่ต้องการดึงรายงานของร้านนี้"
+                label="ชื่อฐานข้อมูล"
                 onChange={onJavaWsDatabaseChange}
                 placeholder="sml1_2026"
                 value={javaWsDatabase}
               />
             )}
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Optional auth
-              <select
-                className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                onChange={(event) =>
-                  onJavaWsAuthModeChange(event.target.value as JavaWsAuthMode)
-                }
-                value={javaWsAuthMode}
-              >
-                <option value="none">No reverse-proxy auth</option>
-                <option value="basic">Basic auth</option>
-                <option value="bearer">Bearer token</option>
-              </select>
-            </label>
-            {javaWsAuthMode === "basic" ? (
-              <OwnerTextInput
-                label="Auth username"
-                onChange={onJavaWsAuthUsernameChange}
-                placeholder="proxy-user"
-                value={javaWsAuthUsername}
-              />
-            ) : null}
-            {javaWsAuthMode !== "none" ? (
-              <OwnerTextInput
-                label={javaWsAuthMode === "basic" ? "Auth password" : "Bearer token"}
-                onChange={onJavaWsAuthSecretChange}
-                placeholder={
-                  config?.auth_configured
-                    ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน secret"
-                    : "ใส่ secret สำหรับ reverse proxy"
-                }
-                type="password"
-                value={javaWsAuthSecret}
-              />
-            ) : null}
-          </>
-        )}
+            <details className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+              <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300">
+                ตั้งค่าขั้นสูง
+              </summary>
+              <div className="mt-3 space-y-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Protocol
+                  <select
+                    className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    onChange={(event) =>
+                      updateTomcatBaseUrl({
+                        protocol: event.target.value as "http" | "https",
+                      })
+                    }
+                    value={tomcatUrl.protocol}
+                  >
+                    <option value="http">http</option>
+                    <option value="https">https</option>
+                  </select>
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <OwnerTextInput
+                    label="Webapp path"
+                    onChange={onJavaWsWebappPathChange}
+                    placeholder="/SMLJavaWebService"
+                    value={javaWsWebappPath}
+                  />
+                  <div className="rounded-lg border border-gray-100 bg-white p-3 text-sm dark:border-gray-800 dark:bg-gray-900">
+                    <p className="font-medium text-gray-700 dark:text-gray-300">
+                      Endpoint
+                    </p>
+                    <p className="mt-1 font-semibold text-gray-900 dark:text-white">
+                      {javaWsEndpoint || "DotNetFrameWork"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                      JavaWS v1 ใช้ endpoint นี้เป็นค่ามาตรฐาน
+                    </p>
+                  </div>
+                </div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Auth หลัง reverse proxy (ถ้ามี)
+                  <select
+                    className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    onChange={(event) =>
+                      onJavaWsAuthModeChange(event.target.value as JavaWsAuthMode)
+                    }
+                    value={javaWsAuthMode}
+                  >
+                    <option value="none">ไม่ใช้ auth</option>
+                    <option value="basic">Basic auth</option>
+                    <option value="bearer">Bearer token</option>
+                  </select>
+                </label>
+                {javaWsAuthMode === "basic" ? (
+                  <OwnerTextInput
+                    label="Auth username"
+                    onChange={onJavaWsAuthUsernameChange}
+                    placeholder="proxy-user"
+                    value={javaWsAuthUsername}
+                  />
+                ) : null}
+                {javaWsAuthMode !== "none" ? (
+                  <OwnerTextInput
+                    label={javaWsAuthMode === "basic" ? "Auth password" : "Bearer token"}
+                    onChange={onJavaWsAuthSecretChange}
+                    placeholder={
+                      config?.auth_configured
+                        ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน secret"
+                        : "ใส่ secret สำหรับ reverse proxy"
+                    }
+                    type="password"
+                    value={javaWsAuthSecret}
+                  />
+                ) : null}
+              </div>
+            </details>
 
         <div className="flex flex-col gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span>
@@ -4825,7 +7202,7 @@ function DatasourceConfigPanel({
             {config?.updated_at ? ` · ${formatDateTime(config.updated_at)}` : ""}
           </span>
           <span>
-            Audit จะเก็บ mode, host/base URL และ database เท่านั้น ไม่เก็บ password/token แบบอ่านได้
+            Audit จะเก็บ Tomcat/base URL และ database เท่านั้น ไม่เก็บ token แบบอ่านได้
           </span>
         </div>
 
@@ -4837,7 +7214,7 @@ function DatasourceConfigPanel({
           }
           size="sm"
         >
-          {busy ? "กำลังบันทึก..." : "บันทึก datasource แบบเข้ารหัส"}
+          {busy ? "กำลังบันทึก..." : "บันทึกการเชื่อม SML"}
         </Button>
       </form>
     </details>
@@ -4895,12 +7272,14 @@ function JavaWsDatabaseDiscoverySummary({
 }
 
 function OwnerTextInput({
+  description,
   label,
   onChange,
   placeholder,
   type = "text",
   value,
 }: {
+  description?: string;
   label: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -4917,6 +7296,11 @@ function OwnerTextInput({
         type={type}
         value={value}
       />
+      {description ? (
+        <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {description}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -4992,7 +7376,7 @@ function TenantCard({
                   : "ยังไม่มี"
               }
             />
-            <CompactFact label="Dashboard" value={item.customer_dashboard_path ?? "-"} />
+            <CompactFact label="รายงานลูกค้า" value={item.customer_dashboard_path ?? "-"} />
           </dl>
         </div>
         <div className="flex flex-wrap gap-2 xl:max-w-[260px] xl:justify-end">
@@ -5002,7 +7386,7 @@ function TenantCard({
             variant="outline"
             onClick={() => onSelectTenant(tenant.id)}
           >
-            {selected ? "เลือกอยู่" : "จัดการ"}
+            {selected ? "กำลังแก้ไข" : "แก้ไข"}
           </Button>
           {item.customer_dashboard_path ? (
             <Link
@@ -5011,25 +7395,30 @@ function TenantCard({
               rel="noreferrer"
               target="_blank"
             >
-              Dashboard
+              เปิดรายงาน
             </Link>
           ) : null}
           <Button
-            disabled={busy === `${tenant.id}-active`}
+            disabled={busy === `${tenant.id}-active` || tenant.status === "active"}
             size="sm"
             variant="outline"
             onClick={() => void onUpdateStatus(tenant, "active")}
           >
-            เปิด
+            {tenant.status === "cancelled" ? "เปิดกลับ" : "เปิด"}
           </Button>
-          <Button
-            disabled={busy === `${tenant.id}-suspended`}
-            size="sm"
-            variant="outline"
-            onClick={() => void onUpdateStatus(tenant, "suspended")}
-          >
-            ระงับ
-          </Button>
+          {tenant.status !== "cancelled" ? (
+            <Button
+              disabled={
+                busy === `${tenant.id}-suspended` ||
+                tenant.status === "suspended"
+              }
+              size="sm"
+              variant="outline"
+              onClick={() => void onUpdateStatus(tenant, "suspended")}
+            >
+              ระงับ
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -5056,8 +7445,8 @@ function SmlConnectionTenantRow({
   const modeLabel =
     datasource.kind === "sml_javaws"
       ? `${datasource.base_url ?? "Tomcat"} · ${datasource.config_file_name ?? "SMLConfig"}`
-      : datasource.kind === "sml_postgres"
-        ? `${datasource.host ?? "PostgreSQL"}:${datasource.port ?? 5432}`
+      : datasource.kind
+        ? "ต้องตั้งค่า SML JavaWS ใหม่"
         : item.health.datasource_configured
           ? "มี config เดิม, กดเลือกเพื่อตรวจ"
           : "ยังไม่ตั้งค่า";
@@ -5094,10 +7483,10 @@ function SmlConnectionTenantRow({
             {datasourceTest
               ? datasourceTest.ok
                 ? `${datasourceTest.latency_ms} ms`
-                : "test failed"
+                : "ทดสอบไม่ผ่าน"
               : datasource.kind
                 ? formatDatasourceMode(datasource.kind)
-                : "not tested"}
+                : "ยังไม่ทดสอบ"}
           </Badge>
           <Badge color={item.health.latest_snapshot_at ? "success" : "light"}>
             {item.health.latest_snapshot_at ? "มี snapshot" : "ยังไม่มี snapshot"}
@@ -5109,84 +7498,91 @@ function SmlConnectionTenantRow({
 }
 
 function TenantDetailPanel({
-  autoOpenDatasource,
   item,
   busy,
   datasourceConfig,
-  datasourceDatabase,
-  datasourceHost,
-  datasourceKind,
-  datasourcePassword,
-  datasourcePort,
-  datasourceUser,
-  javaWsDatabaseDiscovery,
-  javaWsAuthMode,
-  javaWsAuthSecret,
-  javaWsAuthUsername,
-  javaWsBaseUrl,
-  javaWsConfigFileName,
-  javaWsDatabase,
-  javaWsEndpoint,
-  javaWsWebappPath,
   datasourceTest,
-  onApplyJavaWsPreset,
-  onDiscoverJavaWsDatabases,
-  onSaveDatasourceConfig,
+  onCancelTenant,
+  onPreviewTenantDeleteImpact,
   onTestDatasource,
-  setDatasourceDatabase,
-  setDatasourceHost,
-  setDatasourceKind,
-  setDatasourcePassword,
-  setDatasourcePort,
-  setDatasourceUser,
-  setJavaWsAuthMode,
-  setJavaWsAuthSecret,
-  setJavaWsAuthUsername,
-  setJavaWsBaseUrl,
-  setJavaWsConfigFileName,
-  setJavaWsDatabase,
-  setJavaWsEndpoint,
-  setJavaWsWebappPath,
+  onUpdateTenant,
+  onUpdateStatus,
 }: {
-  autoOpenDatasource?: boolean;
   item?: TenantSummary;
   busy: string | null;
   datasourceConfig: DatasourceConfigStatus | null;
-  datasourceDatabase: string;
-  datasourceHost: string;
-  datasourceKind: DatasourceKind;
-  datasourcePassword: string;
-  datasourcePort: string;
-  datasourceUser: string;
-  javaWsDatabaseDiscovery: JavaWsDatabaseDiscoveryResult | null;
-  javaWsAuthMode: JavaWsAuthMode;
-  javaWsAuthSecret: string;
-  javaWsAuthUsername: string;
-  javaWsBaseUrl: string;
-  javaWsConfigFileName: string;
-  javaWsDatabase: string;
-  javaWsEndpoint: string;
-  javaWsWebappPath: string;
   datasourceTest?: DatasourceTestResult;
-  onApplyJavaWsPreset: (preset: JavaWsDatasourcePreset) => void;
-  onDiscoverJavaWsDatabases: (tenantId: string) => Promise<void>;
-  onSaveDatasourceConfig: (event: FormEvent<HTMLFormElement>) => void;
+  onCancelTenant: (
+    tenant: Tenant,
+    input: { confirmName: string; reason: string },
+  ) => Promise<void>;
+  onPreviewTenantDeleteImpact: (
+    tenantId: string,
+  ) => Promise<TenantDeleteImpact | null>;
   onTestDatasource: (tenantId: string, source?: "form" | "saved") => Promise<void>;
-  setDatasourceDatabase: (value: string) => void;
-  setDatasourceHost: (value: string) => void;
-  setDatasourceKind: (value: DatasourceKind) => void;
-  setDatasourcePassword: (value: string) => void;
-  setDatasourcePort: (value: string) => void;
-  setDatasourceUser: (value: string) => void;
-  setJavaWsAuthMode: (value: JavaWsAuthMode) => void;
-  setJavaWsAuthSecret: (value: string) => void;
-  setJavaWsAuthUsername: (value: string) => void;
-  setJavaWsBaseUrl: (value: string) => void;
-  setJavaWsConfigFileName: (value: string) => void;
-  setJavaWsDatabase: (value: string) => void;
-  setJavaWsEndpoint: (value: string) => void;
-  setJavaWsWebappPath: (value: string) => void;
+  onUpdateTenant: (tenant: Tenant, input: TenantPatchInput) => Promise<void>;
+  onUpdateStatus: (tenant: Tenant, status: Tenant["status"]) => Promise<void>;
 }) {
+  const tenant = item?.tenant;
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPlanCode, setEditPlanCode] =
+    useState<Tenant["planCode"]>("starter");
+  const [editStatus, setEditStatus] = useState<Tenant["status"]>("trial");
+  const [editBusinessSignalsEnabled, setEditBusinessSignalsEnabled] =
+    useState(true);
+  const [editLineActionDigestV2Enabled, setEditLineActionDigestV2Enabled] =
+    useState(false);
+  const [editDemoModeEnabled, setEditDemoModeEnabled] = useState(false);
+  const [editLowGrossMarginPercent, setEditLowGrossMarginPercent] =
+    useState("5");
+  const [editSalesDropPercent, setEditSalesDropPercent] = useState("20");
+  const [editSalesDropAmount, setEditSalesDropAmount] = useState("1000");
+  const [editPurchaseConcentrationPercent, setEditPurchaseConcentrationPercent] =
+    useState("80");
+  const [editMissingBranchAmount, setEditMissingBranchAmount] = useState("0");
+  const [editNoSalesEnabled, setEditNoSalesEnabled] = useState(true);
+  const [editCurrentPeriodEnd, setEditCurrentPeriodEnd] = useState("");
+  const [editSuspendedReason, setEditSuspendedReason] = useState("");
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteImpact, setDeleteImpact] = useState<TenantDeleteImpact | null>(
+    null,
+  );
+  const [deleteImpactError, setDeleteImpactError] = useState<string | null>(
+    null,
+  );
+  const [deleteImpactLoading, setDeleteImpactLoading] = useState(false);
+
+  useEffect(() => {
+    if (!tenant) {
+      return;
+    }
+    setEditName(tenant.name);
+    setEditDescription(tenant.description ?? "");
+    setEditPlanCode(tenant.planCode);
+    setEditStatus(tenant.status);
+    const featureFlags = getTenantUiFeatureFlags(tenant);
+    setEditBusinessSignalsEnabled(featureFlags.business_signals_enabled);
+    setEditLineActionDigestV2Enabled(featureFlags.line_action_digest_v2_enabled);
+    setEditDemoModeEnabled(featureFlags.demo_mode_enabled);
+    const thresholds = getTenantBusinessSignalThresholds(tenant);
+    setEditLowGrossMarginPercent(String(thresholds.low_gross_margin_percent));
+    setEditSalesDropPercent(String(thresholds.sales_drop_percent));
+    setEditSalesDropAmount(String(thresholds.sales_drop_amount));
+    setEditPurchaseConcentrationPercent(
+      String(thresholds.purchase_concentration_percent),
+    );
+    setEditMissingBranchAmount(String(thresholds.missing_branch_amount));
+    setEditNoSalesEnabled(thresholds.no_sales_enabled);
+    setEditCurrentPeriodEnd(toDatetimeLocalValue(tenant.currentPeriodEnd));
+    setEditSuspendedReason(tenant.suspendedReason ?? "");
+    setDeleteConfirmName("");
+    setDeleteReason("");
+    setDeleteImpact(null);
+    setDeleteImpactError(null);
+  }, [tenant]);
+
   if (!item) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
@@ -5195,10 +7591,75 @@ function TenantDetailPanel({
     );
   }
 
-  const tenant = item.tenant;
-  const datasourceBusy = busy === `datasource-${tenant.id}`;
+  if (!tenant) {
+    return null;
+  }
+
   const savedDatasourceBusy = busy === `datasource-saved-${tenant.id}`;
   const readiness = getTenantReadiness(item, datasourceTest);
+  const saveBusy = busy === `${tenant.id}-save`;
+  const cancelBusy = busy === `${tenant.id}-cancel`;
+  const canCancel =
+    tenant.status !== "cancelled" &&
+    deleteConfirmName.trim() === tenant.name.trim() &&
+    (!deleteImpact || deleteImpact.can_cancel);
+
+  async function handlePreviewDeleteImpact() {
+    if (!tenant) {
+      return;
+    }
+    setDeleteImpactLoading(true);
+    setDeleteImpactError(null);
+    try {
+      const impact = await onPreviewTenantDeleteImpact(tenant.id);
+      setDeleteImpact(impact);
+    } catch (error) {
+      setDeleteImpactError(
+        error instanceof Error
+          ? error.message
+          : "โหลดผลกระทบก่อนยกเลิกร้านไม่สำเร็จ",
+      );
+    } finally {
+      setDeleteImpactLoading(false);
+    }
+  }
+
+  async function handleSaveTenant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tenant) {
+      return;
+    }
+    await onUpdateTenant(tenant, {
+      name: editName.trim(),
+      description: editDescription.trim(),
+      plan_code: editPlanCode,
+      status: editStatus === "cancelled" ? undefined : editStatus,
+      feature_flags: {
+        business_signals_enabled: editBusinessSignalsEnabled,
+        line_action_digest_v2_enabled: editLineActionDigestV2Enabled,
+        demo_mode_enabled: editDemoModeEnabled,
+      },
+      business_signal_thresholds: {
+        low_gross_margin_percent: coerceThresholdNumber(
+          editLowGrossMarginPercent,
+          5,
+        ),
+        sales_drop_percent: coerceThresholdNumber(editSalesDropPercent, 20),
+        sales_drop_amount: coerceThresholdNumber(editSalesDropAmount, 1000),
+        purchase_concentration_percent: coerceThresholdNumber(
+          editPurchaseConcentrationPercent,
+          80,
+        ),
+        missing_branch_amount: coerceThresholdNumber(editMissingBranchAmount, 0),
+        no_sales_enabled: editNoSalesEnabled,
+      },
+      current_period_end: fromDatetimeLocalValue(editCurrentPeriodEnd),
+      suspended_reason:
+        editStatus === "suspended"
+          ? editSuspendedReason.trim() || "ระงับโดย Owner Admin"
+          : null,
+    });
+  }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
@@ -5218,6 +7679,258 @@ function TenantDetailPanel({
           {formatTenantStatus(tenant.status)}
         </Badge>
       </div>
+
+      <form
+        className="mt-4 space-y-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+        onSubmit={handleSaveTenant}
+      >
+        <div className="grid gap-3">
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              ชื่อร้าน
+            </span>
+            <input
+              className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) => setEditName(event.target.value)}
+              value={editName}
+            />
+            <span className="block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้แสดงใน Owner UI, LINE message และ dashboard ลูกค้า
+            </span>
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              คำอธิบาย
+            </span>
+            <textarea
+              className="min-h-20 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) => setEditDescription(event.target.value)}
+              placeholder="โน้ตภายใน เช่น contact, branch, สถานะ rollout"
+              value={editDescription}
+            />
+          </label>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              แพ็กเกจ
+            </span>
+            <select
+              className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) =>
+                setEditPlanCode(event.target.value as Tenant["planCode"])
+              }
+              value={editPlanCode}
+            >
+              <option value="starter">starter</option>
+              <option value="business">business</option>
+              <option value="pro">pro</option>
+            </select>
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              สถานะร้าน
+            </span>
+            <select
+              className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) =>
+                setEditStatus(event.target.value as Tenant["status"])
+              }
+              value={editStatus}
+            >
+              {tenant.status === "cancelled" ? (
+                <option value="cancelled">ยกเลิก</option>
+              ) : null}
+              <option value="trial">ทดลองใช้</option>
+              <option value="active">ใช้งาน</option>
+              <option value="past_due">ค้างชำระ</option>
+              <option value="suspended">ระงับ</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              สิ้นสุดรอบปัจจุบัน
+            </span>
+            <input
+              className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) => setEditCurrentPeriodEnd(event.target.value)}
+              type="datetime-local"
+              value={editCurrentPeriodEnd}
+            />
+            <span className="block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้ดูรอบ subscription ภายใน ยังไม่ใช่ระบบ billing อัตโนมัติ
+            </span>
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              เหตุผลระงับ
+            </span>
+            <input
+              className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              disabled={editStatus !== "suspended"}
+              onChange={(event) => setEditSuspendedReason(event.target.value)}
+              placeholder="ใช้เมื่อสถานะเป็นระงับ"
+              value={editSuspendedReason}
+            />
+          </label>
+        </div>
+
+        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-3">
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={editBusinessSignalsEnabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) => {
+                setEditBusinessSignalsEnabled(event.target.checked);
+                if (!event.target.checked) {
+                  setEditLineActionDigestV2Enabled(false);
+                }
+              }}
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                เปิด Business Signals
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้ rule จากรายงานเพื่อจับยอดตก กำไรรั่ว และคุณภาพข้อมูลของร้านนี้
+              </span>
+            </span>
+          </label>
+
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={editLineActionDigestV2Enabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              disabled={!editBusinessSignalsEnabled}
+              onChange={(event) =>
+                setEditLineActionDigestV2Enabled(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                ส่ง LINE แบบเรื่องที่ต้องทำ
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ถ้าเปิด แผนแจ้งเตือนจะส่งเฉพาะ signal สำคัญสูงสุด 3 เรื่องต่อรอบ และ fallback เป็นรายงานเดิมเมื่อไม่มีเรื่องต้องดู
+              </span>
+            </span>
+          </label>
+
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={editDemoModeEnabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) => setEditDemoModeEnabled(event.target.checked)}
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                Demo Mode
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้ติดป้ายข้อมูลตัวอย่างสำหรับงานขายหรือทดสอบ ห้ามใช้แทนข้อมูลร้านจริง
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                เกณฑ์แจ้งเตือน
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้ตัดสินว่าเรื่องไหนควรเข้า Action Digest ของร้านนี้ ถ้าไม่แน่ใจใช้ค่า default นี้ก่อนได้
+              </p>
+            </div>
+            <Badge color="light">ต่อร้าน</Badge>
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <ThresholdInput
+              description="ถ้า gross margin ต่ำกว่าค่านี้ ระบบจะเตือนว่ากำไรบางมุมต่ำกว่าปกติ"
+              label="Margin ต่ำกว่า (%)"
+              max={100}
+              min={0}
+              onChange={setEditLowGrossMarginPercent}
+              value={editLowGrossMarginPercent}
+            />
+            <ThresholdInput
+              description="ถ้ายอดขายลดลงจากวันก่อนหน้าเกินเปอร์เซ็นต์นี้ และเกินยอดขั้นต่ำ จะขึ้น signal"
+              label="ยอดขายตก (%)"
+              max={100}
+              min={0}
+              onChange={setEditSalesDropPercent}
+              value={editSalesDropPercent}
+            />
+            <ThresholdInput
+              description="ยอดขายตกต้องมากกว่าค่านี้ด้วย เพื่อไม่เตือนเรื่องเล็กเกินไป"
+              label="ยอดขายตกขั้นต่ำ (บาท)"
+              min={0}
+              onChange={setEditSalesDropAmount}
+              value={editSalesDropAmount}
+            />
+            <ThresholdInput
+              description="ถ้าผู้จำหน่ายรายเดียวกินสัดส่วนเกินค่านี้ ระบบจะเตือนเรื่องยอดซื้อกระจุก"
+              label="ยอดซื้อกระจุก (%)"
+              max={100}
+              min={0}
+              onChange={setEditPurchaseConcentrationPercent}
+              value={editPurchaseConcentrationPercent}
+            />
+            <ThresholdInput
+              description="ยอดขายไม่ระบุสาขาต้องมากกว่าค่านี้จึงเตือน ลดเสียงรบกวนจากยอดเล็ก"
+              label="ไม่ระบุสาขาขั้นต่ำ (บาท)"
+              min={0}
+              onChange={setEditMissingBranchAmount}
+              value={editMissingBranchAmount}
+            />
+            <label className="flex min-h-11 min-w-0 gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-gray-800 dark:bg-white/[0.02]">
+              <input
+                checked={editNoSalesEnabled}
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+                onChange={(event) => setEditNoSalesEnabled(event.target.checked)}
+                type="checkbox"
+              />
+              <span className="min-w-0">
+                <span className="block font-medium text-gray-800 dark:text-gray-200">
+                  เตือนเมื่อไม่พบยอดขาย
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  ใช้กับร้านที่ควรมีการขายทุกวัน ถ้าร้านหยุดบางวันสามารถปิดได้
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={saveBusy || !editName.trim()} size="sm">
+            {saveBusy ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
+          </Button>
+          {tenant.status === "cancelled" ? (
+            <Button
+              disabled={busy === `${tenant.id}-active`}
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => void onUpdateStatus(tenant, "active")}
+            >
+              เปิดใช้งานร้านอีกครั้ง
+            </Button>
+          ) : null}
+        </div>
+      </form>
 
       <dl className="mt-4 divide-y divide-gray-100 rounded-lg border border-gray-100 dark:divide-gray-800 dark:border-gray-800">
         <DetailRow label="แพ็กเกจ" value={tenant.planCode} />
@@ -5240,7 +7953,7 @@ function TenantDetailPanel({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Pilot readiness checklist
+                เช็กลิสต์ความพร้อม
               </p>
               <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
                 เปิดดูเฉพาะตอนเตรียม rollout ร้านนี้
@@ -5260,10 +7973,10 @@ function TenantDetailPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              SML datasource
+              เชื่อม SML
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              การกรอกค่าและ migrate จาก env ย้ายไปอยู่หน้า SML Connections เพื่อให้จัดการหลายร้านได้ชัดเจน
+              กรอก Tomcat URL, port, SMLConfig และ database ผ่านหน้าเชื่อม SML
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -5289,6 +8002,108 @@ function TenantDetailPanel({
         </div>
         <DatasourceTestSummary result={datasourceTest} />
       </div>
+
+      <div className="mt-4 rounded-lg border border-error-200 bg-error-50 p-3 dark:border-error-500/30 dark:bg-error-500/10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-error-700 dark:text-error-300">
+              ยกเลิกร้านแบบปลอดภัย
+            </p>
+            <p className="mt-1 text-xs leading-5 text-error-700/80 dark:text-error-200">
+              ระบบจะตั้งสถานะเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ แต่ไม่ลบ
+              LINE targets, report snapshots, delivery logs หรือ audit logs
+            </p>
+          </div>
+          <Button
+            disabled={deleteImpactLoading}
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => void handlePreviewDeleteImpact()}
+          >
+            {deleteImpactLoading ? "กำลังตรวจ..." : "ดูผลกระทบ"}
+          </Button>
+        </div>
+
+        {deleteImpactError ? (
+          <p className="mt-3 rounded-lg border border-error-200 bg-white p-3 text-sm text-error-700 dark:border-error-500/30 dark:bg-gray-900 dark:text-error-300">
+            {deleteImpactError}
+          </p>
+        ) : null}
+
+        {deleteImpact ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <HealthFact
+              label="แผนแจ้งเตือนที่จะถูกปิด"
+              value={`${deleteImpact.notification_rules_enabled}/${deleteImpact.notification_rules_total} แผน`}
+            />
+            <HealthFact
+              label="ผู้รับ LINE ที่เก็บไว้"
+              value={`${deleteImpact.line_targets_enabled}/${deleteImpact.line_targets_total} ผู้รับ`}
+            />
+            <HealthFact
+              label="ประวัติรายงานล่าสุด"
+              value={
+                deleteImpact.latest_snapshot_at
+                  ? formatDateTime(deleteImpact.latest_snapshot_at)
+                  : "ยังไม่มี snapshot"
+              }
+            />
+            <HealthFact
+              label="Dashboard path"
+              value={deleteImpact.dashboard_path ?? "ยังไม่มี"}
+            />
+          </div>
+        ) : null}
+
+        {deleteImpact?.blockers.length ? (
+          <div className="mt-3 space-y-2">
+            {deleteImpact.blockers.map((blocker) => (
+              <p
+                className="rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+                key={blocker.reason}
+              >
+                {blocker.message} ({blocker.count})
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-3 space-y-2">
+          <input
+            className="h-11 w-full rounded-lg border border-error-200 bg-white px-3 text-sm text-gray-800 dark:border-error-500/30 dark:bg-gray-900 dark:text-white"
+            disabled={tenant.status === "cancelled"}
+            onChange={(event) => setDeleteConfirmName(event.target.value)}
+            placeholder={`พิมพ์ชื่อร้านให้ตรง: ${tenant.name}`}
+            value={deleteConfirmName}
+          />
+          <textarea
+            className="min-h-20 w-full rounded-lg border border-error-200 bg-white px-3 py-2 text-sm text-gray-800 dark:border-error-500/30 dark:bg-gray-900 dark:text-white"
+            disabled={tenant.status === "cancelled"}
+            onChange={(event) => setDeleteReason(event.target.value)}
+            placeholder="เหตุผลภายใน เช่น ลูกค้ายกเลิก pilot"
+            value={deleteReason}
+          />
+          <Button
+            disabled={cancelBusy || !canCancel}
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void onCancelTenant(tenant, {
+                confirmName: deleteConfirmName,
+                reason: deleteReason,
+              })
+            }
+          >
+            {tenant.status === "cancelled"
+              ? "ร้านนี้ถูกยกเลิกแล้ว"
+              : cancelBusy
+                ? "กำลังยกเลิก..."
+                : "ยกเลิกร้าน"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5310,10 +8125,10 @@ function LineOnboardingGuide({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase text-gray-400">
-              LINE OA onboarding
+              วิธีเริ่มรับแจ้งเตือนผ่าน LINE OA
             </p>
             <h2 className="mt-1 text-base font-semibold text-gray-900 dark:text-white">
-              วิธีให้ {tenantName} เริ่มรับ Morning Brief
+              วิธีให้ {tenantName} เริ่มรับแผนแจ้งเตือน
             </h2>
             <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
               ผู้บริหาร add OA → พิมพ์ test ส่วนตัว → owner อนุมัติสิทธิ์
@@ -5339,7 +8154,7 @@ function LineOnboardingGuide({
           "ให้ผู้บริหาร add OA เป็นเพื่อน แล้วพิมพ์ test แบบส่วนตัว",
           "ถ้าต้องใช้กลุ่ม ให้ดึง OA เข้ากลุ่มและพิมพ์ test ในกลุ่มนั้น",
           "กลับมาหน้า LINE OA/ผู้รับรายงาน แล้วอนุมัติ profile เช่น ผู้บริหาร หรือฝ่ายขาย",
-          "กดส่งทดสอบเฉพาะปลายทางก่อนเปิด Morning Brief ประจำวัน",
+          "กดส่งทดสอบเฉพาะปลายทางก่อนเปิดแผนแจ้งเตือนประจำวัน",
         ].map((step, index) => (
           <div
             className="flex gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
@@ -5393,8 +8208,8 @@ function DatasourceTestSummary({
           value={result.database_name ?? "ไม่ทราบชื่อ"}
         />
         <HealthFact
-          label="DB user"
-          value={result.user_name_masked ?? "ไม่เปิดเผย"}
+          label="ผู้ใช้"
+          value={result.user_name_masked ?? "JavaWS"}
         />
       </div>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -5453,6 +8268,42 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ThresholdInput({
+  description,
+  label,
+  max,
+  min,
+  onChange,
+  value,
+}: {
+  description: string;
+  label: string;
+  max?: number;
+  min?: number;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block min-w-0 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-gray-800 dark:bg-white/[0.02]">
+      <span className="font-medium text-gray-700 dark:text-gray-300">
+        {label}
+      </span>
+      <input
+        className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+        inputMode="decimal"
+        max={max}
+        min={min}
+        onChange={(event) => onChange(event.target.value)}
+        type="number"
+        value={value}
+      />
+      <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+        {description}
+      </span>
+    </label>
+  );
+}
+
 type ReadinessCheck = {
   ok: boolean;
   label: string;
@@ -5473,6 +8324,80 @@ function ReadinessRow({ item }: { item: ReadinessCheck }) {
       <Badge color={item.ok ? "success" : "warning"}>
         {item.ok ? "พร้อม" : "ต้องทำ"}
       </Badge>
+    </div>
+  );
+}
+
+function BusinessSignalCompactRow({
+  onUpdateStatus,
+  signal,
+}: {
+  onUpdateStatus: (
+    signal: BusinessSignalRecord,
+    status: BusinessSignalRecord["status"],
+  ) => Promise<void>;
+  signal: BusinessSignalRecord;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-warning-100 bg-white p-3 dark:border-warning-500/20 dark:bg-gray-900/70">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="break-words text-sm font-semibold text-gray-900 dark:text-white">
+            {signal.title}
+          </p>
+          <p className="mt-1 break-words text-xs leading-5 text-gray-600 dark:text-gray-300">
+            {signal.insight}
+          </p>
+        </div>
+        <Badge color={businessSignalTone(signal.severity)}>
+          {formatBusinessSignalSeverity(signal.severity)}
+        </Badge>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <span>{formatBusinessSignalCategory(signal.category)}</span>
+        <span>·</span>
+        <span>{formatOwnerReportLabel(signal.source_report_key)}</span>
+        {signal.amount_impact !== null ? (
+          <>
+            <span>·</span>
+            <span>{formatCurrency(signal.amount_impact)}</span>
+          </>
+        ) : null}
+      </div>
+      <p className="mt-2 break-words text-xs font-medium leading-5 text-warning-700 dark:text-warning-200">
+        ควรทำต่อ: {signal.recommended_action}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          onClick={() => void onUpdateStatus(signal, "acknowledged")}
+          type="button"
+        >
+          รับทราบ
+        </button>
+        <button
+          className="min-h-9 rounded-lg border border-success-200 bg-success-50 px-3 text-xs font-semibold text-success-700 hover:bg-success-100 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+          onClick={() => void onUpdateStatus(signal, "resolved")}
+          type="button"
+        >
+          แก้แล้ว
+        </button>
+        <button
+          className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          onClick={() => void onUpdateStatus(signal, "dismissed")}
+          type="button"
+        >
+          ซ่อนรอบนี้
+        </button>
+        <Link
+          className="inline-flex min-h-9 items-center rounded-lg border border-brand-200 bg-brand-50 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+          href={`/owner/reports?tenant=${encodeURIComponent(
+            signal.tenant_id,
+          )}&report=${encodeURIComponent(signal.source_report_key)}`}
+        >
+          เปิดรายงานต้นทาง
+        </Link>
+      </div>
     </div>
   );
 }
@@ -5512,12 +8437,6 @@ function matchesSmlConnectionFilter(
   if (filter === "javaws") {
     return item.datasource.kind === "sml_javaws";
   }
-  if (filter === "postgres") {
-    return item.datasource.kind === "sml_postgres";
-  }
-  if (filter === "env") {
-    return item.datasource.source === "env";
-  }
   if (filter === "test_failed") {
     return datasourceTest?.ok === false;
   }
@@ -5547,8 +8466,6 @@ function buildSmlConnectionCounts(
       all: 0,
       needs_config: 0,
       javaws: 0,
-      postgres: 0,
-      env: 0,
       test_failed: 0,
       ready: 0,
     } satisfies Record<SmlConnectionFilter, number>,
@@ -5558,6 +8475,9 @@ function buildSmlConnectionCounts(
 function datasourceStatusTone(config: DatasourceConfigStatus | null | undefined) {
   if (!config || config.source === "missing") {
     return "warning" as const;
+  }
+  if (config.kind && config.kind !== "sml_javaws") {
+    return "error" as const;
   }
   if (config.source === "env") {
     return "warning" as const;
@@ -5571,10 +8491,13 @@ function formatDatasourceSource(
   if (!config || config.source === "missing") {
     return "ยังไม่ตั้งค่า";
   }
-  if (config.source === "env") {
-    return "อ่านจาก env";
+  if (config.kind && config.kind !== "sml_javaws") {
+    return "ต้องตั้ง JavaWS ใหม่";
   }
-  return "Encrypted store";
+  if (config.source === "env") {
+    return "ค่าเก่า";
+  }
+  return "บันทึกแล้ว";
 }
 
 function parseTomcatBaseUrl(value: string): {
@@ -5641,19 +8564,19 @@ function getTenantReadiness(
       ok: item.access.enabled,
       label: "Subscription เปิดใช้งาน",
       detail: item.access.enabled
-        ? "ลูกค้าเข้า dashboard และ scheduler ส่ง LINE ได้ตามสิทธิ์"
+        ? "ลูกค้าเข้า dashboard และ worker ส่ง LINE ได้ตามสิทธิ์"
         : item.access.message,
     },
     {
       ok: datasourceTest ? datasourceTest.ok : item.health.datasource_configured,
-      label: "SML datasource เชื่อมได้",
+      label: "SML JavaWS เชื่อมได้",
       detail: datasourceTest
         ? datasourceTest.ok
           ? `ทดสอบผ่าน ${datasourceTest.latency_ms} ms`
           : toDatasourceBusinessMessage(datasourceTest.safe_error_message)
         : item.health.datasource_configured
-          ? "มี datasource config แล้ว ควรกดทดสอบก่อน rollout"
-          : "ยังไม่ได้ตั้งค่า datasource สำหรับร้านนี้",
+          ? "มีค่า JavaWS แล้ว ควรกดทดสอบก่อน rollout"
+          : "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้",
     },
     {
       ok: datasourceTest
@@ -5683,7 +8606,14 @@ function getTenantReadiness(
     {
       ok: item.health.line_targets_enabled > 0,
       label: "มีผู้รับ LINE ที่อนุมัติแล้ว",
-      detail: `${item.health.line_targets_enabled}/${item.health.line_targets_total} target เปิดรับ Morning Brief`,
+      detail: `${item.health.line_targets_enabled}/${item.health.line_targets_total} ผู้รับเปิดรับแผนแจ้งเตือน`,
+    },
+    {
+      ok: item.health.notification_rules_enabled > 0,
+      label: "มีแผนแจ้งเตือน",
+      detail: item.health.notification_rules_enabled
+        ? `${item.health.notification_rules_enabled}/${item.health.notification_rules_total} แผนเปิดใช้งาน`
+        : "ยังไม่ได้ตั้งว่าจะส่งรายงานอะไร เวลาไหน และให้ปลายทางใด",
     },
     {
       ok: hasLineRoute && item.health.latest_line_delivery_status === "success",
@@ -5709,17 +8639,56 @@ function getTenantReadiness(
     tone,
     label:
       readyCount === checks.length
-        ? "พร้อม pilot"
+        ? "พร้อมใช้งาน"
         : `${readyCount}/${checks.length} พร้อม`,
   };
+}
+
+function buildReadinessFromStoreSetup(detail: StoreSetupDetail) {
+  const checks = detail.readiness.checks.map((check) => ({
+    ok: check.ok,
+    label: check.label,
+    detail: check.detail,
+  }));
+  const readyCount = detail.readiness.completed;
+  const total = detail.readiness.total || checks.length;
+  const tone =
+    detail.readiness.ready
+      ? ("success" as const)
+      : readyCount >= Math.max(1, Math.ceil(total / 2))
+        ? ("warning" as const)
+        : ("error" as const);
+
+  return {
+    items: checks,
+    readyCount,
+    tone,
+    label: detail.readiness.ready ? "พร้อมใช้งาน" : `${readyCount}/${total} พร้อม`,
+  };
+}
+
+function getStoreSetupNextStep(
+  item: TenantSummary,
+  checks: ReadinessCheck[],
+  detail: StoreSetupDetail | null,
+) {
+  if (detail?.readiness.next_action) {
+    return {
+      actionLabel: detail.readiness.next_action.label,
+      description: detail.readiness.next_action.detail,
+      href: detail.readiness.next_action.href,
+    };
+  }
+
+  return getTenantNextStep(item, checks);
 }
 
 function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
   const firstMissing = checks.find((check) => !check.ok);
   if (!firstMissing) {
     return {
-      actionLabel: "เปิด Dashboard",
-      description: "ร้านนี้พร้อมสำหรับ pilot แล้ว ตรวจหน้าลูกค้าได้เลย",
+      actionLabel: "เปิดรายงานลูกค้า",
+      description: "ร้านนี้พร้อมใช้งานแล้ว ตรวจหน้าลูกค้าได้เลย",
       href: item.customer_dashboard_path ?? "/app",
     };
   }
@@ -5728,13 +8697,13 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
     return {
       actionLabel: "เปิดร้าน",
       description: "ร้านถูกบล็อกหรือยังไม่เปิดใช้งาน ต้องแก้สถานะก่อน",
-      href: "/owner/tenants",
+      href: "/owner",
     };
   }
   if (firstMissing.label.includes("SML")) {
     return {
       actionLabel: "ตรวจ SML",
-      description: "ต้องทดสอบ datasource ก่อนรันรายงานหรือส่งให้ลูกค้า",
+      description: "ต้องตั้งค่าและทดสอบ SML JavaWS ก่อนรันรายงานหรือส่งให้ลูกค้า",
       href: `/owner/sml-connections?tenant=${encodeURIComponent(item.tenant.id)}`,
     };
   }
@@ -5748,8 +8717,15 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
   if (firstMissing.label.includes("LINE")) {
     return {
       actionLabel: "ตั้ง LINE",
-      description: "ต้องเพิ่ม LINE OA หรืออนุมัติผู้รับ Morning Brief",
+      description: "ต้องเพิ่ม LINE OA หรืออนุมัติผู้รับแผนแจ้งเตือน",
       href: "/owner/line",
+    };
+  }
+  if (firstMissing.label.includes("แผนแจ้งเตือน")) {
+    return {
+      actionLabel: "ตั้งแจ้งเตือน",
+      description: "ต้องสร้างแผนแจ้งเตือนก่อนให้ worker ส่งตามเวลา",
+      href: `/owner/notifications?tenant=${encodeURIComponent(item.tenant.id)}`,
     };
   }
 
@@ -5771,6 +8747,100 @@ function formatLineDeliveryStatus(status: string | null) {
     return "ข้ามการส่ง";
   }
   return "ยังไม่ทราบสถานะ";
+}
+
+function canLineTargetReceiveReport(target: LineTargetRecord, reportKey: ReportKey) {
+  return (
+    target.approved &&
+    target.enabled &&
+    target.allowed_actions.includes("receive_morning_brief") &&
+    target.allowed_report_keys.includes(reportKey)
+  );
+}
+
+function isOwnerSharedLineTarget(target: LineTargetRecord) {
+  return target.id.startsWith("line_target_shared__");
+}
+
+function formatNotificationSchedule(rule: OwnerNotificationRule) {
+  const schedule = rule.schedule[0];
+  if (!schedule) {
+    return "ยังไม่ตั้งเวลา";
+  }
+  const days =
+    schedule.weekdays.length === 7
+      ? "ทุกวัน"
+      : schedule.weekdays
+          .map(
+            (weekday) =>
+              NOTIFICATION_WEEKDAYS.find((item) => item.value === weekday)?.label ??
+              weekday,
+          )
+          .join(", ");
+  return `${days} · ${schedule.times.join(", ")} · ${formatNotificationPeriodPreset(rule.period_preset)}`;
+}
+
+function formatNotificationPeriodPreset(value: NotificationPeriodPreset) {
+  return (
+    NOTIFICATION_PERIOD_OPTIONS.find((item) => item.value === value)?.label ??
+    value
+  );
+}
+
+function formatNotificationDigestMode(value: NotificationDigestMode) {
+  return (
+    NOTIFICATION_DIGEST_MODE_OPTIONS.find((item) => item.value === value)
+      ?.label ?? value
+  );
+}
+
+function formatNotificationPeriod(dateFrom: string, dateTo: string) {
+  if (dateFrom === dateTo) {
+    return dateFrom;
+  }
+
+  return `${dateFrom} ถึง ${dateTo}`;
+}
+
+function notificationRunTone(status: NotificationRuleRunRecord["status"]) {
+  if (status === "success") {
+    return "success" as const;
+  }
+  if (status === "failed") {
+    return "warning" as const;
+  }
+  if (status === "running") {
+    return "light" as const;
+  }
+  return "light" as const;
+}
+
+function formatNotificationRunStatus(
+  status: NotificationRuleRunRecord["status"],
+) {
+  if (status === "success") {
+    return "สำเร็จ";
+  }
+  if (status === "failed") {
+    return "ไม่สำเร็จ";
+  }
+  if (status === "running") {
+    return "กำลังรัน";
+  }
+  return "ข้าม";
+}
+
+function matchesTenantListFilter(
+  status: Tenant["status"],
+  filter: TenantListFilter,
+) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "active_flow") {
+    return status !== "cancelled";
+  }
+  return status === filter;
 }
 
 function tenantStatusTone(status: Tenant["status"]) {
@@ -5797,11 +8867,109 @@ function formatTenantStatus(status: Tenant["status"]) {
   return labels[status];
 }
 
+function getTenantUiFeatureFlags(tenant: Tenant) {
+  return {
+    business_signals_enabled:
+      tenant.featureFlags?.business_signals_enabled ?? true,
+    line_action_digest_v2_enabled:
+      tenant.featureFlags?.line_action_digest_v2_enabled ?? false,
+    demo_mode_enabled: tenant.featureFlags?.demo_mode_enabled ?? false,
+  };
+}
+
+function getTenantBusinessSignalThresholds(
+  tenant: Tenant,
+): BusinessSignalThresholdsConfig {
+  return {
+    low_gross_margin_percent:
+      tenant.businessSignalThresholds?.low_gross_margin_percent ?? 5,
+    sales_drop_percent: tenant.businessSignalThresholds?.sales_drop_percent ?? 20,
+    sales_drop_amount: tenant.businessSignalThresholds?.sales_drop_amount ?? 1000,
+    purchase_concentration_percent:
+      tenant.businessSignalThresholds?.purchase_concentration_percent ?? 80,
+    missing_branch_amount:
+      tenant.businessSignalThresholds?.missing_branch_amount ?? 0,
+    no_sales_enabled: tenant.businessSignalThresholds?.no_sales_enabled ?? true,
+  };
+}
+
+function coerceThresholdNumber(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function businessSignalTone(severity: BusinessSignalRecord["severity"]) {
+  if (severity === "critical") {
+    return "error" as const;
+  }
+  if (severity === "warning") {
+    return "warning" as const;
+  }
+  return "light" as const;
+}
+
+function formatBusinessSignalSeverity(
+  severity: BusinessSignalRecord["severity"],
+) {
+  if (severity === "critical") {
+    return "ควรตรวจทันที";
+  }
+  if (severity === "warning") {
+    return "มีข้อสังเกต";
+  }
+  return "ข้อมูลประกอบ";
+}
+
+function formatBusinessSignalStatusAction(
+  status: BusinessSignalRecord["status"],
+) {
+  if (status === "acknowledged") {
+    return "รับทราบ";
+  }
+  if (status === "resolved") {
+    return "บันทึกว่าแก้แล้ว";
+  }
+  if (status === "dismissed") {
+    return "ซ่อนรอบนี้";
+  }
+  return "เปิดกลับ";
+}
+
+function formatBusinessSignalCategory(
+  category: BusinessSignalRecord["category"],
+) {
+  const labels: Record<BusinessSignalRecord["category"], string> = {
+    sales: "ยอดขาย",
+    profit: "กำไร",
+    purchase: "ซื้อ/ตั้งหนี้",
+    stock: "สต็อก",
+    ar: "ลูกหนี้",
+    data_quality: "คุณภาพข้อมูล",
+  };
+  return labels[category];
+}
+
 function formatCurrency(value: number) {
   return `${value.toLocaleString("th-TH", {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
   })} บาท`;
+}
+
+function formatOwnerReportLabel(reportKey: ReportKey) {
+  if (reportKey === "sales_goods_services") {
+    return "รายงานขายสินค้าและบริการ";
+  }
+  if (reportKey === "purchase_goods_payables") {
+    return "รายงานซื้อสินค้า/ตั้งหนี้";
+  }
+  if (reportKey === "gross_profit_by_product") {
+    return "รายงานกำไรขั้นต้นสินค้า";
+  }
+  if (reportKey === "gross_profit_by_ar_customer") {
+    return "รายงานกำไรขั้นต้นลูกหนี้";
+  }
+  return reportKey;
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {
@@ -5831,7 +8999,10 @@ function formatDatasourceMode(mode: DatasourceKind | null | undefined) {
   if (mode === "sml_javaws") {
     return "Tomcat JavaWS";
   }
-  return "PostgreSQL direct";
+  if (mode === "sml_postgres") {
+    return "ต้องตั้ง JavaWS ใหม่";
+  }
+  return "ยังไม่ตั้งค่า";
 }
 
 function formatSystemConfigSource(source: SystemConfigStatus["source"] | undefined) {
@@ -5852,6 +9023,29 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function toDatetimeLocalValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const localOffsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - localOffsetMs).toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocalValue(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
+}
+
 function slugifyTenantId(value: string) {
   const normalized = value
     .toLowerCase()
@@ -5867,18 +9061,18 @@ function toDatasourceBusinessMessage(value: string | null) {
     return "เชื่อมต่อได้";
   }
   if (value.includes("not configured")) {
-    return "ยังไม่ได้ตั้งค่าฐานข้อมูล SML สำหรับร้านนี้บน server";
+    return "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้";
   }
   if (value.includes("authentication")) {
-    return "ชื่อผู้ใช้หรือรหัสผ่านฐานข้อมูลไม่ถูกต้อง";
+    return "ข้อมูล auth ไม่ถูกต้อง กรุณาตรวจ reverse proxy auth ถ้ามี";
   }
   if (value.includes("timed out")) {
-    return "เชื่อมต่อฐานข้อมูลช้าเกินเวลาที่กำหนด";
+    return "ติดต่อ Tomcat JavaWS ช้าเกินเวลาที่กำหนด";
   }
   if (value.includes("unreachable")) {
     return value.includes("JavaWS")
       ? "ติดต่อ Tomcat JavaWS ไม่ได้ กรุณาตรวจ base URL, port Tomcat, VPN หรือ allowlist"
-      : "ติดต่อฐานข้อมูลไม่ได้ กรุณาตรวจ host, port หรือ network/VPN";
+      : "ติดต่อ SML ไม่ได้ กรุณาตรวจ host, port หรือ network/VPN";
   }
   if (value.includes("WSDL operation")) {
     return "ไม่พบ endpoint หรือ SOAP operation กรุณาตรวจ webapp path และ DotNetFrameWork บน Tomcat";
@@ -5892,5 +9086,5 @@ function toDatasourceBusinessMessage(value: string | null) {
   if (value.includes("required SML tables")) {
     return "เชื่อมต่อได้ แต่ยังไม่พบตาราง SML ที่รายงานนี้ต้องใช้ครบ";
   }
-  return "ทดสอบ datasource ไม่สำเร็จ กรุณาตรวจการตั้งค่าฐานข้อมูล";
+  return "ทดสอบ SML JavaWS ไม่สำเร็จ กรุณาตรวจ Tomcat URL, port, SMLConfig และ database";
 }

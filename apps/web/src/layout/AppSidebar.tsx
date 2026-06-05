@@ -9,9 +9,7 @@ import {
   GridIcon,
   HorizontaLDots,
   GroupIcon,
-  TableIcon,
   TimeIcon,
-  PlugInIcon,
 } from "../icons/index";
 
 type NavItem = {
@@ -23,33 +21,33 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    icon: <GridIcon />,
-    name: "ภาพรวม",
+    icon: <GroupIcon />,
+    name: "ร้านค้า",
     path: "/owner",
   },
   {
-    icon: <GroupIcon />,
-    name: "ร้านค้า",
-    path: "/owner/tenants",
-  },
-  {
-    icon: <PlugInIcon />,
+    icon: <GridIcon />,
     name: "เชื่อม SML",
     path: "/owner/sml-connections",
   },
   {
-    icon: <TableIcon />,
-    name: "รายงาน",
-    path: "/owner/reports",
+    icon: <TimeIcon />,
+    name: "แผนแจ้งเตือน",
+    path: "/owner/notifications",
   },
   {
     icon: <CalenderIcon />,
-    name: "LINE OA",
+    name: "LINE OA / ผู้รับ",
     path: "/owner/line",
   },
   {
+    icon: <GridIcon />,
+    name: "สิทธิ์รายงาน",
+    path: "/owner/report-permissions",
+  },
+  {
     icon: <TimeIcon />,
-    name: "ประวัติระบบ",
+    name: "Logs",
     path: "/owner/audit",
   },
   {
@@ -352,10 +350,10 @@ const AppSidebar: React.FC = () => {
               ระยะที่ 1
             </p>
             <p className="mt-2 text-sm font-semibold text-gray-800 dark:text-white/90">
-              แดชบอร์ดยอดขาย SML
+              ร้านค้า SML + แผนแจ้งเตือน
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              รายงานที่ตรวจสอบได้ แยกข้อมูลแต่ละบริษัท และส่งสรุปยอดขายเข้า LINE ตอนเช้า
+              เชื่อม SML ผ่าน JavaWS แยกร้าน และส่งรายงานเข้า LINE ตามเวลาที่ตั้ง
             </p>
           </div>
         )}

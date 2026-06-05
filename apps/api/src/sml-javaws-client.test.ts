@@ -58,6 +58,19 @@ describe("SML JavaWS client helpers", () => {
     ).toBe("http://localhost:8080/SMLJavaWebService/DotNetFrameWork");
   });
 
+  it("treats an empty ResultSet as no rows", () => {
+    expect(
+      parseJavaWsRows(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><ResultSet></ResultSet>",
+      ),
+    ).toEqual([]);
+    expect(
+      parseJavaWsRows(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><ResultSet/>",
+      ),
+    ).toEqual([]);
+  });
+
   it("builds database discovery requests and parses plain XML returns", () => {
     const envelope = buildGetDatabaseListSoapEnvelope({
       guid: "AI_BCC",

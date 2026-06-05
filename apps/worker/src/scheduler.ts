@@ -1,43 +1,33 @@
 import {
-  BANGKOK_TIME_ZONE,
-  tenantIdSchema,
   type LineSendMode,
-  type TenantId,
   type WorkerHeartbeatStatus,
 } from "@ai-bcc/shared";
 
-export type MorningBriefWorkerConfig = {
+export type NotificationRulesWorkerConfig = {
   enabled: boolean;
   apiBaseUrl: string;
-  tenantIds: TenantId[];
-  timeZone: string;
-  runAt: string;
   mode: LineSendMode;
-  force: boolean;
   workerId: string;
   heartbeatToken: string | null;
-  adminToken: string | null;
 };
 
-export function readMorningBriefWorkerConfig(
+export function readNotificationRulesWorkerConfig(
   env: NodeJS.ProcessEnv = process.env,
-): MorningBriefWorkerConfig {
+): NotificationRulesWorkerConfig {
   return {
-    enabled: readBoolean(env.MORNING_BRIEF_ENABLED, true),
-    apiBaseUrl: (env.MORNING_BRIEF_API_BASE_URL || "http://api:4000").replace(
-      /\/$/,
-      "",
-    ),
-    tenantIds: parseTenantIds(env.MORNING_BRIEF_TENANT_IDS),
-    timeZone: env.MORNING_BRIEF_TIMEZONE || BANGKOK_TIME_ZONE,
-    runAt: env.MORNING_BRIEF_TIME || "08:00",
-    mode: env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send",
-    force: readBoolean(env.MORNING_BRIEF_FORCE, false),
-    workerId: env.WORKER_ID || "worker_morning_brief_1",
+    enabled: readBoolean(env.WORKER_ENABLED, true),
+    apiBaseUrl: (
+      env.AI_BCC_WORKER_API_BASE_URL ||
+      env.WORKER_API_BASE_URL ||
+      "http://api:4000"
+    ).replace(/\/$/, ""),
+    mode: env.WORKER_NOTIFICATION_MODE === "dry_run" ? "dry_run" : "send",
+    workerId: env.WORKER_ID || "worker_notification_rules_1",
     heartbeatToken: env.WORKER_HEARTBEAT_TOKEN?.trim() || null,
-    adminToken: env.AI_BCC_ADMIN_TOKEN?.trim() || null,
   };
 }
+
+export const readMorningBriefWorkerConfig = readNotificationRulesWorkerConfig;
 
 export function getZonedMinute(input: { now: Date; timeZone: string }) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -65,24 +55,26 @@ export function shouldRunMorningBrief(input: {
   return getZonedMinute(input).time === input.runAt;
 }
 
-export async function callMorningBriefEndpoint(input: {
-  config: MorningBriefWorkerConfig;
-  tenantId: TenantId;
+export async function callNotificationRulesTick(input: {
+  config: NotificationRulesWorkerConfig;
 }) {
+  if (!input.config.heartbeatToken) {
+    return {
+      skipped: true as const,
+      reason: "worker_token_missing",
+    };
+  }
+
   const response = await fetch(
-    `${input.config.apiBaseUrl}/api/reports/${input.tenantId}/sales_goods_services/morning-brief/run-and-send`,
+    `${input.config.apiBaseUrl}/api/worker/notification-rules/tick`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(input.config.adminToken
-          ? { "x-ai-bcc-admin-token": input.config.adminToken }
-          : {}),
+        "x-ai-bcc-worker-token": input.config.heartbeatToken,
       },
       body: JSON.stringify({
-        period: "yesterday",
         mode: input.config.mode,
-        force: input.config.force,
       }),
     },
   );
@@ -93,7 +85,7 @@ export async function callMorningBriefEndpoint(input: {
 
   if (!response.ok) {
     throw new Error(
-      `Morning brief API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
+      `Notification rule tick API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
     );
   }
 
@@ -101,7 +93,7 @@ export async function callMorningBriefEndpoint(input: {
 }
 
 export async function callWorkerHeartbeat(input: {
-  config: MorningBriefWorkerConfig;
+  config: NotificationRulesWorkerConfig;
   status?: WorkerHeartbeatStatus;
   metadata?: Record<string, unknown>;
 }) {
@@ -122,7 +114,7 @@ export async function callWorkerHeartbeat(input: {
       },
       body: JSON.stringify({
         worker_id: input.config.workerId,
-        role: "morning_brief_scheduler",
+        role: "notification_rule_worker",
         status: input.status ?? "ok",
         metadata_json: input.metadata ?? {},
         checked_at: new Date().toISOString(),
@@ -141,17 +133,6 @@ export async function callWorkerHeartbeat(input: {
   }
 
   return payload;
-}
-
-function parseTenantIds(value: string | undefined): TenantId[] {
-  const raw = value?.trim() || "tenant_demo_remote";
-  const tenantIds = raw
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => tenantIdSchema.parse(item));
-
-  return tenantIds.length ? tenantIds : ["tenant_demo_remote"];
 }
 
 function readBoolean(value: string | undefined, fallback: boolean) {

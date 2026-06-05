@@ -5,8 +5,6 @@ import {
   OWNER_AUTH_COOKIE,
 } from "@/lib/ownerAuth";
 
-const DEFAULT_OWNER_USERNAME = "superadmin";
-const DEFAULT_OWNER_PASSWORD = "superadmin";
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const REMEMBERED_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -23,13 +21,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (
-    username !== (process.env.OWNER_ADMIN_USERNAME || DEFAULT_OWNER_USERNAME) ||
-    password !== (process.env.OWNER_ADMIN_PASSWORD || DEFAULT_OWNER_PASSWORD)
-  ) {
+  const authResponse = await fetch(`${getApiBaseUrl()}/api/auth/owner/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const authPayload = (await authResponse.json().catch(() => ({}))) as {
+    error?: string;
+    subject?: string;
+  };
+
+  if (!authResponse.ok || !authPayload.subject) {
     return NextResponse.json(
-      { error: "username หรือ password ไม่ถูกต้อง" },
-      { status: 401 },
+      { error: authPayload.error || "username หรือ password ไม่ถูกต้อง" },
+      { status: authResponse.status || 401 },
     );
   }
 
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
   const token = await createOwnerSessionToken({
     secret: getOwnerAuthSecret(),
     ttlSeconds,
-    username,
+    username: authPayload.subject,
   });
   const response = NextResponse.json({
     ok: true,
@@ -54,4 +59,13 @@ export async function POST(request: NextRequest) {
   });
 
   return response;
+}
+
+function getApiBaseUrl() {
+  return (
+    process.env.API_REWRITE_BASE_URL ||
+    (process.env.NODE_ENV === "production"
+      ? "http://api:4000"
+      : "http://127.0.0.1:4000")
+  ).replace(/\/$/, "");
 }

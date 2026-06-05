@@ -9,7 +9,7 @@
 ```mermaid
 flowchart TD
     subgraph Customer["Customer Environment"]
-        SML[(SML PostgreSQL)]
+        SML[(SML Tomcat JavaWS)]
         FlowAccount[(FlowAccount OpenAPI)]
         FutureSource[(Future Ecommerce / POS)]
     end
@@ -25,7 +25,7 @@ flowchart TD
         Chat[Future Chatbot Router]
     end
 
-    SML -->|sml_reports: read-only approved SQL| Worker
+    SML -->|sml_reports: approved SQL through _queryCompress| Worker
     FlowAccount -->|flowaccount_finance: approved OpenAPI reads| Worker
     FutureSource -->|future channel contracts| Worker
     Web --> API
@@ -63,7 +63,7 @@ future_pos
 - filter date/branch/product
 - ดู run history และ error state
 - ตั้งค่า LINE schedule/readiness
-- trigger mutation ผ่าน admin token ใน MVP
+- trigger mutation ผ่าน owner login session cookie
 
 Phase 1 UI:
 
@@ -77,8 +77,8 @@ Phase 1 UI:
 หน้าที่:
 
 - Auth/session ในอนาคต, ตอนนี้มี MVP admin mutation token
-- Tenant and datasource config
-- Integration channel config เช่น SML datasource, FlowAccount OAuth connection
+- Tenant and SML JavaWS config
+- Integration channel config เช่น SML JavaWS, FlowAccount OAuth connection
 - Report catalog API
 - Dashboard data API
 - Trigger report run manually
@@ -94,7 +94,7 @@ API ต้องไม่ expose DB credential ออกไป frontend
 หน้าที่:
 
 - รัน scheduled reports/briefs ต่อ channel
-- เชื่อม SML PostgreSQL หรือ partner API ตาม channel contract
+- เชื่อม SML ผ่าน Tomcat JavaWS หรือ partner API ตาม channel contract
 - validate params
 - execute approved SQL/API only
 - save `report_runs`
@@ -110,7 +110,7 @@ API ต้องไม่ expose DB credential ออกไป frontend
 เก็บ:
 
 - tenant config
-- datasource/integration encrypted secrets
+- SML JavaWS/integration encrypted secrets
 - report definitions
 - report run metadata
 - report result/snapshot JSON
@@ -118,15 +118,15 @@ API ต้องไม่ expose DB credential ออกไป frontend
 - audit log
 - subscription status
 
-### SML PostgreSQL Datasource
+### SML JavaWS Datasource
 
 ข้อกำหนด:
 
-- ใช้ read-only DB user
-- query timeout
-- allowlist เฉพาะ approved SQL
+- ใช้ Tomcat `SMLJavaWebService` และ `_queryCompress`
+- ตั้ง timeout ชัดเจน
+- allowlist เฉพาะ approved SQL จาก report builders
 - ไม่ write-back
-- ไม่ใช้ production superuser
+- ไม่ให้ Owner UI กรอก DB user/password ของ SML
 
 ### FlowAccount Finance Channel
 

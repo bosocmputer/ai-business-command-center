@@ -1,13 +1,6 @@
-const ADMIN_TOKEN_STORAGE_KEY = "ai_bcc_admin_token";
-
-export type AdminTokenRequestOptions = {
+export type AdminRequestOptions = {
   actionLabel?: string;
   description?: string;
-};
-
-export type AdminTokenRequest = {
-  id: number;
-  options: AdminTokenRequestOptions;
 };
 
 export type AdminConfirmationRequestOptions = {
@@ -28,30 +21,13 @@ export type AdminConfirmationRequest = {
 };
 
 let nextRequestId = 1;
-let pendingTokenRequest:
-  | (AdminTokenRequest & { resolve: (token: string | null) => void })
-  | null = null;
 let pendingConfirmationRequest:
   | (AdminConfirmationRequest & { resolve: (confirmed: boolean) => void })
   | null = null;
 
-const tokenRequestListeners = new Set<
-  (request: AdminTokenRequest | null) => void
->();
 const confirmationRequestListeners = new Set<
   (request: AdminConfirmationRequest | null) => void
 >();
-
-export function subscribeAdminTokenRequests(
-  listener: (request: AdminTokenRequest | null) => void,
-) {
-  tokenRequestListeners.add(listener);
-  listener(pendingTokenRequest ? toPublicTokenRequest(pendingTokenRequest) : null);
-
-  return () => {
-    tokenRequestListeners.delete(listener);
-  };
-}
 
 export function subscribeAdminConfirmationRequests(
   listener: (request: AdminConfirmationRequest | null) => void,
@@ -66,25 +42,6 @@ export function subscribeAdminConfirmationRequests(
   return () => {
     confirmationRequestListeners.delete(listener);
   };
-}
-
-export function resolveAdminTokenRequest(
-  requestId: number,
-  token: string | null,
-  remember = true,
-) {
-  if (!pendingTokenRequest || pendingTokenRequest.id !== requestId) {
-    return;
-  }
-
-  const trimmedToken = token?.trim() || null;
-  if (trimmedToken && remember) {
-    rememberAdminToken(trimmedToken);
-  }
-
-  pendingTokenRequest.resolve(trimmedToken);
-  pendingTokenRequest = null;
-  emitTokenRequest();
 }
 
 export function resolveAdminConfirmationRequest(
@@ -120,77 +77,23 @@ export async function requestAdminConfirmation(
   });
 }
 
-export async function getAdminToken(options: AdminTokenRequestOptions = {}) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const storedToken = window.sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
-  if (storedToken?.trim()) {
-    return storedToken.trim();
-  }
-
-  return new Promise<string | null>((resolve) => {
-    pendingTokenRequest = {
-      id: nextRequestId++,
-      options,
-      resolve,
-    };
-    emitTokenRequest();
-  });
-}
-
-export async function buildAdminJsonHeaders(
-  options: AdminTokenRequestOptions = {},
-) {
-  const token = await getAdminToken(options);
-  if (!token) {
-    return null;
-  }
-
-  return {
-    "Content-Type": "application/json",
-    "x-ai-bcc-admin-token": token,
-  };
+export async function buildAdminJsonHeaders(options: AdminRequestOptions = {}) {
+  void options;
+  return buildOwnerSessionJsonHeaders();
 }
 
 export function buildRememberedAdminJsonHeaders() {
-  const token = getRememberedAdminToken();
-  if (!token) {
-    return null;
-  }
-
-  return {
-    "Content-Type": "application/json",
-    "x-ai-bcc-admin-token": token,
-  };
+  return buildOwnerSessionJsonHeaders();
 }
 
 export function forgetAdminToken() {
-  if (typeof window !== "undefined") {
-    window.sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
-  }
+  // Kept as a compatibility no-op for legacy components that clear auth on 401.
 }
 
-export function getRememberedAdminToken() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)?.trim() || null;
-}
-
-export function rememberAdminToken(token: string) {
-  if (typeof window !== "undefined") {
-    window.sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
-  }
-}
-
-function emitTokenRequest() {
-  const publicRequest = pendingTokenRequest
-    ? toPublicTokenRequest(pendingTokenRequest)
-    : null;
-  tokenRequestListeners.forEach((listener) => listener(publicRequest));
+function buildOwnerSessionJsonHeaders() {
+  return {
+    "Content-Type": "application/json",
+  };
 }
 
 function emitConfirmationRequest() {
@@ -198,15 +101,6 @@ function emitConfirmationRequest() {
     ? toPublicConfirmationRequest(pendingConfirmationRequest)
     : null;
   confirmationRequestListeners.forEach((listener) => listener(publicRequest));
-}
-
-function toPublicTokenRequest(
-  request: AdminTokenRequest & { resolve: (token: string | null) => void },
-): AdminTokenRequest {
-  return {
-    id: request.id,
-    options: request.options,
-  };
 }
 
 function toPublicConfirmationRequest(

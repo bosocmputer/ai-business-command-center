@@ -15,6 +15,8 @@ const SYSTEM_RUNTIME_CONFIG_KEY_ID = "bootstrap:secret_key";
 export type SystemRuntimeConfig = {
   app_base_url: string | null;
   public_api_base_url: string | null;
+  report_viewer_signing_secret: string | null;
+  report_viewer_link_ttl_hours: number;
   morning_brief_enabled: boolean;
   morning_brief_tenant_ids: string[];
   morning_brief_time: string;
@@ -29,9 +31,10 @@ export type SystemRuntimeConfig = {
 
 export type SystemRuntimeConfigStatus = Omit<
   SystemRuntimeConfig,
-  "worker_heartbeat_token"
+  "report_viewer_signing_secret" | "worker_heartbeat_token"
 > & {
   source: "encrypted_store" | "bootstrap_file" | "env";
+  report_viewer_signing_secret_configured: boolean;
   worker_heartbeat_token_configured: boolean;
   encryption_configured: boolean;
   updated_at: string | null;
@@ -41,12 +44,14 @@ export type SystemRuntimeConfigStatus = Omit<
 
 export type SaveSystemRuntimeConfigInput = Omit<
   SystemRuntimeConfig,
-  "worker_heartbeat_token"
+  "report_viewer_signing_secret" | "worker_heartbeat_token"
 > & {
+  report_viewer_signing_secret?: string | null;
   worker_heartbeat_token?: string | null;
 };
 
 type RuntimeSecretPayload = {
+  report_viewer_signing_secret?: string | null;
   worker_heartbeat_token?: string | null;
 };
 
@@ -58,6 +63,10 @@ export async function readEffectiveSystemRuntimeConfig(
   return {
     app_base_url: status.app_base_url,
     public_api_base_url: status.public_api_base_url,
+    report_viewer_signing_secret: record
+      ? readRuntimeSecretPayload(record).report_viewer_signing_secret ?? null
+      : readBootstrapOrEnvRuntimeConfig().report_viewer_signing_secret,
+    report_viewer_link_ttl_hours: status.report_viewer_link_ttl_hours,
     morning_brief_enabled: status.morning_brief_enabled,
     morning_brief_tenant_ids: status.morning_brief_tenant_ids,
     morning_brief_time: status.morning_brief_time,
@@ -84,6 +93,9 @@ export async function readSystemRuntimeConfigStatus(
     return {
       ...metadata,
       source: "encrypted_store",
+      report_viewer_signing_secret_configured: Boolean(
+        payload.report_viewer_signing_secret,
+      ),
       worker_heartbeat_token_configured: Boolean(payload.worker_heartbeat_token),
       encryption_configured: encryptionConfigured,
       updated_at: record.updated_at,
@@ -93,10 +105,18 @@ export async function readSystemRuntimeConfigStatus(
   }
 
   const fallback = readBootstrapOrEnvRuntimeConfig();
+  const {
+    report_viewer_signing_secret: fallbackReportViewerSigningSecret,
+    worker_heartbeat_token: fallbackWorkerHeartbeatToken,
+    ...fallbackStatus
+  } = fallback;
   return {
-    ...fallback,
+    ...fallbackStatus,
     source: hasBootstrapRuntimeConfig() ? "bootstrap_file" : "env",
-    worker_heartbeat_token_configured: Boolean(fallback.worker_heartbeat_token),
+    report_viewer_signing_secret_configured: Boolean(
+      fallbackReportViewerSigningSecret,
+    ),
+    worker_heartbeat_token_configured: Boolean(fallbackWorkerHeartbeatToken),
     encryption_configured: encryptionConfigured,
     updated_at: null,
     bootstrap: readBootstrapConfigStatus(),
@@ -116,6 +136,10 @@ export async function saveSystemRuntimeConfig(input: {
   const existing = await input.store.getSecretRecord(SYSTEM_RUNTIME_CONFIG_ID);
   const existingPayload = existing ? readRuntimeSecretPayload(existing) : {};
   const payload: RuntimeSecretPayload = {
+    report_viewer_signing_secret:
+      input.config.report_viewer_signing_secret?.trim() ||
+      existingPayload.report_viewer_signing_secret ||
+      null,
     worker_heartbeat_token:
       input.config.worker_heartbeat_token?.trim() ||
       existingPayload.worker_heartbeat_token ||
@@ -156,6 +180,10 @@ function readRuntimeSecretPayload(record: SecretRecord): RuntimeSecretPayload {
   try {
     const parsed = JSON.parse(plaintext) as RuntimeSecretPayload;
     return {
+      report_viewer_signing_secret:
+        typeof parsed.report_viewer_signing_secret === "string"
+          ? parsed.report_viewer_signing_secret
+          : null,
       worker_heartbeat_token:
         typeof parsed.worker_heartbeat_token === "string"
           ? parsed.worker_heartbeat_token
@@ -175,35 +203,21 @@ function readBootstrapOrEnvRuntimeConfig(): SystemRuntimeConfig {
       bootstrap.public_api_base_url?.trim() ||
       process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
       null,
-    morning_brief_enabled: readBoolean(
-      bootstrap.morning_brief?.enabled,
-      process.env.MORNING_BRIEF_ENABLED,
-      true,
+    report_viewer_signing_secret:
+      bootstrap.report_viewer_signing_secret?.trim() || null,
+    report_viewer_link_ttl_hours: normalizeReportViewerTtlHours(
+      bootstrap.report_viewer_link_ttl_hours ?? 72,
     ),
-    morning_brief_tenant_ids: parseTenantIds(
-      bootstrap.morning_brief?.tenant_ids?.join(",") ??
-        process.env.MORNING_BRIEF_TENANT_IDS,
-    ),
-    morning_brief_time:
-      bootstrap.morning_brief?.time ||
-      process.env.MORNING_BRIEF_TIME ||
-      "08:00",
-    morning_brief_timezone:
-      bootstrap.morning_brief?.timezone ||
-      process.env.MORNING_BRIEF_TIMEZONE ||
-      BANGKOK_TIME_ZONE,
-    morning_brief_mode:
-      bootstrap.morning_brief?.mode ??
-      (process.env.MORNING_BRIEF_MODE === "dry_run" ? "dry_run" : "send"),
-    morning_brief_force: readBoolean(
-      bootstrap.morning_brief?.force,
-      process.env.MORNING_BRIEF_FORCE,
-      false,
-    ),
+    morning_brief_enabled: false,
+    morning_brief_tenant_ids: [],
+    morning_brief_time: "08:00",
+    morning_brief_timezone: BANGKOK_TIME_ZONE,
+    morning_brief_mode: "dry_run",
+    morning_brief_force: false,
     worker_id:
       bootstrap.worker?.worker_id ||
       process.env.WORKER_ID ||
-      "worker_morning_brief_1",
+      "worker_notification_rules_1",
     worker_heartbeat_token:
       bootstrap.worker?.heartbeat_token?.trim() ||
       process.env.WORKER_HEARTBEAT_TOKEN?.trim() ||
@@ -225,7 +239,8 @@ function hasBootstrapRuntimeConfig() {
   return Boolean(
     bootstrap.app_base_url ||
       bootstrap.public_api_base_url ||
-      bootstrap.morning_brief ||
+      bootstrap.report_viewer_signing_secret ||
+      bootstrap.report_viewer_link_ttl_hours ||
       bootstrap.worker ||
       bootstrap.backup,
   );
@@ -233,10 +248,16 @@ function hasBootstrapRuntimeConfig() {
 
 function normalizeRuntimeMetadata(
   value: Partial<SaveSystemRuntimeConfigInput> | Record<string, unknown>,
-): Omit<SystemRuntimeConfig, "worker_heartbeat_token"> {
+): Omit<
+  SystemRuntimeConfig,
+  "report_viewer_signing_secret" | "worker_heartbeat_token"
+> {
   return {
     app_base_url: toNullableString(value.app_base_url),
     public_api_base_url: toNullableString(value.public_api_base_url),
+    report_viewer_link_ttl_hours: normalizeReportViewerTtlHours(
+      value.report_viewer_link_ttl_hours,
+    ),
     morning_brief_enabled: toBoolean(value.morning_brief_enabled, true),
     morning_brief_tenant_ids: Array.isArray(value.morning_brief_tenant_ids)
       ? value.morning_brief_tenant_ids.map(String).filter(Boolean)
@@ -252,6 +273,15 @@ function normalizeRuntimeMetadata(
     backup_configured: toBoolean(value.backup_configured, false),
     system_last_backup_at: toNullableString(value.system_last_backup_at),
   };
+}
+
+function normalizeReportViewerTtlHours(value: unknown) {
+  const numeric =
+    typeof value === "number" ? value : Number(String(value ?? 72).trim());
+  if (!Number.isFinite(numeric)) {
+    return 72;
+  }
+  return Math.max(1, Math.min(Math.round(numeric), 2160));
 }
 
 function parseTenantIds(value: string | undefined) {

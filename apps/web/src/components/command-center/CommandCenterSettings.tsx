@@ -1133,7 +1133,7 @@ async function mutateJson<T>(
       "ระบบจะส่งคำสั่งที่เปลี่ยนข้อมูลจริง เช่น ทดสอบฐานข้อมูล รันรายงาน หรือแก้สิทธิ์ LINE",
   });
   if (!headers) {
-    throw new Error("ต้องกรอก Admin token ก่อนทำรายการ");
+    throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนทำรายการ");
   }
 
   const response = await fetch(url, {
@@ -1276,13 +1276,23 @@ function formatAllowedReports(target: LineTargetRecord) {
     return "ยังไม่มี";
   }
 
-  return target.allowed_report_keys
-    .map((reportKey) =>
-      reportKey === "sales_goods_services"
-        ? "รายงานขายสินค้าและบริการ"
-        : reportKey,
-    )
-    .join(", ");
+  return target.allowed_report_keys.map(formatReportKeyLabel).join(", ");
+}
+
+function formatReportKeyLabel(reportKey: LineTargetRecord["allowed_report_keys"][number]) {
+  if (reportKey === "sales_goods_services") {
+    return "รายงานขายสินค้าและบริการ";
+  }
+  if (reportKey === "purchase_goods_payables") {
+    return "รายงานซื้อสินค้า/ตั้งหนี้";
+  }
+  if (reportKey === "gross_profit_by_product") {
+    return "รายงานกำไรขั้นต้นสินค้า";
+  }
+  if (reportKey === "gross_profit_by_ar_customer") {
+    return "รายงานกำไรขั้นต้นลูกหนี้";
+  }
+  return reportKey;
 }
 
 function formatAllowedActions(target: LineTargetRecord) {

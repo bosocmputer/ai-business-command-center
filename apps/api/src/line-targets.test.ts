@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyLineAccessProfileDefaults,
+  buildAssignedLineTarget,
   buildEnvFallbackLineTarget,
   buildPendingWebhookLineTarget,
   canAccessLineReport,
@@ -101,6 +102,54 @@ describe("LINE target permission profiles", () => {
       allowed: false,
       reason: "tenant_mismatch",
     });
+  });
+
+  it("creates a tenant-specific assignment for a shared recipient without changing the source target", () => {
+    const assignedTarget = buildAssignedLineTarget({
+      tenantId: "seaandhill_demo",
+      sourceTarget: executiveTarget,
+      lineChannelId: "line_channel_owner_shared",
+      profileKey: "sales_manager",
+    });
+
+    expect(assignedTarget).toMatchObject({
+      id: "line_target_seaandhill_demo_a8af2cbc4928007e",
+      tenant_id: "seaandhill_demo",
+      line_channel_id: "line_channel_owner_shared",
+      display_name: executiveTarget.display_name,
+      target_id_masked: executiveTarget.target_id_masked,
+      target_id_hash: executiveTarget.target_id_hash,
+      access_profile_key: "sales_manager",
+      approved: true,
+      enabled: true,
+      source: "manual",
+      allowed_report_keys: ["sales_goods_services"],
+      allowed_actions: [
+        "receive_morning_brief",
+        "ask_report",
+        "open_signed_viewer",
+      ],
+    });
+    expect(executiveTarget.tenant_id).toBe("tenant_demo_remote");
+  });
+
+  it("can create assignments with report permissions supplied by a tenant matrix", () => {
+    const assignedTarget = buildAssignedLineTarget({
+      tenantId: "seaandhill_demo",
+      sourceTarget: executiveTarget,
+      lineChannelId: "line_channel_owner_shared",
+      profileKey: "sales_manager",
+      allowedReportKeys: ["purchase_goods_payables"],
+    });
+
+    expect(assignedTarget.allowed_report_keys).toEqual([
+      "purchase_goods_payables",
+    ]);
+    expect(assignedTarget.allowed_actions).toEqual([
+      "receive_morning_brief",
+      "ask_report",
+      "open_signed_viewer",
+    ]);
   });
 
   it("discovers personal LINE targets as pending staff with a one-recipient estimate", () => {

@@ -56,7 +56,7 @@ export async function sendLineBrief(
       status: "dry_run",
       safe_error_message: configured
         ? null
-        : "LINE channel is not configured. Add channel access token and target id to environment.",
+        : "LINE channel or approved target is not configured. Set LINE OA and recipients in Owner UI.",
     };
   }
 
@@ -65,7 +65,7 @@ export async function sendLineBrief(
       ...baseDelivery,
       status: "skipped",
       safe_error_message:
-        "LINE channel is not configured. Add channel access token and target id to environment.",
+        "LINE channel or approved target is not configured. Set LINE OA and recipients in Owner UI.",
     };
   }
 

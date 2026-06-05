@@ -8,7 +8,7 @@
 
 ## หลักคิด
 
-ระบบนี้จะเชื่อม SML PostgreSQL, FlowAccount/future partner APIs, dashboard, LINE OA และในอนาคต chatbot ดังนั้นคุณภาพ engineering ต้องถือว่าเป็นระบบ production ตั้งแต่ phase 1
+ระบบนี้จะเชื่อม SML ผ่าน JavaWS, FlowAccount/future partner APIs, dashboard, LINE OA และในอนาคต chatbot ดังนั้นคุณภาพ engineering ต้องถือว่าเป็นระบบ production ตั้งแต่ phase 1
 
 หลักการ:
 

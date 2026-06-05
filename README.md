@@ -7,7 +7,7 @@ Professional pilot สำหรับ AI Business Brief Hub: เชื่อม 
 - UI: TailAdmin Next.js dashboard ใน `apps/web`
 - Viewer: compact signed report viewer ที่ `/command-center/brief`
 - API: Fastify report API + signed viewer API + LINE endpoints ใน `apps/api`
-- Worker: Morning Brief scheduler ใน `apps/worker`
+- Worker: DB-backed notification rule worker ใน `apps/worker`
 - Channels: ตอนนี้เปิดใช้ `sml_reports` เป็น channel แรกผ่าน approved SML reports; เตรียม `flowaccount_finance` เป็น channel ถัดไปแบบ read/report ไม่ผูกกับ SML
 - Reports: `sales_goods_services` และ `purchase_goods_payables` ใน `packages/reports` พร้อม document detail drilldown แบบ read-only สำหรับ SML channel
 - PDF: server-side SML PDF export ด้วย Chromium, signed token, progress modal, cache ใน server volume และ layout `sml-row-v5`
@@ -106,12 +106,12 @@ LINE link ที่ส่งให้ผู้ใช้ต้องเป็น 
 - `altText` และ logs/audit ห้ามมี signed token เต็ม
 - ห้ามบันทึก signed URL เต็มลง docs หรือ log เพราะมี token
 
-## Admin Mutation Auth
+## Owner Mutation Auth
 
-Mutation endpoints ต้องมี header:
+Mutation endpoints ใช้ owner login session cookie `ai_bcc_owner_session` จาก `/signin` และไม่ใช้ header secret แยกแล้ว
 
 ```text
-x-ai-bcc-admin-token: <server-only-token>
+Cookie: ai_bcc_owner_session=<signed-owner-session>
 ```
 
 Protected endpoints:
@@ -124,28 +124,25 @@ POST /api/reports/:tenantId/sales_goods_services/morning-brief/run-and-send
 POST /api/tenants/:tenantId/datasource/test
 ```
 
-UI จะ prompt token และ confirm ก่อนส่ง LINE จริง
+UI จะตรวจ session ผู้ดูแลและ confirm ก่อนส่ง LINE จริง
 
-Production ควรใช้ tenant-specific env:
+Production runtime config ไม่ควรใส่ใน env แล้ว ให้ตั้งผ่าน Owner UI:
 
 ```text
-LINE_DEMO_CHANNEL_ACCESS_TOKEN=
-LINE_DEMO_TARGET_ID=
-LINE_OFFICE_CHANNEL_ACCESS_TOKEN=
-LINE_OFFICE_TARGET_ID=
+SML JavaWS ต่อร้าน: /owner/sml-connections
+LINE OA และผู้รับ: /owner/line
+แผนแจ้งเตือน: /owner/notifications
+App URL, report signing, worker token: /owner/settings
 ```
 
 ## LINE Webhook Target Discovery
 
-ใช้ตอน onboarding LINE OA เข้ากลุ่ม เพื่อหา `groupId` สำหรับ Morning Brief:
+ใช้ตอน onboarding LINE OA เพื่อค้นพบผู้รับ LINE จาก webhook:
 
 ```text
 POST /api/line/webhook
 GET  /api/line/webhook-events/latest
 ```
 
-`POST /api/line/webhook` ตรวจ `x-line-signature` ด้วย `LINE_CHANNEL_SECRET`
-ก่อนเก็บ event เสมอ ส่วน latest-events จะคืน masked IDs เป็นค่า default
-ถ้าต้อง reveal `groupId` ระหว่าง setup ให้ตั้ง `LINE_WEBHOOK_DEBUG_TOKEN`
-บน server แล้วเรียก `?reveal=1` พร้อม header `x-ai-bcc-debug-token`
+`POST /api/line/webhook` ตรวจ `x-line-signature` ด้วย channel secret ที่บันทึกใน encrypted store ของ LINE OA เท่านั้น. latest-events คืน masked IDs เป็นค่า default และไม่ใช้ debug token จาก env.
 เฉพาะช่วง setup เท่านั้น

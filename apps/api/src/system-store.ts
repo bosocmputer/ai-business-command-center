@@ -3,20 +3,34 @@ import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
+  type BusinessSignalRecord,
+  type BusinessSignalStatus,
+  type BusinessSignalThresholdsConfig,
   type LineChannelRecord,
   type LineDeliveryRecord,
   type LineTargetRecord,
   type LineWebhookEventRecord,
+  type NotificationRuleRecord,
+  type NotificationRuleRunRecord,
   type PlanCode,
   type ReportKey,
   type ReportRunRecord,
   type ReportSnapshot,
   type Tenant,
+  type TenantFeatureFlags,
   type TenantId,
+  type LineAccessProfileKey,
+  type TenantReportRolePermissionRecord,
   type TenantStatus,
   type UserRecord,
   type WorkerHeartbeatRecord,
+  businessSignalCategorySchema,
+  businessSignalSeveritySchema,
+  businessSignalStatusSchema,
+  businessSignalThresholdsSchema,
+  notificationDigestModeSchema,
   reportKeySchema,
+  tenantFeatureFlagsSchema,
 } from "@ai-bcc/shared";
 import type { StoredLineTargetRecord } from "./line-targets.js";
 import { createSampleSnapshot } from "./sample-data.js";
@@ -56,6 +70,12 @@ export type SecretMetadataRecord = Omit<SecretRecord, "encrypted_value"> & {
   has_encrypted_value: boolean;
 };
 
+export type TenantCancellationResult = {
+  tenant: Tenant | null;
+  disabledNotificationRuleCount: number;
+  alreadyCancelled: boolean;
+};
+
 export type SystemStore = {
   readonly kind: "postgres" | "local-json";
   initialize(input: {
@@ -71,6 +91,11 @@ export type SystemStore = {
     suspendedReason?: string | null;
     currentPeriodEnd?: string | null;
   }): Promise<Tenant | null>;
+  cancelTenant(input: {
+    tenantId: TenantId;
+    reason?: string | null;
+    cancelledAt: string;
+  }): Promise<TenantCancellationResult>;
   listUsers(tenantId?: TenantId): Promise<UserRecord[]>;
   upsertUser(user: UserRecord): Promise<UserRecord>;
   listLineChannels(tenantId?: TenantId): Promise<LineChannelRecord[]>;
@@ -88,6 +113,20 @@ export type SystemStore = {
     reportKey?: ReportKey,
   ): Promise<ReportSnapshot | null>;
   saveSnapshot(snapshot: ReportSnapshot): Promise<void>;
+  upsertBusinessSignals(
+    signals: BusinessSignalRecord[],
+  ): Promise<BusinessSignalRecord[]>;
+  listBusinessSignals(input: {
+    tenantId: TenantId;
+    status?: BusinessSignalRecord["status"];
+    limit?: number;
+  }): Promise<BusinessSignalRecord[]>;
+  updateBusinessSignalStatus(input: {
+    tenantId: TenantId;
+    signalId: string;
+    status: BusinessSignalStatus;
+    updatedAt: string;
+  }): Promise<BusinessSignalRecord | null>;
   listRuns(tenantId: TenantId, reportKey?: ReportKey): Promise<ReportRunRecord[]>;
   upsertRun(run: ReportRunRecord): Promise<void>;
   saveLineDelivery(delivery: LineDeliveryRecord): Promise<void>;
@@ -96,6 +135,22 @@ export type SystemStore = {
     deliveryKey: string;
   }): Promise<LineDeliveryRecord | null>;
   listLineDeliveries(tenantId: TenantId): Promise<LineDeliveryRecord[]>;
+  listNotificationRules(tenantId?: TenantId): Promise<NotificationRuleRecord[]>;
+  getNotificationRule(id: string): Promise<NotificationRuleRecord | null>;
+  upsertNotificationRule(
+    rule: NotificationRuleRecord,
+  ): Promise<NotificationRuleRecord>;
+  listNotificationRuleRuns(input?: {
+    tenantId?: TenantId;
+    ruleId?: string;
+    limit?: number;
+  }): Promise<NotificationRuleRunRecord[]>;
+  getNotificationRuleRunByKey(
+    idempotencyKey: string,
+  ): Promise<NotificationRuleRunRecord | null>;
+  upsertNotificationRuleRun(
+    run: NotificationRuleRunRecord,
+  ): Promise<NotificationRuleRunRecord>;
   listLineTargets(tenantId?: TenantId): Promise<StoredLineTargetRecord[]>;
   getLineTargetById(id: string): Promise<StoredLineTargetRecord | null>;
   getLineTargetByHash(input: {
@@ -105,6 +160,16 @@ export type SystemStore = {
   upsertLineTarget(
     target: StoredLineTargetRecord,
   ): Promise<StoredLineTargetRecord>;
+  listTenantReportRolePermissions(
+    tenantId: TenantId,
+  ): Promise<TenantReportRolePermissionRecord[]>;
+  saveTenantReportRolePermissions(input: {
+    tenantId: TenantId;
+    permissions: TenantReportRolePermissionRecord[];
+  }): Promise<{
+    permissions: TenantReportRolePermissionRecord[];
+    updatedTargetCount: number;
+  }>;
   saveLineWebhookEvents(events: LineWebhookEventRecord[]): Promise<void>;
   listLineWebhookEvents(limit: number): Promise<LineWebhookEventRecord[]>;
   saveWorkerHeartbeat(
@@ -137,8 +202,12 @@ type StoreFile = {
   reportDefinitions: ReportDefinitionSeed[];
   runs: ReportRunRecord[];
   snapshots: ReportSnapshot[];
+  businessSignals: BusinessSignalRecord[];
   lineDeliveries: LineDeliveryRecord[];
+  notificationRules: NotificationRuleRecord[];
+  notificationRuleRuns: NotificationRuleRunRecord[];
   lineTargets: StoredLineTargetRecord[];
+  reportRolePermissions: TenantReportRolePermissionRecord[];
   lineWebhookEvents: LineWebhookEventRecord[];
   workerHeartbeats: WorkerHeartbeatRecord[];
   auditLogs: AuditLogEntry[];
@@ -185,17 +254,18 @@ class LocalJsonSystemStore implements SystemStore {
   }
 
   async listTenants() {
-    return this.requireData().tenants;
+    return this.requireData().tenants.map(normalizeTenantRecord);
   }
 
   async upsertTenant(tenant: Tenant) {
     const data = this.requireData();
+    const normalizedTenant = normalizeTenantRecord(tenant);
     data.tenants = [
-      tenant,
-      ...data.tenants.filter((existing) => existing.id !== tenant.id),
+      normalizedTenant,
+      ...data.tenants.filter((existing) => existing.id !== normalizedTenant.id),
     ].sort((a, b) => a.name.localeCompare(b.name));
     await this.persist();
-    return tenant;
+    return normalizedTenant;
   }
 
   async updateTenantStatus(input: {
@@ -226,6 +296,62 @@ class LocalJsonSystemStore implements SystemStore {
     };
     await this.upsertTenant(updated);
     return updated;
+  }
+
+  async cancelTenant(input: {
+    tenantId: TenantId;
+    reason?: string | null;
+    cancelledAt: string;
+  }): Promise<TenantCancellationResult> {
+    const data = this.requireData();
+    const tenant = data.tenants.find((item) => item.id === input.tenantId);
+    if (!tenant) {
+      return {
+        tenant: null,
+        disabledNotificationRuleCount: 0,
+        alreadyCancelled: false,
+      };
+    }
+
+    const alreadyCancelled = tenant.status === "cancelled";
+    const updated: Tenant = alreadyCancelled
+      ? tenant
+      : {
+          ...tenant,
+          status: "cancelled",
+          suspendedReason:
+            input.reason?.trim() || "ยกเลิกร้านโดย Owner Admin",
+        };
+
+    let disabledNotificationRuleCount = 0;
+    data.notificationRules = data.notificationRules.map((rule) => {
+      if (rule.tenant_id !== input.tenantId || !rule.enabled) {
+        return rule;
+      }
+      disabledNotificationRuleCount += 1;
+      return {
+        ...rule,
+        enabled: false,
+        updated_at: input.cancelledAt,
+      };
+    });
+
+    if (!alreadyCancelled) {
+      data.tenants = [
+        updated,
+        ...data.tenants.filter((existing) => existing.id !== input.tenantId),
+      ].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    if (!alreadyCancelled || disabledNotificationRuleCount > 0) {
+      await this.persist();
+    }
+
+    return {
+      tenant: updated,
+      disabledNotificationRuleCount,
+      alreadyCancelled,
+    };
   }
 
   async listUsers(tenantId?: TenantId) {
@@ -328,6 +454,77 @@ class LocalJsonSystemStore implements SystemStore {
     await this.persist();
   }
 
+  async upsertBusinessSignals(signals: BusinessSignalRecord[]) {
+    if (!signals.length) {
+      return [];
+    }
+    const data = this.requireData();
+    const existingByKey = new Map(
+      data.businessSignals.map((signal) => [businessSignalDedupeKey(signal), signal]),
+    );
+    const saved = signals.map((signal) => {
+      const existing = existingByKey.get(businessSignalDedupeKey(signal));
+      return {
+        ...signal,
+        id: existing?.id ?? signal.id,
+        status: existing?.status ?? signal.status,
+        created_at: existing?.created_at ?? signal.created_at,
+        updated_at: signal.updated_at,
+      };
+    });
+    const savedKeys = new Set(saved.map(businessSignalDedupeKey));
+    data.businessSignals = [
+      ...saved,
+      ...data.businessSignals.filter(
+        (signal) => !savedKeys.has(businessSignalDedupeKey(signal)),
+      ),
+    ]
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .slice(0, 2000);
+    await this.persist();
+    return saved;
+  }
+
+  async listBusinessSignals(input: {
+    tenantId: TenantId;
+    status?: BusinessSignalRecord["status"];
+    limit?: number;
+  }) {
+    return this.requireData().businessSignals
+      .filter(
+        (signal) =>
+          signal.tenant_id === input.tenantId &&
+          (!input.status || signal.status === input.status),
+      )
+      .sort(compareBusinessSignals)
+      .slice(0, input.limit ?? 50);
+  }
+
+  async updateBusinessSignalStatus(input: {
+    tenantId: TenantId;
+    signalId: string;
+    status: BusinessSignalStatus;
+    updatedAt: string;
+  }) {
+    const data = this.requireData();
+    const signal = data.businessSignals.find(
+      (item) => item.tenant_id === input.tenantId && item.id === input.signalId,
+    );
+    if (!signal) {
+      return null;
+    }
+    const updated: BusinessSignalRecord = {
+      ...signal,
+      status: input.status,
+      updated_at: input.updatedAt,
+    };
+    data.businessSignals = data.businessSignals
+      .map((item) => (item.id === signal.id ? updated : item))
+      .sort(compareBusinessSignals);
+    await this.persist();
+    return updated;
+  }
+
   async listRuns(tenantId: TenantId, reportKey?: ReportKey) {
     const data = this.requireData();
     return data.runs
@@ -377,6 +574,64 @@ class LocalJsonSystemStore implements SystemStore {
       .slice(0, 50);
   }
 
+  async listNotificationRules(tenantId?: TenantId) {
+    return this.requireData().notificationRules
+      .filter((rule) => !tenantId || rule.tenant_id === tenantId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  async getNotificationRule(id: string) {
+    return (
+      this.requireData().notificationRules.find((rule) => rule.id === id) ??
+      null
+    );
+  }
+
+  async upsertNotificationRule(rule: NotificationRuleRecord) {
+    const data = this.requireData();
+    data.notificationRules = [
+      rule,
+      ...data.notificationRules.filter((existing) => existing.id !== rule.id),
+    ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    await this.persist();
+    return rule;
+  }
+
+  async listNotificationRuleRuns(input?: {
+    tenantId?: TenantId;
+    ruleId?: string;
+    limit?: number;
+  }) {
+    return this.requireData().notificationRuleRuns
+      .filter(
+        (run) =>
+          (!input?.tenantId || run.tenant_id === input.tenantId) &&
+          (!input?.ruleId || run.rule_id === input.ruleId),
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, input?.limit ?? 50);
+  }
+
+  async getNotificationRuleRunByKey(idempotencyKey: string) {
+    return (
+      this.requireData().notificationRuleRuns.find(
+        (run) => run.idempotency_key === idempotencyKey,
+      ) ?? null
+    );
+  }
+
+  async upsertNotificationRuleRun(run: NotificationRuleRunRecord) {
+    const data = this.requireData();
+    data.notificationRuleRuns = [
+      run,
+      ...data.notificationRuleRuns.filter((existing) => existing.id !== run.id),
+    ]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 1000);
+    await this.persist();
+    return run;
+  }
+
   async listLineTargets(tenantId?: TenantId) {
     return this.requireData().lineTargets
       .filter((target) => !tenantId || target.tenant_id === tenantId)
@@ -408,6 +663,59 @@ class LocalJsonSystemStore implements SystemStore {
     ];
     await this.persist();
     return target;
+  }
+
+  async listTenantReportRolePermissions(tenantId: TenantId) {
+    return this.requireData().reportRolePermissions
+      .filter((permission) => permission.tenant_id === tenantId)
+      .sort((a, b) => a.access_profile_key.localeCompare(b.access_profile_key));
+  }
+
+  async saveTenantReportRolePermissions(input: {
+    tenantId: TenantId;
+    permissions: TenantReportRolePermissionRecord[];
+  }) {
+    const data = this.requireData();
+    const incomingProfileKeys = new Set(
+      input.permissions.map((permission) => permission.access_profile_key),
+    );
+    data.reportRolePermissions = [
+      ...input.permissions,
+      ...data.reportRolePermissions.filter(
+        (permission) =>
+          permission.tenant_id !== input.tenantId ||
+          !incomingProfileKeys.has(permission.access_profile_key),
+      ),
+    ];
+
+    const permissionByRole = new Map<LineAccessProfileKey, ReportKey[]>(
+      input.permissions.map((permission) => [
+        permission.access_profile_key,
+        permission.allowed_report_keys,
+      ]),
+    );
+    let updatedTargetCount = 0;
+    data.lineTargets = data.lineTargets.map((target) => {
+      if (target.tenant_id !== input.tenantId) {
+        return target;
+      }
+      const allowedReportKeys = permissionByRole.get(target.access_profile_key);
+      if (!allowedReportKeys) {
+        return target;
+      }
+      updatedTargetCount += 1;
+      return {
+        ...target,
+        allowed_report_keys: [...allowedReportKeys],
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    await this.persist();
+    return {
+      permissions: input.permissions,
+      updatedTargetCount,
+    };
   }
 
   async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
@@ -523,12 +831,20 @@ class LocalJsonSystemStore implements SystemStore {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as Partial<StoreFile>;
       return {
-        tenants: parsed.tenants ?? [],
+        tenants: normalizeTenants(parsed.tenants),
         reportDefinitions: parsed.reportDefinitions ?? [],
         runs: parsed.runs ?? [],
         snapshots: parsed.snapshots ?? [],
+        businessSignals: normalizeBusinessSignals(parsed.businessSignals),
         lineDeliveries: parsed.lineDeliveries ?? [],
+        notificationRules: normalizeNotificationRules(parsed.notificationRules),
+        notificationRuleRuns: normalizeNotificationRuleRuns(
+          parsed.notificationRuleRuns,
+        ),
         lineTargets: normalizeLineTargets(parsed.lineTargets),
+        reportRolePermissions: normalizeReportRolePermissions(
+          parsed.reportRolePermissions,
+        ),
         lineWebhookEvents: parsed.lineWebhookEvents ?? [],
         workerHeartbeats: parsed.workerHeartbeats ?? [],
         auditLogs: parsed.auditLogs ?? [],
@@ -542,8 +858,12 @@ class LocalJsonSystemStore implements SystemStore {
         reportDefinitions: [],
         runs: [],
         snapshots: [],
+        businessSignals: [],
         lineDeliveries: [],
+        notificationRules: [],
+        notificationRuleRuns: [],
         lineTargets: [],
+        reportRolePermissions: [],
         lineWebhookEvents: [],
         workerHeartbeats: [],
         auditLogs: [],
@@ -641,7 +961,7 @@ set name = excluded.name,
   async listTenants() {
     const result = await this.pool.query(
       `
-select id, name, status, plan_code, database_name, description, datasource_configured, suspended_reason, current_period_end
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
 from tenants
 order by name asc
 `,
@@ -661,15 +981,19 @@ insert into tenants (
   database_name,
   description,
   datasource_configured,
+  feature_flags_json,
+  business_signal_thresholds_json,
   suspended_reason,
   current_period_end
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11::timestamptz)
 on conflict (id) do update
 set name = excluded.name,
     database_name = excluded.database_name,
     description = excluded.description,
-    datasource_configured = excluded.datasource_configured
+    datasource_configured = excluded.datasource_configured,
+    feature_flags_json = coalesce(tenants.feature_flags_json, excluded.feature_flags_json),
+    business_signal_thresholds_json = coalesce(tenants.business_signal_thresholds_json, excluded.business_signal_thresholds_json)
 `,
       [
         tenant.id,
@@ -679,6 +1003,10 @@ set name = excluded.name,
         tenant.databaseName,
         tenant.description,
         tenant.datasourceConfigured,
+        JSON.stringify(normalizeTenantFeatureFlags(tenant.featureFlags)),
+        JSON.stringify(
+          normalizeBusinessSignalThresholds(tenant.businessSignalThresholds),
+        ),
         tenant.suspendedReason,
         tenant.currentPeriodEnd,
       ],
@@ -696,10 +1024,12 @@ insert into tenants (
   database_name,
   description,
   datasource_configured,
+  feature_flags_json,
+  business_signal_thresholds_json,
   suspended_reason,
   current_period_end
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11::timestamptz)
 on conflict (id) do update
 set name = excluded.name,
     status = excluded.status,
@@ -707,9 +1037,11 @@ set name = excluded.name,
     database_name = excluded.database_name,
     description = excluded.description,
     datasource_configured = excluded.datasource_configured,
+    feature_flags_json = excluded.feature_flags_json,
+    business_signal_thresholds_json = excluded.business_signal_thresholds_json,
     suspended_reason = excluded.suspended_reason,
     current_period_end = excluded.current_period_end
-returning id, name, status, plan_code, database_name, description, datasource_configured, suspended_reason, current_period_end
+returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
 `,
       [
         tenant.id,
@@ -719,6 +1051,10 @@ returning id, name, status, plan_code, database_name, description, datasource_co
         tenant.databaseName,
         tenant.description,
         tenant.datasourceConfigured,
+        JSON.stringify(normalizeTenantFeatureFlags(tenant.featureFlags)),
+        JSON.stringify(
+          normalizeBusinessSignalThresholds(tenant.businessSignalThresholds),
+        ),
         tenant.suspendedReason,
         tenant.currentPeriodEnd,
       ],
@@ -742,7 +1078,7 @@ set status = $2,
     suspended_reason = $4,
     current_period_end = $5::timestamptz
 where id = $1
-returning id, name, status, plan_code, database_name, description, datasource_configured, suspended_reason, current_period_end
+returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
 `,
       [
         input.tenantId,
@@ -754,6 +1090,80 @@ returning id, name, status, plan_code, database_name, description, datasource_co
     );
 
     return result.rows[0] ? mapTenantRow(result.rows[0]) : null;
+  }
+
+  async cancelTenant(input: {
+    tenantId: TenantId;
+    reason?: string | null;
+    cancelledAt: string;
+  }): Promise<TenantCancellationResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+
+      const currentResult = await client.query(
+        `
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+from tenants
+where id = $1
+for update
+`,
+        [input.tenantId],
+      );
+
+      if (!currentResult.rows[0]) {
+        await client.query("rollback");
+        return {
+          tenant: null,
+          disabledNotificationRuleCount: 0,
+          alreadyCancelled: false,
+        };
+      }
+
+      const current = mapTenantRow(currentResult.rows[0]);
+      const disabledResult = await client.query(
+        `
+update notification_rules
+set enabled = false,
+    updated_at = $2::timestamptz
+where tenant_id = $1
+  and enabled = true
+returning id
+`,
+        [input.tenantId, input.cancelledAt],
+      );
+
+      const alreadyCancelled = current.status === "cancelled";
+      let tenant = current;
+      if (!alreadyCancelled) {
+        const updatedResult = await client.query(
+          `
+update tenants
+set status = 'cancelled',
+    suspended_reason = $2
+where id = $1
+returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+`,
+          [
+            input.tenantId,
+            input.reason?.trim() || "ยกเลิกร้านโดย Owner Admin",
+          ],
+        );
+        tenant = mapTenantRow(updatedResult.rows[0]);
+      }
+
+      await client.query("commit");
+      return {
+        tenant,
+        disabledNotificationRuleCount: disabledResult.rowCount ?? 0,
+        alreadyCancelled,
+      };
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listUsers(tenantId?: TenantId) {
@@ -809,6 +1219,7 @@ select
   tenant_id,
   display_name,
   channel_type,
+  scope,
   channel_access_token_configured,
   channel_secret_configured,
   enabled,
@@ -833,6 +1244,7 @@ insert into line_channels (
   tenant_id,
   display_name,
   channel_type,
+  scope,
   channel_access_token_configured,
   channel_secret_configured,
   enabled,
@@ -840,10 +1252,11 @@ insert into line_channels (
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz)
 on conflict (id) do update
 set display_name = excluded.display_name,
     channel_type = excluded.channel_type,
+    scope = excluded.scope,
     channel_access_token_configured = excluded.channel_access_token_configured,
     channel_secret_configured = excluded.channel_secret_configured,
     enabled = excluded.enabled,
@@ -854,6 +1267,7 @@ returning
   tenant_id,
   display_name,
   channel_type,
+  scope,
   channel_access_token_configured,
   channel_secret_configured,
   enabled,
@@ -866,6 +1280,7 @@ returning
         channel.tenant_id,
         channel.display_name,
         channel.channel_type,
+        channel.scope ?? "tenant",
         channel.channel_access_token_configured,
         channel.channel_secret_configured,
         channel.enabled,
@@ -1043,6 +1458,193 @@ set snapshot_json = excluded.snapshot_json,
         snapshot.generated_at,
       ],
     );
+  }
+
+  async upsertBusinessSignals(signals: BusinessSignalRecord[]) {
+    if (!signals.length) {
+      return [];
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const saved: BusinessSignalRecord[] = [];
+      for (const signal of signals) {
+        const result = await client.query(
+          `
+insert into business_signals (
+  id,
+  tenant_id,
+  signal_key,
+  category,
+  severity,
+  title,
+  insight,
+  recommended_action,
+  amount_impact,
+  source_report_key,
+  source_run_id,
+  period_from,
+  period_to,
+  dimension_type,
+  dimension_id,
+  rule_version,
+  status,
+  evidence_json,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13::date, $14, $15, $16, $17, $18::jsonb, $19::timestamptz, $20::timestamptz)
+on conflict (tenant_id, signal_key, period_from, period_to, dimension_type, dimension_id) do update
+set category = excluded.category,
+    severity = excluded.severity,
+    title = excluded.title,
+    insight = excluded.insight,
+    recommended_action = excluded.recommended_action,
+    amount_impact = excluded.amount_impact,
+    source_report_key = excluded.source_report_key,
+    source_run_id = excluded.source_run_id,
+    rule_version = excluded.rule_version,
+    evidence_json = excluded.evidence_json,
+    updated_at = excluded.updated_at
+returning
+  id,
+  tenant_id,
+  signal_key,
+  category,
+  severity,
+  title,
+  insight,
+  recommended_action,
+  amount_impact,
+  source_report_key,
+  source_run_id,
+  period_from,
+  period_to,
+  dimension_type,
+  dimension_id,
+  rule_version,
+  status,
+  evidence_json,
+  created_at,
+  updated_at
+`,
+          [
+            signal.id,
+            signal.tenant_id,
+            signal.signal_key,
+            signal.category,
+            signal.severity,
+            signal.title,
+            signal.insight,
+            signal.recommended_action,
+            signal.amount_impact,
+            signal.source_report_key,
+            signal.source_run_id,
+            signal.period_from,
+            signal.period_to,
+            signal.dimension_type,
+            signal.dimension_id,
+            signal.rule_version,
+            signal.status,
+            JSON.stringify(signal.evidence_json),
+            signal.created_at,
+            signal.updated_at,
+          ],
+        );
+        saved.push(mapBusinessSignalRow(result.rows[0]));
+      }
+      await client.query("commit");
+      return saved;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listBusinessSignals(input: {
+    tenantId: TenantId;
+    status?: BusinessSignalRecord["status"];
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  signal_key,
+  category,
+  severity,
+  title,
+  insight,
+  recommended_action,
+  amount_impact,
+  source_report_key,
+  source_run_id,
+  period_from,
+  period_to,
+  dimension_type,
+  dimension_id,
+  rule_version,
+  status,
+  evidence_json,
+  created_at,
+  updated_at
+from business_signals
+where tenant_id = $1
+  and ($2::text is null or status = $2)
+order by
+  case severity when 'critical' then 3 when 'warning' then 2 else 1 end desc,
+  coalesce(amount_impact, 0) desc,
+  updated_at desc
+limit $3
+`,
+      [input.tenantId, input.status ?? null, input.limit ?? 50],
+    );
+
+    return result.rows.map(mapBusinessSignalRow);
+  }
+
+  async updateBusinessSignalStatus(input: {
+    tenantId: TenantId;
+    signalId: string;
+    status: BusinessSignalStatus;
+    updatedAt: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update business_signals
+set status = $3,
+    updated_at = $4::timestamptz
+where tenant_id = $1
+  and id = $2
+returning
+  id,
+  tenant_id,
+  signal_key,
+  category,
+  severity,
+  title,
+  insight,
+  recommended_action,
+  amount_impact,
+  source_report_key,
+  source_run_id,
+  period_from,
+  period_to,
+  dimension_type,
+  dimension_id,
+  rule_version,
+  status,
+  evidence_json,
+  created_at,
+  updated_at
+`,
+      [input.tenantId, input.signalId, input.status, input.updatedAt],
+    );
+
+    return result.rows[0] ? mapBusinessSignalRow(result.rows[0]) : null;
   }
 
   async listRuns(tenantId: TenantId, reportKey?: ReportKey) {
@@ -1235,6 +1837,303 @@ limit 50
     return result.rows.map(mapLineDeliveryRow);
   }
 
+  async listNotificationRules(tenantId?: TenantId) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  name,
+  enabled,
+  timezone,
+  period_preset,
+  schedule_json,
+  report_keys_json,
+  target_ids_json,
+  message_packaging,
+  digest_mode,
+  retry_policy_json,
+  last_run_at,
+  last_run_status,
+  last_safe_error_message,
+  created_at,
+  updated_at
+from notification_rules
+where ($1::text is null or tenant_id = $1)
+order by updated_at desc
+`,
+      [tenantId ?? null],
+    );
+
+    return result.rows.map(mapNotificationRuleRow);
+  }
+
+  async getNotificationRule(id: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  name,
+  enabled,
+  timezone,
+  period_preset,
+  schedule_json,
+  report_keys_json,
+  target_ids_json,
+  message_packaging,
+  digest_mode,
+  retry_policy_json,
+  last_run_at,
+  last_run_status,
+  last_safe_error_message,
+  created_at,
+  updated_at
+from notification_rules
+where id = $1
+limit 1
+`,
+      [id],
+    );
+
+    return result.rows[0] ? mapNotificationRuleRow(result.rows[0]) : null;
+  }
+
+  async upsertNotificationRule(rule: NotificationRuleRecord) {
+    const result = await this.pool.query(
+      `
+insert into notification_rules (
+  id,
+  tenant_id,
+  name,
+  enabled,
+  timezone,
+  period_preset,
+  schedule_json,
+  report_keys_json,
+  target_ids_json,
+  message_packaging,
+  digest_mode,
+  retry_policy_json,
+  last_run_at,
+  last_run_status,
+  last_safe_error_message,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12::jsonb, $13::timestamptz, $14, $15, $16::timestamptz, $17::timestamptz)
+on conflict (id) do update
+set name = excluded.name,
+    enabled = excluded.enabled,
+    timezone = excluded.timezone,
+    period_preset = excluded.period_preset,
+    schedule_json = excluded.schedule_json,
+    report_keys_json = excluded.report_keys_json,
+    target_ids_json = excluded.target_ids_json,
+    message_packaging = excluded.message_packaging,
+    digest_mode = excluded.digest_mode,
+    retry_policy_json = excluded.retry_policy_json,
+    last_run_at = excluded.last_run_at,
+    last_run_status = excluded.last_run_status,
+    last_safe_error_message = excluded.last_safe_error_message,
+    updated_at = excluded.updated_at
+returning
+  id,
+  tenant_id,
+  name,
+  enabled,
+  timezone,
+  period_preset,
+  schedule_json,
+  report_keys_json,
+  target_ids_json,
+  message_packaging,
+  digest_mode,
+  retry_policy_json,
+  last_run_at,
+  last_run_status,
+  last_safe_error_message,
+  created_at,
+  updated_at
+`,
+      [
+        rule.id,
+        rule.tenant_id,
+        rule.name,
+        rule.enabled,
+        rule.timezone,
+        rule.period_preset,
+        JSON.stringify(rule.schedule),
+        JSON.stringify(rule.report_keys),
+        JSON.stringify(rule.target_ids),
+        rule.message_packaging,
+        rule.digest_mode,
+        JSON.stringify(rule.retry_policy),
+        rule.last_run_at,
+        rule.last_run_status,
+        rule.last_safe_error_message,
+        rule.created_at,
+        rule.updated_at,
+      ],
+    );
+
+    return mapNotificationRuleRow(result.rows[0]);
+  }
+
+  async listNotificationRuleRuns(input?: {
+    tenantId?: TenantId;
+    ruleId?: string;
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  status,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  next_retry_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where ($1::text is null or tenant_id = $1)
+  and ($2::text is null or rule_id = $2)
+order by created_at desc
+limit $3
+`,
+      [input?.tenantId ?? null, input?.ruleId ?? null, input?.limit ?? 50],
+    );
+
+    return result.rows.map(mapNotificationRuleRunRow);
+  }
+
+  async getNotificationRuleRunByKey(idempotencyKey: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  status,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  next_retry_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where idempotency_key = $1
+limit 1
+`,
+      [idempotencyKey],
+    );
+
+    return result.rows[0] ? mapNotificationRuleRunRow(result.rows[0]) : null;
+  }
+
+  async upsertNotificationRuleRun(run: NotificationRuleRunRecord) {
+    const result = await this.pool.query(
+      `
+insert into notification_rule_runs (
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  status,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  next_retry_at,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15::timestamptz, $16::timestamptz, $17::timestamptz, $18::timestamptz, $19::timestamptz)
+on conflict (id) do update
+set status = excluded.status,
+    attempt = excluded.attempt,
+    report_run_ids_json = excluded.report_run_ids_json,
+    delivery_ids_json = excluded.delivery_ids_json,
+    safe_error_message = excluded.safe_error_message,
+    started_at = excluded.started_at,
+    finished_at = excluded.finished_at,
+    next_retry_at = excluded.next_retry_at,
+    updated_at = excluded.updated_at
+returning
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  status,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  next_retry_at,
+  created_at,
+  updated_at
+`,
+      [
+        run.id,
+        run.rule_id,
+        run.tenant_id,
+        run.scheduled_local_date,
+        run.scheduled_local_time,
+        run.timezone,
+        run.period_from,
+        run.period_to,
+        run.status,
+        run.attempt,
+        run.idempotency_key,
+        JSON.stringify(run.report_run_ids),
+        JSON.stringify(run.delivery_ids),
+        run.safe_error_message,
+        run.started_at,
+        run.finished_at,
+        run.next_retry_at,
+        run.created_at,
+        run.updated_at,
+      ],
+    );
+
+    return mapNotificationRuleRunRow(result.rows[0]);
+  }
+
   async listLineTargets(tenantId?: TenantId) {
     const result = await this.pool.query(
       `
@@ -1417,6 +2316,98 @@ returning
     );
 
     return mapLineTargetRow(result.rows[0]);
+  }
+
+  async listTenantReportRolePermissions(tenantId: TenantId) {
+    const result = await this.pool.query(
+      `
+select
+  tenant_id,
+  access_profile_key,
+  allowed_report_keys_json,
+  updated_at
+from tenant_report_role_permissions
+where tenant_id = $1
+order by access_profile_key asc
+`,
+      [tenantId],
+    );
+
+    return result.rows.map(mapTenantReportRolePermissionRow);
+  }
+
+  async saveTenantReportRolePermissions(input: {
+    tenantId: TenantId;
+    permissions: TenantReportRolePermissionRecord[];
+  }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      for (const permission of input.permissions) {
+        await client.query(
+          `
+insert into tenant_report_role_permissions (
+  tenant_id,
+  access_profile_key,
+  allowed_report_keys_json,
+  updated_at
+)
+values ($1, $2, $3::jsonb, $4::timestamptz)
+on conflict (tenant_id, access_profile_key) do update
+set allowed_report_keys_json = excluded.allowed_report_keys_json,
+    updated_at = excluded.updated_at
+`,
+          [
+            input.tenantId,
+            permission.access_profile_key,
+            JSON.stringify(permission.allowed_report_keys),
+            permission.updated_at,
+          ],
+        );
+      }
+
+      const syncResult = await client.query(
+        `
+with permission_matrix as (
+  select access_profile_key, allowed_report_keys_json
+  from tenant_report_role_permissions
+  where tenant_id = $1
+)
+update line_targets as target
+set allowed_report_keys = permission_matrix.allowed_report_keys_json,
+    updated_at = now()
+from permission_matrix
+where target.tenant_id = $1
+  and target.access_profile_key = permission_matrix.access_profile_key
+returning target.id
+`,
+        [input.tenantId],
+      );
+
+      const listResult = await client.query(
+        `
+select
+  tenant_id,
+  access_profile_key,
+  allowed_report_keys_json,
+  updated_at
+from tenant_report_role_permissions
+where tenant_id = $1
+order by access_profile_key asc
+`,
+        [input.tenantId],
+      );
+      await client.query("commit");
+      return {
+        permissions: listResult.rows.map(mapTenantReportRolePermissionRow),
+        updatedTargetCount: syncResult.rowCount ?? 0,
+      };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async saveLineWebhookEvents(events: LineWebhookEventRecord[]) {
@@ -1791,6 +2782,48 @@ function auditLogImportKey(entry: AuditLogEntry) {
   ].join(":");
 }
 
+function businessSignalDedupeKey(signal: BusinessSignalRecord) {
+  return [
+    signal.tenant_id,
+    signal.signal_key,
+    signal.period_from,
+    signal.period_to,
+    signal.dimension_type,
+    signal.dimension_id,
+  ].join(":");
+}
+
+function compareBusinessSignals(
+  left: BusinessSignalRecord,
+  right: BusinessSignalRecord,
+) {
+  const severityDelta =
+    businessSignalSeverityRank(right.severity) -
+    businessSignalSeverityRank(left.severity);
+  if (severityDelta) {
+    return severityDelta;
+  }
+
+  const impactDelta = (right.amount_impact ?? 0) - (left.amount_impact ?? 0);
+  if (impactDelta) {
+    return impactDelta;
+  }
+
+  return right.updated_at.localeCompare(left.updated_at);
+}
+
+function businessSignalSeverityRank(
+  severity: BusinessSignalRecord["severity"],
+) {
+  if (severity === "critical") {
+    return 3;
+  }
+  if (severity === "warning") {
+    return 2;
+  }
+  return 1;
+}
+
 function toDateOnly(value: unknown) {
   if (!value) {
     return null;
@@ -1803,15 +2836,52 @@ function toDateOnly(value: unknown) {
   return typeof value === "string" ? value.slice(0, 10) : null;
 }
 
+function mapBusinessSignalRow(row: Record<string, unknown>): BusinessSignalRecord {
+  return normalizeBusinessSignal({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    signal_key: row.signal_key,
+    category: row.category,
+    severity: row.severity,
+    title: row.title,
+    insight: row.insight,
+    recommended_action: row.recommended_action,
+    amount_impact:
+      row.amount_impact === null || row.amount_impact === undefined
+        ? null
+        : Number(row.amount_impact),
+    source_report_key: row.source_report_key,
+    source_run_id: row.source_run_id,
+    period_from: toDateOnly(row.period_from),
+    period_to: toDateOnly(row.period_to),
+    dimension_type: row.dimension_type,
+    dimension_id: row.dimension_id,
+    rule_version: row.rule_version,
+    status: row.status,
+    evidence_json: row.evidence_json,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  }) as BusinessSignalRecord;
+}
+
 function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
+  const deliveryType =
+    row.delivery_type === "morning_brief" ||
+    row.delivery_type === "notification_rule"
+      ? row.delivery_type
+      : "manual_test";
+
   return {
     id: String(row.id),
     tenant_id: row.tenant_id as TenantId,
     report_key: row.report_key as ReportKey,
     report_run_id: String(row.report_run_id),
     delivery_key: typeof row.delivery_key === "string" ? row.delivery_key : null,
-    delivery_type:
-      row.delivery_type === "morning_brief" ? "morning_brief" : "manual_test",
+    delivery_type: deliveryType,
     period_from: toDateOnly(row.period_from),
     period_to: toDateOnly(row.period_to),
     target_id_masked:
@@ -1829,6 +2899,72 @@ function mapLineDeliveryRow(row: Record<string, unknown>): LineDeliveryRecord {
   };
 }
 
+function mapNotificationRuleRow(
+  row: Record<string, unknown>,
+): NotificationRuleRecord {
+  return normalizeNotificationRule({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    name: row.name,
+    enabled: row.enabled,
+    timezone: row.timezone,
+    period_preset: row.period_preset,
+    schedule: row.schedule_json,
+    report_keys: row.report_keys_json,
+    target_ids: row.target_ids_json,
+    message_packaging: row.message_packaging,
+    digest_mode: row.digest_mode,
+    retry_policy: row.retry_policy_json,
+    last_run_at: row.last_run_at
+      ? toIsoString(row.last_run_at as string | Date)
+      : null,
+    last_run_status: row.last_run_status,
+    last_safe_error_message: row.last_safe_error_message,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  }) as NotificationRuleRecord;
+}
+
+function mapNotificationRuleRunRow(
+  row: Record<string, unknown>,
+): NotificationRuleRunRecord {
+  return normalizeNotificationRuleRun({
+    id: row.id,
+    rule_id: row.rule_id,
+    tenant_id: row.tenant_id,
+    scheduled_local_date: toDateOnly(row.scheduled_local_date),
+    scheduled_local_time: row.scheduled_local_time,
+    timezone: row.timezone,
+    period_from: toDateOnly(row.period_from),
+    period_to: toDateOnly(row.period_to),
+    status: row.status,
+    attempt: row.attempt,
+    idempotency_key: row.idempotency_key,
+    report_run_ids: row.report_run_ids_json,
+    delivery_ids: row.delivery_ids_json,
+    safe_error_message: row.safe_error_message,
+    started_at: row.started_at
+      ? toIsoString(row.started_at as string | Date)
+      : null,
+    finished_at: row.finished_at
+      ? toIsoString(row.finished_at as string | Date)
+      : null,
+    next_retry_at: row.next_retry_at
+      ? toIsoString(row.next_retry_at as string | Date)
+      : null,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  }) as NotificationRuleRunRecord;
+}
+
 function mapTenantRow(row: Record<string, unknown>): Tenant {
   return {
     id: String(row.id) as TenantId,
@@ -1840,6 +2976,10 @@ function mapTenantRow(row: Record<string, unknown>): Tenant {
     datasourceConfigured: Boolean(row.datasource_configured),
     status: normalizeTenantStatus(row.status),
     planCode: normalizePlanCode(row.plan_code),
+    featureFlags: normalizeTenantFeatureFlags(row.feature_flags_json),
+    businessSignalThresholds: normalizeBusinessSignalThresholds(
+      row.business_signal_thresholds_json,
+    ),
     suspendedReason:
       typeof row.suspended_reason === "string" ? row.suspended_reason : null,
     currentPeriodEnd: row.current_period_end
@@ -1868,6 +3008,7 @@ function mapLineChannelRow(row: Record<string, unknown>): LineChannelRecord {
     tenant_id: String(row.tenant_id) as TenantId,
     display_name: String(row.display_name),
     channel_type: "line_oa",
+    scope: row.scope === "owner_shared" ? "owner_shared" : "tenant",
     channel_access_token_configured: Boolean(
       row.channel_access_token_configured,
     ),
@@ -1935,6 +3076,17 @@ function mapLineTargetRow(row: Record<string, unknown>): StoredLineTargetRecord 
   };
 }
 
+function mapTenantReportRolePermissionRow(
+  row: Record<string, unknown>,
+): TenantReportRolePermissionRecord {
+  return {
+    tenant_id: row.tenant_id as TenantId,
+    access_profile_key: normalizeAccessProfile(row.access_profile_key),
+    allowed_report_keys: normalizeReportKeys(row.allowed_report_keys_json),
+    updated_at: toIsoString(row.updated_at as string | Date),
+  };
+}
+
 function mapWorkerHeartbeatRow(
   row: Record<string, unknown>,
 ): WorkerHeartbeatRecord {
@@ -1961,6 +3113,373 @@ function isNoSpaceError(error: unknown) {
   );
 }
 
+function normalizeTenants(value: unknown): Tenant[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((tenant) => normalizeTenantRecord(tenant))
+    .filter((tenant): tenant is Tenant => tenant.id.length > 0);
+}
+
+function normalizeTenantRecord(value: unknown): Tenant {
+  if (!value || typeof value !== "object") {
+    return {
+      id: "" as TenantId,
+      name: "Unnamed tenant",
+      databaseName: "",
+      description: "",
+      datasourceConfigured: false,
+      status: "active",
+      planCode: "starter",
+      featureFlags: normalizeTenantFeatureFlags(undefined),
+      businessSignalThresholds: normalizeBusinessSignalThresholds(undefined),
+      suspendedReason: null,
+      currentPeriodEnd: null,
+    };
+  }
+
+  const tenant = value as Partial<Tenant>;
+  return {
+    id: String(tenant.id ?? "") as TenantId,
+    name: String(tenant.name ?? tenant.id ?? "Unnamed tenant"),
+    databaseName: String(tenant.databaseName ?? ""),
+    description: String(tenant.description ?? ""),
+    datasourceConfigured: Boolean(tenant.datasourceConfigured),
+    status: normalizeTenantStatus(tenant.status),
+    planCode: normalizePlanCode(tenant.planCode),
+    featureFlags: normalizeTenantFeatureFlags(tenant.featureFlags),
+    businessSignalThresholds: normalizeBusinessSignalThresholds(
+      tenant.businessSignalThresholds,
+    ),
+    suspendedReason:
+      typeof tenant.suspendedReason === "string" ? tenant.suspendedReason : null,
+    currentPeriodEnd:
+      typeof tenant.currentPeriodEnd === "string" ? tenant.currentPeriodEnd : null,
+  };
+}
+
+function normalizeTenantFeatureFlags(value: unknown): TenantFeatureFlags {
+  const parsed = tenantFeatureFlagsSchema.safeParse(value ?? {});
+  return parsed.success ? parsed.data : tenantFeatureFlagsSchema.parse({});
+}
+
+function normalizeBusinessSignalThresholds(
+  value: unknown,
+): BusinessSignalThresholdsConfig {
+  const parsed = businessSignalThresholdsSchema.safeParse(value ?? {});
+  return parsed.success ? parsed.data : businessSignalThresholdsSchema.parse({});
+}
+
+function normalizeBusinessSignals(value: unknown): BusinessSignalRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((signal) => normalizeBusinessSignal(signal))
+    .filter((signal): signal is BusinessSignalRecord => Boolean(signal))
+    .sort(compareBusinessSignals);
+}
+
+function normalizeBusinessSignal(value: unknown): BusinessSignalRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const signal = value as Partial<BusinessSignalRecord>;
+  const reportKey = reportKeySchema.safeParse(signal.source_report_key);
+  if (
+    !signal.id ||
+    !signal.tenant_id ||
+    !signal.signal_key ||
+    !signal.title ||
+    !signal.insight ||
+    !signal.recommended_action ||
+    !signal.source_run_id ||
+    !reportKey.success
+  ) {
+    return null;
+  }
+
+  const category = businessSignalCategorySchema.safeParse(signal.category);
+  const severity = businessSignalSeveritySchema.safeParse(signal.severity);
+  const status = businessSignalStatusSchema.safeParse(signal.status);
+  const now = new Date().toISOString();
+  const amountImpact =
+    typeof signal.amount_impact === "number" && Number.isFinite(signal.amount_impact)
+      ? signal.amount_impact
+      : null;
+
+  return {
+    id: String(signal.id),
+    tenant_id: signal.tenant_id as TenantId,
+    signal_key: String(signal.signal_key),
+    category: category.success ? category.data : "data_quality",
+    severity: severity.success ? severity.data : "warning",
+    title: String(signal.title),
+    insight: String(signal.insight),
+    recommended_action: String(signal.recommended_action),
+    amount_impact: amountImpact,
+    source_report_key: reportKey.data,
+    source_run_id: String(signal.source_run_id),
+    period_from:
+      typeof signal.period_from === "string"
+        ? signal.period_from.slice(0, 10)
+        : now.slice(0, 10),
+    period_to:
+      typeof signal.period_to === "string"
+        ? signal.period_to.slice(0, 10)
+        : now.slice(0, 10),
+    dimension_type:
+      typeof signal.dimension_type === "string"
+        ? signal.dimension_type
+        : "report",
+    dimension_id:
+      typeof signal.dimension_id === "string"
+        ? signal.dimension_id
+        : reportKey.data,
+    rule_version:
+      typeof signal.rule_version === "string"
+        ? signal.rule_version
+        : "unknown",
+    status: status.success ? status.data : "open",
+    evidence_json:
+      signal.evidence_json && typeof signal.evidence_json === "object"
+        ? (signal.evidence_json as Record<string, unknown>)
+        : {},
+    created_at:
+      typeof signal.created_at === "string" ? signal.created_at : now,
+    updated_at:
+      typeof signal.updated_at === "string" ? signal.updated_at : now,
+  };
+}
+
+function normalizeNotificationRules(
+  value: unknown,
+): NotificationRuleRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((rule) => normalizeNotificationRule(rule))
+    .filter((rule): rule is NotificationRuleRecord => Boolean(rule));
+}
+
+function normalizeNotificationRule(
+  value: unknown,
+): NotificationRuleRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const rule = value as Partial<NotificationRuleRecord>;
+  if (!rule.id || !rule.tenant_id || !rule.name) {
+    return null;
+  }
+
+  const schedule = normalizeNotificationSchedule(rule.schedule);
+  const reportKeys = normalizeReportKeys(rule.report_keys);
+  const targetIds = Array.isArray(rule.target_ids)
+    ? rule.target_ids
+        .filter((item): item is string => typeof item === "string" && item.length > 0)
+        .slice(0, 50)
+    : [];
+  if (!schedule.length || !reportKeys.length || !targetIds.length) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: String(rule.id),
+    tenant_id: rule.tenant_id as TenantId,
+    name: String(rule.name),
+    enabled: rule.enabled !== false,
+    timezone: typeof rule.timezone === "string" ? rule.timezone : "Asia/Bangkok",
+    period_preset: normalizeNotificationPeriodPreset(rule.period_preset),
+    schedule,
+    report_keys: reportKeys,
+    target_ids: targetIds,
+    message_packaging: "digest",
+    digest_mode: normalizeNotificationDigestMode(rule.digest_mode),
+    retry_policy: normalizeNotificationRetryPolicy(rule.retry_policy),
+    last_run_at:
+      typeof rule.last_run_at === "string" ? rule.last_run_at : null,
+    last_run_status: normalizeNotificationRunStatus(rule.last_run_status, null),
+    last_safe_error_message:
+      typeof rule.last_safe_error_message === "string"
+        ? rule.last_safe_error_message
+        : null,
+    created_at: rule.created_at ?? now,
+    updated_at: rule.updated_at ?? now,
+  };
+}
+
+function normalizeNotificationRuleRuns(
+  value: unknown,
+): NotificationRuleRunRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((run) => normalizeNotificationRuleRun(run))
+    .filter((run): run is NotificationRuleRunRecord => Boolean(run));
+}
+
+function normalizeNotificationRuleRun(
+  value: unknown,
+): NotificationRuleRunRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const run = value as Partial<NotificationRuleRunRecord>;
+  if (!run.id || !run.rule_id || !run.tenant_id || !run.idempotency_key) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: String(run.id),
+    rule_id: String(run.rule_id),
+    tenant_id: run.tenant_id as TenantId,
+    scheduled_local_date:
+      typeof run.scheduled_local_date === "string"
+        ? run.scheduled_local_date.slice(0, 10)
+        : now.slice(0, 10),
+    scheduled_local_time:
+      typeof run.scheduled_local_time === "string"
+        ? run.scheduled_local_time
+        : "00:00",
+    timezone: typeof run.timezone === "string" ? run.timezone : "Asia/Bangkok",
+    period_from:
+      typeof run.period_from === "string" ? run.period_from.slice(0, 10) : now.slice(0, 10),
+    period_to:
+      typeof run.period_to === "string" ? run.period_to.slice(0, 10) : now.slice(0, 10),
+    status: normalizeNotificationRunStatus(run.status, "failed"),
+    attempt:
+      typeof run.attempt === "number" && Number.isInteger(run.attempt)
+        ? Math.max(1, run.attempt)
+        : 1,
+    idempotency_key: String(run.idempotency_key),
+    report_run_ids: Array.isArray(run.report_run_ids)
+      ? run.report_run_ids.filter((item): item is string => typeof item === "string")
+      : [],
+    delivery_ids: Array.isArray(run.delivery_ids)
+      ? run.delivery_ids.filter((item): item is string => typeof item === "string")
+      : [],
+    safe_error_message:
+      typeof run.safe_error_message === "string"
+        ? run.safe_error_message
+        : null,
+    started_at: typeof run.started_at === "string" ? run.started_at : null,
+    finished_at: typeof run.finished_at === "string" ? run.finished_at : null,
+    next_retry_at:
+      typeof run.next_retry_at === "string" ? run.next_retry_at : null,
+    created_at: run.created_at ?? now,
+    updated_at: run.updated_at ?? now,
+  };
+}
+
+function normalizeNotificationSchedule(
+  value: unknown,
+): NotificationRuleRecord["schedule"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const item = entry as {
+        weekdays?: unknown;
+        times?: unknown;
+      };
+      const weekdays = Array.isArray(item.weekdays)
+        ? item.weekdays
+            .map((weekday) => Number(weekday))
+            .filter((weekday) => Number.isInteger(weekday) && weekday >= 1 && weekday <= 7)
+        : [];
+      const times = Array.isArray(item.times)
+        ? item.times.filter(
+            (time): time is string =>
+              typeof time === "string" && /^\d{2}:\d{2}$/.test(time),
+          )
+        : [];
+
+      return weekdays.length && times.length
+        ? {
+            weekdays: [...new Set(weekdays)].slice(0, 7),
+            times: [...new Set(times)].slice(0, 12),
+          }
+        : null;
+    })
+    .filter(
+      (entry): entry is NotificationRuleRecord["schedule"][number] =>
+        Boolean(entry),
+    );
+}
+
+function normalizeNotificationPeriodPreset(
+  value: unknown,
+): NotificationRuleRecord["period_preset"] {
+  if (value === "today_so_far" || value === "last_7_days") {
+    return value;
+  }
+
+  return "yesterday";
+}
+
+function normalizeNotificationDigestMode(
+  value: unknown,
+): NotificationRuleRecord["digest_mode"] {
+  const parsed = notificationDigestModeSchema.safeParse(value);
+  return parsed.success ? parsed.data : "action_only";
+}
+
+function normalizeNotificationRetryPolicy(
+  value: unknown,
+): NotificationRuleRecord["retry_policy"] {
+  if (!value || typeof value !== "object") {
+    return { max_attempts: 2, retry_delay_minutes: 3 };
+  }
+
+  const policy = value as Partial<NotificationRuleRecord["retry_policy"]>;
+  return {
+    max_attempts:
+      typeof policy.max_attempts === "number" &&
+      Number.isInteger(policy.max_attempts)
+        ? Math.max(1, Math.min(policy.max_attempts, 5))
+        : 2,
+    retry_delay_minutes:
+      typeof policy.retry_delay_minutes === "number" &&
+      Number.isFinite(policy.retry_delay_minutes)
+        ? Math.max(1, Math.min(policy.retry_delay_minutes, 60))
+        : 3,
+  };
+}
+
+function normalizeNotificationRunStatus<T extends NotificationRuleRecord["last_run_status"]>(
+  value: unknown,
+  fallback: T,
+) {
+  if (
+    value === "running" ||
+    value === "success" ||
+    value === "failed" ||
+    value === "skipped"
+  ) {
+    return value;
+  }
+
+  return fallback;
+}
+
 function normalizeLineTargets(
   value: unknown,
 ): StoredLineTargetRecord[] {
@@ -1971,6 +3490,42 @@ function normalizeLineTargets(
   return value
     .map((target) => normalizeLineTarget(target))
     .filter((target): target is StoredLineTargetRecord => Boolean(target));
+}
+
+function normalizeReportRolePermissions(
+  value: unknown,
+): TenantReportRolePermissionRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeReportRolePermission(item))
+    .filter(
+      (
+        permission,
+      ): permission is TenantReportRolePermissionRecord => Boolean(permission),
+    );
+}
+
+function normalizeReportRolePermission(
+  value: unknown,
+): TenantReportRolePermissionRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const permission = value as Partial<TenantReportRolePermissionRecord>;
+  if (!permission.tenant_id || !permission.access_profile_key) {
+    return null;
+  }
+
+  return {
+    tenant_id: permission.tenant_id,
+    access_profile_key: normalizeAccessProfile(permission.access_profile_key),
+    allowed_report_keys: normalizeReportKeys(permission.allowed_report_keys),
+    updated_at: permission.updated_at ?? new Date().toISOString(),
+  };
 }
 
 function normalizeLineTarget(value: unknown): StoredLineTargetRecord | null {
@@ -2102,10 +3657,26 @@ function normalizePlanCode(value: unknown): PlanCode {
 }
 
 function mergeTenants(existing: Tenant[], seeds: Tenant[]) {
-  const byId = new Map(existing.map((tenant) => [tenant.id, tenant]));
+  const byId = new Map(
+    existing.map((tenant) => {
+      const normalized = normalizeTenantRecord(tenant);
+      return [normalized.id, normalized] as const;
+    }),
+  );
   for (const seed of seeds) {
-    const current = byId.get(seed.id);
-    byId.set(seed.id, current ? { ...current, ...seed, status: current.status } : seed);
+    const normalizedSeed = normalizeTenantRecord(seed);
+    const current = byId.get(normalizedSeed.id);
+    byId.set(
+      normalizedSeed.id,
+      current
+        ? {
+            ...current,
+            ...normalizedSeed,
+            status: current.status,
+            featureFlags: current.featureFlags ?? normalizedSeed.featureFlags,
+          }
+        : normalizedSeed,
+    );
   }
 
   return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -2146,6 +3717,7 @@ function normalizeLineChannels(value: unknown): LineChannelRecord[] {
       tenant_id: String(item.tenant_id) as TenantId,
       display_name: String(item.display_name || "LINE OA"),
       channel_type: "line_oa",
+      scope: item.scope === "owner_shared" ? "owner_shared" : "tenant",
       channel_access_token_configured: Boolean(
         item.channel_access_token_configured,
       ),
@@ -2212,6 +3784,8 @@ create table if not exists tenants (
   database_name text not null default '',
   description text not null default '',
   datasource_configured boolean not null default false,
+  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   suspended_reason text,
   current_period_end timestamptz,
   created_at timestamptz not null default now()
@@ -2222,6 +3796,8 @@ alter table tenants
   add column if not exists database_name text not null default '',
   add column if not exists description text not null default '',
   add column if not exists datasource_configured boolean not null default false,
+  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
   add column if not exists current_period_end timestamptz;
 
@@ -2277,6 +3853,36 @@ on report_snapshots (tenant_id, report_key, report_run_id);
 create index if not exists report_runs_latest_idx
 on report_runs (tenant_id, report_key, started_at desc);
 
+create table if not exists business_signals (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  signal_key text not null,
+  category text not null,
+  severity text not null,
+  title text not null,
+  insight text not null,
+  recommended_action text not null,
+  amount_impact numeric,
+  source_report_key text not null references report_definitions(report_key),
+  source_run_id text not null references report_runs(id),
+  period_from date not null,
+  period_to date not null,
+  dimension_type text not null default 'report',
+  dimension_id text not null default '',
+  rule_version text not null,
+  status text not null default 'open',
+  evidence_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, signal_key, period_from, period_to, dimension_type, dimension_id)
+);
+
+create index if not exists business_signals_tenant_period_idx
+on business_signals (tenant_id, period_to desc, severity, status);
+
+create index if not exists business_signals_source_run_idx
+on business_signals (tenant_id, source_report_key, source_run_id);
+
 create table if not exists line_deliveries (
   id text primary key,
   tenant_id text not null references tenants(id),
@@ -2308,6 +3914,61 @@ create index if not exists line_deliveries_delivery_key_idx
 on line_deliveries (tenant_id, report_key, delivery_key, status)
 where delivery_key is not null;
 
+create table if not exists notification_rules (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  name text not null,
+  enabled boolean not null default true,
+  timezone text not null default 'Asia/Bangkok',
+  period_preset text not null default 'yesterday',
+  schedule_json jsonb not null,
+  report_keys_json jsonb not null,
+  target_ids_json jsonb not null,
+  message_packaging text not null default 'digest',
+  digest_mode text not null default 'action_only',
+  retry_policy_json jsonb not null default '{"max_attempts":2,"retry_delay_minutes":3}'::jsonb,
+  last_run_at timestamptz,
+  last_run_status text,
+  last_safe_error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table notification_rules
+  add column if not exists digest_mode text not null default 'action_only';
+
+create index if not exists notification_rules_tenant_idx
+on notification_rules (tenant_id, enabled, updated_at desc);
+
+create table if not exists notification_rule_runs (
+  id text primary key,
+  rule_id text not null references notification_rules(id),
+  tenant_id text not null references tenants(id),
+  scheduled_local_date date not null,
+  scheduled_local_time text not null,
+  timezone text not null default 'Asia/Bangkok',
+  period_from date not null,
+  period_to date not null,
+  status text not null,
+  attempt integer not null default 1,
+  idempotency_key text not null unique,
+  report_run_ids_json jsonb not null default '[]'::jsonb,
+  delivery_ids_json jsonb not null default '[]'::jsonb,
+  safe_error_message text,
+  started_at timestamptz,
+  finished_at timestamptz,
+  next_retry_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists notification_rule_runs_rule_idx
+on notification_rule_runs (rule_id, created_at desc);
+
+create index if not exists notification_rule_runs_retry_idx
+on notification_rule_runs (status, next_retry_at)
+where next_retry_at is not null;
+
 create table if not exists line_targets (
   id text primary key,
   tenant_id text not null references tenants(id),
@@ -2336,11 +3997,23 @@ alter table line_targets
 alter table line_targets
   add column if not exists recipient_count_estimate integer;
 
+create table if not exists tenant_report_role_permissions (
+  tenant_id text not null references tenants(id) on delete cascade,
+  access_profile_key text not null,
+  allowed_report_keys_json jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (tenant_id, access_profile_key)
+);
+
+create index if not exists tenant_report_role_permissions_tenant_idx
+on tenant_report_role_permissions (tenant_id, updated_at desc);
+
 create table if not exists line_channels (
   id text primary key,
   tenant_id text not null references tenants(id),
   display_name text not null,
   channel_type text not null default 'line_oa',
+  scope text not null default 'tenant',
   channel_access_token_configured boolean not null default false,
   channel_secret_configured boolean not null default false,
   enabled boolean not null default true,
@@ -2348,6 +4021,9 @@ create table if not exists line_channels (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table line_channels
+  add column if not exists scope text not null default 'tenant';
 
 create index if not exists line_channels_tenant_idx
 on line_channels (tenant_id, updated_at desc);

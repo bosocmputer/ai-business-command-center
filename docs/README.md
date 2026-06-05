@@ -1,6 +1,6 @@
 # AI Business Command Center Docs
 
-เอกสารชุดนี้คือ living specification สำหรับสร้างระบบ **AI Business Command Center** แบบ multi-channel Morning Brief / Business Brief Hub โดยใช้แนวคิด shared channel knowledge + separated tenant data. SML เป็น channel แรก ส่วน FlowAccount เป็น planned finance/accounting channel แยก ไม่ใช่ระบบ sync จาก SML
+เอกสารชุดนี้คือ living specification สำหรับสร้างระบบ **AI Business Command Center** แบบ multi-channel Business Brief Hub โดยใช้แนวคิด shared channel knowledge + separated tenant data. SML เป็น channel แรกและเชื่อมร้านผ่าน JavaWS-only ส่วน FlowAccount เป็น planned finance/accounting channel แยก ไม่ใช่ระบบ sync จาก SML
 
 เอกสารเดิมใน `proposal_output/` ถือเป็น proposal archive ส่วนเอกสารใน `docs/` คือชุดที่ใช้เดินงานจริง
 
@@ -35,6 +35,9 @@
 | [14_SYSTEM_DB_MIGRATION_TH.md](./14_SYSTEM_DB_MIGRATION_TH.md) | ขั้นตอนย้าย persistence จาก local JSON ไป PostgreSQL system DB |
 | [15_UX_UI_AUDIT_TH.md](./15_UX_UI_AUDIT_TH.md) | UX/UI audit และ TailAdmin alignment checklist |
 | [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) | สถานะล่าสุด, deploy, validation, next steps สำหรับเริ่มงานวันถัดไป |
+| [admin-runbook-store-setup-th.md](./admin-runbook-store-setup-th.md) | คู่มือ Owner เพิ่มร้าน เชื่อม SML JavaWS ตั้ง LINE และแผนแจ้งเตือน |
+| [adr/0001-db-backed-notification-rule-scheduler.md](./adr/0001-db-backed-notification-rule-scheduler.md) | ADR scheduler จาก DB-backed notification rules |
+| [adr/0002-sml-javaws-only-tenant-datasource.md](./adr/0002-sml-javaws-only-tenant-datasource.md) | ADR SML datasource ของร้านใช้ JavaWS-only |
 | [reports/sales_goods_services.md](./reports/sales_goods_services.md) | Report contract แรก: รายงานขายสินค้าและบริการ |
 | [reports/purchase_goods_payables.md](./reports/purchase_goods_payables.md) | Report contract ที่ 2: รายงานซื้อสินค้า/ตั้งหนี้ |
 
@@ -45,7 +48,7 @@
 หลักการสำคัญ:
 
 - 1 tenant เปิดได้หลาย channel เช่น `sml_reports`, `flowaccount_finance`, future `ecommerce`, future `pos`
-- SML เป็น channel แรก ไม่ใช่แกนถาวรของทุก integration
+- SML เป็น channel แรก ไม่ใช่แกนถาวรของทุก integration และ datasource ของร้านใช้ JavaWS-only
 - FlowAccount เป็น finance/accounting brief channel แยก ไม่ใช่ SML document sync target
 - ข้อมูลจริง, credential, report/brief result, LINE target แยกด้วย `tenant_id`
 - report/brief ทุกตัวต้องเป็น approved contract ของ channel นั้น
@@ -104,9 +107,9 @@ Planned channel: flowaccount_finance
 เอกสารนี้ตั้งใจไม่บันทึก credential จริง ตัวอย่าง connection ต้องใช้ placeholder เท่านั้น เช่น:
 
 ```text
-host: <SML_DB_HOST>
-port: <SML_DB_PORT>
+tomcat_url: <SML_TOMCAT_URL>
+tomcat_port: <SML_TOMCAT_PORT>
+sml_config: <SMLConfigxxxx.xml>
 database: <SML_DATABASE>
-username: ai_report_readonly
-password: <SECRET>
+reverse_proxy_secret: <SECRET_IF_USED>
 ```

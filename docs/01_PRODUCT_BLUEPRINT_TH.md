@@ -10,8 +10,8 @@
 
 ระบบเริ่มจาก SML เป็น channel แรก:
 
-- Dashboard จากรายงาน SML PostgreSQL ที่ approved แล้ว
-- LINE OA Morning Brief ทุกเช้า
+- Dashboard จากรายงาน SML ผ่าน JavaWS ที่ approved แล้ว
+- LINE OA notification plans ตามเวลาที่ตั้ง
 - Report library ที่ใช้ร่วมกันทุกลูกค้า
 
 อนาคตต่อยอดเป็น:
@@ -23,7 +23,7 @@
 
 ## One-Line Pitch
 
-ระบบผู้ช่วยผู้บริหารที่เชื่อม business systems หลายช่องทางแบบปลอดภัย แล้วส่ง Dashboard / LINE Morning Brief ที่ trace ได้ทุกเช้า พร้อมต่อยอดเป็น chatbot ที่ตอบจากรายงานที่ตรวจสอบได้
+ระบบผู้ช่วยผู้บริหารที่เชื่อม business systems หลายช่องทางแบบปลอดภัย แล้วส่ง Dashboard / LINE notification digest ที่ trace ได้ พร้อมต่อยอดเป็น chatbot ที่ตอบจากรายงานที่ตรวจสอบได้
 
 ## Core Positioning
 
@@ -40,7 +40,7 @@ Current channel:
 
 ```text
 sml_reports
-  -> SML PostgreSQL read-only approved SQL
+  -> SML JavaWS approved SQL
   -> sales/purchase snapshots
   -> dashboard / LINE / signed viewer / PDF
 ```
@@ -58,7 +58,7 @@ flowaccount_finance
 
 ## Target Customer
 
-- ร้าน/บริษัทที่ใช้ SML PostgreSQL, FlowAccount หรือ business system อื่นที่ต้องการ daily executive brief
+- ร้าน/บริษัทที่ใช้ SML, FlowAccount หรือ business system อื่นที่ต้องการ daily executive brief
 - บริษัทที่มีเจ้าของหรือผู้จัดการต้องดูยอดขายทุกวัน
 - ธุรกิจค้าปลีก/ค้าส่ง/หลายสาขา
 - ธุรกิจที่มีรายงานในระบบต้นทางอยู่แล้ว แต่ยังต้องดึงเอง
@@ -121,7 +121,7 @@ customer data / credentials / LINE target = separated per tenant
 ทำ:
 
 - Tenant เดียวสำหรับ pilot
-- Connect SML PostgreSQL แบบ read-only
+- Connect SML ผ่าน Tomcat JavaWS
 - Report แรก: sales by branch/product จาก query ที่เจ้าของระบบส่งให้
 - Dashboard หน้าแรก
 - LINE OA Morning Brief ทุก 08:00 หรือเวลาที่ config
