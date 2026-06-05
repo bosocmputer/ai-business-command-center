@@ -191,7 +191,7 @@ export type SystemStore = {
   ): Promise<{
     ok: boolean;
     newSessionId?: string;
-    reason?: "not_found" | "expired" | "session_mismatch";
+    reason?: "not_found" | "expired";
   }>;
   purgeExpiredViewerTokens(): Promise<void>;
   close(): Promise<void>;
@@ -2699,7 +2699,7 @@ on conflict (token_hash) do nothing
   ): Promise<{
     ok: boolean;
     newSessionId?: string;
-    reason?: "not_found" | "expired" | "session_mismatch";
+    reason?: "not_found" | "expired";
   }> {
     const newSessionId = randomUUID();
     const result = await this.pool.query(
@@ -2728,18 +2728,17 @@ returning session_id, session_bound_at
 
     const boundSessionId = result.rows[0].session_id as string;
 
-    // First access: boundSessionId === newSessionId (we just set it)
+    // First access: bind a lightweight browser session for observability.
     if (boundSessionId === newSessionId) {
       return { ok: true, newSessionId };
     }
 
-    // Same device: cookie matches already-bound session
-    if (cookieSessionId && cookieSessionId === boundSessionId) {
-      return { ok: true };
-    }
-
-    // Different device: session already bound to another cookie
-    return { ok: false, reason: "session_mismatch" };
+    // LINE links can move between LINE's webview and the external browser on the
+    // same phone, and proxied browser cookies are not stable enough to be a hard
+    // security boundary. The signed token remains bound to tenant/report/run and
+    // expiry; the session is advisory only.
+    void cookieSessionId;
+    return { ok: true };
   }
 
   async purgeExpiredViewerTokens() {

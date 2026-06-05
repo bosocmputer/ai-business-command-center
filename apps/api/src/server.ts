@@ -3283,8 +3283,8 @@ app.get(
     const tokenAccess = await systemStore.accessViewerToken(tokenHash, cookieSessionId);
     if (!tokenAccess.ok) {
       const errorMessage =
-        tokenAccess.reason === "session_mismatch"
-          ? "Report viewer link has already been opened on another device."
+        tokenAccess.reason === "expired"
+          ? "Report viewer link has expired."
           : "Invalid report viewer link.";
       return reply.status(403).send({ error: errorMessage });
     }
@@ -3365,8 +3365,8 @@ app.get(
     const tokenAccess = await systemStore.accessViewerToken(tokenHash, cookieSessionId);
     if (!tokenAccess.ok) {
       const errorMessage =
-        tokenAccess.reason === "session_mismatch"
-          ? "Report viewer link has already been opened on another device."
+        tokenAccess.reason === "expired"
+          ? "Report viewer link has expired."
           : "Invalid report viewer link.";
       return reply.status(403).send({ error: errorMessage });
     }
@@ -3453,8 +3453,8 @@ app.get(
     );
     if (!tokenAccess.ok) {
       const errorMessage =
-        tokenAccess.reason === "session_mismatch"
-          ? "Report viewer link has already been opened on another device."
+        tokenAccess.reason === "expired"
+          ? "Report viewer link has expired."
           : "Invalid report viewer link.";
       return reply.status(403).send({ error: errorMessage });
     }
