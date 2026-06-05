@@ -26,6 +26,7 @@ export type BusinessSignalThresholds = {
   salesDropAmount: number;
   purchaseConcentrationPercent: number;
   missingBranchAmount: number;
+  negativeGrossProfitAmount: number;
   noSalesEnabled: boolean;
 };
 
@@ -35,8 +36,40 @@ export const defaultBusinessSignalThresholds: BusinessSignalThresholds = {
   salesDropAmount: 1000,
   purchaseConcentrationPercent: 80,
   missingBranchAmount: 0,
+  negativeGrossProfitAmount: 0,
   noSalesEnabled: true,
 };
+
+export type DigestIssue = {
+  issue_key: string;
+  title: string;
+  category: BusinessSignalCategory;
+  severity: BusinessSignalSeverity;
+  insight: string;
+  recommended_action: string;
+  amount_impact: number | null;
+  tenant_id: TenantId;
+  period_from: string;
+  period_to: string;
+  generated_at: string;
+  primary_report_key: ReportKey;
+  primary_run_id: string;
+  source_report_keys: ReportKey[];
+  raw_signal_ids: string[];
+  raw_signal_keys: string[];
+  signals: BusinessSignalRecord[];
+};
+
+export type BusinessSignalDigestSelection = {
+  issues: DigestIssue[];
+  totalIssueCount: number;
+  criticalIssueCount: number;
+  warningIssueCount: number;
+  infoIssueCount: number;
+  allIssueKeys: string[];
+};
+
+const ACTION_DIGEST_ISSUE_LIMIT = 2;
 
 export function buildBusinessSignalsForSnapshots(input: {
   snapshots: ReportSnapshot[];
@@ -128,75 +161,127 @@ export function selectPriorityBusinessSignals(
   return [...candidates].sort(compareSignalsByPriority).slice(0, limit);
 }
 
+export function selectBusinessSignalDigestIssues(
+  signals: BusinessSignalRecord[],
+  options?: {
+    limit?: number;
+    thresholds?: Partial<BusinessSignalThresholds>;
+  },
+): BusinessSignalDigestSelection {
+  const thresholds = {
+    ...defaultBusinessSignalThresholds,
+    ...options?.thresholds,
+  };
+  const openSignals = signals.filter((signal) => signal.status === "open");
+  const priority = openSignals.filter((signal) => signal.severity !== "info");
+  const baseCandidates = priority.length ? priority : openSignals;
+  const candidates = baseCandidates.filter((signal) =>
+    shouldIncludeSignalInDigest(signal, thresholds),
+  );
+  const rankedIssues = groupDigestIssues(candidates).sort(
+    compareDigestIssuesByPriority,
+  );
+  const limit = options?.limit ?? ACTION_DIGEST_ISSUE_LIMIT;
+  return {
+    issues: rankedIssues.slice(0, limit),
+    totalIssueCount: rankedIssues.length,
+    criticalIssueCount: rankedIssues.filter(
+      (issue) => issue.severity === "critical",
+    ).length,
+    warningIssueCount: rankedIssues.filter(
+      (issue) => issue.severity === "warning",
+    ).length,
+    infoIssueCount: rankedIssues.filter((issue) => issue.severity === "info")
+      .length,
+    allIssueKeys: rankedIssues.map((issue) => issue.issue_key),
+  };
+}
+
 export function buildBusinessSignalDigestPreview(input: {
   tenantName: string;
   signals: BusinessSignalRecord[];
+  digestSelection?: BusinessSignalDigestSelection;
   dashboardUrls?: Partial<Record<ReportKey, string | null>>;
+  thresholds?: Partial<BusinessSignalThresholds>;
 }): ReportLinePreview | null {
-  const prioritySignals = selectPriorityBusinessSignals(input.signals, 3);
-  const primarySignal = prioritySignals[0];
-  if (!primarySignal) {
+  const selection =
+    input.digestSelection ??
+    selectBusinessSignalDigestIssues(input.signals, {
+      limit: ACTION_DIGEST_ISSUE_LIMIT,
+      thresholds: input.thresholds,
+    });
+  const primaryIssue = selection.issues[0];
+  if (!primaryIssue) {
     return null;
   }
 
-  const bubbles = prioritySignals
-    .map((signal) =>
-      buildSignalBubble({
-        signal,
+  const summaryBubble = buildDigestSummaryBubble({
+    selection,
+    tenantName: input.tenantName,
+    dashboardUrl: getIssueDashboardUrl(primaryIssue, input.dashboardUrls),
+  }).contents;
+  const issueBubbles = selection.issues.map(
+    (issue) =>
+      buildDigestIssueBubble({
+        issue,
         tenantName: input.tenantName,
-        dashboardUrl: input.dashboardUrls?.[signal.source_report_key] ?? null,
+        dashboardUrl: getIssueDashboardUrl(issue, input.dashboardUrls),
       }).contents,
-    )
-    .filter((contents): contents is Record<string, unknown> => Boolean(contents));
-  const flexMessage =
-    bubbles.length > 1
-      ? {
-          type: "flex" as const,
-          altText: `AI Business: ${prioritySignals.length} เรื่องที่ควรดูวันนี้`,
-          contents: {
-            type: "carousel",
-            contents: bubbles,
-          },
-        }
-      : buildSignalBubble({
-          signal: primarySignal,
-          tenantName: input.tenantName,
-          dashboardUrl:
-            input.dashboardUrls?.[primarySignal.source_report_key] ?? null,
-        });
+  );
+  const bubbles = [summaryBubble, ...issueBubbles].filter(
+    (contents): contents is Record<string, unknown> => Boolean(contents),
+  );
+  const flexMessage = {
+    type: "flex" as const,
+    altText: truncateLineText(
+      `AI Business: วันนี้มี ${selection.totalIssueCount.toLocaleString(
+        "th-TH",
+      )} เรื่องต้องดู`,
+      300,
+    ),
+    contents: {
+      type: "carousel",
+      contents: bubbles,
+    },
+  };
   const lines = [
     "AI Business Action Digest",
     "",
     `บริษัท: ${input.tenantName}`,
-    `ช่วงข้อมูล: ${formatDateRange(primarySignal.period_from, primarySignal.period_to)}`,
+    `ช่วงข้อมูล: ${formatDateRange(primaryIssue.period_from, primaryIssue.period_to)}`,
+    `วันนี้มี ${selection.totalIssueCount.toLocaleString("th-TH")} เรื่องต้องดู`,
+    `${selection.criticalIssueCount.toLocaleString(
+      "th-TH",
+    )} เรื่องควรตรวจทันที, ${selection.warningIssueCount.toLocaleString(
+      "th-TH",
+    )} เรื่องมีข้อสังเกต`,
     "",
-    ...prioritySignals.flatMap((signal, index) => [
-      `${index + 1}. ${signal.title}`,
-      `สถานะ: ${formatSeverity(signal.severity)}`,
-      `สรุป: ${signal.insight}`,
-      `ควรทำต่อ: ${signal.recommended_action}`,
-      ...(signal.amount_impact !== null
-        ? [`มูลค่าที่เกี่ยวข้อง: ${formatMoney(signal.amount_impact)} บาท`]
+    ...selection.issues.flatMap((issue, index) => [
+      `${index + 1}. ${issue.title}`,
+      `สถานะ: ${formatSeverity(issue.severity)}`,
+      `สรุป: ${issue.insight}`,
+      `ควรทำต่อ: ${issue.recommended_action}`,
+      ...(issue.amount_impact !== null
+        ? [`มูลค่าที่เกี่ยวข้อง: ${formatMoney(issue.amount_impact)} บาท`]
         : []),
       "",
     ]),
-    "เปิดรายละเอียด: กดปุ่มใน LINE เพื่อดูรายงานต้นทาง",
+    "เปิดรายละเอียด: กดปุ่มใน LINE เพื่อดูรายงานต้นทางตามสิทธิ์",
   ];
 
   return {
-    tenant_id: primarySignal.tenant_id,
-    report_key: primarySignal.source_report_key,
-    run_id: primarySignal.source_run_id,
-    generated_at: primarySignal.created_at,
+    tenant_id: primaryIssue.tenant_id,
+    report_key: primaryIssue.primary_report_key,
+    run_id: primaryIssue.primary_run_id,
+    generated_at: primaryIssue.generated_at,
     source: "sml_javaws",
-    line_message_type: flexMessage ? "flex" : "text",
+    line_message_type: "flex",
     title: "AI Business Action Digest",
     text: lines.join("\n"),
     lines,
     flex_message: flexMessage,
-    warnings: prioritySignals.map((signal) => signal.title),
-    dashboard_url:
-      input.dashboardUrls?.[primarySignal.source_report_key] ?? null,
+    warnings: selection.issues.map((issue) => issue.title),
+    dashboard_url: getIssueDashboardUrl(primaryIssue, input.dashboardUrls),
   } as ReportLinePreview;
 }
 
@@ -485,6 +570,113 @@ function buildGrossProfitSignals(
   return signals;
 }
 
+function shouldIncludeSignalInDigest(
+  signal: BusinessSignalRecord,
+  thresholds: BusinessSignalThresholds,
+) {
+  if (
+    thresholds.negativeGrossProfitAmount > 0 &&
+    isNegativeGrossProfitSignal(signal)
+  ) {
+    return (signal.amount_impact ?? 0) >= thresholds.negativeGrossProfitAmount;
+  }
+  return true;
+}
+
+function groupDigestIssues(signals: BusinessSignalRecord[]) {
+  const groups = new Map<string, BusinessSignalRecord[]>();
+  for (const signal of signals) {
+    const groupKey = getDigestIssueKey(signal);
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), signal]);
+  }
+  return Array.from(groups.entries()).map(([issueKey, groupedSignals]) =>
+    buildDigestIssue(issueKey, groupedSignals),
+  );
+}
+
+function getDigestIssueKey(signal: BusinessSignalRecord) {
+  if (isNegativeGrossProfitSignal(signal)) {
+    return "profit_negative";
+  }
+  return signal.signal_key;
+}
+
+function isNegativeGrossProfitSignal(signal: BusinessSignalRecord) {
+  const grossProfit =
+    typeof signal.evidence_json.gross_profit === "number"
+      ? signal.evidence_json.gross_profit
+      : null;
+  return (
+    signal.category === "profit" &&
+    (signal.signal_key.endsWith(":negative_total_gross_profit") ||
+      signal.signal_key.endsWith(":negative_rows") ||
+      (signal.signal_key.endsWith(":low_margin") &&
+        grossProfit !== null &&
+        grossProfit < 0))
+  );
+}
+
+function buildDigestIssue(
+  issueKey: string,
+  groupedSignals: BusinessSignalRecord[],
+): DigestIssue {
+  const signals = [...groupedSignals].sort(compareSignalsByPriority);
+  const primarySignal = signals[0];
+  if (!primarySignal) {
+    throw new Error("Digest issue requires at least one signal.");
+  }
+
+  const sourceReportKeys = uniqueReportKeys(
+    signals.map((signal) => signal.source_report_key),
+  );
+  if (issueKey === "profit_negative") {
+    const reportList = formatIssueReportKeys(sourceReportKeys);
+    return {
+      issue_key: issueKey,
+      title: "กำไรติดลบ",
+      category: "profit",
+      severity: mostSevere(signals),
+      insight:
+        sourceReportKeys.length > 1
+          ? `พบกำไรติดลบในมุม ${reportList} ปัญหานี้เป็นเรื่องเดียวกันในมุมเจ้าของร้าน`
+          : `พบกำไรติดลบในมุม ${reportList} ควรตรวจราคาขาย ต้นทุน หรือรายการคืนสินค้า`,
+      recommended_action:
+        "เปิดรายละเอียดเพื่อตรวจราคาขาย ต้นทุน รายการคืนสินค้า และดูแยกตามสินค้า/ลูกหนี้ตามสิทธิ์",
+      amount_impact: maxSignalAmountImpact(signals),
+      tenant_id: primarySignal.tenant_id,
+      period_from: primarySignal.period_from,
+      period_to: primarySignal.period_to,
+      generated_at: primarySignal.created_at,
+      primary_report_key: primarySignal.source_report_key,
+      primary_run_id: primarySignal.source_run_id,
+      source_report_keys: sourceReportKeys,
+      raw_signal_ids: signals.map((signal) => signal.id),
+      raw_signal_keys: signals.map((signal) => signal.signal_key),
+      signals,
+    };
+  }
+
+  return {
+    issue_key: issueKey,
+    title: primarySignal.title,
+    category: primarySignal.category,
+    severity: primarySignal.severity,
+    insight: primarySignal.insight,
+    recommended_action: primarySignal.recommended_action,
+    amount_impact: primarySignal.amount_impact,
+    tenant_id: primarySignal.tenant_id,
+    period_from: primarySignal.period_from,
+    period_to: primarySignal.period_to,
+    generated_at: primarySignal.created_at,
+    primary_report_key: primarySignal.source_report_key,
+    primary_run_id: primarySignal.source_run_id,
+    source_report_keys: sourceReportKeys,
+    raw_signal_ids: signals.map((signal) => signal.id),
+    raw_signal_keys: signals.map((signal) => signal.signal_key),
+    signals,
+  };
+}
+
 function makeSignal(input: {
   tenant_id: TenantId;
   signal_key: string;
@@ -550,36 +742,102 @@ function makeSignal(input: {
   };
 }
 
-function buildSignalBubble(input: {
-  signal: BusinessSignalRecord;
+function buildDigestSummaryBubble(input: {
+  selection: BusinessSignalDigestSelection;
   tenantName: string;
   dashboardUrl: string | null;
 }) {
-  const status = toDigestStatus(input.signal.severity);
+  const status =
+    input.selection.criticalIssueCount > 0
+      ? ({ text: "ควรตรวจทันที", severity: "critical" } satisfies ExecutiveDigestStatus)
+      : input.selection.warningIssueCount > 0
+        ? ({ text: "มีข้อสังเกต", severity: "notice" } satisfies ExecutiveDigestStatus)
+        : ({ text: "ข้อมูลประกอบ", severity: "ready" } satisfies ExecutiveDigestStatus);
+  const shownIssueCount = input.selection.issues.length;
+  const primaryIssue = input.selection.issues[0];
   return buildExecutiveDigestFlexMessage({
-    title: truncateLineText(input.signal.title, 34),
+    title: `วันนี้มี ${input.selection.totalIssueCount.toLocaleString(
+      "th-TH",
+    )} เรื่องต้องดู`,
+    subtitle: input.tenantName,
+    altText: `AI Business: วันนี้มี ${input.selection.totalIssueCount.toLocaleString(
+      "th-TH",
+    )} เรื่องต้องดู`,
+    generatedAt: primaryIssue
+      ? formatThaiDateTime(primaryIssue.generated_at)
+      : formatThaiDateTime(new Date().toISOString()),
+    status,
+    primaryAmount: `${input.selection.totalIssueCount.toLocaleString(
+      "th-TH",
+    )} เรื่อง`,
+    primaryAmountColor:
+      input.selection.criticalIssueCount > 0 ? "#B42318" : undefined,
+    metrics: [
+      {
+        label: "ควรตรวจทันที",
+        value: `${input.selection.criticalIssueCount.toLocaleString("th-TH")} เรื่อง`,
+      },
+      {
+        label: "มีข้อสังเกต",
+        value: `${input.selection.warningIssueCount.toLocaleString("th-TH")} เรื่อง`,
+      },
+      {
+        label: "แสดงใน LINE",
+        value:
+          input.selection.totalIssueCount > shownIssueCount
+            ? `${shownIssueCount.toLocaleString("th-TH")} เรื่องแรก`
+            : `${shownIssueCount.toLocaleString("th-TH")} เรื่อง`,
+      },
+    ],
+    insight:
+      input.selection.totalIssueCount > shownIssueCount
+        ? `คัด ${shownIssueCount.toLocaleString(
+            "th-TH",
+          )} เรื่องสำคัญแรกจากทั้งหมดเพื่อให้เริ่มตรวจได้เร็ว`
+        : "คัดเฉพาะเรื่องที่ควรดูจากรายงานล่าสุด ไม่ส่งทุก report ให้รบกวน",
+    topLine: primaryIssue
+      ? {
+          label: "เริ่มจาก",
+          value: primaryIssue.title,
+        }
+      : null,
+    dashboardUrl: isValidLineUri(input.dashboardUrl)
+      ? input.dashboardUrl
+      : null,
+    actionLabel: "เปิดภาพรวม",
+  });
+}
+
+function buildDigestIssueBubble(input: {
+  issue: DigestIssue;
+  tenantName: string;
+  dashboardUrl: string | null;
+}) {
+  const status = toDigestStatus(input.issue.severity);
+  return buildExecutiveDigestFlexMessage({
+    title: truncateLineText(input.issue.title, 34),
     subtitle: `${input.tenantName} · ${formatDateRange(
-      input.signal.period_from,
-      input.signal.period_to,
+      input.issue.period_from,
+      input.issue.period_to,
     )}`,
-    altText: `${input.signal.title}: ${input.signal.insight}`,
-    generatedAt: formatThaiDateTime(input.signal.created_at),
+    altText: `${input.issue.title}: ${input.issue.insight}`,
+    generatedAt: formatThaiDateTime(input.issue.generated_at),
     status,
     primaryAmount:
-      input.signal.amount_impact !== null
-        ? `${formatMoney(input.signal.amount_impact)} บาท`
-        : formatSeverity(input.signal.severity),
+      input.issue.amount_impact !== null
+        ? `${formatMoney(input.issue.amount_impact)} บาท`
+        : formatSeverity(input.issue.severity),
     primaryAmountColor:
-      input.signal.severity === "critical" ? "#B42318" : undefined,
+      input.issue.severity === "critical" ? "#B42318" : undefined,
     metrics: [
-      { label: "หมวด", value: formatCategory(input.signal.category) },
-      { label: "รายงาน", value: formatReportKey(input.signal.source_report_key) },
-      { label: "สถานะ", value: formatSeverity(input.signal.severity) },
+      { label: "หมวด", value: formatCategory(input.issue.category) },
+      { label: "รายงาน", value: formatIssueReportKeys(input.issue.source_report_keys) },
+      { label: "สถานะ", value: formatSeverity(input.issue.severity) },
     ],
-    insight: input.signal.insight,
+    insight: input.issue.insight,
     topLine: {
       label: "ควรทำต่อ",
-      value: input.signal.recommended_action,
+      value: input.issue.recommended_action,
     },
     dashboardUrl: isValidLineUri(input.dashboardUrl)
       ? input.dashboardUrl
@@ -587,10 +845,32 @@ function buildSignalBubble(input: {
   });
 }
 
+function getIssueDashboardUrl(
+  issue: DigestIssue,
+  dashboardUrls?: Partial<Record<ReportKey, string | null>>,
+) {
+  for (const reportKey of issue.source_report_keys) {
+    const dashboardUrl = dashboardUrls?.[reportKey] ?? null;
+    if (isValidLineUri(dashboardUrl)) {
+      return dashboardUrl;
+    }
+  }
+  return null;
+}
+
 function compareSignalsByPriority(
   left: BusinessSignalRecord,
   right: BusinessSignalRecord,
 ) {
+  const severityDelta =
+    severityRank(right.severity) - severityRank(left.severity);
+  if (severityDelta) {
+    return severityDelta;
+  }
+  return (right.amount_impact ?? 0) - (left.amount_impact ?? 0);
+}
+
+function compareDigestIssuesByPriority(left: DigestIssue, right: DigestIssue) {
   const severityDelta =
     severityRank(right.severity) - severityRank(left.severity);
   if (severityDelta) {
@@ -625,6 +905,36 @@ function sumNegativeImpact(rows: Array<{ gross_profit: number }>) {
     0,
   );
   return total > 0 ? round(total) : null;
+}
+
+function maxSignalAmountImpact(signals: BusinessSignalRecord[]) {
+  const amounts = signals
+    .map((signal) => signal.amount_impact)
+    .filter((amount): amount is number => amount !== null);
+  if (!amounts.length) {
+    return null;
+  }
+  return round(Math.max(...amounts));
+}
+
+function mostSevere(signals: BusinessSignalRecord[]) {
+  return signals.reduce<BusinessSignalSeverity>(
+    (highest, signal) =>
+      severityRank(signal.severity) > severityRank(highest)
+        ? signal.severity
+        : highest,
+    "info",
+  );
+}
+
+function uniqueReportKeys(reportKeys: ReportKey[]) {
+  return reportKeys.filter(
+    (reportKey, index, all) => all.indexOf(reportKey) === index,
+  );
+}
+
+function formatIssueReportKeys(reportKeys: ReportKey[]) {
+  return reportKeys.map((reportKey) => formatReportKey(reportKey)).join("/");
 }
 
 function formatMoney(value: number) {

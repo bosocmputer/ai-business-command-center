@@ -92,7 +92,7 @@ Policy:
 - `past_due`: ยังใช้งานได้ แต่ owner เห็น warning
 - `suspended` / `cancelled`: customer viewer ถูก block และ scheduler ไม่ส่ง LINE
 - `feature_flags_json`: rollout gate เช่น Business Signals, LINE Action Digest v2, Demo Mode
-- `business_signal_thresholds_json`: threshold override ต่อร้าน ถ้าไม่มีค่าใช้ default กลาง
+- `business_signal_thresholds_json`: threshold override ต่อร้าน ถ้าไม่มีค่าใช้ default กลาง เช่น `negative_gross_profit_amount = 0` หมายถึงไม่ตั้งขั้นต่ำสำหรับกำไรติดลบใน Action Digest
 
 ### secrets
 

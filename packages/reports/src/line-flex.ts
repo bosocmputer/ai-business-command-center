@@ -25,6 +25,7 @@ export function buildExecutiveDigestFlexMessage(input: {
   topLine?: { label: string; value: string } | null;
   note?: string | null;
   dashboardUrl?: string | null;
+  actionLabel?: string | null;
 }): LineFlexMessage {
   const footerContents = isValidLineUri(input.dashboardUrl)
     ? [
@@ -35,7 +36,7 @@ export function buildExecutiveDigestFlexMessage(input: {
           height: "sm",
           action: {
             type: "uri",
-            label: "เปิดรายละเอียด",
+            label: input.actionLabel ?? "เปิดรายละเอียด",
             uri: input.dashboardUrl,
           },
         },

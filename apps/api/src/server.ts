@@ -92,7 +92,7 @@ import {
   buildBusinessSignalDigestPreview,
   buildBusinessSignalsForSnapshots,
   buildReportFailureBusinessSignal,
-  selectPriorityBusinessSignals,
+  selectBusinessSignalDigestIssues,
   renderGrossProfitLinePreview,
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
@@ -5161,6 +5161,7 @@ function getBusinessSignalThresholdsForTenant(tenant: Tenant) {
     salesDropAmount: thresholds.sales_drop_amount,
     purchaseConcentrationPercent: thresholds.purchase_concentration_percent,
     missingBranchAmount: thresholds.missing_branch_amount,
+    negativeGrossProfitAmount: thresholds.negative_gross_profit_amount,
     noSalesEnabled: thresholds.no_sales_enabled,
   };
 }
@@ -5474,18 +5475,6 @@ async function executeNotificationRule(input: {
     }
     deliveryTargetHashes.add(target.target_id_hash);
 
-    const previews: ReportLinePreview[] = [];
-    const dashboardUrls: Partial<Record<ReportKey, string | null>> = {};
-    for (const snapshot of snapshots) {
-      const reportPreview = await buildNotificationReportPreview({
-        tenant,
-        target,
-        snapshot,
-      });
-      previews.push(reportPreview);
-      dashboardUrls[snapshot.report_key] = reportPreview.dashboard_url ?? null;
-    }
-
     const allowedSignals = businessSignals.filter((signal) =>
       canAccessLineReport({
         tenantId: input.rule.tenant_id,
@@ -5515,18 +5504,62 @@ async function executeNotificationRule(input: {
 
     const shouldUseActionDigest =
       input.rule.digest_mode === "action_only" && lineActionDigestV2Enabled;
-    const actionDigestSignals =
+    const dashboardUrls: Partial<Record<ReportKey, string | null>> = {};
+    const reportPreviewCache = new Map<ReportKey, ReportLinePreview>();
+    const buildPreviewForSnapshot = async (snapshot: ReportSnapshot) => {
+      const cached = reportPreviewCache.get(snapshot.report_key);
+      if (cached) {
+        return cached;
+      }
+      const reportPreview = await buildNotificationReportPreview({
+        tenant,
+        target,
+        snapshot,
+      });
+      reportPreviewCache.set(snapshot.report_key, reportPreview);
+      dashboardUrls[snapshot.report_key] = reportPreview.dashboard_url ?? null;
+      return reportPreview;
+    };
+    const actionDigestSelection =
       shouldUseActionDigest && allowedSignals.length
-        ? selectPriorityBusinessSignals(allowedSignals, 3)
-        : [];
-    const actionDigestPreview = actionDigestSignals.length
+        ? selectBusinessSignalDigestIssues(allowedSignals, {
+            limit: 2,
+            thresholds: getBusinessSignalThresholdsForTenant(tenant),
+          })
+        : null;
+    const actionDigestSignals =
+      actionDigestSelection?.issues.flatMap((issue) => issue.signals) ?? [];
+    if (actionDigestSelection?.issues.length) {
+      const selectedReportKeys = new Set(
+        actionDigestSelection.issues.flatMap((issue) => issue.source_report_keys),
+      );
+      for (const snapshot of snapshots) {
+        if (selectedReportKeys.has(snapshot.report_key)) {
+          await buildPreviewForSnapshot(snapshot);
+        }
+      }
+    }
+    const actionDigestPreview = actionDigestSelection?.issues.length
       ? buildBusinessSignalDigestPreview({
           tenantName: tenant.name,
           signals: actionDigestSignals,
+          digestSelection: actionDigestSelection,
           dashboardUrls,
         })
       : null;
-    const preview = actionDigestPreview ?? buildNotificationDigestPreview(previews);
+    const fallbackPreviews = actionDigestPreview
+      ? []
+      : await Promise.all(
+          snapshots.map((snapshot) => buildPreviewForSnapshot(snapshot)),
+        );
+    const preview =
+      actionDigestPreview ?? buildNotificationDigestPreview(fallbackPreviews);
+    const digestIssueAuditMapping =
+      actionDigestSelection?.issues.map((issue) => ({
+        issue_key: issue.issue_key,
+        raw_signal_ids: issue.raw_signal_ids,
+        raw_signal_keys: issue.raw_signal_keys,
+      })) ?? [];
     const deliveryKey = [
       "notification_rule",
       input.rule.id,
@@ -5585,6 +5618,10 @@ async function executeNotificationRule(input: {
         safe_error_message: delivery.safe_error_message,
         digest_mode: input.rule.digest_mode,
         action_digest_requested: shouldUseActionDigest,
+        digest_issue_count: actionDigestSelection?.issues.length ?? 0,
+        digest_issue_keys:
+          actionDigestSelection?.issues.map((issue) => issue.issue_key) ?? [],
+        digest_issues: digestIssueAuditMapping,
         business_signal_ids: actionDigestSignals.map((signal) => signal.id),
         business_signal_keys: actionDigestSignals.map(
           (signal) => signal.signal_key,
@@ -5611,6 +5648,10 @@ async function executeNotificationRule(input: {
           source: input.source,
           target_id_hash: target.target_id_hash,
           target_id_masked: delivery.target_id_masked,
+          digest_issue_count: actionDigestSelection?.issues.length ?? 0,
+          digest_issue_keys:
+            actionDigestSelection?.issues.map((issue) => issue.issue_key) ?? [],
+          digest_issues: digestIssueAuditMapping,
           business_signal_ids: actionDigestSignals.map((signal) => signal.id),
           business_signal_keys: actionDigestSignals.map(
             (signal) => signal.signal_key,

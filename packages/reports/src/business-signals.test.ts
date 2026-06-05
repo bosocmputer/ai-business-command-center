@@ -3,9 +3,12 @@ import {
   buildBusinessSignalDigestPreview,
   buildBusinessSignalsForSnapshots,
   buildReportFailureBusinessSignal,
-  selectPriorityBusinessSignals,
+  selectBusinessSignalDigestIssues,
 } from "./business-signals.js";
-import { summarizeGrossProfitByProduct } from "./gross-profit.js";
+import {
+  summarizeGrossProfitByArCustomer,
+  summarizeGrossProfitByProduct,
+} from "./gross-profit.js";
 import { summarizePurchaseGoodsPayables } from "./purchase-goods-payables.js";
 import { summarizeSalesGoodsServices } from "./sales-goods-services.js";
 
@@ -183,7 +186,143 @@ describe("business signal engine", () => {
     ).toContain("sales:missing_branch");
   });
 
-  it("limits the action digest to three priority signals and keeps Flex copy non-technical", () => {
+  it("groups duplicate negative profit signals into one owner-level digest issue", () => {
+    const productSnapshot = summarizeGrossProfitByProduct({
+      tenant_id: tenantId,
+      run_id: "run_gross_product_duplicate",
+      params,
+      generated_at: generatedAt,
+      source: "sml_javaws",
+      rows: [
+        grossProfitProductRow({
+          amount_sale: 1000,
+          cost_sale: 84389.09,
+          name_1: "สินค้าขาดทุนหนัก",
+        }),
+      ],
+    });
+    const arSnapshot = summarizeGrossProfitByArCustomer({
+      tenant_id: tenantId,
+      run_id: "run_gross_ar_duplicate",
+      params,
+      generated_at: generatedAt,
+      source: "sml_javaws",
+      rows: [
+        grossProfitArRow({
+          amount_sale: 1000,
+          cost_sale: 86663.06,
+          ar_detail: "ลูกหนี้ขาดทุนหนัก",
+        }),
+      ],
+    });
+    const signals = buildBusinessSignalsForSnapshots({
+      snapshots: [productSnapshot, arSnapshot],
+      now: generatedAt,
+    });
+    const selection = selectBusinessSignalDigestIssues(signals);
+    const profitIssue = selection.issues.find(
+      (issue) => issue.issue_key === "profit_negative",
+    );
+
+    expect(selection.allIssueKeys.filter((key) => key === "profit_negative")).toHaveLength(1);
+    expect(profitIssue).toMatchObject({
+      title: "กำไรติดลบ",
+      severity: "critical",
+      amount_impact: 85663.06,
+      source_report_keys: [
+        "gross_profit_by_ar_customer",
+        "gross_profit_by_product",
+      ],
+    });
+    expect(profitIssue?.raw_signal_keys).toEqual(
+      expect.arrayContaining([
+        "gross_profit_by_product:negative_total_gross_profit",
+        "gross_profit_by_ar_customer:negative_rows",
+      ]),
+    );
+  });
+
+  it("filters small negative profit issues from the digest by tenant threshold without deleting raw signals", () => {
+    const grossSnapshot = summarizeGrossProfitByProduct({
+      tenant_id: tenantId,
+      run_id: "run_gross_small_negative",
+      params,
+      generated_at: generatedAt,
+      source: "sml_javaws",
+      rows: [
+        grossProfitProductRow({
+          amount_sale: 100,
+          cost_sale: 137.06,
+          name_1: "สินค้าขาดทุนเล็ก",
+        }),
+      ],
+    });
+    const signals = buildBusinessSignalsForSnapshots({
+      snapshots: [grossSnapshot],
+      now: generatedAt,
+    });
+    const selection = selectBusinessSignalDigestIssues(signals, {
+      thresholds: { negativeGrossProfitAmount: 1000 },
+    });
+
+    expect(signals.map((signal) => signal.signal_key)).toEqual(
+      expect.arrayContaining([
+        "gross_profit_by_product:negative_total_gross_profit",
+        "gross_profit_by_product:negative_rows",
+      ]),
+    );
+    expect(selection.totalIssueCount).toBe(0);
+    expect(selection.issues).toHaveLength(0);
+  });
+
+  it("groups only permission-filtered signals so inaccessible profit reports do not leak into digest issues", () => {
+    const productSnapshot = summarizeGrossProfitByProduct({
+      tenant_id: tenantId,
+      run_id: "run_gross_product_permission",
+      params,
+      generated_at: generatedAt,
+      source: "sml_javaws",
+      rows: [
+        grossProfitProductRow({
+          amount_sale: 1000,
+          cost_sale: 3000,
+          name_1: "สินค้าห้ามเห็น",
+        }),
+      ],
+    });
+    const arSnapshot = summarizeGrossProfitByArCustomer({
+      tenant_id: tenantId,
+      run_id: "run_gross_ar_permission",
+      params,
+      generated_at: generatedAt,
+      source: "sml_javaws",
+      rows: [
+        grossProfitArRow({
+          amount_sale: 1000,
+          cost_sale: 4000,
+          ar_detail: "ลูกหนี้ที่เห็นได้",
+        }),
+      ],
+    });
+    const signals = buildBusinessSignalsForSnapshots({
+      snapshots: [productSnapshot, arSnapshot],
+      now: generatedAt,
+    });
+    const allowedSignals = signals.filter(
+      (signal) => signal.source_report_key === "gross_profit_by_ar_customer",
+    );
+    const selection = selectBusinessSignalDigestIssues(allowedSignals);
+
+    expect(selection.issues[0]).toMatchObject({
+      issue_key: "profit_negative",
+      source_report_keys: ["gross_profit_by_ar_customer"],
+    });
+    expect(selection.issues[0]?.raw_signal_keys.join("|")).not.toContain(
+      "gross_profit_by_product",
+    );
+  });
+
+  it("renders summary plus at most two issue cards and keeps Flex copy non-technical", () => {
     const salesSnapshot = summarizeSalesGoodsServices({
       tenant_id: tenantId,
       run_id: "run_sales_signal",
@@ -254,7 +393,7 @@ describe("business signal engine", () => {
       snapshots: [salesSnapshot, purchaseSnapshot, grossSnapshot],
       now: generatedAt,
     });
-    const priority = selectPriorityBusinessSignals(signals, 3);
+    const selection = selectBusinessSignalDigestIssues(signals);
     const preview = buildBusinessSignalDigestPreview({
       tenantName: "Demo Shop",
       signals,
@@ -265,12 +404,64 @@ describe("business signal engine", () => {
       },
     });
     const flexPayload = JSON.stringify(preview?.flex_message);
+    const carousel = preview?.flex_message?.contents as
+      | { contents?: unknown[] }
+      | undefined;
 
-    expect(priority).toHaveLength(3);
+    expect(selection.issues).toHaveLength(2);
+    expect(carousel?.contents).toHaveLength(3);
     expect(preview?.line_message_type).toBe("flex");
+    expect(preview?.flex_message?.altText.length).toBeLessThanOrEqual(300);
+    expect(flexPayload).toContain("วันนี้มี");
+    expect(flexPayload).toContain("เปิดภาพรวม");
     expect(flexPayload).toContain("เปิดรายละเอียด");
     expect(flexPayload).not.toContain("branch_code");
     expect(flexPayload).not.toContain("ic_trans");
     expect(flexPayload).not.toContain("snapshot");
   });
 });
+
+function grossProfitProductRow(input: {
+  amount_sale: number;
+  cost_sale: number;
+  name_1: string;
+}) {
+  return {
+    code: "SKU-TEST",
+    name_1: input.name_1,
+    unit_name: "PCS(ชิ้น)",
+    qty_sale: 1,
+    amount_sale: input.amount_sale,
+    cost_sale: input.cost_sale,
+    qty_sale_return: 0,
+    amount_sale_return: 0,
+    cost_sale_return: 0,
+    net_qty: 0,
+    net_amount: 0,
+    net_cost: 0,
+    gross_profit: 0,
+    gross_margin_percent: null,
+  };
+}
+
+function grossProfitArRow(input: {
+  amount_sale: number;
+  cost_sale: number;
+  ar_detail: string;
+}) {
+  return {
+    ar_code: "AR-TEST",
+    ar_detail: input.ar_detail,
+    qty_sale: 1,
+    amount_sale: input.amount_sale,
+    cost_sale: input.cost_sale,
+    qty_sale_return: 0,
+    amount_sale_return: 0,
+    cost_sale_return: 0,
+    net_qty: 0,
+    net_amount: 0,
+    net_cost: 0,
+    gross_profit: 0,
+    gross_margin_percent: null,
+  };
+}

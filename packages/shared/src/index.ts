@@ -36,6 +36,11 @@ export const businessSignalThresholdsSchema = z.object({
   sales_drop_amount: z.coerce.number().min(0).max(1_000_000_000).default(1000),
   purchase_concentration_percent: z.coerce.number().min(0).max(100).default(80),
   missing_branch_amount: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  negative_gross_profit_amount: z.coerce
+    .number()
+    .min(0)
+    .max(1_000_000_000)
+    .default(0),
   no_sales_enabled: z.boolean().default(true),
 });
 

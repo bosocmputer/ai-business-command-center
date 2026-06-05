@@ -7541,6 +7541,8 @@ function TenantDetailPanel({
   const [editPurchaseConcentrationPercent, setEditPurchaseConcentrationPercent] =
     useState("80");
   const [editMissingBranchAmount, setEditMissingBranchAmount] = useState("0");
+  const [editNegativeGrossProfitAmount, setEditNegativeGrossProfitAmount] =
+    useState("0");
   const [editNoSalesEnabled, setEditNoSalesEnabled] = useState(true);
   const [editCurrentPeriodEnd, setEditCurrentPeriodEnd] = useState("");
   const [editSuspendedReason, setEditSuspendedReason] = useState("");
@@ -7574,6 +7576,9 @@ function TenantDetailPanel({
       String(thresholds.purchase_concentration_percent),
     );
     setEditMissingBranchAmount(String(thresholds.missing_branch_amount));
+    setEditNegativeGrossProfitAmount(
+      String(thresholds.negative_gross_profit_amount),
+    );
     setEditNoSalesEnabled(thresholds.no_sales_enabled);
     setEditCurrentPeriodEnd(toDatetimeLocalValue(tenant.currentPeriodEnd));
     setEditSuspendedReason(tenant.suspendedReason ?? "");
@@ -7599,6 +7604,14 @@ function TenantDetailPanel({
   const readiness = getTenantReadiness(item, datasourceTest);
   const saveBusy = busy === `${tenant.id}-save`;
   const cancelBusy = busy === `${tenant.id}-cancel`;
+  const thresholdValidation = validateTenantThresholdInputs({
+    lowGrossMarginPercent: editLowGrossMarginPercent,
+    salesDropPercent: editSalesDropPercent,
+    salesDropAmount: editSalesDropAmount,
+    purchaseConcentrationPercent: editPurchaseConcentrationPercent,
+    missingBranchAmount: editMissingBranchAmount,
+    negativeGrossProfitAmount: editNegativeGrossProfitAmount,
+  });
   const canCancel =
     tenant.status !== "cancelled" &&
     deleteConfirmName.trim() === tenant.name.trim() &&
@@ -7629,6 +7642,9 @@ function TenantDetailPanel({
     if (!tenant) {
       return;
     }
+    if (!thresholdValidation.ok) {
+      return;
+    }
     await onUpdateTenant(tenant, {
       name: editName.trim(),
       description: editDescription.trim(),
@@ -7640,17 +7656,14 @@ function TenantDetailPanel({
         demo_mode_enabled: editDemoModeEnabled,
       },
       business_signal_thresholds: {
-        low_gross_margin_percent: coerceThresholdNumber(
-          editLowGrossMarginPercent,
-          5,
-        ),
-        sales_drop_percent: coerceThresholdNumber(editSalesDropPercent, 20),
-        sales_drop_amount: coerceThresholdNumber(editSalesDropAmount, 1000),
-        purchase_concentration_percent: coerceThresholdNumber(
-          editPurchaseConcentrationPercent,
-          80,
-        ),
-        missing_branch_amount: coerceThresholdNumber(editMissingBranchAmount, 0),
+        low_gross_margin_percent: thresholdValidation.values.lowGrossMarginPercent,
+        sales_drop_percent: thresholdValidation.values.salesDropPercent,
+        sales_drop_amount: thresholdValidation.values.salesDropAmount,
+        purchase_concentration_percent:
+          thresholdValidation.values.purchaseConcentrationPercent,
+        missing_branch_amount: thresholdValidation.values.missingBranchAmount,
+        negative_gross_profit_amount:
+          thresholdValidation.values.negativeGrossProfitAmount,
         no_sales_enabled: editNoSalesEnabled,
       },
       current_period_end: fromDatetimeLocalValue(editCurrentPeriodEnd),
@@ -7895,6 +7908,13 @@ function TenantDetailPanel({
               onChange={setEditMissingBranchAmount}
               value={editMissingBranchAmount}
             />
+            <ThresholdInput
+              description="0 = ไม่ตั้งขั้นต่ำ ถ้าตั้ง 1,000 จะไม่ส่งกำไรติดลบเล็ก ๆ เข้า LINE"
+              label="กำไรติดลบขั้นต่ำ (บาท)"
+              min={0}
+              onChange={setEditNegativeGrossProfitAmount}
+              value={editNegativeGrossProfitAmount}
+            />
             <label className="flex min-h-11 min-w-0 gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-gray-800 dark:bg-white/[0.02]">
               <input
                 checked={editNoSalesEnabled}
@@ -7912,10 +7932,18 @@ function TenantDetailPanel({
               </span>
             </label>
           </div>
+          {!thresholdValidation.ok ? (
+            <p className="mt-3 rounded-lg border border-error-200 bg-error-50 px-3 py-2 text-xs leading-5 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
+              {thresholdValidation.message}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button disabled={saveBusy || !editName.trim()} size="sm">
+          <Button
+            disabled={saveBusy || !editName.trim() || !thresholdValidation.ok}
+            size="sm"
+          >
             {saveBusy ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
           </Button>
           {tenant.status === "cancelled" ? (
@@ -8889,13 +8917,117 @@ function getTenantBusinessSignalThresholds(
       tenant.businessSignalThresholds?.purchase_concentration_percent ?? 80,
     missing_branch_amount:
       tenant.businessSignalThresholds?.missing_branch_amount ?? 0,
+    negative_gross_profit_amount:
+      tenant.businessSignalThresholds?.negative_gross_profit_amount ?? 0,
     no_sales_enabled: tenant.businessSignalThresholds?.no_sales_enabled ?? true,
   };
 }
 
-function coerceThresholdNumber(value: string, fallback: number) {
+function validateTenantThresholdInputs(input: {
+  lowGrossMarginPercent: string;
+  salesDropPercent: string;
+  salesDropAmount: string;
+  purchaseConcentrationPercent: string;
+  missingBranchAmount: string;
+  negativeGrossProfitAmount: string;
+}):
+  | {
+      ok: true;
+      values: {
+        lowGrossMarginPercent: number;
+        salesDropPercent: number;
+        salesDropAmount: number;
+        purchaseConcentrationPercent: number;
+        missingBranchAmount: number;
+        negativeGrossProfitAmount: number;
+      };
+    }
+  | { ok: false; message: string } {
+  const lowGrossMarginPercent = parseThresholdNumber(
+    "Margin ต่ำกว่า (%)",
+    input.lowGrossMarginPercent,
+    { min: 0, max: 100 },
+  );
+  const salesDropPercent = parseThresholdNumber(
+    "ยอดขายตก (%)",
+    input.salesDropPercent,
+    { min: 0, max: 100 },
+  );
+  const salesDropAmount = parseThresholdNumber(
+    "ยอดขายตกขั้นต่ำ (บาท)",
+    input.salesDropAmount,
+    { min: 0 },
+  );
+  const purchaseConcentrationPercent = parseThresholdNumber(
+    "ยอดซื้อกระจุก (%)",
+    input.purchaseConcentrationPercent,
+    { min: 0, max: 100 },
+  );
+  const missingBranchAmount = parseThresholdNumber(
+    "ไม่ระบุสาขาขั้นต่ำ (บาท)",
+    input.missingBranchAmount,
+    { min: 0 },
+  );
+  const negativeGrossProfitAmount = parseThresholdNumber(
+    "กำไรติดลบขั้นต่ำ (บาท)",
+    input.negativeGrossProfitAmount,
+    { min: 0 },
+  );
+  if (!lowGrossMarginPercent.ok) {
+    return { ok: false, message: lowGrossMarginPercent.message };
+  }
+  if (!salesDropPercent.ok) {
+    return { ok: false, message: salesDropPercent.message };
+  }
+  if (!salesDropAmount.ok) {
+    return { ok: false, message: salesDropAmount.message };
+  }
+  if (!purchaseConcentrationPercent.ok) {
+    return { ok: false, message: purchaseConcentrationPercent.message };
+  }
+  if (!missingBranchAmount.ok) {
+    return { ok: false, message: missingBranchAmount.message };
+  }
+  if (!negativeGrossProfitAmount.ok) {
+    return { ok: false, message: negativeGrossProfitAmount.message };
+  }
+  return {
+    ok: true,
+    values: {
+      lowGrossMarginPercent: lowGrossMarginPercent.value,
+      salesDropPercent: salesDropPercent.value,
+      salesDropAmount: salesDropAmount.value,
+      purchaseConcentrationPercent: purchaseConcentrationPercent.value,
+      missingBranchAmount: missingBranchAmount.value,
+      negativeGrossProfitAmount: negativeGrossProfitAmount.value,
+    },
+  };
+}
+
+function parseThresholdNumber(
+  label: string,
+  value: string,
+  limits: { min: number; max?: number },
+):
+  | { ok: true; value: number }
+  | { ok: false; message: string } {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (!value.trim() || !Number.isFinite(parsed)) {
+    return { ok: false, message: `${label} ต้องเป็นตัวเลข` };
+  }
+  if (parsed < limits.min) {
+    return {
+      ok: false,
+      message: `${label} ต้องไม่น้อยกว่า ${limits.min.toLocaleString("th-TH")}`,
+    };
+  }
+  if (limits.max !== undefined && parsed > limits.max) {
+    return {
+      ok: false,
+      message: `${label} ต้องไม่เกิน ${limits.max.toLocaleString("th-TH")}`,
+    };
+  }
+  return { ok: true, value: parsed };
 }
 
 function businessSignalTone(severity: BusinessSignalRecord["severity"]) {

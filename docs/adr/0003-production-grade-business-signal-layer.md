@@ -20,7 +20,8 @@ AI-Business Command Center เริ่มจากการส่งราย�
 - ถ้า report fail, stale หรือคุณภาพข้อมูลไม่พอ ให้สร้าง `data_quality` signal แทนการสรุปธุรกิจปลอม
 - ทุก signal ต้องมี evidence: source report/run, period, rule version, trigger metric และ recommended action
 - บันทึกลง `business_signals` ใน System DB แบบ idempotent ด้วย tenant/period/dimension key
-- LINE Action Digest v2 ส่งเฉพาะ priority signals สูงสุด 3 เรื่องต่อรอบ และ fallback เป็น report digest เดิมเมื่อยังไม่เปิด feature flag หรือไม่มี signal
+- LINE Action Digest v2 ส่งเป็น digest issues ไม่ใช่ raw signal cards ตรง ๆ: bubble แรกเป็น summary และตามด้วย issue สำคัญสูงสุด 2 เรื่องต่อรอบ
+- การรวม issue ทำหลัง permission filter เสมอ เพื่อไม่เปิดเผย report ที่ปลายทาง LINE ไม่มีสิทธิ์เห็น
 - Signal inherit permission จาก report ต้นทางก่อนส่ง LINE
 
 ## Consequences
@@ -42,6 +43,7 @@ Follow-up implemented:
 - Owner ตั้ง threshold override ต่อร้านได้ โดยยังมี default กลางเมื่อไม่ตั้งค่า
 - Business Signal มี lifecycle `open`, `acknowledged`, `resolved`, `dismissed` และ audit ทุกครั้งที่เปลี่ยนสถานะ
 - Notification Rule เลือก `digest_mode` ได้ระหว่าง Action Digest เป็นหลักกับส่ง report ครบทุกใบ
+- Action Digest v2 รวมกำไรติดลบเป็น issue เดียวในมุมเจ้าของร้าน แต่เก็บ raw signal ids/keys ครบใน audit และใช้ threshold `negative_gross_profit_amount` ต่อร้านเพื่อตัดเรื่องเล็กออกจาก LINE
 
 ## Rollout
 
