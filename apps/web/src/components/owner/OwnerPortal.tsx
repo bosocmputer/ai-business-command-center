@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import {
   deriveMorningBriefDateRange,
+  getReportCatalogEntry,
   type BusinessSignalThresholdsConfig,
   type BusinessSignalRecord,
   type LineAccessProfileKey,
@@ -9089,19 +9090,7 @@ function formatCurrency(value: number) {
 }
 
 function formatOwnerReportLabel(reportKey: ReportKey) {
-  if (reportKey === "sales_goods_services") {
-    return "รายงานขายสินค้าและบริการ";
-  }
-  if (reportKey === "purchase_goods_payables") {
-    return "รายงานซื้อสินค้า/ตั้งหนี้";
-  }
-  if (reportKey === "gross_profit_by_product") {
-    return "รายงานกำไรขั้นต้นสินค้า";
-  }
-  if (reportKey === "gross_profit_by_ar_customer") {
-    return "รายงานกำไรขั้นต้นลูกหนี้";
-  }
-  return reportKey;
+  return getReportCatalogEntry(reportKey).label;
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {

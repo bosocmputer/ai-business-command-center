@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type {
-  LineAccessProfileKey,
-  LineChannelRecord,
-  LineRecipientRecord,
-  LineTargetRecord,
+import {
+  getReportCatalogEntry,
+  type LineAccessProfileKey,
+  type LineChannelRecord,
+  type LineRecipientRecord,
+  type LineTargetRecord,
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -524,12 +525,7 @@ function LineTargetCard({
   const showsSensitiveReportToGroup =
     target.target_type !== "user" &&
     target.allowed_report_keys.some((reportKey) =>
-      [
-        "sales_goods_services",
-        "purchase_goods_payables",
-        "gross_profit_by_product",
-        "gross_profit_by_ar_customer",
-      ].includes(reportKey),
+      getReportCatalogEntry(reportKey).capabilities.lineCard,
     ) &&
     target.allowed_actions.includes("receive_morning_brief");
 
@@ -832,19 +828,7 @@ function formatAllowedReports(target: LineTargetRecord) {
 }
 
 function formatReportKeyLabel(reportKey: LineTargetRecord["allowed_report_keys"][number]) {
-  if (reportKey === "sales_goods_services") {
-    return "รายงานขายสินค้าและบริการ";
-  }
-  if (reportKey === "purchase_goods_payables") {
-    return "รายงานซื้อสินค้า/ตั้งหนี้";
-  }
-  if (reportKey === "gross_profit_by_product") {
-    return "รายงานกำไรขั้นต้นสินค้า";
-  }
-  if (reportKey === "gross_profit_by_ar_customer") {
-    return "รายงานกำไรขั้นต้นลูกหนี้";
-  }
-  return reportKey;
+  return getReportCatalogEntry(reportKey).label;
 }
 
 function formatAllowedActions(target: LineTargetRecord) {

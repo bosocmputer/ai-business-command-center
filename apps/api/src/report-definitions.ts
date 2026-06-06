@@ -1,9 +1,10 @@
+import { getReportCatalogEntry } from "@ai-bcc/shared";
 import type { ReportDefinitionSeed } from "./system-store.js";
 
 export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
   {
     report_key: "sales_goods_services",
-    name: "Sales Goods and Services",
+    name: getReportCatalogEntry("sales_goods_services").definitionName,
     version: "0.1.0",
     contract_json: {
       report_key: "sales_goods_services",
@@ -15,7 +16,7 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
   },
   {
     report_key: "purchase_goods_payables",
-    name: "Purchase Goods and Payables",
+    name: getReportCatalogEntry("purchase_goods_payables").definitionName,
     version: "0.1.0",
     contract_json: {
       report_key: "purchase_goods_payables",
@@ -28,7 +29,7 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
   },
   {
     report_key: "gross_profit_by_product",
-    name: "Gross Profit by Product",
+    name: getReportCatalogEntry("gross_profit_by_product").definitionName,
     version: "0.1.0",
     contract_json: {
       report_key: "gross_profit_by_product",
@@ -42,7 +43,7 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
   },
   {
     report_key: "gross_profit_by_ar_customer",
-    name: "Gross Profit by AR Customer",
+    name: getReportCatalogEntry("gross_profit_by_ar_customer").definitionName,
     version: "0.1.0",
     contract_json: {
       report_key: "gross_profit_by_ar_customer",

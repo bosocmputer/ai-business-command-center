@@ -9,12 +9,14 @@ export const tenantIdSchema = z
     "tenant_id must use lowercase letters, numbers, underscores, or hyphens",
   );
 
-export const reportKeySchema = z.enum([
+export const reportKeyValues = [
   "sales_goods_services",
   "purchase_goods_payables",
   "gross_profit_by_product",
   "gross_profit_by_ar_customer",
-]);
+] as const;
+
+export const reportKeySchema = z.enum(reportKeyValues);
 
 export const tenantStatusSchema = z.enum([
   "trial",
@@ -77,6 +79,23 @@ export const dataQualityStatusSchema = z.enum([
 
 export type TenantId = z.infer<typeof tenantIdSchema>;
 export type ReportKey = z.infer<typeof reportKeySchema>;
+export type ReportCategory = "sales" | "purchase" | "gross_profit";
+export type ReportCatalogEntryFor<K extends ReportKey = ReportKey> = {
+  key: K;
+  definitionName: string;
+  label: string;
+  shortLabel: string;
+  category: ReportCategory;
+  permissionLabel: string;
+  permissionDescription: string;
+  sensitive: boolean;
+  capabilities: {
+    lineCard: boolean;
+    signedViewer: boolean;
+    pdf: boolean;
+    businessSignals: boolean;
+  };
+};
 export type TenantStatus = z.infer<typeof tenantStatusSchema>;
 export type TenantFeatureFlags = z.infer<typeof tenantFeatureFlagsSchema>;
 export type BusinessSignalThresholdsConfig = z.infer<
@@ -89,6 +108,85 @@ export type SalesGoodsServicesParams = z.infer<
 >;
 export type ReportParams = SalesGoodsServicesParams;
 export type DataQualityStatus = z.infer<typeof dataQualityStatusSchema>;
+
+export const reportCatalog = {
+  sales_goods_services: {
+    key: "sales_goods_services",
+    definitionName: "Sales Goods and Services",
+    label: "รายงานขายสินค้าและบริการ",
+    shortLabel: "รายงานขาย",
+    category: "sales",
+    permissionLabel: "รายงานขายสินค้าและบริการ",
+    permissionDescription: "ยอดขาย บิลขาย สาขา และสินค้าขายดีจาก SML",
+    sensitive: false,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: true,
+      businessSignals: true,
+    },
+  },
+  purchase_goods_payables: {
+    key: "purchase_goods_payables",
+    definitionName: "Purchase Goods and Payables",
+    label: "รายงานซื้อสินค้า/ตั้งหนี้",
+    shortLabel: "รายงานซื้อ",
+    category: "purchase",
+    permissionLabel: "รายงานซื้อ/ตั้งหนี้",
+    permissionDescription: "ยอดซื้อ/ตั้งหนี้ ผู้จำหน่าย และสินค้าที่ซื้อจาก SML",
+    sensitive: false,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: true,
+      businessSignals: true,
+    },
+  },
+  gross_profit_by_product: {
+    key: "gross_profit_by_product",
+    definitionName: "Gross Profit by Product",
+    label: "รายงานกำไรขั้นต้นสินค้า",
+    shortLabel: "กำไรสินค้า",
+    category: "gross_profit",
+    permissionLabel: "กำไรขั้นต้นสินค้า",
+    permissionDescription: "มีข้อมูลต้นทุนและ margin ควรเปิดเฉพาะผู้บริหาร",
+    sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: true,
+    },
+  },
+  gross_profit_by_ar_customer: {
+    key: "gross_profit_by_ar_customer",
+    definitionName: "Gross Profit by AR Customer",
+    label: "รายงานกำไรขั้นต้นลูกหนี้",
+    shortLabel: "กำไรลูกหนี้",
+    category: "gross_profit",
+    permissionLabel: "กำไรขั้นต้นลูกหนี้",
+    permissionDescription: "มีข้อมูลต้นทุนและ margin ควรเปิดเฉพาะผู้บริหาร",
+    sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: true,
+    },
+  },
+} satisfies { [K in ReportKey]: ReportCatalogEntryFor<K> };
+
+export type ReportCatalogEntry = (typeof reportCatalog)[ReportKey];
+
+export function isReportKey(value: string | null | undefined): value is ReportKey {
+  return reportKeySchema.safeParse(value).success;
+}
+
+export function getReportCatalogEntry<K extends ReportKey>(
+  reportKey: K,
+): (typeof reportCatalog)[K] {
+  return reportCatalog[reportKey];
+}
 
 export type Tenant = {
   id: TenantId;

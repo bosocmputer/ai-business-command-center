@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { ApexOptions } from "apexcharts";
 import {
   formatSmlBranchLabel,
+  isReportKey,
   type BranchSales,
   type GrossProfitBaseRow,
   type GrossProfitByArCustomerRow,
@@ -2048,15 +2049,6 @@ function toIsoDate(date: Date) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function isReportKey(value: string): value is ViewerReportKey {
-  return (
-    value === "sales_goods_services" ||
-    value === "purchase_goods_payables" ||
-    value === "gross_profit_by_product" ||
-    value === "gross_profit_by_ar_customer"
-  );
 }
 
 function buildViewerPdfUrl(input: {

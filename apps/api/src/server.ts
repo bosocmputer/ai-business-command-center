@@ -27,6 +27,7 @@ import {
   notificationPeriodPresetSchema,
   notificationRulePayloadSchema,
   planCodeSchema,
+  getReportCatalogEntry,
   reportKeySchema,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
@@ -137,6 +138,12 @@ import {
   saveSystemRuntimeConfig,
 } from "./system-runtime-config.js";
 import { listJavaWsDatabases } from "./sml-javaws-client.js";
+import {
+  createReportRuntimeRegistry,
+  getReportRuntimeEntry,
+  renderReportLinePreview,
+  runReportRuntimeEntry,
+} from "./report-registry.js";
 
 const app = Fastify({
   logger: {
@@ -178,6 +185,11 @@ const lineAccessProfileKeys: LineAccessProfileKey[] = [
   "operations",
   "staff",
 ];
+const reportRuntimeRegistry = createReportRuntimeRegistry({
+  runSalesGoodsServicesReport: runAndPersistSalesGoodsServicesReport,
+  runPurchaseGoodsPayablesReport: runAndPersistPurchaseGoodsPayablesReport,
+  runGrossProfitReport: runAndPersistGrossProfitReport,
+});
 
 await systemStore.initialize({
   tenants: listTenants(),
@@ -3855,38 +3867,25 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    if (
-      snapshot.report_key === "gross_profit_by_product" ||
-      snapshot.report_key === "gross_profit_by_ar_customer"
-    ) {
-      return {
-        data: renderGrossProfitLinePreview({
-          snapshot: snapshot as
-            | GrossProfitByProductSnapshot
-            | GrossProfitByArCustomerSnapshot,
-          dashboardUrl: await buildReportViewerUrl(snapshot),
-          tenantName: getTenantDefinition(params.data.tenantId)?.name,
-        }),
-      };
+    const runtimeEntry = getReportRuntimeEntry(
+      reportRuntimeRegistry,
+      snapshot.report_key,
+    );
+    const dashboardUrl = runtimeEntry?.supportsSignedViewer
+      ? await buildReportViewerUrl(snapshot)
+      : null;
+    const preview = renderReportLinePreview(reportRuntimeRegistry, {
+      snapshot,
+      dashboardUrl,
+      tenantName: getTenantDefinition(params.data.tenantId)?.name,
+    });
+    if (!preview) {
+      return reply.status(500).send({
+        error: "Report preview renderer is not configured.",
+      });
     }
 
-    if (snapshot.report_key === "purchase_goods_payables") {
-      return {
-        data: renderPurchaseGoodsPayablesLinePreview({
-          snapshot: snapshot as PurchaseGoodsPayablesSnapshot,
-          dashboardUrl: await buildReportViewerUrl(snapshot),
-          tenantName: getTenantDefinition(params.data.tenantId)?.name,
-        }),
-      };
-    }
-
-    return {
-      data: renderSalesGoodsServicesLinePreview({
-        snapshot: snapshot as SalesGoodsServicesSnapshot,
-        dashboardUrl: await buildReportViewerUrl(snapshot),
-        tenantName: getTenantDefinition(params.data.tenantId)?.name,
-      }),
-    };
+    return { data: preview };
   },
 );
 
@@ -5745,21 +5744,63 @@ async function runAndPersistReportByKey(input: {
       runRecord: ReportRunRecord;
     }
 > {
-  if (
-    input.reportKey === "gross_profit_by_product" ||
-    input.reportKey === "gross_profit_by_ar_customer"
-  ) {
-    return runAndPersistGrossProfitReport({
-      ...input,
-      reportKey: input.reportKey,
-    });
+  const result = await runReportRuntimeEntry(
+    reportRuntimeRegistry,
+    input.reportKey,
+    input,
+  );
+  if (result) {
+    return result;
   }
 
-  if (input.reportKey === "purchase_goods_payables") {
-    return runAndPersistPurchaseGoodsPayablesReport(input);
-  }
+  return persistMissingReportRuntime(input);
+}
 
-  return runAndPersistSalesGoodsServicesReport(input);
+async function persistMissingReportRuntime(input: {
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<{
+  ok: false;
+  statusCode: 500;
+  error: string;
+  runRecord: ReportRunRecord;
+}> {
+  const now = new Date().toISOString();
+  const safeErrorMessage =
+    "รายงานนี้ยังไม่ได้ตั้งค่าตัวประมวลผล กรุณาติดต่อผู้ดูแลระบบ";
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, input.reportKey),
+    tenant_id: input.tenantId,
+    report_key: input.reportKey,
+    params: input.params,
+    status: "failed",
+    started_at: now,
+    finished_at: now,
+    row_count: 0,
+    safe_error_message: safeErrorMessage,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: "report_runtime_missing",
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: input.reportKey,
+      request_action: input.requestAction,
+    },
+  });
+
+  return {
+    ok: false,
+    statusCode: 500,
+    error: safeErrorMessage,
+    runRecord,
+  };
 }
 
 async function buildNotificationReportPreview(input: {
@@ -5773,40 +5814,24 @@ async function buildNotificationReportPreview(input: {
     reportKey: input.snapshot.report_key,
     action: "open_signed_viewer",
   });
-  const supportsSignedViewer =
-    input.snapshot.report_key === "sales_goods_services" ||
-    input.snapshot.report_key === "purchase_goods_payables" ||
-    isGrossProfitReportKey(input.snapshot.report_key);
+  const runtimeEntry = getReportRuntimeEntry(
+    reportRuntimeRegistry,
+    input.snapshot.report_key,
+  );
+  const supportsSignedViewer = runtimeEntry?.supportsSignedViewer ?? false;
   const dashboardUrl = openViewerPermission.allowed && supportsSignedViewer
     ? await buildReportViewerUrl(input.snapshot)
     : null;
 
-  if (
-    input.snapshot.report_key === "gross_profit_by_product" ||
-    input.snapshot.report_key === "gross_profit_by_ar_customer"
-  ) {
-    return renderGrossProfitLinePreview({
-      snapshot: input.snapshot as
-        | GrossProfitByProductSnapshot
-        | GrossProfitByArCustomerSnapshot,
-      dashboardUrl,
-      tenantName: input.tenant.name,
-    });
-  }
-
-  if (input.snapshot.report_key === "purchase_goods_payables") {
-    return renderPurchaseGoodsPayablesLinePreview({
-      snapshot: input.snapshot as PurchaseGoodsPayablesSnapshot,
-      dashboardUrl,
-      tenantName: input.tenant.name,
-    });
-  }
-
-  return renderSalesGoodsServicesLinePreview({
-    snapshot: input.snapshot as SalesGoodsServicesSnapshot,
+  const preview = renderReportLinePreview(reportRuntimeRegistry, {
+    snapshot: input.snapshot,
     dashboardUrl,
     tenantName: input.tenant.name,
   });
+  if (!preview) {
+    throw new Error(`Missing LINE preview renderer for ${input.snapshot.report_key}`);
+  }
+  return preview;
 }
 
 async function validateNotificationRulePayload(input: {
@@ -6063,50 +6088,15 @@ function uniqueStrings(values: string[]) {
 function buildReportPermissionCatalog() {
   return reportDefinitionSeeds.map((definition) => ({
     report_key: definition.report_key,
-    label: getReportPermissionLabel(definition.report_key),
-    description: getReportPermissionDescription(definition.report_key),
-    sensitive: isSensitiveReportKey(definition.report_key),
+    label: getReportCatalogEntry(definition.report_key).permissionLabel,
+    description: getReportCatalogEntry(definition.report_key)
+      .permissionDescription,
+    sensitive: getReportCatalogEntry(definition.report_key).sensitive,
   }));
 }
 
-function getReportPermissionLabel(reportKey: ReportKey) {
-  if (reportKey === "sales_goods_services") {
-    return "รายงานขายสินค้าและบริการ";
-  }
-  if (reportKey === "purchase_goods_payables") {
-    return "รายงานซื้อ/ตั้งหนี้";
-  }
-  if (String(reportKey) === "gross_profit_by_product") {
-    return "กำไรขั้นต้นสินค้า";
-  }
-  if (String(reportKey) === "gross_profit_by_ar_customer") {
-    return "กำไรขั้นต้นลูกหนี้";
-  }
-  return reportKey;
-}
-
-function getReportPermissionDescription(reportKey: ReportKey) {
-  if (reportKey === "sales_goods_services") {
-    return "ยอดขาย บิลขาย สาขา และสินค้าขายดีจาก SML";
-  }
-  if (reportKey === "purchase_goods_payables") {
-    return "ยอดซื้อ/ตั้งหนี้ ผู้จำหน่าย และสินค้าที่ซื้อจาก SML";
-  }
-  if (isSensitiveReportKey(reportKey)) {
-    return "มีข้อมูลต้นทุนและ margin ควรเปิดเฉพาะผู้บริหาร";
-  }
-  return "รายงานจาก SML";
-}
-
-function isSensitiveReportKey(reportKey: ReportKey) {
-  return String(reportKey).startsWith("gross_profit");
-}
-
 function isGrossProfitReportKey(reportKey: ReportKey) {
-  return (
-    reportKey === "gross_profit_by_product" ||
-    reportKey === "gross_profit_by_ar_customer"
-  );
+  return getReportCatalogEntry(reportKey).category === "gross_profit";
 }
 
 function buildDefaultTenantReportRolePermission(input: {
@@ -6312,7 +6302,7 @@ async function findImpactedNotificationPlans(input: {
             target_display_name: target.display_name,
             access_profile_key: target.access_profile_key,
             report_key: reportKey,
-            report_label: getReportPermissionLabel(reportKey),
+            report_label: getReportCatalogEntry(reportKey).permissionLabel,
           });
         }
       }
@@ -7439,7 +7429,8 @@ async function prepareSignedViewerPdfRequest(
   if (!access.ok) {
     return { ok: false, response: access.response };
   }
-  if (isGrossProfitReportKey(access.reportKey)) {
+  const runtimeEntry = getReportRuntimeEntry(reportRuntimeRegistry, access.reportKey);
+  if (!runtimeEntry?.supportsPdf) {
     return {
       ok: false,
       response: reply.status(400).send({

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  reportKeyValues,
   type AllowedLineAction,
   type LineAccessProfileKey,
   type LinePermissionDecision,
@@ -25,12 +26,7 @@ export const lineAccessProfileDefaults: Record<
 > = {
   executive: {
     label: "ผู้บริหาร",
-    allowed_report_keys: [
-      "sales_goods_services",
-      "purchase_goods_payables",
-      "gross_profit_by_product",
-      "gross_profit_by_ar_customer",
-    ],
+    allowed_report_keys: [...reportKeyValues],
     allowed_actions: [
       "receive_morning_brief",
       "ask_report",
