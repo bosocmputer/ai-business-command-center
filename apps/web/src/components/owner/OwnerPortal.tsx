@@ -5920,6 +5920,9 @@ function formatRunStatus(status: string | null) {
   if (status === "success") {
     return "สำเร็จ";
   }
+  if (status === "success_with_warnings") {
+    return "สำเร็จพร้อมข้อสังเกต";
+  }
   if (status === "failed") {
     return "ล้มเหลว";
   }
@@ -7102,6 +7105,10 @@ function TenantDetailPanel({
     useState(true);
   const [editLineActionDigestV2Enabled, setEditLineActionDigestV2Enabled] =
     useState(false);
+  const [
+    editLineHeavyReportFallbackEnabled,
+    setEditLineHeavyReportFallbackEnabled,
+  ] = useState(true);
   const [editDemoModeEnabled, setEditDemoModeEnabled] = useState(false);
   const [editLowGrossMarginPercent, setEditLowGrossMarginPercent] =
     useState("5");
@@ -7136,6 +7143,9 @@ function TenantDetailPanel({
     const featureFlags = getTenantUiFeatureFlags(tenant);
     setEditBusinessSignalsEnabled(featureFlags.business_signals_enabled);
     setEditLineActionDigestV2Enabled(featureFlags.line_action_digest_v2_enabled);
+    setEditLineHeavyReportFallbackEnabled(
+      featureFlags.line_heavy_report_fallback_enabled,
+    );
     setEditDemoModeEnabled(featureFlags.demo_mode_enabled);
     const thresholds = getTenantBusinessSignalThresholds(tenant);
     setEditLowGrossMarginPercent(String(thresholds.low_gross_margin_percent));
@@ -7222,6 +7232,8 @@ function TenantDetailPanel({
       feature_flags: {
         business_signals_enabled: editBusinessSignalsEnabled,
         line_action_digest_v2_enabled: editLineActionDigestV2Enabled,
+        line_heavy_report_fallback_enabled:
+          editLineHeavyReportFallbackEnabled,
         demo_mode_enabled: editDemoModeEnabled,
       },
       business_signal_thresholds: {
@@ -7364,7 +7376,7 @@ function TenantDetailPanel({
           </label>
         </div>
 
-        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-3">
+        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-4">
           <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
               checked={editBusinessSignalsEnabled}
@@ -7420,6 +7432,25 @@ function TenantDetailPanel({
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
                 ใช้ติดป้ายข้อมูลตัวอย่างสำหรับงานขายหรือทดสอบ ห้ามใช้แทนข้อมูลร้านจริง
+              </span>
+            </span>
+          </label>
+
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={editLineHeavyReportFallbackEnabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) =>
+                setEditLineHeavyReportFallbackEnabled(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                กันรายงานหนักล้มทั้ง LINE
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ถ้าสต็อกคงเหลือช้าเกินไป จะส่งรายงานอื่นต่อพร้อมการ์ดแจ้งสถานะ
               </span>
             </span>
           </label>
@@ -8462,6 +8493,8 @@ function getTenantUiFeatureFlags(tenant: Tenant) {
       tenant.featureFlags?.business_signals_enabled ?? true,
     line_action_digest_v2_enabled:
       tenant.featureFlags?.line_action_digest_v2_enabled ?? false,
+    line_heavy_report_fallback_enabled:
+      tenant.featureFlags?.line_heavy_report_fallback_enabled ?? true,
     demo_mode_enabled: tenant.featureFlags?.demo_mode_enabled ?? false,
   };
 }

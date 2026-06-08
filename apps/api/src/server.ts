@@ -154,6 +154,14 @@ import {
   renderReportLinePreview,
   runReportRuntimeEntry,
 } from "./report-registry.js";
+import {
+  buildDegradedStockBalancePreview,
+  buildStockBalanceDegradationAuditMetadata,
+  findRecentStockBalanceTimeoutRun,
+  isStockBalanceTimeoutMessage,
+  resolveStockBalanceFallbackSnapshot,
+  type StockBalanceFallbackSnapshot,
+} from "./heavy-report-resilience.js";
 
 const app = Fastify({
   logger: {
@@ -5713,6 +5721,19 @@ function isLineActionDigestV2Enabled(tenant: Tenant) {
   return getTenantFeatureFlags(tenant).line_action_digest_v2_enabled;
 }
 
+function isHeavyReportFallbackEnabled(tenant: Tenant) {
+  return getTenantFeatureFlags(tenant).line_heavy_report_fallback_enabled;
+}
+
+type DegradedNotificationReport = {
+  reportKey: "stock_balance";
+  failedRunId: string;
+  safeErrorMessage: string;
+  fallback: StockBalanceFallbackSnapshot | null;
+  cooldownUsed: boolean;
+  preview: ReportLinePreview;
+};
+
 function getBusinessSignalThresholdsForTenant(tenant: Tenant) {
   const thresholds = businessSignalThresholdsSchema.parse(
     tenant.businessSignalThresholds ?? {},
@@ -5877,6 +5898,29 @@ async function executeNotificationRule(input: {
   }
 
   run = await systemStore.upsertNotificationRuleRun(run);
+  const degradedReports: DegradedNotificationReport[] = [];
+  const getDegradedAuditMetadata = () => {
+    if (!degradedReports.length) {
+      return {};
+    }
+    const primary = degradedReports[0];
+    return {
+      ...buildStockBalanceDegradationAuditMetadata({
+        fallback: primary.fallback,
+        cooldownUsed: primary.cooldownUsed,
+      }),
+      degraded_reports: degradedReports.map((report) => ({
+        report_key: report.reportKey,
+        failed_run_id: report.failedRunId,
+        safe_error_message: report.safeErrorMessage,
+        fallback_source_run_id: report.fallback?.snapshot.run_id ?? null,
+        fallback_snapshot_generated_at:
+          report.fallback?.snapshot.generated_at ?? null,
+        fallback_snapshot_age_hours: report.fallback?.ageHours ?? null,
+        heavy_report_cooldown_used: report.cooldownUsed,
+      })),
+    };
+  };
 
   const finishRun = async (update: {
     status: NotificationRuleRunRecord["status"];
@@ -5944,6 +5988,7 @@ async function executeNotificationRule(input: {
         unknown_doc_time_count: run.unknown_doc_time_count,
         safe_error_message: safeErrorMessage,
         next_retry_at: nextRetryAt,
+        ...getDegradedAuditMetadata(),
       },
     });
     return {
@@ -5984,7 +6029,43 @@ async function executeNotificationRule(input: {
   const reportRunIds: string[] = [];
   const snapshots: ReportSnapshot[] = [];
   const businessSignalsEnabled = isBusinessSignalsEnabled(tenant);
+  const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
   for (const reportKey of input.rule.report_keys) {
+    if (reportKey === "stock_balance" && heavyReportFallbackEnabled) {
+      const recentTimeoutRun = findRecentStockBalanceTimeoutRun({
+        runs: await systemStore.listRuns(input.rule.tenant_id, "stock_balance"),
+      });
+      if (recentTimeoutRun) {
+        if (!reportRunIds.includes(recentTimeoutRun.id)) {
+          reportRunIds.push(recentTimeoutRun.id);
+        }
+        const fallback = resolveStockBalanceFallbackSnapshot({
+          snapshot: await systemStore.getLatestSnapshot(
+            input.rule.tenant_id,
+            "stock_balance",
+          ),
+        });
+        const preview = buildDegradedStockBalancePreview({
+          tenantId: input.rule.tenant_id,
+          tenantName: tenant.name,
+          failedRunId: recentTimeoutRun.id,
+          fallback,
+          cooldownUsed: true,
+        });
+        degradedReports.push({
+          reportKey: "stock_balance",
+          failedRunId: recentTimeoutRun.id,
+          safeErrorMessage:
+            recentTimeoutRun.safe_error_message ??
+            "รายงานสต็อกคงเหลือใช้เวลานานเกินไป",
+          fallback,
+          cooldownUsed: true,
+          preview,
+        });
+        continue;
+      }
+    }
+
     const result = await runAndPersistReportByKey({
       tenantId: input.rule.tenant_id,
       reportKey,
@@ -5993,6 +6074,34 @@ async function executeNotificationRule(input: {
     });
     reportRunIds.push(result.runRecord.id);
     if (!result.ok) {
+      if (
+        reportKey === "stock_balance" &&
+        heavyReportFallbackEnabled &&
+        isStockBalanceTimeoutMessage(result.error)
+      ) {
+        const fallback = resolveStockBalanceFallbackSnapshot({
+          snapshot: await systemStore.getLatestSnapshot(
+            input.rule.tenant_id,
+            "stock_balance",
+          ),
+        });
+        const preview = buildDegradedStockBalancePreview({
+          tenantId: input.rule.tenant_id,
+          tenantName: tenant.name,
+          failedRunId: result.runRecord.id,
+          fallback,
+          cooldownUsed: false,
+        });
+        degradedReports.push({
+          reportKey: "stock_balance",
+          failedRunId: result.runRecord.id,
+          safeErrorMessage: result.error,
+          fallback,
+          cooldownUsed: false,
+          preview,
+        });
+        continue;
+      }
       if (businessSignalsEnabled) {
         await persistBusinessSignals(
           [
@@ -6097,7 +6206,9 @@ async function executeNotificationRule(input: {
     }
 
     const shouldUseActionDigest =
-      input.rule.digest_mode === "action_only" && lineActionDigestV2Enabled;
+      input.rule.digest_mode === "action_only" &&
+      lineActionDigestV2Enabled &&
+      degradedReports.length === 0;
     const dashboardUrls: Partial<Record<ReportKey, string | null>> = {};
     const reportPreviewCache = new Map<ReportKey, ReportLinePreview>();
     const buildPreviewForSnapshot = async (snapshot: ReportSnapshot) => {
@@ -6146,8 +6257,23 @@ async function executeNotificationRule(input: {
       : await Promise.all(
           snapshots.map((snapshot) => buildPreviewForSnapshot(snapshot)),
         );
+    const fallbackPreviewByReportKey = new Map<ReportKey, ReportLinePreview>(
+      [
+        ...fallbackPreviews.map((reportPreview) => [
+          reportPreview.report_key,
+          reportPreview,
+        ] as const),
+        ...degradedReports.map((report) => [
+          report.reportKey,
+          report.preview,
+        ] as const),
+      ],
+    );
+    const orderedFallbackPreviews = input.rule.report_keys
+      .map((reportKey) => fallbackPreviewByReportKey.get(reportKey) ?? null)
+      .filter((preview): preview is ReportLinePreview => Boolean(preview));
     const preview =
-      actionDigestPreview ?? buildNotificationDigestPreview(fallbackPreviews);
+      actionDigestPreview ?? buildNotificationDigestPreview(orderedFallbackPreviews);
     const digestIssueAuditMapping =
       actionDigestSelection?.issues.map((issue) => ({
         issue_key: issue.issue_key,
@@ -6220,6 +6346,7 @@ async function executeNotificationRule(input: {
         business_signal_keys: actionDigestSignals.map(
           (signal) => signal.signal_key,
         ),
+        ...getDegradedAuditMetadata(),
       },
     });
     if (
@@ -6284,9 +6411,18 @@ async function executeNotificationRule(input: {
     };
   }
 
+  const completedWithWarningsMessage = degradedReports.length
+    ? "ส่งสำเร็จพร้อมข้อสังเกต: สต็อกคงเหลือข้อมูลสดไม่พร้อม"
+    : null;
   await finishRun({
-    status: deliveries.length ? "success" : "skipped",
-    safeErrorMessage: deliveries.length ? null : "ไม่มีปลายทาง LINE ในกฎนี้",
+    status: deliveries.length
+      ? degradedReports.length
+        ? "success_with_warnings"
+        : "success"
+      : "skipped",
+    safeErrorMessage: deliveries.length
+      ? completedWithWarningsMessage
+      : "ไม่มีปลายทาง LINE ในกฎนี้",
     reportRunIds,
     deliveryIds: deliveries.map((delivery) => delivery.id),
   });
@@ -6311,6 +6447,7 @@ async function executeNotificationRule(input: {
       report_run_ids: reportRunIds,
       delivery_ids: deliveries.map((delivery) => delivery.id),
       delivery_statuses: deliveries.map((delivery) => delivery.status),
+      ...getDegradedAuditMetadata(),
     },
   });
 

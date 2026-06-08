@@ -4,11 +4,13 @@ import {
   getReportPresetEntry,
   isReportKey,
   matchReportPreset,
+  notificationRuleRunStatusSchema,
   reportCatalog,
   reportKeySchema,
   reportKeyValues,
   reportPresetCatalog,
   reportPresetKeyValues,
+  tenantFeatureFlagsSchema,
 } from "./index.js";
 
 describe("report catalog", () => {
@@ -156,5 +158,14 @@ describe("report catalog", () => {
       ]),
     ).toBe("executive_focus");
     expect(matchReportPreset(["sales_goods_services"])).toBeNull();
+  });
+
+  it("supports warning-safe notification run status and heavy report fallback flag", () => {
+    expect(notificationRuleRunStatusSchema.options).toContain(
+      "success_with_warnings",
+    );
+    expect(tenantFeatureFlagsSchema.parse({})).toMatchObject({
+      line_heavy_report_fallback_enabled: true,
+    });
   });
 });

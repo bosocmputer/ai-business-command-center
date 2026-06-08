@@ -772,6 +772,7 @@ function ReportPickerSection({
         {selectedReportPreset === "executive_full" ? (
           <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-100">
             ชุดนี้ส่งครบ 8 ใบ LINE จะยาว เหมาะกับช่วงตรวจระบบหรือร้านที่ต้องการอ่านตัวเลขครบทุกวัน
+            สต็อกคงเหลือจะลองดึงสดก่อน ถ้าช้าเกินไป LINE จะส่งรายงานอื่นและแจ้งสถานะสต็อกแทน
           </p>
         ) : null}
       </div>
@@ -799,8 +800,11 @@ function ReportPickerSection({
                       type="checkbox"
                     />
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium text-gray-800 dark:text-white">
-                        {entry.permissionLabel}
+                      <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-800 dark:text-white">
+                        <span>{entry.permissionLabel}</span>
+                        {reportKey === "stock_balance" ? (
+                          <Badge color="warning">รายงานหนัก</Badge>
+                        ) : null}
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
                         {entry.sensitive ? "มีข้อมูลต้นทุน · " : ""}
@@ -1155,6 +1159,11 @@ function ManualRunPanel({
         {actionBlockedReason ? (
           <p className="mt-2 text-xs leading-5 text-warning-700 dark:text-warning-300">
             {actionBlockedReason}
+          </p>
+        ) : null}
+        {savedRule?.report_keys.includes("stock_balance") ? (
+          <p className="mt-2 text-xs leading-5 text-warning-700 dark:text-warning-300">
+            แผนนี้มีสต็อกคงเหลือซึ่งเป็นรายงานหนัก ระบบจะลองดึงสดก่อน ถ้าช้าเกินไปจะส่งพร้อมข้อสังเกตและข้อมูลอ้างอิงล่าสุดถ้ามี
           </p>
         ) : null}
       </div>
@@ -1611,6 +1620,9 @@ function notificationRunTone(status: NotificationRuleRunRecord["status"]) {
   if (status === "success") {
     return "success" as const;
   }
+  if (status === "success_with_warnings") {
+    return "warning" as const;
+  }
   if (status === "failed") {
     return "warning" as const;
   }
@@ -1622,6 +1634,9 @@ function formatNotificationRunStatus(
 ) {
   if (status === "success") {
     return "สำเร็จ";
+  }
+  if (status === "success_with_warnings") {
+    return "ส่งสำเร็จพร้อมข้อสังเกต";
   }
   if (status === "failed") {
     return "ไม่สำเร็จ";
