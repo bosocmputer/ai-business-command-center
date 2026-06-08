@@ -996,6 +996,7 @@ function formatReportKey(reportKey: ReportKey) {
     gross_profit_by_product: "กำไรสินค้า",
     gross_profit_by_ar_customer: "กำไรลูกหนี้",
     stock_balance: "สต็อกคงเหลือ",
+    stock_reorder: "ถึงจุดสั่งซื้อ",
   };
   return labels[reportKey];
 }

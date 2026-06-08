@@ -31,7 +31,7 @@ describe("LINE target permission profiles", () => {
     });
   });
 
-  it("allows stock balance for executives but not operations by default", () => {
+  it("allows stock balance for executives and stock reorder for operations by default", () => {
     expect(
       canAccessLineReport({
         tenantId: "tenant_demo_remote",
@@ -56,7 +56,19 @@ describe("LINE target permission profiles", () => {
     );
     expect(operationsTarget.allowed_report_keys).toEqual([
       "purchase_goods_payables",
+      "stock_reorder",
     ]);
+    expect(
+      canAccessLineReport({
+        tenantId: "tenant_demo_remote",
+        target: operationsTarget,
+        reportKey: "stock_reorder",
+        action: "receive_morning_brief",
+      }),
+    ).toMatchObject({
+      allowed: true,
+      reason: "allowed",
+    });
     expect(
       canAccessLineReport({
         tenantId: "tenant_demo_remote",

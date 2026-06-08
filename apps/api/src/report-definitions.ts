@@ -68,4 +68,18 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
       sensitivity: "contains_average_cost_and_stock_value",
     },
   },
+  {
+    report_key: "stock_reorder",
+    name: getReportCatalogEntry("stock_reorder").definitionName,
+    version: "0.1.0",
+    contract_json: {
+      report_key: "stock_reorder",
+      params: ["latest_inventory_balance"],
+      reorder_truth:
+        "ic_inventory.balance_qty < ic_inventory_detail.purchase_point",
+      purchase_point_truth: "ic_inventory_detail.purchase_point",
+      purchase_balance_truth: "ic_inventory.accrued_in_qty",
+      sensitivity: "inventory_reorder_without_cost",
+    },
+  },
 ];

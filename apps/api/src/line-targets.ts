@@ -44,7 +44,7 @@ export const lineAccessProfileDefaults: Record<
   },
   operations: {
     label: "ปฏิบัติการ/คลังสินค้า",
-    allowed_report_keys: ["purchase_goods_payables"],
+    allowed_report_keys: ["purchase_goods_payables", "stock_reorder"],
     allowed_actions: [
       "receive_morning_brief",
       "ask_report",

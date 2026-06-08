@@ -12,6 +12,7 @@ import {
   type SalesGoodsServicesParams,
   type SalesGoodsServicesSnapshot,
   type StockBalanceSnapshot,
+  type StockReorderSnapshot,
   type TenantId,
 } from "@ai-bcc/shared";
 import {
@@ -19,6 +20,7 @@ import {
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
   renderStockBalanceLinePreview,
+  renderStockReorderLinePreview,
 } from "@ai-bcc/reports";
 
 export type ReportRuntimeRunInput = {
@@ -53,6 +55,9 @@ export type ReportRuntimeRegistryDependencies = {
     },
   ) => Promise<ReportRuntimeRunOutcome>;
   runStockBalanceReport: (
+    input: ReportRuntimeRunInput,
+  ) => Promise<ReportRuntimeRunOutcome>;
+  runStockReorderReport: (
     input: ReportRuntimeRunInput,
   ) => Promise<ReportRuntimeRunOutcome>;
 };
@@ -131,6 +136,16 @@ export function createReportRuntimeRegistry(
       renderLinePreview: (input) =>
         renderStockBalanceLinePreview({
           snapshot: input.snapshot as StockBalanceSnapshot,
+          dashboardUrl: input.dashboardUrl,
+          tenantName: input.tenantName,
+        }),
+    }),
+    stock_reorder: buildRuntimeEntry({
+      key: "stock_reorder",
+      run: dependencies.runStockReorderReport,
+      renderLinePreview: (input) =>
+        renderStockReorderLinePreview({
+          snapshot: input.snapshot as StockReorderSnapshot,
           dashboardUrl: input.dashboardUrl,
           tenantName: input.tenantName,
         }),

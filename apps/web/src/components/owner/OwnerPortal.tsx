@@ -4232,6 +4232,7 @@ const NOTIFICATION_REPORTS: Array<{ key: ReportKey; label: string }> = [
   { key: "gross_profit_by_product", label: "กำไรขั้นต้นสินค้า" },
   { key: "gross_profit_by_ar_customer", label: "กำไรขั้นต้นลูกหนี้" },
   { key: "stock_balance", label: "สต็อกคงเหลือ" },
+  { key: "stock_reorder", label: "สินค้าถึงจุดสั่งซื้อ" },
 ];
 
 const NOTIFICATION_PERIOD_OPTIONS: Array<{

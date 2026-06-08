@@ -2770,6 +2770,9 @@ function getSnapshotRowCount(snapshot: ReportSnapshot) {
   if (snapshot.report_key === "stock_balance") {
     return snapshot.summary.sku_count;
   }
+  if (snapshot.report_key === "stock_reorder") {
+    return snapshot.summary.reorder_count;
+  }
   if (
     snapshot.report_key === "gross_profit_by_product" ||
     snapshot.report_key === "gross_profit_by_ar_customer"

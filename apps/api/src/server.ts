@@ -39,6 +39,7 @@ import {
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
   type StockBalanceSnapshot,
+  type StockReorderSnapshot,
   isoDateSchema,
   salesGoodsServicesParamsSchema,
   tenantIdSchema,
@@ -77,6 +78,7 @@ import {
   runPurchaseGoodsPayablesReport,
   runSalesGoodsServicesReport,
   runStockBalanceReport,
+  runStockReorderReport,
   testDatasourceConnection,
   toSafeDatasourceErrorMessage,
   toSafeErrorMessage,
@@ -192,6 +194,7 @@ const reportRuntimeRegistry = createReportRuntimeRegistry({
   runPurchaseGoodsPayablesReport: runAndPersistPurchaseGoodsPayablesReport,
   runGrossProfitReport: runAndPersistGrossProfitReport,
   runStockBalanceReport: runAndPersistStockBalanceReport,
+  runStockReorderReport: runAndPersistStockReorderReport,
 });
 
 await systemStore.initialize({
@@ -4900,6 +4903,128 @@ function toSafeStockBalanceErrorMessage(error: unknown) {
   return toSafeErrorMessage(error);
 }
 
+async function runAndPersistStockReorderReport(input: {
+  tenantId: TenantId;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      snapshot: StockReorderSnapshot;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 424 | 500;
+      error: string;
+      runRecord: ReportRunRecord;
+    }
+> {
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, "stock_reorder"),
+    tenant_id: input.tenantId,
+    report_key: "stock_reorder",
+    params: input.params,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: "stock_reorder",
+      params: input.params,
+      source_basis: "latest_inventory_balance",
+    },
+  });
+
+  if (!datasource) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message =
+      "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน";
+    await systemStore.upsertRun(runRecord);
+    return {
+      ok: false,
+      statusCode: 424,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+
+  try {
+    const snapshot = await runStockReorderReport({
+      tenant_id: input.tenantId,
+      run_id: runRecord.id,
+      params: input.params,
+      datasource,
+    });
+
+    runRecord.status = "success";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.row_count = snapshot.summary.reorder_count;
+    await systemStore.upsertRun(runRecord);
+    await systemStore.saveSnapshot(snapshot);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "stock_reorder_report_run_succeeded",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "stock_reorder",
+        row_count: runRecord.row_count,
+        quality_status: snapshot.quality_status,
+        source_basis: snapshot.source_basis,
+      },
+    });
+
+    return { ok: true, snapshot, runRecord };
+  } catch (error) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message = toSafeStockReorderErrorMessage(error);
+    await systemStore.upsertRun(runRecord);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "stock_reorder_report_run_failed",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "stock_reorder",
+        safe_error_message: runRecord.safe_error_message,
+        source_basis: "latest_inventory_balance",
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 500,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+}
+
+function toSafeStockReorderErrorMessage(error: unknown) {
+  if (
+    error instanceof Error &&
+    /timeout|timed out|canceling statement/i.test(error.message)
+  ) {
+    return "รายงานสินค้าถึงจุดสั่งซื้อใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้งหรือตรวจประสิทธิภาพ query";
+  }
+  return toSafeErrorMessage(error);
+}
+
 async function buildSalesComparison(input: {
   tenantId: TenantId;
   runId: string;
@@ -6316,6 +6441,13 @@ function shouldUpgradeLegacyDefaultReportKeys(input: {
         "purchase_goods_payables",
         "gross_profit_by_product",
         "gross_profit_by_ar_customer",
+      ],
+      [
+        "sales_goods_services",
+        "purchase_goods_payables",
+        "gross_profit_by_product",
+        "gross_profit_by_ar_customer",
+        "stock_balance",
       ],
     ],
     sales_manager: [["sales_goods_services"]],
@@ -8202,7 +8334,7 @@ const notificationRulePatchSchema = z.object({
     .min(1)
     .max(7)
     .optional(),
-  report_keys: z.array(reportKeySchema).min(1).max(5).optional(),
+  report_keys: z.array(reportKeySchema).min(1).max(6).optional(),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).optional(),
 });
 

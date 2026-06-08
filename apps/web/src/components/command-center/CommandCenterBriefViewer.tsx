@@ -22,6 +22,8 @@ import {
   type SalesDocumentPage,
   type StockBalanceRow,
   type StockBalanceSnapshot,
+  type StockReorderRow,
+  type StockReorderSnapshot,
   type TopProduct,
   type TopSupplier,
 } from "@ai-bcc/shared";
@@ -112,11 +114,13 @@ type GrossProfitViewerReportKey = Extract<
 >;
 
 type StockBalanceViewerReportKey = Extract<ReportKey, "stock_balance">;
+type StockReorderViewerReportKey = Extract<ReportKey, "stock_reorder">;
 
 type ViewerReportKey =
   | ClassicViewerReportKey
   | GrossProfitViewerReportKey
-  | StockBalanceViewerReportKey;
+  | StockBalanceViewerReportKey
+  | StockReorderViewerReportKey;
 
 type ViewerReportSnapshot = Extract<
   ReportSnapshot,
@@ -133,6 +137,7 @@ type GrossProfitViewerReportSnapshot =
   | GrossProfitByArCustomerSnapshot;
 
 type StockBalanceViewerReportSnapshot = StockBalanceSnapshot;
+type StockReorderViewerReportSnapshot = StockReorderSnapshot;
 
 const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 const PDF_PROGRESS_STAGES = [
@@ -586,6 +591,15 @@ function PremiumReportViewer({
     dateFrom: snapshot.params.date_from,
     dateTo: snapshot.params.date_to,
   });
+
+  if (isStockReorderSnapshot(snapshot)) {
+    return (
+      <StockReorderReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+      />
+    );
+  }
 
   if (isStockBalanceSnapshot(snapshot)) {
     return (
@@ -1424,6 +1438,218 @@ function StockBalanceReportViewer({
         </div>
       </div>
     </main>
+  );
+}
+
+function StockReorderReportViewer({
+  snapshot,
+  generatedAt,
+}: {
+  snapshot: StockReorderViewerReportSnapshot;
+  generatedAt: string;
+}) {
+  const hasOutOfStock = snapshot.summary.out_of_stock_count > 0;
+  const rows = snapshot.top_items.slice(0, 20);
+  const topItem = rows[0] ?? null;
+
+  return (
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="screen-report-viewer">
+        <div className="border-b border-[#E4E7EC] bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                    รายงานคลังสินค้า
+                  </span>
+                  <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
+                    {formatSource(snapshot.source)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 ${
+                      hasOutOfStock
+                        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                        : snapshot.summary.low_stock_count > 0
+                          ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                          : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                    }`}
+                  >
+                    {hasOutOfStock
+                      ? "ควรตรวจสั่งซื้อ"
+                      : snapshot.summary.low_stock_count > 0
+                        ? "มีข้อสังเกต"
+                        : "พร้อมใช้"}
+                  </span>
+                </div>
+                <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
+                  รายงานสินค้าถึงจุดสั่งซื้อ
+                </h1>
+                <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
+                  {formatTenantName(snapshot.tenant_id)} · ข้อมูลล่าสุดจาก SML ·
+                  อัปเดต {generatedAt}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <a
+                  href="#reorder-items"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                >
+                  ดูรายการสินค้า
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PremiumKpi
+                label="ถึงจุดสั่งซื้อ"
+                value={`${formatInteger(snapshot.summary.reorder_count)} รายการ`}
+                emphasis
+              />
+              <PremiumKpi
+                label="ของหมด"
+                value={`${formatInteger(snapshot.summary.out_of_stock_count)} รายการ`}
+              />
+              <PremiumKpi
+                label="ใกล้หมด"
+                value={`${formatInteger(snapshot.summary.low_stock_count)} รายการ`}
+              />
+              <PremiumKpi
+                label="ค้างรับเข้า"
+                value={formatQty(snapshot.summary.purchase_balance_qty_total)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                  สรุปผู้บริหาร
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  วันนี้ควรรู้อะไร
+                </h2>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
+                  hasOutOfStock
+                    ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                    : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                }`}
+              >
+                {hasOutOfStock ? "ควรตรวจทันที" : "พร้อมใช้"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <InsightCard
+                index={1}
+                title="รายการที่ถึงจุดสั่งซื้อ"
+                body={`${formatInteger(snapshot.summary.reorder_count)} รายการ จากข้อมูลล่าสุดใน SML`}
+              />
+              <InsightCard
+                index={2}
+                title="ของหมดหรือคงเหลือติดลบ"
+                body={
+                  hasOutOfStock
+                    ? `${formatInteger(snapshot.summary.out_of_stock_count)} รายการควรตรวจสั่งซื้อก่อน`
+                    : "ยังไม่พบรายการที่คงเหลือ 0 หรือติดลบ"
+                }
+              />
+              <InsightCard
+                index={3}
+                title="รายการแรกที่ควรดู"
+                body={
+                  topItem
+                    ? `${topItem.ic_name || topItem.ic_code} ขาดอีก ${formatQty(
+                        topItem.shortage_qty,
+                      )} ${topItem.ic_unit_code || ""}`
+                    : "ยังไม่มีสินค้าต่ำกว่าจุดสั่งซื้อ"
+                }
+              />
+            </div>
+          </section>
+
+          <section
+            id="reorder-items"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                รายการสินค้า
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                สินค้าที่ต่ำกว่าจุดสั่งซื้อ
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                เรียงของหมดก่อน แล้วตามด้วยจำนวนที่ขาดมากไปน้อย หน้านี้อ่านจาก snapshot ที่ส่งมาแล้ว
+              </p>
+            </div>
+            <StockReorderRowsTable rows={rows} />
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function StockReorderRowsTable({ rows }: { rows: StockReorderRow[] }) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่พบสินค้าต่ำกว่าจุดสั่งซื้อจากข้อมูลล่าสุด
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_110px_110px_110px_110px] md:gap-3">
+        <span>สินค้า</span>
+        <span className="text-right">คงเหลือ</span>
+        <span className="text-right">จุดสั่งซื้อ</span>
+        <span className="text-right">ขาดอีก</span>
+        <span className="text-right">ค้างรับเข้า</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row) => (
+          <div
+            key={row.ic_code}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_110px_110px_110px_110px] md:items-center"
+          >
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.ic_name || "ไม่ระบุชื่อสินค้า"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                SKU {row.ic_code || "-"} · {row.ic_unit_code || "-"}
+              </p>
+            </div>
+            <MobileFact
+              danger={row.status === "out_of_stock"}
+              label="คงเหลือ"
+              value={`${formatQty(row.balance_qty)} ${row.ic_unit_code || ""}`}
+            />
+            <MobileFact
+              label="จุดสั่งซื้อ"
+              value={`${formatQty(row.purchase_point)} ${row.ic_unit_code || ""}`}
+            />
+            <MobileFact
+              danger={row.shortage_qty > 0}
+              label="ขาดอีก"
+              value={`${formatQty(row.shortage_qty)} ${row.ic_unit_code || ""}`}
+            />
+            <MobileFact
+              label="ค้างรับเข้า"
+              value={`${formatQty(row.purchase_balance_qty)} ${row.ic_unit_code || ""}`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2293,6 +2519,9 @@ function BriefErrorState({ message }: { message: string }) {
 }
 
 function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
+  if (isStockReorderSnapshot(snapshot)) {
+    return "รายงานสินค้าถึงจุดสั่งซื้อ";
+  }
   if (isStockBalanceSnapshot(snapshot)) {
     return "รายงานสต็อกคงเหลือ";
   }
@@ -2324,6 +2553,12 @@ function isStockBalanceSnapshot(
   snapshot: ViewerReportSnapshot,
 ): snapshot is StockBalanceViewerReportSnapshot {
   return snapshot.report_key === "stock_balance";
+}
+
+function isStockReorderSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is StockReorderViewerReportSnapshot {
+  return snapshot.report_key === "stock_reorder";
 }
 
 function getGrossProfitTitle(reportKey: GrossProfitViewerReportKey) {

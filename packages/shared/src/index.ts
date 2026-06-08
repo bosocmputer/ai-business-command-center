@@ -15,6 +15,7 @@ export const reportKeyValues = [
   "gross_profit_by_product",
   "gross_profit_by_ar_customer",
   "stock_balance",
+  "stock_reorder",
 ] as const;
 
 export const reportKeySchema = z.enum(reportKeyValues);
@@ -184,6 +185,22 @@ export const reportCatalog = {
     permissionLabel: "สต็อกคงเหลือ",
     permissionDescription: "มีข้อมูลต้นทุนเฉลี่ยและมูลค่าสต็อก ควรเปิดเฉพาะผู้บริหาร",
     sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: false,
+    },
+  },
+  stock_reorder: {
+    key: "stock_reorder",
+    definitionName: "Stock Reorder",
+    label: "รายงานสินค้าถึงจุดสั่งซื้อ",
+    shortLabel: "ถึงจุดสั่งซื้อ",
+    category: "inventory",
+    permissionLabel: "สินค้าถึงจุดสั่งซื้อ",
+    permissionDescription: "สินค้าที่คงเหลือต่ำกว่าจุดสั่งซื้อจาก SML",
+    sensitive: false,
     capabilities: {
       lineCard: true,
       signedViewer: true,
@@ -578,12 +595,52 @@ export type StockBalanceSnapshot = {
   };
 };
 
+export type StockReorderStatus = "out_of_stock" | "low_stock";
+
+export type StockReorderRow = {
+  ic_code: string;
+  ic_name: string;
+  ic_unit_code: string;
+  balance_qty: number;
+  purchase_point: number;
+  purchase_balance_qty: number;
+  shortage_qty: number;
+  status: StockReorderStatus;
+};
+
+export type StockReorderSummary = {
+  reorder_count: number;
+  out_of_stock_count: number;
+  low_stock_count: number;
+  purchase_balance_qty_total: number;
+  shortage_qty_total: number;
+  top_reorder_item_name: string | null;
+};
+
+export type StockReorderSnapshot = {
+  tenant_id: TenantId;
+  report_key: "stock_reorder";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  source_basis: "latest_inventory_balance";
+  summary: StockReorderSummary;
+  top_items: StockReorderRow[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
 export type ReportSnapshot =
   | SalesGoodsServicesSnapshot
   | PurchaseGoodsPayablesSnapshot
   | GrossProfitByProductSnapshot
   | GrossProfitByArCustomerSnapshot
-  | StockBalanceSnapshot;
+  | StockBalanceSnapshot
+  | StockReorderSnapshot;
 
 export const businessSignalSeveritySchema = z.enum([
   "info",
@@ -883,11 +940,27 @@ export type StockBalanceLinePreview = {
   dashboard_url: string | null;
 };
 
+export type StockReorderLinePreview = {
+  tenant_id: TenantId;
+  report_key: "stock_reorder";
+  run_id: string;
+  generated_at: string;
+  source: StockReorderSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
 export type ReportLinePreview =
   | SalesGoodsServicesLinePreview
   | PurchaseGoodsPayablesLinePreview
   | GrossProfitLinePreview
-  | StockBalanceLinePreview;
+  | StockBalanceLinePreview
+  | StockReorderLinePreview;
 
 export type LineDeliveryStatus =
   | "dry_run"
@@ -1009,7 +1082,7 @@ export const notificationRulePayloadSchema = z.object({
   timezone: z.string().trim().min(1).max(80).default(BANGKOK_TIME_ZONE),
   period_preset: notificationPeriodPresetSchema.default("yesterday"),
   schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
-  report_keys: z.array(reportKeySchema).min(1).max(5),
+  report_keys: z.array(reportKeySchema).min(1).max(6),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),
   digest_mode: notificationDigestModeSchema.default("action_only"),
 });

@@ -48,6 +48,10 @@ describe("report runtime registry", () => {
         runnerCalls += 1;
         return fakeRunOutcome("stock_balance");
       },
+      runStockReorderReport: async () => {
+        runnerCalls += 1;
+        return fakeRunOutcome("stock_reorder");
+      },
     });
 
     expect(runnerCalls).toBe(0);
@@ -73,6 +77,10 @@ describe("report runtime registry", () => {
       runStockBalanceReport: async () => {
         calls.push("stock");
         return fakeRunOutcome("stock_balance");
+      },
+      runStockReorderReport: async () => {
+        calls.push("reorder");
+        return fakeRunOutcome("stock_reorder");
       },
     });
 
@@ -104,11 +112,45 @@ describe("report runtime registry", () => {
         calls.push("stock");
         return fakeRunOutcome("stock_balance");
       },
+      runStockReorderReport: async () => {
+        calls.push("reorder");
+        return fakeRunOutcome("stock_reorder");
+      },
     });
 
     await runReportRuntimeEntry(registry, "stock_balance", runInput);
 
     expect(calls).toEqual(["stock"]);
+  });
+
+  it("routes stock reorder through its dedicated runner", async () => {
+    const calls: string[] = [];
+    const registry = createReportRuntimeRegistry({
+      runSalesGoodsServicesReport: async () => {
+        calls.push("sales");
+        return fakeRunOutcome("sales_goods_services");
+      },
+      runPurchaseGoodsPayablesReport: async () => {
+        calls.push("purchase");
+        return fakeRunOutcome("purchase_goods_payables");
+      },
+      runGrossProfitReport: async (input) => {
+        calls.push(`gross:${input.reportKey}`);
+        return fakeRunOutcome(input.reportKey);
+      },
+      runStockBalanceReport: async () => {
+        calls.push("stock");
+        return fakeRunOutcome("stock_balance");
+      },
+      runStockReorderReport: async () => {
+        calls.push("reorder");
+        return fakeRunOutcome("stock_reorder");
+      },
+    });
+
+    await runReportRuntimeEntry(registry, "stock_reorder", runInput);
+
+    expect(calls).toEqual(["reorder"]);
   });
 
   it("does not silently fallback to another report when a handler is missing", async () => {
@@ -131,6 +173,7 @@ describe("report runtime registry", () => {
       "Gross Profit by Product",
       "Gross Profit by AR Customer",
       "Stock Balance",
+      "Stock Reorder",
     ]);
   });
 });

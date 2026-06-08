@@ -13,15 +13,18 @@ import {
   buildGrossProfitByArCustomerQuery,
   buildGrossProfitByProductQuery,
   buildStockBalanceQuery,
+  buildStockReorderQuery,
   summarizePurchaseGoodsPayables,
   summarizeGrossProfitByArCustomer,
   summarizeGrossProfitByProduct,
   summarizeSalesGoodsServices,
   summarizeStockBalance,
+  summarizeStockReorder,
   validateGrossProfitParams,
   validatePurchaseGoodsPayablesParams,
   validateSalesGoodsServicesParams,
   validateStockBalanceParams,
+  validateStockReorderParams,
 } from "@ai-bcc/reports";
 import {
   getSmlBranchMeaning,
@@ -40,6 +43,7 @@ import {
   type SalesHeaderRow,
   type SmlBranchRecord,
   type StockBalanceSnapshot,
+  type StockReorderSnapshot,
   type TenantId,
 } from "@ai-bcc/shared";
 import type { JavaWsDatasourceConfig } from "./config.js";
@@ -462,6 +466,40 @@ export async function runStockBalanceReport(input: {
       );
 
       return summarizeStockBalance({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows,
+      });
+    },
+  );
+}
+
+export async function runStockReorderReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<StockReorderSnapshot> {
+  const params = validateStockReorderParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 20000,
+      queryTimeoutMs: 25000,
+    },
+    async (client) => {
+      const query = buildStockReorderQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeStockReorder({
         tenant_id: input.tenant_id,
         run_id: input.run_id,
         params,
