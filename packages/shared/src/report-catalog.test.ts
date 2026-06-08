@@ -8,7 +8,14 @@ import {
 } from "./index.js";
 
 describe("report catalog", () => {
-  it("keeps the report key schema and catalog on the same four keys", () => {
+  it("keeps the report key schema and catalog on the same five keys", () => {
+    expect(reportKeyValues).toEqual([
+      "sales_goods_services",
+      "purchase_goods_payables",
+      "gross_profit_by_product",
+      "gross_profit_by_ar_customer",
+      "stock_balance",
+    ]);
     expect(reportKeySchema.options).toEqual([...reportKeyValues]);
     expect(Object.keys(reportCatalog)).toEqual([...reportKeyValues]);
   });
@@ -24,17 +31,45 @@ describe("report catalog", () => {
       },
     });
     expect(getReportCatalogEntry("gross_profit_by_product")).toMatchObject({
+      category: "gross_profit",
       sensitive: true,
       capabilities: {
         lineCard: true,
         signedViewer: true,
         pdf: false,
+        businessSignals: true,
+      },
+    });
+    expect(getReportCatalogEntry("gross_profit_by_ar_customer")).toMatchObject({
+      category: "gross_profit",
+      sensitive: true,
+      capabilities: {
+        lineCard: true,
+        signedViewer: true,
+        pdf: false,
+        businessSignals: true,
+      },
+    });
+  });
+
+  it("adds stock balance as an inventory report with cost-sensitive access", () => {
+    expect(getReportCatalogEntry("stock_balance")).toMatchObject({
+      label: "รายงานสต็อกคงเหลือ",
+      shortLabel: "สต็อกคงเหลือ",
+      category: "inventory",
+      sensitive: true,
+      capabilities: {
+        lineCard: true,
+        signedViewer: true,
+        pdf: false,
+        businessSignals: false,
       },
     });
   });
 
   it("validates report keys through one shared helper", () => {
     expect(isReportKey("purchase_goods_payables")).toBe(true);
-    expect(isReportKey("stock_balance")).toBe(false);
+    expect(isReportKey("stock_balance")).toBe(true);
+    expect(isReportKey("unknown_report")).toBe(false);
   });
 });

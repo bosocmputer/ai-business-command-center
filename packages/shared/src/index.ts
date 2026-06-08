@@ -14,6 +14,7 @@ export const reportKeyValues = [
   "purchase_goods_payables",
   "gross_profit_by_product",
   "gross_profit_by_ar_customer",
+  "stock_balance",
 ] as const;
 
 export const reportKeySchema = z.enum(reportKeyValues);
@@ -79,7 +80,7 @@ export const dataQualityStatusSchema = z.enum([
 
 export type TenantId = z.infer<typeof tenantIdSchema>;
 export type ReportKey = z.infer<typeof reportKeySchema>;
-export type ReportCategory = "sales" | "purchase" | "gross_profit";
+export type ReportCategory = "sales" | "purchase" | "gross_profit" | "inventory";
 export type ReportCatalogEntryFor<K extends ReportKey = ReportKey> = {
   key: K;
   definitionName: string;
@@ -172,6 +173,22 @@ export const reportCatalog = {
       signedViewer: true,
       pdf: false,
       businessSignals: true,
+    },
+  },
+  stock_balance: {
+    key: "stock_balance",
+    definitionName: "Stock Balance",
+    label: "รายงานสต็อกคงเหลือ",
+    shortLabel: "สต็อกคงเหลือ",
+    category: "inventory",
+    permissionLabel: "สต็อกคงเหลือ",
+    permissionDescription: "มีข้อมูลต้นทุนเฉลี่ยและมูลค่าสต็อก ควรเปิดเฉพาะผู้บริหาร",
+    sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: false,
     },
   },
 } satisfies { [K in ReportKey]: ReportCatalogEntryFor<K> };
@@ -515,11 +532,58 @@ export type GrossProfitByArCustomerSnapshot = {
   };
 };
 
+export type StockBalanceRow = {
+  ic_code: string;
+  ic_name: string;
+  ic_unit_code: string;
+  balance_qty: number;
+  average_cost: number;
+  average_cost_end: number;
+  balance_amount: number;
+  qty_in: number;
+  amount_in: number;
+  average_cost_in: number;
+  qty_out: number;
+  amount_out: number;
+  average_cost_out: number;
+};
+
+export type StockBalanceSummary = {
+  sku_count: number;
+  stock_value: number;
+  balance_qty: number;
+  qty_in: number;
+  amount_in: number;
+  qty_out: number;
+  amount_out: number;
+  negative_stock_count: number;
+  zero_or_missing_cost_count: number;
+  top_stock_item_name: string | null;
+};
+
+export type StockBalanceSnapshot = {
+  tenant_id: TenantId;
+  report_key: "stock_balance";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  summary: StockBalanceSummary;
+  top_items_by_value: StockBalanceRow[];
+  negative_items: StockBalanceRow[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
 export type ReportSnapshot =
   | SalesGoodsServicesSnapshot
   | PurchaseGoodsPayablesSnapshot
   | GrossProfitByProductSnapshot
-  | GrossProfitByArCustomerSnapshot;
+  | GrossProfitByArCustomerSnapshot
+  | StockBalanceSnapshot;
 
 export const businessSignalSeveritySchema = z.enum([
   "info",
@@ -761,7 +825,7 @@ export type LinePermissionDecision =
 
 export type SalesGoodsServicesLinePreview = {
   tenant_id: TenantId;
-  report_key: ReportKey;
+  report_key: "sales_goods_services";
   run_id: string;
   generated_at: string;
   source: SalesGoodsServicesSnapshot["source"];
@@ -804,10 +868,26 @@ export type GrossProfitLinePreview = {
   dashboard_url: string | null;
 };
 
+export type StockBalanceLinePreview = {
+  tenant_id: TenantId;
+  report_key: "stock_balance";
+  run_id: string;
+  generated_at: string;
+  source: StockBalanceSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
 export type ReportLinePreview =
   | SalesGoodsServicesLinePreview
   | PurchaseGoodsPayablesLinePreview
-  | GrossProfitLinePreview;
+  | GrossProfitLinePreview
+  | StockBalanceLinePreview;
 
 export type LineDeliveryStatus =
   | "dry_run"

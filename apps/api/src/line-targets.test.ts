@@ -31,6 +31,45 @@ describe("LINE target permission profiles", () => {
     });
   });
 
+  it("allows stock balance for executives but not operations by default", () => {
+    expect(
+      canAccessLineReport({
+        tenantId: "tenant_demo_remote",
+        target: executiveTarget,
+        reportKey: "stock_balance",
+        action: "receive_morning_brief",
+      }),
+    ).toMatchObject({
+      allowed: true,
+      reason: "allowed",
+    });
+
+    const operationsTarget = applyLineAccessProfileDefaults(
+      {
+        ...executiveTarget,
+        id: "line_target_operations",
+        access_profile_key: "operations",
+        approved: true,
+        enabled: true,
+      },
+      "operations",
+    );
+    expect(operationsTarget.allowed_report_keys).toEqual([
+      "purchase_goods_payables",
+    ]);
+    expect(
+      canAccessLineReport({
+        tenantId: "tenant_demo_remote",
+        target: operationsTarget,
+        reportKey: "stock_balance",
+        action: "receive_morning_brief",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      reason: "report_not_allowed",
+    });
+  });
+
   it("denies staff targets for sales reports", () => {
     const staffTarget = applyLineAccessProfileDefaults(
       {

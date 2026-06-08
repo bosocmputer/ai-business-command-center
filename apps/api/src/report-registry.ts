@@ -11,12 +11,14 @@ import {
   type ReportSnapshot,
   type SalesGoodsServicesParams,
   type SalesGoodsServicesSnapshot,
+  type StockBalanceSnapshot,
   type TenantId,
 } from "@ai-bcc/shared";
 import {
   renderGrossProfitLinePreview,
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
+  renderStockBalanceLinePreview,
 } from "@ai-bcc/reports";
 
 export type ReportRuntimeRunInput = {
@@ -49,6 +51,9 @@ export type ReportRuntimeRegistryDependencies = {
     input: ReportRuntimeRunInput & {
       reportKey: "gross_profit_by_product" | "gross_profit_by_ar_customer";
     },
+  ) => Promise<ReportRuntimeRunOutcome>;
+  runStockBalanceReport: (
+    input: ReportRuntimeRunInput,
   ) => Promise<ReportRuntimeRunOutcome>;
 };
 
@@ -116,6 +121,16 @@ export function createReportRuntimeRegistry(
       renderLinePreview: (input) =>
         renderGrossProfitLinePreview({
           snapshot: input.snapshot as GrossProfitByArCustomerSnapshot,
+          dashboardUrl: input.dashboardUrl,
+          tenantName: input.tenantName,
+        }),
+    }),
+    stock_balance: buildRuntimeEntry({
+      key: "stock_balance",
+      run: dependencies.runStockBalanceReport,
+      renderLinePreview: (input) =>
+        renderStockBalanceLinePreview({
+          snapshot: input.snapshot as StockBalanceSnapshot,
           dashboardUrl: input.dashboardUrl,
           tenantName: input.tenantName,
         }),

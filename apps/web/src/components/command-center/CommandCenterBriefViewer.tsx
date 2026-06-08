@@ -20,6 +20,8 @@ import {
   type SalesDocumentDetail,
   type SalesDocumentListItem,
   type SalesDocumentPage,
+  type StockBalanceRow,
+  type StockBalanceSnapshot,
   type TopProduct,
   type TopSupplier,
 } from "@ai-bcc/shared";
@@ -109,7 +111,12 @@ type GrossProfitViewerReportKey = Extract<
   "gross_profit_by_product" | "gross_profit_by_ar_customer"
 >;
 
-type ViewerReportKey = ClassicViewerReportKey | GrossProfitViewerReportKey;
+type StockBalanceViewerReportKey = Extract<ReportKey, "stock_balance">;
+
+type ViewerReportKey =
+  | ClassicViewerReportKey
+  | GrossProfitViewerReportKey
+  | StockBalanceViewerReportKey;
 
 type ViewerReportSnapshot = Extract<
   ReportSnapshot,
@@ -124,6 +131,8 @@ type ClassicViewerReportSnapshot = Extract<
 type GrossProfitViewerReportSnapshot =
   | GrossProfitByProductSnapshot
   | GrossProfitByArCustomerSnapshot;
+
+type StockBalanceViewerReportSnapshot = StockBalanceSnapshot;
 
 const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 const PDF_PROGRESS_STAGES = [
@@ -393,7 +402,7 @@ function PremiumReportViewer({
 
   const loadDocuments = useCallback(
     async (nextPage = page, nextSearch = submittedSearch) => {
-      if (isGrossProfitSnapshot(snapshot)) {
+      if (!isClassicSnapshot(snapshot)) {
         setDocumentsState({ status: "idle" });
         return;
       }
@@ -438,7 +447,7 @@ function PremiumReportViewer({
   );
 
   useEffect(() => {
-    if (isGrossProfitSnapshot(snapshot)) {
+    if (!isClassicSnapshot(snapshot)) {
       setDocumentsState({ status: "idle" });
       return;
     }
@@ -577,6 +586,23 @@ function PremiumReportViewer({
     dateFrom: snapshot.params.date_from,
     dateTo: snapshot.params.date_to,
   });
+
+  if (isStockBalanceSnapshot(snapshot)) {
+    return (
+      <StockBalanceReportViewer
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        generatedAt={generatedAt}
+        onApplyPreset={applyPreset}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onRunRange={() => void runRange()}
+        rangeError={rangeError}
+        rangeLoading={rangeLoading}
+        snapshot={snapshot}
+      />
+    );
+  }
 
   if (isGrossProfitSnapshot(snapshot)) {
     return (
@@ -1140,6 +1166,313 @@ function GrossProfitReportViewer({
         </div>
       </div>
     </main>
+  );
+}
+
+function StockBalanceReportViewer({
+  snapshot,
+  generatedAt,
+  dateFrom,
+  dateTo,
+  rangeLoading,
+  rangeError,
+  onDateFromChange,
+  onDateToChange,
+  onRunRange,
+  onApplyPreset,
+}: {
+  snapshot: StockBalanceViewerReportSnapshot;
+  generatedAt: string;
+  dateFrom: string;
+  dateTo: string;
+  rangeLoading: boolean;
+  rangeError: string | null;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onRunRange: () => void;
+  onApplyPreset: (preset: "yesterday" | "month" | "quarter" | "year") => void;
+}) {
+  const hasWarning =
+    snapshot.summary.negative_stock_count > 0 ||
+    snapshot.summary.zero_or_missing_cost_count > 0;
+  const topRows = snapshot.top_items_by_value.slice(0, 10);
+  const negativeRows = snapshot.negative_items.slice(0, 10);
+  const topItem = topRows[0] ?? null;
+
+  return (
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="screen-report-viewer">
+        <div className="border-b border-[#E4E7EC] bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                    รายงานผู้บริหาร
+                  </span>
+                  <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
+                    {formatSource(snapshot.source)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 ${
+                      hasWarning
+                        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                        : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                    }`}
+                  >
+                    {hasWarning ? "ควรตรวจคลัง" : "พร้อมใช้"}
+                  </span>
+                  <span className="rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[#B54708]">
+                    ข้อมูลต้นทุน
+                  </span>
+                </div>
+                <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
+                  รายงานสต็อกคงเหลือ
+                </h1>
+                <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
+                  {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+                  {formatReportPeriod(
+                    snapshot.params.date_from,
+                    snapshot.params.date_to,
+                  )}{" "}
+                  · อัปเดต {generatedAt}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <a
+                  href="#stock-items"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                >
+                  ดูรายการสินค้า
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PremiumKpi
+                label="มูลค่าสต็อกคงเหลือ"
+                value={`${formatMoney(snapshot.summary.stock_value)} บาท`}
+                emphasis
+              />
+              <PremiumKpi
+                label="จำนวนสินค้า"
+                value={`${formatInteger(snapshot.summary.sku_count)} รายการ`}
+              />
+              <PremiumKpi
+                label="รับเข้า"
+                value={`${formatMoney(snapshot.summary.amount_in)} บาท`}
+              />
+              <PremiumKpi
+                label="จ่ายออก"
+                value={`${formatMoney(snapshot.summary.amount_out)} บาท`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                  สรุปผู้บริหาร
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  วันนี้ควรรู้อะไร
+                </h2>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
+                  hasWarning
+                    ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                    : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                }`}
+              >
+                {hasWarning ? "มีข้อสังเกต" : "พร้อมใช้"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <InsightCard
+                index={1}
+                title="มูลค่าสต็อกคงเหลือ"
+                body={`${formatMoney(snapshot.summary.stock_value)} บาท จาก ${formatInteger(
+                  snapshot.summary.sku_count,
+                )} รายการสินค้า`}
+              />
+              <InsightCard
+                index={2}
+                title="สินค้ามูลค่าสูง"
+                body={
+                  topItem
+                    ? `${topItem.ic_name || topItem.ic_code} มูลค่า ${formatMoney(
+                        topItem.balance_amount,
+                      )} บาท`
+                    : "ยังไม่มีข้อมูลในช่วงวันที่นี้"
+                }
+              />
+              <InsightCard
+                index={3}
+                title="รายการที่ควรตรวจ"
+                body={
+                  hasWarning
+                    ? `${formatInteger(
+                        snapshot.summary.negative_stock_count,
+                      )} รายการติดลบ · ${formatInteger(
+                        snapshot.summary.zero_or_missing_cost_count,
+                      )} รายการไม่มีต้นทุนเฉลี่ย`
+                    : "ยังไม่พบสินค้าติดลบหรือต้นทุนเฉลี่ยหาย"
+                }
+              />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
+            <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+                  เลือกช่วงรายงาน
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <PresetButton label="เมื่อวาน" onClick={() => onApplyPreset("yesterday")} />
+                  <PresetButton label="เดือนนี้" onClick={() => onApplyPreset("month")} />
+                  <PresetButton label="ไตรมาสนี้" onClick={() => onApplyPreset("quarter")} />
+                  <PresetButton label="ปีนี้" onClick={() => onApplyPreset("year")} />
+                </div>
+              </div>
+              <form
+                className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onRunRange();
+                }}
+              >
+                <DateInput label="จากวันที่" value={dateFrom} onChange={onDateFromChange} />
+                <DateInput label="ถึงวันที่" value={dateTo} onChange={onDateToChange} />
+                <button
+                  className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
+                  disabled={rangeLoading}
+                  type="submit"
+                >
+                  {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
+                </button>
+              </form>
+            </div>
+            {rangeError && (
+              <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
+                {rangeError}
+              </p>
+            )}
+          </section>
+
+          <section
+            id="stock-items"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                รายการสินค้า
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                สินค้ามูลค่าสต็อกสูงสุด
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                แสดงเฉพาะรายการสำคัญจากข้อมูลสรุปล่าสุดของรายงาน ไม่โหลดข้อมูลจาก SML ตอนเปิดหน้านี้
+              </p>
+            </div>
+            <StockBalanceRowsTable
+              emptyText="ยังไม่มีสินค้าที่มีมูลค่าสต็อกในช่วงวันที่นี้"
+              rows={topRows}
+            />
+          </section>
+
+          {negativeRows.length > 0 && (
+            <section className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-3 shadow-sm sm:p-4">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#B54708]">
+                  รายการที่ควรตรวจ
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  สินค้าคงเหลือติดลบ
+                </h2>
+              </div>
+              <StockBalanceRowsTable
+                emptyText="ไม่พบสินค้าคงเหลือติดลบ"
+                rows={negativeRows}
+              />
+            </section>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function StockBalanceRowsTable({
+  rows,
+  emptyText,
+}: {
+  rows: StockBalanceRow[];
+  emptyText: string;
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_110px_130px_120px_120px_120px] md:gap-3">
+        <span>สินค้า</span>
+        <span className="text-right">คงเหลือ</span>
+        <span className="text-right">มูลค่าสต็อก</span>
+        <span className="text-right">ต้นทุนเฉลี่ย</span>
+        <span className="text-right">รับเข้า</span>
+        <span className="text-right">จ่ายออก</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row) => (
+          <div
+            key={row.ic_code}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_110px_130px_120px_120px_120px] md:items-center"
+          >
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.ic_name || "ไม่ระบุชื่อสินค้า"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                SKU {row.ic_code || "-"} · {row.ic_unit_code || "-"}
+              </p>
+            </div>
+            <MobileFact
+              danger={row.balance_qty < 0}
+              label="คงเหลือ"
+              value={`${formatQty(row.balance_qty)} ${row.ic_unit_code || ""}`}
+            />
+            <MobileFact
+              danger={row.balance_amount < 0}
+              label="มูลค่าสต็อก"
+              value={`${formatMoney(row.balance_amount)} บาท`}
+            />
+            <MobileFact
+              label="ต้นทุนเฉลี่ย"
+              value={`${formatMoney(row.average_cost_end || row.average_cost)} บาท`}
+            />
+            <MobileFact
+              label="รับเข้า"
+              value={`${formatQty(row.qty_in)} / ${formatMoney(row.amount_in)} บาท`}
+            />
+            <MobileFact
+              label="จ่ายออก"
+              value={`${formatQty(row.qty_out)} / ${formatMoney(row.amount_out)} บาท`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1937,9 +2270,22 @@ function BriefErrorState({ message }: { message: string }) {
 }
 
 function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
-  return isGrossProfitSnapshot(snapshot)
-    ? getGrossProfitTitle(snapshot.report_key)
-    : reportCopy[snapshot.report_key].title;
+  if (isStockBalanceSnapshot(snapshot)) {
+    return "รายงานสต็อกคงเหลือ";
+  }
+  if (isGrossProfitSnapshot(snapshot)) {
+    return getGrossProfitTitle(snapshot.report_key);
+  }
+  return reportCopy[snapshot.report_key].title;
+}
+
+function isClassicSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is ClassicViewerReportSnapshot {
+  return (
+    snapshot.report_key === "sales_goods_services" ||
+    snapshot.report_key === "purchase_goods_payables"
+  );
 }
 
 function isGrossProfitSnapshot(
@@ -1949,6 +2295,12 @@ function isGrossProfitSnapshot(
     snapshot.report_key === "gross_profit_by_product" ||
     snapshot.report_key === "gross_profit_by_ar_customer"
   );
+}
+
+function isStockBalanceSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is StockBalanceViewerReportSnapshot {
+  return snapshot.report_key === "stock_balance";
 }
 
 function getGrossProfitTitle(reportKey: GrossProfitViewerReportKey) {

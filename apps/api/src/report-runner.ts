@@ -12,13 +12,16 @@ import {
   buildPurchasePdfCountQuery,
   buildGrossProfitByArCustomerQuery,
   buildGrossProfitByProductQuery,
+  buildStockBalanceQuery,
   summarizePurchaseGoodsPayables,
   summarizeGrossProfitByArCustomer,
   summarizeGrossProfitByProduct,
   summarizeSalesGoodsServices,
+  summarizeStockBalance,
   validateGrossProfitParams,
   validatePurchaseGoodsPayablesParams,
   validateSalesGoodsServicesParams,
+  validateStockBalanceParams,
 } from "@ai-bcc/reports";
 import {
   getSmlBranchMeaning,
@@ -36,6 +39,7 @@ import {
   type SalesGoodsServicesSnapshot,
   type SalesHeaderRow,
   type SmlBranchRecord,
+  type StockBalanceSnapshot,
   type TenantId,
 } from "@ai-bcc/shared";
 import type { JavaWsDatasourceConfig } from "./config.js";
@@ -430,6 +434,40 @@ export async function runGrossProfitByArCustomerReport(input: {
         generated_at: new Date().toISOString(),
         source: client.source,
         rows: result.rows.map(mapGrossProfitByArCustomerRow),
+      });
+    },
+  );
+}
+
+export async function runStockBalanceReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<StockBalanceSnapshot> {
+  const params = validateStockBalanceParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 60000,
+      queryTimeoutMs: 60000,
+    },
+    async (client) => {
+      const query = buildStockBalanceQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeStockBalance({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows,
       });
     },
   );

@@ -2836,6 +2836,7 @@ function formatCustomerReportLabel(reportKey: ReportKey) {
     purchase_goods_payables: "รายงานซื้อ/ตั้งหนี้",
     gross_profit_by_product: "รายงานกำไรสินค้า",
     gross_profit_by_ar_customer: "รายงานกำไรลูกหนี้",
+    stock_balance: "รายงานสต็อกคงเหลือ",
   };
   return labels[reportKey];
 }

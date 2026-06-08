@@ -2761,9 +2761,22 @@ function snapshotToRunRecord(snapshot: ReportSnapshot): ReportRunRecord {
     status: "success",
     started_at: snapshot.generated_at,
     finished_at: snapshot.generated_at,
-    row_count: snapshot.summary.document_count + snapshot.summary.line_count,
+    row_count: getSnapshotRowCount(snapshot),
     safe_error_message: null,
   };
+}
+
+function getSnapshotRowCount(snapshot: ReportSnapshot) {
+  if (snapshot.report_key === "stock_balance") {
+    return snapshot.summary.sku_count;
+  }
+  if (
+    snapshot.report_key === "gross_profit_by_product" ||
+    snapshot.report_key === "gross_profit_by_ar_customer"
+  ) {
+    return snapshot.summary.row_count;
+  }
+  return snapshot.summary.document_count + snapshot.summary.line_count;
 }
 
 function toIsoString(value: string | Date) {

@@ -44,6 +44,10 @@ describe("report runtime registry", () => {
         runnerCalls += 1;
         return fakeRunOutcome(input.reportKey);
       },
+      runStockBalanceReport: async () => {
+        runnerCalls += 1;
+        return fakeRunOutcome("stock_balance");
+      },
     });
 
     expect(runnerCalls).toBe(0);
@@ -66,6 +70,10 @@ describe("report runtime registry", () => {
         calls.push(`gross:${input.reportKey}`);
         return fakeRunOutcome(input.reportKey);
       },
+      runStockBalanceReport: async () => {
+        calls.push("stock");
+        return fakeRunOutcome("stock_balance");
+      },
     });
 
     await runReportRuntimeEntry(
@@ -75,6 +83,32 @@ describe("report runtime registry", () => {
     );
 
     expect(calls).toEqual(["gross:gross_profit_by_ar_customer"]);
+  });
+
+  it("routes stock balance through its dedicated runner", async () => {
+    const calls: string[] = [];
+    const registry = createReportRuntimeRegistry({
+      runSalesGoodsServicesReport: async () => {
+        calls.push("sales");
+        return fakeRunOutcome("sales_goods_services");
+      },
+      runPurchaseGoodsPayablesReport: async () => {
+        calls.push("purchase");
+        return fakeRunOutcome("purchase_goods_payables");
+      },
+      runGrossProfitReport: async (input) => {
+        calls.push(`gross:${input.reportKey}`);
+        return fakeRunOutcome(input.reportKey);
+      },
+      runStockBalanceReport: async () => {
+        calls.push("stock");
+        return fakeRunOutcome("stock_balance");
+      },
+    });
+
+    await runReportRuntimeEntry(registry, "stock_balance", runInput);
+
+    expect(calls).toEqual(["stock"]);
   });
 
   it("does not silently fallback to another report when a handler is missing", async () => {
@@ -96,6 +130,7 @@ describe("report runtime registry", () => {
       "Purchase Goods and Payables",
       "Gross Profit by Product",
       "Gross Profit by AR Customer",
+      "Stock Balance",
     ]);
   });
 });

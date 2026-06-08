@@ -55,4 +55,17 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
       sensitivity: "contains_cost_and_margin",
     },
   },
+  {
+    report_key: "stock_balance",
+    name: getReportCatalogEntry("stock_balance").definitionName,
+    version: "0.1.0",
+    contract_json: {
+      report_key: "stock_balance",
+      params: ["date_from", "date_to"],
+      stock_truth: "ic_trans_detail qty/cost movement accumulated to date_to",
+      movement_truth: "period qty_in/qty_out and amount_in/amount_out",
+      cost_truth: "average cost and balance amount from SML inventory movement",
+      sensitivity: "contains_average_cost_and_stock_value",
+    },
+  },
 ];

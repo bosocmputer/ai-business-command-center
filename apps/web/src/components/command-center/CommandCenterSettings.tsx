@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deriveMorningBriefDateRange,
+  getReportCatalogEntry,
   type LineAccessProfileKey,
   type LineDeliveryRecord,
   type LineSendMode,
@@ -1280,19 +1281,7 @@ function formatAllowedReports(target: LineTargetRecord) {
 }
 
 function formatReportKeyLabel(reportKey: LineTargetRecord["allowed_report_keys"][number]) {
-  if (reportKey === "sales_goods_services") {
-    return "รายงานขายสินค้าและบริการ";
-  }
-  if (reportKey === "purchase_goods_payables") {
-    return "รายงานซื้อสินค้า/ตั้งหนี้";
-  }
-  if (reportKey === "gross_profit_by_product") {
-    return "รายงานกำไรขั้นต้นสินค้า";
-  }
-  if (reportKey === "gross_profit_by_ar_customer") {
-    return "รายงานกำไรขั้นต้นลูกหนี้";
-  }
-  return reportKey;
+  return getReportCatalogEntry(reportKey).label;
 }
 
 function formatAllowedActions(target: LineTargetRecord) {

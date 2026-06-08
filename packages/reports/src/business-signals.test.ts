@@ -11,6 +11,7 @@ import {
 } from "./gross-profit.js";
 import { summarizePurchaseGoodsPayables } from "./purchase-goods-payables.js";
 import { summarizeSalesGoodsServices } from "./sales-goods-services.js";
+import { summarizeStockBalance } from "./stock-balance.js";
 
 const generatedAt = "2026-06-02T08:00:00.000Z";
 const params = { date_from: "2026-06-01", date_to: "2026-06-01" };
@@ -98,6 +99,40 @@ describe("business signal engine", () => {
       source_report_key: "sales_goods_services",
     });
     expect(JSON.stringify(signal)).not.toContain("secret");
+  });
+
+  it("does not create stock balance business signals while the catalog capability is disabled", () => {
+    const stockSnapshot = summarizeStockBalance({
+      tenant_id: tenantId,
+      run_id: "run_stock_signal_disabled",
+      params,
+      generated_at: generatedAt,
+      source: "sml_javaws",
+      rows: [
+        {
+          ic_code: "SKU-NEG",
+          ic_name: "สินค้าติดลบ",
+          ic_unit_code: "PCS",
+          balance_qty: -10,
+          average_cost: 0,
+          average_cost_end: 0,
+          balance_amount: -100,
+          qty_in: 0,
+          amount_in: 0,
+          average_cost_in: 0,
+          qty_out: 10,
+          amount_out: 100,
+          average_cost_out: 10,
+        },
+      ],
+    });
+
+    const signals = buildBusinessSignalsForSnapshots({
+      snapshots: [stockSnapshot],
+      now: generatedAt,
+    });
+
+    expect(signals).toEqual([]);
   });
 
   it("honors tenant threshold overrides for no-sales and missing branch signals", () => {

@@ -1,15 +1,16 @@
-import type {
-  BusinessSignalCategory,
-  BusinessSignalRecord,
-  BusinessSignalSeverity,
-  GrossProfitByArCustomerSnapshot,
-  GrossProfitByProductSnapshot,
-  PurchaseGoodsPayablesSnapshot,
-  ReportKey,
-  ReportLinePreview,
-  ReportSnapshot,
-  SalesGoodsServicesSnapshot,
-  TenantId,
+import {
+  getReportCatalogEntry,
+  type BusinessSignalCategory,
+  type BusinessSignalRecord,
+  type BusinessSignalSeverity,
+  type GrossProfitByArCustomerSnapshot,
+  type GrossProfitByProductSnapshot,
+  type PurchaseGoodsPayablesSnapshot,
+  type ReportKey,
+  type ReportLinePreview,
+  type ReportSnapshot,
+  type SalesGoodsServicesSnapshot,
+  type TenantId,
 } from "@ai-bcc/shared";
 import {
   buildExecutiveDigestFlexMessage,
@@ -83,6 +84,10 @@ export function buildBusinessSignalsForSnapshots(input: {
   const now = input.now ?? new Date().toISOString();
 
   return input.snapshots.flatMap((snapshot) => {
+    if (!getReportCatalogEntry(snapshot.report_key).capabilities.businessSignals) {
+      return [];
+    }
+
     const baseSignals = buildDataQualitySignals(snapshot, now);
     if (snapshot.quality_status === "failed" || snapshot.quality_status === "stale") {
       return baseSignals;
@@ -990,6 +995,7 @@ function formatReportKey(reportKey: ReportKey) {
     purchase_goods_payables: "ซื้อ",
     gross_profit_by_product: "กำไรสินค้า",
     gross_profit_by_ar_customer: "กำไรลูกหนี้",
+    stock_balance: "สต็อกคงเหลือ",
   };
   return labels[reportKey];
 }

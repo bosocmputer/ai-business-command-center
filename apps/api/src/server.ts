@@ -38,6 +38,7 @@ import {
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
+  type StockBalanceSnapshot,
   isoDateSchema,
   salesGoodsServicesParamsSchema,
   tenantIdSchema,
@@ -75,6 +76,7 @@ import {
   runGrossProfitByProductReport,
   runPurchaseGoodsPayablesReport,
   runSalesGoodsServicesReport,
+  runStockBalanceReport,
   testDatasourceConnection,
   toSafeDatasourceErrorMessage,
   toSafeErrorMessage,
@@ -189,6 +191,7 @@ const reportRuntimeRegistry = createReportRuntimeRegistry({
   runSalesGoodsServicesReport: runAndPersistSalesGoodsServicesReport,
   runPurchaseGoodsPayablesReport: runAndPersistPurchaseGoodsPayablesReport,
   runGrossProfitReport: runAndPersistGrossProfitReport,
+  runStockBalanceReport: runAndPersistStockBalanceReport,
 });
 
 await systemStore.initialize({
@@ -3558,10 +3561,10 @@ app.get(
     if (!access.ok) {
       return access.response;
     }
-    if (isGrossProfitReportKey(access.reportKey)) {
+    if (!isDocumentDetailReportKey(access.reportKey)) {
       return reply.status(400).send({
         error:
-          "รายงานกำไรขั้นต้นยังไม่มีรายละเอียดเอกสารใน dashboard กรุณาดูตารางสรุปในรายงาน",
+          "รายงานนี้ยังไม่มีรายละเอียดเอกสารใน dashboard กรุณาดูตารางสรุปในรายงาน",
       });
     }
 
@@ -3631,10 +3634,10 @@ app.get(
     if (!access.ok) {
       return access.response;
     }
-    if (isGrossProfitReportKey(access.reportKey)) {
+    if (!isDocumentDetailReportKey(access.reportKey)) {
       return reply.status(400).send({
         error:
-          "รายงานกำไรขั้นต้นยังไม่มีรายละเอียดเอกสารใน dashboard กรุณาดูตารางสรุปในรายงาน",
+          "รายงานนี้ยังไม่มีรายละเอียดเอกสารใน dashboard กรุณาดูตารางสรุปในรายงาน",
       });
     }
 
@@ -4066,7 +4069,7 @@ app.post(
       : null;
 
     const deliveries = [];
-    let preview = renderSalesGoodsServicesLinePreview({
+    let preview: ReportLinePreview = renderSalesGoodsServicesLinePreview({
       snapshot: runResult.snapshot,
       dashboardUrl: null,
       tenantName: getTenantDefinition(tenantId)?.name,
@@ -4773,6 +4776,128 @@ async function runAndPersistGrossProfitReport(input: {
       runRecord,
     };
   }
+}
+
+async function runAndPersistStockBalanceReport(input: {
+  tenantId: TenantId;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      snapshot: StockBalanceSnapshot;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 424 | 500;
+      error: string;
+      runRecord: ReportRunRecord;
+    }
+> {
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, "stock_balance"),
+    tenant_id: input.tenantId,
+    report_key: "stock_balance",
+    params: input.params,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: "stock_balance",
+      params: input.params,
+      contains_cost_data: true,
+    },
+  });
+
+  if (!datasource) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message =
+      "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน";
+    await systemStore.upsertRun(runRecord);
+    return {
+      ok: false,
+      statusCode: 424,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+
+  try {
+    const snapshot = await runStockBalanceReport({
+      tenant_id: input.tenantId,
+      run_id: runRecord.id,
+      params: input.params,
+      datasource,
+    });
+
+    runRecord.status = "success";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.row_count = snapshot.summary.sku_count;
+    await systemStore.upsertRun(runRecord);
+    await systemStore.saveSnapshot(snapshot);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "stock_balance_report_run_succeeded",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "stock_balance",
+        row_count: runRecord.row_count,
+        quality_status: snapshot.quality_status,
+        contains_cost_data: true,
+      },
+    });
+
+    return { ok: true, snapshot, runRecord };
+  } catch (error) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message = toSafeStockBalanceErrorMessage(error);
+    await systemStore.upsertRun(runRecord);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "stock_balance_report_run_failed",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "stock_balance",
+        safe_error_message: runRecord.safe_error_message,
+        contains_cost_data: true,
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 500,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+}
+
+function toSafeStockBalanceErrorMessage(error: unknown) {
+  if (
+    error instanceof Error &&
+    /timeout|timed out|canceling statement/i.test(error.message)
+  ) {
+    return "รายงานสต็อกคงเหลือใช้เวลานานเกินไป กรุณาลองช่วงวันที่สั้นลงหรือตรวจประสิทธิภาพ query";
+  }
+  return toSafeErrorMessage(error);
 }
 
 async function buildSalesComparison(input: {
@@ -6099,6 +6224,25 @@ function isGrossProfitReportKey(reportKey: ReportKey) {
   return getReportCatalogEntry(reportKey).category === "gross_profit";
 }
 
+function isDocumentDetailReportKey(
+  reportKey: ReportKey,
+): reportKey is Extract<
+  ReportKey,
+  "sales_goods_services" | "purchase_goods_payables"
+> {
+  const category = getReportCatalogEntry(reportKey).category;
+  return category === "sales" || category === "purchase";
+}
+
+function isSignedViewerPdfSnapshot(
+  snapshot: ReportSnapshot,
+): snapshot is SignedViewerPdfSnapshot {
+  return (
+    snapshot.report_key === "sales_goods_services" ||
+    snapshot.report_key === "purchase_goods_payables"
+  );
+}
+
 function buildDefaultTenantReportRolePermission(input: {
   tenantId: TenantId;
   profileKey: LineAccessProfileKey;
@@ -6164,15 +6308,22 @@ function shouldUpgradeLegacyDefaultReportKeys(input: {
   profileKey: LineAccessProfileKey;
   currentReportKeys: ReportKey[];
 }) {
-  const legacyDefaults: Record<LineAccessProfileKey, ReportKey[]> = {
-    executive: ["sales_goods_services", "purchase_goods_payables"],
-    sales_manager: ["sales_goods_services"],
-    operations: ["purchase_goods_payables"],
-    staff: [],
+  const legacyDefaults: Record<LineAccessProfileKey, ReportKey[][]> = {
+    executive: [
+      ["sales_goods_services", "purchase_goods_payables"],
+      [
+        "sales_goods_services",
+        "purchase_goods_payables",
+        "gross_profit_by_product",
+        "gross_profit_by_ar_customer",
+      ],
+    ],
+    sales_manager: [["sales_goods_services"]],
+    operations: [["purchase_goods_payables"]],
+    staff: [[]],
   };
-  return sameReportKeySet(
-    input.currentReportKeys,
-    legacyDefaults[input.profileKey],
+  return legacyDefaults[input.profileKey].some((defaultReportKeys) =>
+    sameReportKeySet(input.currentReportKeys, defaultReportKeys),
   );
 }
 
@@ -7395,9 +7546,16 @@ function validateViewerReportRange(params: SalesGoodsServicesParams) {
 
 type SignedViewerPdfAccess = {
   tenantId: TenantId;
-  reportKey: ReportKey;
+  reportKey: Extract<
+    ReportKey,
+    "sales_goods_services" | "purchase_goods_payables"
+  >;
   runId: string;
 };
+
+type SignedViewerPdfSnapshot =
+  | SalesGoodsServicesSnapshot
+  | PurchaseGoodsPayablesSnapshot;
 
 type SignedViewerPdfPrepared = {
   ok: true;
@@ -7430,14 +7588,19 @@ async function prepareSignedViewerPdfRequest(
     return { ok: false, response: access.response };
   }
   const runtimeEntry = getReportRuntimeEntry(reportRuntimeRegistry, access.reportKey);
-  if (!runtimeEntry?.supportsPdf) {
+  if (!runtimeEntry?.supportsPdf || !isDocumentDetailReportKey(access.reportKey)) {
     return {
       ok: false,
       response: reply.status(400).send({
-        error: "รายงานกำไรขั้นต้นยังไม่รองรับการดาวน์โหลด PDF",
+        error: "รายงานนี้ยังไม่รองรับการดาวน์โหลด PDF",
       }),
     };
   }
+  const pdfAccess: SignedViewerPdfAccess = {
+    tenantId: access.tenantId,
+    reportKey: access.reportKey,
+    runId: access.runId,
+  };
 
   const query = viewerPdfQuerySchema.safeParse(request.query ?? {});
   if (!query.success) {
@@ -7463,9 +7626,9 @@ async function prepareSignedViewerPdfRequest(
   }
 
   const snapshot = await systemStore.getSnapshotByRunId(
-    access.tenantId,
-    access.runId,
-    access.reportKey,
+    pdfAccess.tenantId,
+    pdfAccess.runId,
+    pdfAccess.reportKey,
   );
   if (!snapshot) {
     return {
@@ -7473,10 +7636,18 @@ async function prepareSignedViewerPdfRequest(
       response: reply.status(404).send({ error: "Snapshot not found" }),
     };
   }
+  if (!isSignedViewerPdfSnapshot(snapshot)) {
+    return {
+      ok: false,
+      response: reply.status(400).send({
+        error: "รายงานนี้ยังไม่รองรับการดาวน์โหลด PDF",
+      }),
+    };
+  }
 
   try {
     const prepared = await prepareSignedViewerPdf({
-      access,
+      access: pdfAccess,
       params,
       snapshot,
       request,
@@ -7513,7 +7684,7 @@ async function prepareSignedViewerPdfRequest(
 async function prepareSignedViewerPdf(input: {
   access: SignedViewerPdfAccess;
   params: SalesGoodsServicesParams;
-  snapshot: ReportSnapshot;
+  snapshot: SignedViewerPdfSnapshot;
   request: FastifyRequest;
 }): Promise<SignedViewerPdfPrepareResult> {
   const startedAt = Date.now();
@@ -7586,7 +7757,7 @@ async function prepareSignedViewerPdf(input: {
 async function prepareSignedViewerPdfCacheMiss(input: {
   access: SignedViewerPdfAccess;
   params: SalesGoodsServicesParams;
-  snapshot: ReportSnapshot;
+  snapshot: SignedViewerPdfSnapshot;
   request: FastifyRequest;
   tenantSlug?: string | null;
   startedAt: number;
