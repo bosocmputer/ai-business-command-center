@@ -431,6 +431,10 @@ export default function OwnerPortal({
   ]);
   const [notificationTimes, setNotificationTimes] = useState<string[]>(["08:00"]);
   const [notificationTimeInput, setNotificationTimeInput] = useState("08:00");
+  const [notificationManualScheduledDate, setNotificationManualScheduledDate] =
+    useState(() => toBangkokYmd(new Date()));
+  const [notificationManualScheduledTime, setNotificationManualScheduledTime] =
+    useState("08:00");
   const [notificationReportKeys, setNotificationReportKeys] = useState<
     ReportKey[]
   >(["sales_goods_services", "purchase_goods_payables"]);
@@ -720,6 +724,8 @@ export default function OwnerPortal({
       );
       setNotificationTimes(rule.schedule[0]?.times ?? ["08:00"]);
       setNotificationTimeInput(rule.schedule[0]?.times?.[0] ?? "08:00");
+      setNotificationManualScheduledDate(toBangkokYmd(new Date()));
+      setNotificationManualScheduledTime(rule.schedule[0]?.times?.[0] ?? "08:00");
       setNotificationReportKeys(rule.report_keys);
       setNotificationTargetIds(rule.target_ids);
       setLastNotificationRunResult(null);
@@ -745,6 +751,8 @@ export default function OwnerPortal({
     setNotificationWeekdays([1, 2, 3, 4, 5, 6, 7]);
     setNotificationTimes(["08:00"]);
     setNotificationTimeInput("08:00");
+    setNotificationManualScheduledDate(toBangkokYmd(new Date()));
+    setNotificationManualScheduledTime("08:00");
     setNotificationReportKeys(["sales_goods_services", "purchase_goods_payables"]);
     setNotificationTargetIds(defaultTargets);
     setLastNotificationRunResult(null);
@@ -923,6 +931,12 @@ export default function OwnerPortal({
     resetNotificationRuleForm,
     selectedTenantId,
   ]);
+
+  useEffect(() => {
+    if (!notificationTimes.includes(notificationManualScheduledTime)) {
+      setNotificationManualScheduledTime(notificationTimes[0] ?? "08:00");
+    }
+  }, [notificationManualScheduledTime, notificationTimes]);
 
   useEffect(() => {
     if (
@@ -2491,15 +2505,44 @@ export default function OwnerPortal({
     await runOwnerAction(
       `notification-run-${editingNotificationRuleId}-${mode}`,
       async () => {
+        const manualScheduleValidation = validateManualNotificationRunSelection({
+          scheduledDate: notificationManualScheduledDate,
+          scheduledTime: notificationManualScheduledTime,
+          times: notificationTimes,
+          weekdays: notificationWeekdays,
+        });
+        if (!manualScheduleValidation.ok) {
+          throw new Error(manualScheduleValidation.error);
+        }
+        const manualPeriod = deriveNotificationPeriodRange({
+          periodPreset: notificationPeriodPreset,
+          periodStrategy: notificationPeriodStrategy,
+          scheduledLocalDate: notificationManualScheduledDate,
+          scheduledLocalTime: notificationManualScheduledTime,
+          timeZone: "Asia/Bangkok",
+        });
         if (mode === "send") {
           const confirmed = await requestAdminConfirmation({
             title: "ยืนยันส่งแผนแจ้งเตือนตอนนี้",
             message:
-              "ระบบจะรันรายงานสดตาม period ที่ตั้งไว้ แล้วส่ง digest ไปยังปลายทาง LINE ที่เลือก",
+              "ระบบจะรันรายงานสดตามรอบแจ้งเตือนที่เลือก แล้วส่ง digest ไปยังปลายทาง LINE ที่เลือก",
             confirmLabel: "ส่งตอนนี้",
             details: [
               { label: "ร้านค้า", value: tenant.name },
               { label: "แผน", value: notificationName },
+              {
+                label: "จำลองรอบ",
+                value: `${notificationManualScheduledDate} ${notificationManualScheduledTime}`,
+              },
+              {
+                label: "ช่วงข้อมูล",
+                value: formatNotificationPeriodWithTime(
+                  manualPeriod.date_from,
+                  manualPeriod.date_to,
+                  manualPeriod.time_from,
+                  manualPeriod.time_to,
+                ),
+              },
               { label: "โหมด", value: "ส่งจริงผ่าน LINE" },
             ],
           });
@@ -2529,7 +2572,11 @@ export default function OwnerPortal({
           {
             method: "POST",
             headers,
-            body: JSON.stringify({ mode }),
+            body: JSON.stringify({
+              mode,
+              scheduled_local_date: notificationManualScheduledDate,
+              scheduled_local_time: notificationManualScheduledTime,
+            }),
           },
         );
         const payload = (await response.json().catch(() => ({}))) as {
@@ -2812,6 +2859,8 @@ export default function OwnerPortal({
           lineTokenConfigured={lineTokenConfigured}
           notificationEnabled={notificationEnabled}
           notificationDigestMode={notificationDigestMode}
+          notificationManualScheduledDate={notificationManualScheduledDate}
+          notificationManualScheduledTime={notificationManualScheduledTime}
           notificationName={notificationName}
           notificationPeriodPreset={notificationPeriodPreset}
           notificationPeriodStrategy={notificationPeriodStrategy}
@@ -2889,6 +2938,8 @@ export default function OwnerPortal({
           setLineTokenConfigured={setLineTokenConfigured}
           setNotificationEnabled={setNotificationEnabled}
           setNotificationDigestMode={setNotificationDigestMode}
+          setNotificationManualScheduledDate={setNotificationManualScheduledDate}
+          setNotificationManualScheduledTime={setNotificationManualScheduledTime}
           setNotificationName={setNotificationName}
           setNotificationPeriodPreset={setNotificationPeriodPreset}
           setNotificationPeriodStrategy={setNotificationPeriodStrategy}
@@ -3014,6 +3065,8 @@ type OwnerSectionContentProps = {
   lineTokenConfigured: boolean;
   notificationEnabled: boolean;
   notificationDigestMode: NotificationDigestMode;
+  notificationManualScheduledDate: string;
+  notificationManualScheduledTime: string;
   notificationName: string;
   notificationPeriodPreset: NotificationPeriodPreset;
   notificationPeriodStrategy: NotificationPeriodStrategy;
@@ -3125,6 +3178,8 @@ type OwnerSectionContentProps = {
   setLineTokenConfigured: (value: boolean) => void;
   setNotificationEnabled: (value: boolean) => void;
   setNotificationDigestMode: (value: NotificationDigestMode) => void;
+  setNotificationManualScheduledDate: (value: string) => void;
+  setNotificationManualScheduledTime: (value: string) => void;
   setNotificationName: (value: string) => void;
   setNotificationPeriodPreset: (value: NotificationPeriodPreset) => void;
   setNotificationPeriodStrategy: (value: NotificationPeriodStrategy) => void;
@@ -4318,6 +4373,8 @@ function OwnerNotificationsContent({
   lastNotificationRunResult,
   notificationEnabled,
   notificationDigestMode,
+  notificationManualScheduledDate,
+  notificationManualScheduledTime,
   notificationName,
   notificationPeriodPreset,
   notificationPeriodStrategy,
@@ -4342,6 +4399,8 @@ function OwnerNotificationsContent({
   selectedTenantSummary,
   setNotificationEnabled,
   setNotificationDigestMode,
+  setNotificationManualScheduledDate,
+  setNotificationManualScheduledTime,
   setNotificationName,
   setNotificationPeriodPreset,
   setNotificationPeriodStrategy,
@@ -4383,6 +4442,29 @@ function OwnerNotificationsContent({
     times: notificationTimes,
     weekdays: notificationWeekdays,
   });
+  const manualScheduleValidation = validateManualNotificationRunSelection({
+    scheduledDate: notificationManualScheduledDate,
+    scheduledTime: notificationManualScheduledTime,
+    times: notificationTimes,
+    weekdays: notificationWeekdays,
+  });
+  const manualPeriodParams = manualScheduleValidation.ok
+    ? deriveNotificationPeriodRange({
+        periodPreset: notificationPeriodPreset,
+        periodStrategy: notificationPeriodStrategy,
+        scheduledLocalDate: notificationManualScheduledDate,
+        scheduledLocalTime: notificationManualScheduledTime,
+        timeZone: "Asia/Bangkok",
+      })
+    : null;
+  const manualPeriodLabel = manualScheduleValidation.ok
+    ? formatNotificationPeriodWithTime(
+        manualPeriodParams!.date_from,
+        manualPeriodParams!.date_to,
+        manualPeriodParams!.time_from,
+        manualPeriodParams!.time_to,
+      )
+    : manualScheduleValidation.error;
   const latestBasisReports = notificationReportKeys.filter(
     (reportKey) => reportKey === "stock_reorder",
   );
@@ -4810,12 +4892,83 @@ function OwnerNotificationsContent({
               </div>
             </div>
 
+            <div className="mt-5 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    รอบที่ใช้เมื่อทดสอบ/ส่งทันที
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    เลือกจากรอบเวลาใน schedule เพื่อให้ manual run ใช้ช่วงข้อมูลเดียวกับ LINE รอบจริง
+                  </p>
+                </div>
+                <Badge color={manualScheduleValidation.ok ? "success" : "warning"}>
+                  {manualScheduleValidation.ok ? "พร้อมรัน" : "ตรวจรอบ"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-[150px_150px_minmax(0,1fr)]">
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    วันที่รอบแจ้งเตือน
+                  </span>
+                  <input
+                    className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    onChange={(event) =>
+                      setNotificationManualScheduledDate(event.target.value)
+                    }
+                    type="date"
+                    value={notificationManualScheduledDate}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    เวลาแจ้งเตือน
+                  </span>
+                  <select
+                    className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    onChange={(event) =>
+                      setNotificationManualScheduledTime(event.target.value)
+                    }
+                    value={notificationManualScheduledTime}
+                  >
+                    {notificationTimes.length ? (
+                      notificationTimes.map((time) => (
+                        <option key={time} value={time}>
+                          {time}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">ยังไม่มีเวลา</option>
+                    )}
+                  </select>
+                </label>
+                <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-900">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    ช่วงข้อมูลที่จะใช้
+                  </p>
+                  <p
+                    className={`mt-1 font-semibold ${
+                      manualScheduleValidation.ok
+                        ? "text-gray-800 dark:text-white"
+                        : "text-warning-700 dark:text-warning-300"
+                    }`}
+                  >
+                    {manualPeriodLabel}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="mt-5 flex flex-wrap gap-2">
               <Button disabled={saveBusy} onClick={() => void onSaveNotificationRule()} size="sm">
                 {saveBusy ? "กำลังบันทึก..." : "บันทึก draft/แผน"}
               </Button>
               <Button
-                disabled={!editingNotificationRuleId || dryRunBusy}
+                disabled={
+                  !editingNotificationRuleId ||
+                  !manualScheduleValidation.ok ||
+                  dryRunBusy
+                }
                 onClick={() => void onExecuteNotificationRule("dry_run")}
                 size="sm"
                 variant="outline"
@@ -4823,7 +4976,11 @@ function OwnerNotificationsContent({
                 {dryRunBusy ? "กำลังทดสอบ..." : "ทดสอบแบบไม่ส่งจริง"}
               </Button>
               <Button
-                disabled={!editingNotificationRuleId || sendBusy}
+                disabled={
+                  !editingNotificationRuleId ||
+                  !manualScheduleValidation.ok ||
+                  sendBusy
+                }
                 onClick={() => void onExecuteNotificationRule("send")}
                 size="sm"
                 variant="outline"
@@ -8988,6 +9145,46 @@ function isValidNotificationTime(value: string) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
+function isValidNotificationDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function validateManualNotificationRunSelection(input: {
+  scheduledDate: string;
+  scheduledTime: string;
+  times: string[];
+  weekdays: number[];
+}): { ok: true } | { ok: false; error: string } {
+  if (!isValidNotificationDate(input.scheduledDate)) {
+    return { ok: false, error: "กรุณาเลือกวันที่รอบแจ้งเตือน" };
+  }
+  if (!isValidNotificationTime(input.scheduledTime)) {
+    return { ok: false, error: "กรุณาเลือกเวลาแจ้งเตือน" };
+  }
+  if (!input.times.includes(input.scheduledTime)) {
+    return {
+      ok: false,
+      error: "เวลานี้ไม่ได้อยู่ในรอบเวลาแจ้งเตือนของแผน",
+    };
+  }
+  if (!input.weekdays.includes(isoWeekdayFromYmd(input.scheduledDate))) {
+    return { ok: false, error: "วันที่นี้ไม่ได้อยู่ในวันที่ส่งของแผน" };
+  }
+  return { ok: true };
+}
+
 function buildNotificationPeriodPreviewRows(input: {
   periodPreset: NotificationPeriodPreset;
   periodStrategy: NotificationPeriodStrategy;
@@ -9055,11 +9252,29 @@ function localDateTime(ymd: string, hhmm: string) {
   return new Date(year, month - 1, day, hour, minute, 0, 0);
 }
 
+function toBangkokYmd(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function toLocalYmd(date: Date) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function isoWeekdayFromYmd(ymd: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const weekday = date.getUTCDay();
+  return weekday === 0 ? 7 : weekday;
 }
 
 function toIsoWeekday(date: Date) {

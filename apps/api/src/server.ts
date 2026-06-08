@@ -907,12 +907,22 @@ app.post(
     if (!rule) {
       return reply.status(404).send({ error: "Notification rule not found." });
     }
+    const manualSchedule = validateManualNotificationSchedule({
+      rule,
+      scheduledLocalDate: body.data.scheduled_local_date,
+      scheduledLocalTime: body.data.scheduled_local_time,
+    });
+    if (!manualSchedule.ok) {
+      return reply.status(400).send({ error: manualSchedule.error });
+    }
 
     const result = await executeNotificationRule({
       rule,
       mode: body.data.mode ?? "dry_run",
       force: true,
       now: new Date(),
+      scheduledLocalDate: manualSchedule.scheduledLocalDate,
+      scheduledLocalTime: manualSchedule.scheduledLocalTime,
       source: "manual_test",
     });
 
@@ -947,12 +957,22 @@ app.post(
     if (!rule) {
       return reply.status(404).send({ error: "Notification rule not found." });
     }
+    const manualSchedule = validateManualNotificationSchedule({
+      rule,
+      scheduledLocalDate: body.data.scheduled_local_date,
+      scheduledLocalTime: body.data.scheduled_local_time,
+    });
+    if (!manualSchedule.ok) {
+      return reply.status(400).send({ error: manualSchedule.error });
+    }
 
     const result = await executeNotificationRule({
       rule,
       mode: body.data.mode ?? "send",
       force: true,
       now: new Date(),
+      scheduledLocalDate: manualSchedule.scheduledLocalDate,
+      scheduledLocalTime: manualSchedule.scheduledLocalTime,
       source: "manual_run_now",
     });
 
@@ -6050,6 +6070,48 @@ async function executeNotificationRule(input: {
   };
 }
 
+function validateManualNotificationSchedule(input: {
+  rule: NotificationRuleRecord;
+  scheduledLocalDate?: string;
+  scheduledLocalTime?: string;
+}):
+  | {
+      ok: true;
+      scheduledLocalDate?: string;
+      scheduledLocalTime?: string;
+    }
+  | { ok: false; error: string } {
+  if (!input.scheduledLocalDate && !input.scheduledLocalTime) {
+    return { ok: true };
+  }
+  if (!input.scheduledLocalDate || !input.scheduledLocalTime) {
+    return {
+      ok: false,
+      error: "กรุณาระบุวันที่รอบแจ้งเตือนและเวลาแจ้งเตือนให้ครบ",
+    };
+  }
+
+  const isoWeekday = isoWeekdayFromYmd(input.scheduledLocalDate);
+  const allowed = input.rule.schedule.some(
+    (entry) =>
+      entry.weekdays.includes(isoWeekday) &&
+      entry.times.includes(input.scheduledLocalTime!),
+  );
+  if (!allowed) {
+    return {
+      ok: false,
+      error:
+        "รอบที่เลือกไม่อยู่ในตารางแจ้งเตือนของแผนนี้ กรุณาเลือกวันที่และเวลาที่อยู่ใน schedule",
+    };
+  }
+
+  return {
+    ok: true,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+  };
+}
+
 async function runAndPersistReportByKey(input: {
   tenantId: TenantId;
   reportKey: ReportKey;
@@ -7723,6 +7785,13 @@ function addDays(ymd: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+function isoWeekdayFromYmd(ymd: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = date.getUTCDay();
+  return dayOfWeek === 0 ? 7 : dayOfWeek;
+}
+
 function validateCustomerReportRange(params: SalesGoodsServicesParams) {
   const start = Date.parse(`${params.date_from}T00:00:00.000Z`);
   const end = Date.parse(`${params.date_to}T00:00:00.000Z`);
@@ -8461,6 +8530,18 @@ const notificationRulePatchSchema = z.object({
 
 const notificationRuleExecuteSchema = z.object({
   mode: z.enum(["dry_run", "send"]).optional(),
+  scheduled_local_date: isoDateSchema.optional(),
+  scheduled_local_time: localTimeSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.scheduled_local_date) !== Boolean(value.scheduled_local_time)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "scheduled_local_date and scheduled_local_time must be provided together",
+      path: value.scheduled_local_date
+        ? ["scheduled_local_time"]
+        : ["scheduled_local_date"],
+    });
+  }
 });
 
 const notificationRuleTickSchema = z.object({
