@@ -161,6 +161,75 @@ describe("sendLineBrief", () => {
     expect(JSON.stringify(body.messages[0])).toContain("เปิดรายงาน");
   });
 
+  it("falls back to text when a Flex payload is not LINE-safe", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ sentMessages: [{ id: "msg-1" }] }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await sendLineBrief({
+      tenantId: "tenant_demo_remote",
+      mode: "send",
+      preview: {
+        ...flexPreview,
+        flex_message: {
+          ...flexPreview.flex_message,
+          altText: "ก".repeat(401),
+        },
+      },
+      config: {
+        channelAccessToken: "line-token",
+        targetId: "C1234567890abcdef",
+      },
+    });
+
+    const [, request] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(request.body)) as {
+      messages: Array<{ type: string; text?: string; altText?: string }>;
+    };
+
+    expect(result.status).toBe("success");
+    expect(result.message_type).toBe("text");
+    expect(body.messages[0]).toEqual({
+      type: "text",
+      text: flexPreview.text,
+    });
+  });
+
+  it("truncates oversized text messages before sending to LINE", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ sentMessages: [{ id: "msg-1" }] }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await sendLineBrief({
+      tenantId: "tenant_demo_remote",
+      mode: "send",
+      preview: {
+        ...preview,
+        text: "x".repeat(5_100),
+        lines: ["x".repeat(5_100)],
+      },
+      config: {
+        channelAccessToken: "line-token",
+        targetId: "C1234567890abcdef",
+      },
+    });
+
+    const [, request] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(request.body)) as {
+      messages: Array<{ type: string; text?: string }>;
+    };
+
+    expect(result.status).toBe("success");
+    expect(result.message_type).toBe("text");
+    expect(body.messages[0].type).toBe("text");
+    expect(body.messages[0].text).toHaveLength(5_000);
+    expect(body.messages[0].text?.endsWith("...")).toBe(true);
+  });
+
   it("returns a safe provider failure without leaking secrets", async () => {
     vi.stubGlobal(
       "fetch",

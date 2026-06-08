@@ -11,6 +11,9 @@ import type { LineChannelConfig } from "./config.js";
 const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
 const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 const LINE_GROUP_SUMMARY_ENDPOINT = "https://api.line.me/v2/bot/group";
+const LINE_FLEX_ALT_TEXT_MAX_LENGTH = 400;
+const LINE_FLEX_MESSAGE_MAX_BYTES = 50_000;
+const LINE_TEXT_MESSAGE_MAX_LENGTH = 5_000;
 
 export type SendLineBriefInput = {
   tenantId: TenantId;
@@ -28,11 +31,7 @@ export async function sendLineBrief(
 ): Promise<LineDeliveryRecord> {
   const now = new Date().toISOString();
   const configured = Boolean(input.config);
-  const lineMessage = input.preview.flex_message ?? {
-    type: "text" as const,
-    text: input.preview.text,
-  };
-  const messageType: LineMessageType = input.preview.flex_message ? "flex" : "text";
+  const { lineMessage, messageType } = buildSafeLineMessage(input.preview);
   const baseDelivery = {
     id: createLineDeliveryId(input.tenantId),
     tenant_id: input.tenantId,
@@ -169,6 +168,56 @@ function buildLineTargetProfileEndpoint(input: {
 
 function createLineDeliveryId(tenantId: TenantId) {
   return `line_${tenantId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+}
+
+function buildSafeLineMessage(preview: ReportLinePreview): {
+  lineMessage: Record<string, unknown>;
+  messageType: LineMessageType;
+} {
+  if (preview.flex_message && isSafeFlexMessage(preview.flex_message)) {
+    return {
+      lineMessage: preview.flex_message,
+      messageType: "flex",
+    };
+  }
+
+  return {
+    lineMessage: {
+      type: "text",
+      text: truncateLineMessageText(preview.text),
+    },
+    messageType: "text",
+  };
+}
+
+function isSafeFlexMessage(message: ReportLinePreview["flex_message"]) {
+  if (!message) {
+    return false;
+  }
+  if (
+    typeof message.altText !== "string" ||
+    !message.altText.trim() ||
+    message.altText.length > LINE_FLEX_ALT_TEXT_MAX_LENGTH
+  ) {
+    return false;
+  }
+
+  try {
+    return (
+      Buffer.byteLength(JSON.stringify(message), "utf8") <=
+      LINE_FLEX_MESSAGE_MAX_BYTES
+    );
+  } catch {
+    return false;
+  }
+}
+
+function truncateLineMessageText(value: string) {
+  if (value.length <= LINE_TEXT_MESSAGE_MAX_LENGTH) {
+    return value;
+  }
+
+  return `${value.slice(0, LINE_TEXT_MESSAGE_MAX_LENGTH - 3)}...`;
 }
 
 function maskTargetId(value: string) {
