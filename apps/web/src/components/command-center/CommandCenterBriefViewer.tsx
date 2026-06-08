@@ -1198,6 +1198,16 @@ function StockBalanceReportViewer({
   const topRows = snapshot.top_items_by_value.slice(0, 10);
   const negativeRows = snapshot.negative_items.slice(0, 10);
   const topItem = topRows[0] ?? null;
+  const inboundLabel = formatStockMovementLabel(
+    "รับเข้า",
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
+  const outboundLabel = formatStockMovementLabel(
+    "จ่ายออก",
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
 
   return (
     <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
@@ -1230,11 +1240,8 @@ function StockBalanceReportViewer({
                   รายงานสต็อกคงเหลือ
                 </h1>
                 <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
-                  {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
-                  {formatReportPeriod(
-                    snapshot.params.date_from,
-                    snapshot.params.date_to,
-                  )}{" "}
+                  {formatTenantName(snapshot.tenant_id)} · คงเหลือ ณ{" "}
+                  {formatThaiDate(snapshot.params.date_to)}{" "}
                   · อัปเดต {generatedAt}
                 </p>
               </div>
@@ -1259,11 +1266,11 @@ function StockBalanceReportViewer({
                 value={`${formatInteger(snapshot.summary.sku_count)} รายการ`}
               />
               <PremiumKpi
-                label="รับเข้า"
+                label={inboundLabel}
                 value={`${formatMoney(snapshot.summary.amount_in)} บาท`}
               />
               <PremiumKpi
-                label="จ่ายออก"
+                label={outboundLabel}
                 value={`${formatMoney(snapshot.summary.amount_out)} บาท`}
               />
             </div>
@@ -1325,6 +1332,14 @@ function StockBalanceReportViewer({
                 }
               />
             </div>
+
+            {snapshot.summary.zero_or_missing_cost_count > 0 && (
+              <p className="mt-4 rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[14px] leading-[22px] text-[#B54708]">
+                พบสินค้าต้นทุนเป็นศูนย์หรือไม่มีต้นทุนเฉลี่ย{" "}
+                {formatInteger(snapshot.summary.zero_or_missing_cost_count)} รายการ
+                ควรตรวจข้อมูลต้นทุนก่อนใช้มูลค่าสต็อกตัดสินใจ
+              </p>
+            )}
           </section>
 
           <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
@@ -1382,6 +1397,8 @@ function StockBalanceReportViewer({
             </div>
             <StockBalanceRowsTable
               emptyText="ยังไม่มีสินค้าที่มีมูลค่าสต็อกในช่วงวันที่นี้"
+              inboundLabel={inboundLabel}
+              outboundLabel={outboundLabel}
               rows={topRows}
             />
           </section>
@@ -1398,6 +1415,8 @@ function StockBalanceReportViewer({
               </div>
               <StockBalanceRowsTable
                 emptyText="ไม่พบสินค้าคงเหลือติดลบ"
+                inboundLabel={inboundLabel}
+                outboundLabel={outboundLabel}
                 rows={negativeRows}
               />
             </section>
@@ -1411,9 +1430,13 @@ function StockBalanceReportViewer({
 function StockBalanceRowsTable({
   rows,
   emptyText,
+  inboundLabel,
+  outboundLabel,
 }: {
   rows: StockBalanceRow[];
   emptyText: string;
+  inboundLabel: string;
+  outboundLabel: string;
 }) {
   if (!rows.length) {
     return (
@@ -1430,8 +1453,8 @@ function StockBalanceRowsTable({
         <span className="text-right">คงเหลือ</span>
         <span className="text-right">มูลค่าสต็อก</span>
         <span className="text-right">ต้นทุนเฉลี่ย</span>
-        <span className="text-right">รับเข้า</span>
-        <span className="text-right">จ่ายออก</span>
+        <span className="text-right">{inboundLabel}</span>
+        <span className="text-right">{outboundLabel}</span>
       </div>
       <div className="divide-y divide-[#EAECF0] bg-white">
         {rows.map((row) => (
@@ -1462,11 +1485,11 @@ function StockBalanceRowsTable({
               value={`${formatMoney(row.average_cost_end || row.average_cost)} บาท`}
             />
             <MobileFact
-              label="รับเข้า"
+              label={inboundLabel}
               value={`${formatQty(row.qty_in)} / ${formatMoney(row.amount_in)} บาท`}
             />
             <MobileFact
-              label="จ่ายออก"
+              label={outboundLabel}
               value={`${formatQty(row.qty_out)} / ${formatMoney(row.amount_out)} บาท`}
             />
           </div>
@@ -2483,6 +2506,14 @@ function formatReportPeriod(dateFrom: string, dateTo: string) {
     return formatThaiDate(dateFrom);
   }
   return `${formatThaiDate(dateFrom)} - ${formatThaiDate(dateTo)}`;
+}
+
+function formatStockMovementLabel(
+  prefix: "รับเข้า" | "จ่ายออก",
+  dateFrom: string,
+  dateTo: string,
+) {
+  return dateFrom === dateTo ? `${prefix}ในวัน` : `${prefix}ในช่วง`;
 }
 
 function formatThaiDate(value: string) {

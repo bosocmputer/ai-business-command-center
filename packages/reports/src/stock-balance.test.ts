@@ -173,12 +173,45 @@ describe("stock balance report", () => {
     expect(preview.line_message_type).toBe("flex");
     expect(preview.text).toContain("รายงานสต็อกคงเหลือ");
     expect(preview.text).toContain("มูลค่าสต็อกคงเหลือ");
-    expect(JSON.stringify(preview.flex_message)).toContain("สต็อกคงเหลือ");
-    expect(JSON.stringify(preview.flex_message)).toContain("เปิดรายละเอียด");
+    expect(preview.text).toContain("ข้อมูล: คงเหลือ ณ 08/06/2026");
+    expect(preview.text).toContain("รับเข้าในช่วง");
+    expect(preview.text).toContain("จ่ายออกในช่วง");
+    expect(preview.text).not.toContain("ช่วงข้อมูล");
+    const flex = JSON.stringify(preview.flex_message);
+    expect(flex).toContain("สต็อกคงเหลือ");
+    expect(flex).toContain("คงเหลือ ณ 08/06/2026");
+    expect(flex).toContain("รับเข้าในช่วง");
+    expect(flex).toContain("จ่ายออกในช่วง");
+    expect(flex).toContain("เปิดรายละเอียด");
     expect(preview.text).not.toContain("token=signed");
     expect(JSON.stringify(preview)).not.toContain("ic_trans_detail");
     expect(JSON.stringify(preview)).not.toContain("trans_flag");
     expect(JSON.stringify(preview)).not.toContain("snapshot");
+  });
+
+  it("renders single-day LINE preview as stock balance as-of date", () => {
+    const snapshot = summarizeStockBalance({
+      tenant_id: "tenant_demo_remote",
+      run_id: "run_stock_single_day",
+      params: { date_from: "2026-06-07", date_to: "2026-06-07" },
+      generated_at: "2026-06-08T12:00:00.000Z",
+      source: "sml_javaws",
+      rows: [stockRow({ ic_code: "SKU-1", ic_name: "สินค้าหลัก", balance_amount: 9000 })],
+    });
+    const preview = renderStockBalanceLinePreview({
+      snapshot,
+      dashboardUrl: "https://example.com/command-center/brief?token=signed",
+      tenantName: "กระบี่",
+    });
+    const flex = JSON.stringify(preview.flex_message);
+
+    expect(preview.text).toContain("ข้อมูล: คงเหลือ ณ 07/06/2026");
+    expect(preview.text).toContain("รับเข้าในวัน");
+    expect(preview.text).toContain("จ่ายออกในวัน");
+    expect(flex).toContain("กระบี่ · คงเหลือ ณ 07/06/2026");
+    expect(flex).toContain("รับเข้าในวัน");
+    expect(flex).toContain("จ่ายออกในวัน");
+    expect(flex).not.toContain("07/06/2026 00:00 - 07/06/2026 23:59");
   });
 });
 

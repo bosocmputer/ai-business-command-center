@@ -289,17 +289,27 @@ export function renderStockBalanceLinePreview(input: {
   const insight = buildStockBalanceInsight(snapshot);
   const warnings = buildLineWarnings(snapshot);
   const topItem = snapshot.top_items_by_value[0] ?? null;
+  const inboundLabel = formatStockMovementLabel(
+    "รับเข้า",
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
+  const outboundLabel = formatStockMovementLabel(
+    "จ่ายออก",
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
   const lines = [
     "รายงานสต็อกคงเหลือ",
     "",
     `บริษัท: ${tenantName}`,
-    `ช่วงข้อมูล: ${formatReportPeriodWithTime(snapshot.params.date_from, snapshot.params.date_to)}`,
+    `ข้อมูล: ${formatStockBalanceAsOf(snapshot.params.date_to)}`,
     `อัปเดต: ${generatedAt}`,
     "",
     `มูลค่าสต็อกคงเหลือ: ${formatMoney(snapshot.summary.stock_value)} บาท`,
     `จำนวนสินค้า: ${formatInteger(snapshot.summary.sku_count)} รายการ`,
-    `รับเข้า: ${formatQty(snapshot.summary.qty_in)} หน่วย / ${formatMoney(snapshot.summary.amount_in)} บาท`,
-    `จ่ายออก: ${formatQty(snapshot.summary.qty_out)} หน่วย / ${formatMoney(snapshot.summary.amount_out)} บาท`,
+    `${inboundLabel}: ${formatQty(snapshot.summary.qty_in)} หน่วย / ${formatMoney(snapshot.summary.amount_in)} บาท`,
+    `${outboundLabel}: ${formatQty(snapshot.summary.qty_out)} หน่วย / ${formatMoney(snapshot.summary.amount_out)} บาท`,
     "",
     `สรุปที่ควรดู: ${insight}`,
     "",
@@ -423,15 +433,23 @@ function buildStockBalanceFlexMessage(input: {
 }) {
   const { snapshot } = input;
   const topItem = snapshot.top_items_by_value[0] ?? null;
+  const inboundLabel = formatStockMovementLabel(
+    "รับเข้า",
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
+  const outboundLabel = formatStockMovementLabel(
+    "จ่ายออก",
+    snapshot.params.date_from,
+    snapshot.params.date_to,
+  );
 
   return buildExecutiveDigestFlexMessage({
     title: "สต็อกคงเหลือ",
-    subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
-      snapshot.params.date_from,
+    subtitle: `${input.tenantName} · ${formatStockBalanceAsOf(
       snapshot.params.date_to,
     )}`,
-    altText: `สต็อกคงเหลือ ${input.tenantName} ${formatReportPeriod(
-      snapshot.params.date_from,
+    altText: `สต็อกคงเหลือ ${input.tenantName} ${formatStockBalanceAsOf(
       snapshot.params.date_to,
     )}: มูลค่า ${formatMoney(snapshot.summary.stock_value)} บาท`,
     generatedAt: input.generatedAt,
@@ -443,11 +461,11 @@ function buildStockBalanceFlexMessage(input: {
         value: `${formatInteger(snapshot.summary.sku_count)} รายการ`,
       },
       {
-        label: "รับเข้า",
+        label: inboundLabel,
         value: `${formatMoney(snapshot.summary.amount_in)} บาท`,
       },
       {
-        label: "จ่ายออก",
+        label: outboundLabel,
         value: `${formatMoney(snapshot.summary.amount_out)} บาท`,
       },
     ],
@@ -486,17 +504,16 @@ function resolveQualityStatus(
   return source === "sample_snapshot" ? "stale" : "valid";
 }
 
-function formatReportPeriodWithTime(dateFrom: string, dateTo: string) {
-  const from = formatDateSlash(dateFrom);
-  const to = formatDateSlash(dateTo);
-  return `${from} 00:00 - ${to} 23:59`;
+function formatStockBalanceAsOf(dateTo: string) {
+  return `คงเหลือ ณ ${formatDateSlash(dateTo)}`;
 }
 
-function formatReportPeriod(dateFrom: string, dateTo: string) {
-  if (dateFrom === dateTo) {
-    return formatDateSlash(dateFrom);
-  }
-  return `${formatDateSlash(dateFrom)} - ${formatDateSlash(dateTo)}`;
+function formatStockMovementLabel(
+  prefix: "รับเข้า" | "จ่ายออก",
+  dateFrom: string,
+  dateTo: string,
+) {
+  return dateFrom === dateTo ? `${prefix}ในวัน` : `${prefix}ในช่วง`;
 }
 
 function formatDateSlash(ymd: string) {
