@@ -6,6 +6,7 @@ import {
   getDueNotificationRuleTimes,
   getSmlBranchMeaning,
   isNotificationRuleDue,
+  notificationRulePayloadSchema,
   type NotificationRuleRecord,
 } from "./index.js";
 
@@ -44,7 +45,7 @@ describe("notification rule scheduling", () => {
     enabled: true,
     timezone: "Asia/Bangkok",
     period_preset: "yesterday",
-    period_strategy: "same_period_all_runs",
+    period_strategy: "executive_checkpoints",
     schedule: [{ weekdays: [1, 2, 3, 4, 5, 6, 7], times: ["08:00", "18:30"] }],
     report_keys: ["sales_goods_services"],
     target_ids: ["line_target_demo"],
@@ -57,6 +58,20 @@ describe("notification rule scheduling", () => {
     created_at: "2026-05-19T00:00:00.000Z",
     updated_at: "2026-05-19T00:00:00.000Z",
   };
+
+  it("defaults new notification rules to executive checkpoints", () => {
+    const parsed = notificationRulePayloadSchema.parse({
+      tenant_id: "tenant_demo_remote",
+      name: "Daily SML digest",
+      schedule: [
+        { weekdays: [1, 2, 3, 4, 5, 6, 7], times: ["08:00", "18:30"] },
+      ],
+      report_keys: ["sales_goods_services"],
+      target_ids: ["line_target_demo"],
+    });
+
+    expect(parsed.period_strategy).toBe("executive_checkpoints");
+  });
 
   it("recognizes due weekdays/times in the rule timezone", () => {
     expect(

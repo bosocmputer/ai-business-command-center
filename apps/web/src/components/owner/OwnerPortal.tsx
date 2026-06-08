@@ -54,6 +54,8 @@ import { OwnerNotificationsContent as OwnerNotificationsContentV2 } from "./noti
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
 const defaultReportRange = deriveMorningBriefDateRange();
+const OWNER_NOTIFICATION_PERIOD_STRATEGY: NotificationPeriodStrategy =
+  "executive_checkpoints";
 
 const JAVA_WS_DATASOURCE_PRESETS = [
   {
@@ -424,7 +426,7 @@ export default function OwnerPortal({
   const [notificationPeriodPreset, setNotificationPeriodPreset] =
     useState<NotificationPeriodPreset>("yesterday");
   const [notificationPeriodStrategy, setNotificationPeriodStrategy] =
-    useState<NotificationPeriodStrategy>("executive_checkpoints");
+    useState<NotificationPeriodStrategy>(OWNER_NOTIFICATION_PERIOD_STRATEGY);
   const [notificationDigestMode, setNotificationDigestMode] =
     useState<NotificationDigestMode>("action_only");
   const [notificationWeekdays, setNotificationWeekdays] = useState<number[]>([
@@ -718,7 +720,7 @@ export default function OwnerPortal({
       setNotificationName(rule.name);
       setNotificationEnabled(rule.enabled);
       setNotificationPeriodPreset(rule.period_preset);
-      setNotificationPeriodStrategy(rule.period_strategy ?? "same_period_all_runs");
+      setNotificationPeriodStrategy(OWNER_NOTIFICATION_PERIOD_STRATEGY);
       setNotificationDigestMode(rule.digest_mode ?? "action_only");
       setNotificationWeekdays(
         rule.schedule[0]?.weekdays ?? [1, 2, 3, 4, 5, 6, 7],
@@ -747,7 +749,7 @@ export default function OwnerPortal({
     setNotificationName("Daily SML digest");
     setNotificationEnabled(false);
     setNotificationPeriodPreset("yesterday");
-    setNotificationPeriodStrategy("executive_checkpoints");
+    setNotificationPeriodStrategy(OWNER_NOTIFICATION_PERIOD_STRATEGY);
     setNotificationDigestMode("action_only");
     setNotificationWeekdays([1, 2, 3, 4, 5, 6, 7]);
     setNotificationTimes(["08:00"]);
@@ -2411,7 +2413,7 @@ export default function OwnerPortal({
       enabled: notificationEnabled,
       timezone: "Asia/Bangkok",
       period_preset: notificationPeriodPreset,
-      period_strategy: notificationPeriodStrategy,
+      period_strategy: OWNER_NOTIFICATION_PERIOD_STRATEGY,
       digest_mode: notificationDigestMode,
       schedule: [
         {
@@ -2512,6 +2514,17 @@ export default function OwnerPortal({
       });
       return;
     }
+    if (
+      (savedRule.period_strategy ?? OWNER_NOTIFICATION_PERIOD_STRATEGY) !==
+      OWNER_NOTIFICATION_PERIOD_STRATEGY
+    ) {
+      setResult({
+        tone: "warning",
+        message:
+          "แผนนี้ยังใช้การตั้งค่าช่วงข้อมูลแบบเก่า กรุณาบันทึกแผนอีกครั้งก่อนทดสอบหรือส่งจริง",
+      });
+      return;
+    }
 
     await runOwnerAction(
       `notification-run-${editingNotificationRuleId}-${mode}`,
@@ -2531,7 +2544,7 @@ export default function OwnerPortal({
         }
         const manualPeriod = deriveNotificationPeriodRange({
           periodPreset: savedRule.period_preset,
-          periodStrategy: savedRule.period_strategy ?? "same_period_all_runs",
+          periodStrategy: OWNER_NOTIFICATION_PERIOD_STRATEGY,
           scheduledLocalDate: notificationManualScheduledDate,
           scheduledLocalTime: notificationManualScheduledTime,
           timeZone: savedRule.timezone || "Asia/Bangkok",

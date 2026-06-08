@@ -1111,7 +1111,7 @@ export const notificationRulePayloadSchema = z.object({
   enabled: z.boolean().default(true),
   timezone: z.string().trim().min(1).max(80).default(BANGKOK_TIME_ZONE),
   period_preset: notificationPeriodPresetSchema.default("yesterday"),
-  period_strategy: notificationPeriodStrategySchema.default("same_period_all_runs"),
+  period_strategy: notificationPeriodStrategySchema.default("executive_checkpoints"),
   schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
   report_keys: z.array(reportKeySchema).min(1).max(6),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),

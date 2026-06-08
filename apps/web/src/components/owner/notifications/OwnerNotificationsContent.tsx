@@ -75,8 +75,6 @@ export type OwnerNotificationsContentProps = {
   setNotificationManualScheduledDate: (value: string) => void;
   setNotificationManualScheduledTime: (value: string) => void;
   setNotificationName: (value: string) => void;
-  setNotificationPeriodPreset: (value: NotificationPeriodPreset) => void;
-  setNotificationPeriodStrategy: (value: NotificationPeriodStrategy) => void;
   setNotificationTimeInput: (value: string) => void;
   setSelectedTenantId: (value: string) => void;
   tenants: TenantSummary[];
@@ -92,31 +90,12 @@ const NOTIFICATION_WEEKDAYS = [
   { label: "อา", value: 7 },
 ] as const;
 
-const NOTIFICATION_PERIOD_OPTIONS: Array<{
-  value: NotificationPeriodPreset;
-  label: string;
-}> = [
-  { value: "yesterday", label: "เมื่อวาน" },
-  { value: "today_so_far", label: "วันนี้ถึงตอนนี้" },
-  { value: "last_7_days", label: "ย้อนหลัง 7 วัน" },
-];
+const OWNER_NOTIFICATION_PERIOD_STRATEGY: NotificationPeriodStrategy =
+  "executive_checkpoints";
 
-const NOTIFICATION_PERIOD_STRATEGY_OPTIONS: Array<{
-  value: NotificationPeriodStrategy;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: "executive_checkpoints",
-    label: "รอบผู้บริหาร",
-    description: "เช้าอ่านเมื่อวานเต็มวัน เย็นอ่านวันนี้ถึงเวลาแจ้งเตือน",
-  },
-  {
-    value: "same_period_all_runs",
-    label: "ช่วงเดิมทุกเวลา",
-    description: "ใช้ preset เดิมเหมือนกันทุกเวลาที่ส่ง",
-  },
-];
+const OWNER_NOTIFICATION_PERIOD_STRATEGY_LABEL = "รอบผู้บริหาร";
+const OWNER_NOTIFICATION_PERIOD_STRATEGY_DESCRIPTION =
+  "เช้าอ่านเมื่อวานเต็มวัน เย็นอ่านวันนี้ถึงเวลาแจ้งเตือน";
 
 const NOTIFICATION_DIGEST_MODE_OPTIONS: Array<{
   value: NotificationDigestMode;
@@ -174,7 +153,6 @@ export function OwnerNotificationsContent({
   notificationManualScheduledTime,
   notificationName,
   notificationPeriodPreset,
-  notificationPeriodStrategy,
   notificationReportKeys,
   notificationRuleRuns,
   notificationRules,
@@ -199,8 +177,6 @@ export function OwnerNotificationsContent({
   setNotificationManualScheduledDate,
   setNotificationManualScheduledTime,
   setNotificationName,
-  setNotificationPeriodPreset,
-  setNotificationPeriodStrategy,
   setNotificationTimeInput,
   setSelectedTenantId,
   tenants,
@@ -255,7 +231,7 @@ export function OwnerNotificationsContent({
         enabled: notificationEnabled,
         name: notificationName,
         periodPreset: notificationPeriodPreset,
-        periodStrategy: notificationPeriodStrategy,
+        periodStrategy: OWNER_NOTIFICATION_PERIOD_STRATEGY,
         reportKeys: notificationReportKeys,
         targetIds: notificationTargetIds,
         tenantId: selectedTenantId,
@@ -267,7 +243,6 @@ export function OwnerNotificationsContent({
       notificationEnabled,
       notificationName,
       notificationPeriodPreset,
-      notificationPeriodStrategy,
       notificationReportKeys,
       notificationTargetIds,
       notificationTimes,
@@ -307,13 +282,12 @@ export function OwnerNotificationsContent({
     () =>
       buildNotificationPeriodPreviewRows({
         periodPreset: notificationPeriodPreset,
-        periodStrategy: notificationPeriodStrategy,
+        periodStrategy: OWNER_NOTIFICATION_PERIOD_STRATEGY,
         times: notificationTimes,
         weekdays: notificationWeekdays,
       }),
     [
       notificationPeriodPreset,
-      notificationPeriodStrategy,
       notificationTimes,
       notificationWeekdays,
     ],
@@ -332,7 +306,7 @@ export function OwnerNotificationsContent({
   const manualPeriodParams = manualScheduleValidation.ok
     ? deriveNotificationPeriodRange({
         periodPreset: selectedRule!.period_preset,
-        periodStrategy: selectedRule!.period_strategy ?? "same_period_all_runs",
+        periodStrategy: OWNER_NOTIFICATION_PERIOD_STRATEGY,
         scheduledLocalDate: notificationManualScheduledDate,
         scheduledLocalTime: notificationManualScheduledTime,
         timeZone: selectedRule!.timezone || "Asia/Bangkok",
@@ -453,8 +427,6 @@ export function OwnerNotificationsContent({
               <SchedulePeriodSection
                 isDirty={isDirty || isNewDraft}
                 latestBasisReports={latestBasisReports}
-                notificationPeriodPreset={notificationPeriodPreset}
-                notificationPeriodStrategy={notificationPeriodStrategy}
                 notificationTimeInput={notificationTimeInput}
                 notificationTimes={notificationTimes}
                 notificationWeekdays={notificationWeekdays}
@@ -462,8 +434,6 @@ export function OwnerNotificationsContent({
                 onRemoveNotificationTime={onRemoveNotificationTime}
                 onToggleNotificationWeekday={onToggleNotificationWeekday}
                 periodPreviewRows={periodPreviewRows}
-                setNotificationPeriodPreset={setNotificationPeriodPreset}
-                setNotificationPeriodStrategy={setNotificationPeriodStrategy}
                 setNotificationTimeInput={setNotificationTimeInput}
               />
 
@@ -786,8 +756,6 @@ function ReportPickerSection({
 function SchedulePeriodSection({
   isDirty,
   latestBasisReports,
-  notificationPeriodPreset,
-  notificationPeriodStrategy,
   notificationTimeInput,
   notificationTimes,
   notificationWeekdays,
@@ -795,14 +763,10 @@ function SchedulePeriodSection({
   onRemoveNotificationTime,
   onToggleNotificationWeekday,
   periodPreviewRows,
-  setNotificationPeriodPreset,
-  setNotificationPeriodStrategy,
   setNotificationTimeInput,
 }: {
   isDirty: boolean;
   latestBasisReports: ReportKey[];
-  notificationPeriodPreset: NotificationPeriodPreset;
-  notificationPeriodStrategy: NotificationPeriodStrategy;
   notificationTimeInput: string;
   notificationTimes: string[];
   notificationWeekdays: number[];
@@ -815,78 +779,27 @@ function SchedulePeriodSection({
     scheduledLabel: string;
     scheduledTime: string;
   }>;
-  setNotificationPeriodPreset: (value: NotificationPeriodPreset) => void;
-  setNotificationPeriodStrategy: (value: NotificationPeriodStrategy) => void;
   setNotificationTimeInput: (value: string) => void;
 }) {
   return (
     <NotificationEditorSection
-      description="เวลาแจ้งเตือนคือเวลาส่ง LINE ส่วนนโยบายช่วงข้อมูลคือวิธีคำนวณรายงาน"
+      description="เวลาแจ้งเตือนคือเวลาส่ง LINE ระบบใช้รอบผู้บริหารเพื่อคำนวณช่วงข้อมูลอัตโนมัติ"
       title="รอบเวลาและนโยบายช่วงข้อมูล"
     >
-      <div className="grid gap-4 lg:grid-cols-2">
-        <label className="block">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            นโยบายช่วงข้อมูล
-          </span>
-          <select
-            className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-            onChange={(event) =>
-              setNotificationPeriodStrategy(
-                event.target.value as NotificationPeriodStrategy,
-              )
-            }
-            value={notificationPeriodStrategy}
-          >
-            {NOTIFICATION_PERIOD_STRATEGY_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-            {formatNotificationPeriodStrategyDescription(notificationPeriodStrategy)}
-          </span>
-        </label>
-
-        {notificationPeriodStrategy === "same_period_all_runs" ? (
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              ช่วงข้อมูลแบบเดิม
-            </span>
-            <select
-              className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              onChange={(event) =>
-                setNotificationPeriodPreset(
-                  event.target.value as NotificationPeriodPreset,
-                )
-              }
-              value={notificationPeriodPreset}
-            >
-              {NOTIFICATION_PERIOD_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm leading-6 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200">
-            เช้าจะอ่านเมื่อวานเต็มวัน ส่วนรอบหลังเที่ยงจะอ่านวันนี้ตั้งแต่ 00:00 ถึงเวลาแจ้งเตือน
+      <div className="rounded-lg border border-brand-100 bg-brand-50 p-4 text-sm leading-6 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge color="primary">{OWNER_NOTIFICATION_PERIOD_STRATEGY_LABEL}</Badge>
+          <span>{OWNER_NOTIFICATION_PERIOD_STRATEGY_DESCRIPTION}</span>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs text-brand-700 dark:text-brand-200 sm:grid-cols-2">
+          <div className="rounded-lg bg-white/70 px-3 py-2 dark:bg-white/[0.06]">
+            รอบก่อน 12:00 ใช้ข้อมูลเมื่อวาน 00:00-23:59
           </div>
-        )}
-      </div>
-
-      {notificationPeriodStrategy === "same_period_all_runs" ? (
-        <div className="mt-4 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm leading-6 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge color="warning">เวลาไม่มีผลต่อช่วงข้อมูล</Badge>
-            <span>
-              ทุกเวลาที่ส่งจะใช้ preset “{formatNotificationPeriodPreset(notificationPeriodPreset)}” เหมือนกัน
-            </span>
+          <div className="rounded-lg bg-white/70 px-3 py-2 dark:bg-white/[0.06]">
+            รอบตั้งแต่ 12:00 ใช้ข้อมูลวันนี้ 00:00 ถึงเวลาแจ้งเตือน
           </div>
         </div>
-      ) : null}
+      </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
         <div>
@@ -1161,7 +1074,7 @@ function ManualRunPanel({
           </p>
           {savedRule ? (
             <Badge color="light">
-              {formatNotificationPeriodStrategy(savedRule.period_strategy)}
+              {formatNotificationPeriodStrategy()}
             </Badge>
           ) : null}
         </div>
@@ -1248,7 +1161,7 @@ function RunHistoryPanel({
                 </p>
                 <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
                   {run.scheduled_local_date} {run.scheduled_local_time} ·{" "}
-                  {formatNotificationPeriodStrategy(run.period_strategy)} · attempt{" "}
+                  {formatNotificationPeriodStrategy()} · attempt{" "}
                   {run.attempt}
                   {run.unknown_doc_time_count
                     ? ` · เวลาเอกสารว่าง ${run.unknown_doc_time_count} รายการ`
@@ -1460,32 +1373,11 @@ function formatNotificationSchedule(rule: OwnerNotificationRule) {
                 ?.label ?? weekday,
           )
           .join(", ");
-  return `${days} · ${schedule.times.join(", ")} · ${formatNotificationPeriodStrategy(
-    rule.period_strategy ?? "same_period_all_runs",
-  )}`;
+  return `${days} · ${schedule.times.join(", ")} · ${formatNotificationPeriodStrategy()}`;
 }
 
-function formatNotificationPeriodStrategy(value: NotificationPeriodStrategy) {
-  return (
-    NOTIFICATION_PERIOD_STRATEGY_OPTIONS.find((item) => item.value === value)
-      ?.label ?? value
-  );
-}
-
-function formatNotificationPeriodStrategyDescription(
-  value: NotificationPeriodStrategy,
-) {
-  return (
-    NOTIFICATION_PERIOD_STRATEGY_OPTIONS.find((item) => item.value === value)
-      ?.description ?? value
-  );
-}
-
-function formatNotificationPeriodPreset(value: NotificationPeriodPreset) {
-  return (
-    NOTIFICATION_PERIOD_OPTIONS.find((item) => item.value === value)?.label ??
-    value
-  );
+function formatNotificationPeriodStrategy() {
+  return OWNER_NOTIFICATION_PERIOD_STRATEGY_LABEL;
 }
 
 function formatNotificationDigestMode(value: NotificationDigestMode) {

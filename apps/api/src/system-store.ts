@@ -3503,7 +3503,7 @@ function normalizeNotificationPeriodStrategy(
   value: unknown,
 ): NotificationRuleRecord["period_strategy"] {
   const parsed = notificationPeriodStrategySchema.safeParse(value);
-  return parsed.success ? parsed.data : "same_period_all_runs";
+  return parsed.success ? parsed.data : "executive_checkpoints";
 }
 
 function normalizeNotificationDigestMode(
@@ -3998,7 +3998,7 @@ create table if not exists notification_rules (
   enabled boolean not null default true,
   timezone text not null default 'Asia/Bangkok',
   period_preset text not null default 'yesterday',
-  period_strategy text not null default 'same_period_all_runs',
+  period_strategy text not null default 'executive_checkpoints',
   schedule_json jsonb not null,
   report_keys_json jsonb not null,
   target_ids_json jsonb not null,
@@ -4014,7 +4014,7 @@ create table if not exists notification_rules (
 
 alter table notification_rules
   add column if not exists digest_mode text not null default 'action_only',
-  add column if not exists period_strategy text not null default 'same_period_all_runs';
+  add column if not exists period_strategy text not null default 'executive_checkpoints';
 
 create index if not exists notification_rules_tenant_idx
 on notification_rules (tenant_id, enabled, updated_at desc);
@@ -4030,7 +4030,7 @@ create table if not exists notification_rule_runs (
   period_to date not null,
   period_from_time text,
   period_to_time text,
-  period_strategy text not null default 'same_period_all_runs',
+  period_strategy text not null default 'executive_checkpoints',
   unknown_doc_time_count integer not null default 0,
   status text not null,
   attempt integer not null default 1,
@@ -4048,7 +4048,7 @@ create table if not exists notification_rule_runs (
 alter table notification_rule_runs
   add column if not exists period_from_time text,
   add column if not exists period_to_time text,
-  add column if not exists period_strategy text not null default 'same_period_all_runs',
+  add column if not exists period_strategy text not null default 'executive_checkpoints',
   add column if not exists unknown_doc_time_count integer not null default 0;
 
 create index if not exists notification_rule_runs_rule_idx
