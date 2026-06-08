@@ -10,6 +10,9 @@
     "build": "corepack pnpm -r build",
     "typecheck": "(cd packages/shared && corepack pnpm build) && (cd packages/reports && corepack pnpm build) && corepack pnpm -r typecheck",
     "test": "corepack pnpm -r test",
-    "lint": "corepack pnpm --filter @ai-bcc/web lint"
+    "lint": "corepack pnpm --filter @ai-bcc/web lint",
+    "graph:update": "bash scripts/graphify-update.sh",
+    "graph:query": "bash scripts/graphify-query.sh",
+    "graph:preflight": "bash scripts/graphify-preflight.sh"
   }
 }

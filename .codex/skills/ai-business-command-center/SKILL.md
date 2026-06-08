@@ -66,6 +66,37 @@ Tables: `tenants, report_runs, report_snapshots, line_deliveries, line_targets, 
 
 Read only the files needed for the current task.
 
+## Graphify Auto-Lite
+
+Use Graphify as a context map for cross-subsystem work, not as source of truth.
+
+If `graphify-out/graph.json` exists, consult it before broad `rg`/file sweeps when the task spans several AI-Business areas:
+
+- report registry, report runners, snapshots, and LINE cards
+- signed viewer token, viewer APIs, PDF/export behavior
+- tenant datasource config, secrets, permissions, and audit logs
+- worker schedules, notification rules, and delivery history
+- deployment or architecture questions spanning API, web, worker, shared, reports, infra, and scripts
+
+Skip Graphify for small single-file edits, exact symbol lookups, log inspection, and test failure triage where direct source reads are faster.
+
+Commands:
+
+- `corepack pnpm graph:query runAndPersistReportByKey`
+- `corepack pnpm graph:query buildNotificationReportPreview`
+- `corepack pnpm graph:query verifySignedViewerRequest`
+- `corepack pnpm graph:update`
+- `corepack pnpm graph:preflight`
+
+Rules:
+
+- This pilot uses an AST-only graph, so symbol-level queries are more reliable than broad natural-language questions.
+- Always open source files before editing.
+- If Graphify disagrees with source code, source code wins.
+- After flow or architecture changes, update the graph manually and run preflight.
+- Do not commit `graphify-out/` until preflight passes and the output is reviewed for secrets, customer data, and size.
+- Do not install Graphify hooks during the pilot; keep it Auto-Lite/manual-update.
+
 ## Non-Negotiable Rules
 
 - Never commit real DB credentials, LINE tokens, or private host passwords.

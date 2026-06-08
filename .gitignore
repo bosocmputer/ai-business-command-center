@@ -14,3 +14,8 @@ apps/**/.next/
 apps/**/dist/
 apps/**/node_modules/
 packages/**/dist/
+graphify-out/manifest.json
+graphify-out/cost.json
+graphify-out/cache/
+graphify-out/converted/
+graphify-out/GRAPH_TREE.html
