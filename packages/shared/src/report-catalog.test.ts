@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   getReportCatalogEntry,
+  getReportPresetEntry,
   isReportKey,
+  matchReportPreset,
   reportCatalog,
   reportKeySchema,
   reportKeyValues,
+  reportPresetCatalog,
+  reportPresetKeyValues,
 } from "./index.js";
 
 describe("report catalog", () => {
@@ -122,5 +126,35 @@ describe("report catalog", () => {
     expect(isReportKey("ar_customer_movement")).toBe(true);
     expect(isReportKey("ar_debt_receipt")).toBe(true);
     expect(isReportKey("unknown_report")).toBe(false);
+  });
+
+  it("keeps report presets stable for owner notification shortcuts", () => {
+    expect(reportPresetKeyValues).toEqual([
+      "executive_full",
+      "executive_focus",
+      "sales_profit",
+      "inventory",
+      "finance_ar",
+    ]);
+    expect(Object.keys(reportPresetCatalog)).toEqual([...reportPresetKeyValues]);
+    expect(getReportPresetEntry("executive_full").reportKeys).toEqual([
+      ...reportKeyValues,
+    ]);
+    expect(getReportPresetEntry("executive_full").reportKeys.length).toBeLessThanOrEqual(
+      10,
+    );
+  });
+
+  it("matches report presets independent of duplicate or unsorted report keys", () => {
+    expect(
+      matchReportPreset([
+        "stock_balance",
+        "sales_goods_services",
+        "ar_debt_receipt",
+        "gross_profit_by_product",
+        "sales_goods_services",
+      ]),
+    ).toBe("executive_focus");
+    expect(matchReportPreset(["sales_goods_services"])).toBeNull();
   });
 });

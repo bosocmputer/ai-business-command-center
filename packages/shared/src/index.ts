@@ -278,6 +278,110 @@ export const reportCatalog = {
 
 export type ReportCatalogEntry = (typeof reportCatalog)[ReportKey];
 
+export const reportPresetKeyValues = [
+  "executive_full",
+  "executive_focus",
+  "sales_profit",
+  "inventory",
+  "finance_ar",
+] as const;
+
+export type ReportPresetKey = (typeof reportPresetKeyValues)[number];
+
+export type ReportPresetCatalogEntry = {
+  key: ReportPresetKey;
+  label: string;
+  description: string;
+  reportKeys: ReportKey[];
+};
+
+export const reportPresetCatalog = {
+  executive_full: {
+    key: "executive_full",
+    label: "ผู้บริหารครบ 8 รายงาน",
+    description: "ส่งรายงานครบทุกใบ เหมาะกับช่วงตรวจระบบและร้านที่ต้องการตัวเลขครบ",
+    reportKeys: [...reportKeyValues],
+  },
+  executive_focus: {
+    key: "executive_focus",
+    label: "ผู้บริหารเน้นภาพรวม",
+    description: "ยอดขาย กำไรสินค้า สต็อก และรับชำระหนี้",
+    reportKeys: [
+      "sales_goods_services",
+      "gross_profit_by_product",
+      "stock_balance",
+      "ar_debt_receipt",
+    ],
+  },
+  sales_profit: {
+    key: "sales_profit",
+    label: "ขายและกำไร",
+    description: "ยอดขาย กำไรตามสินค้า และกำไรตามลูกหนี้",
+    reportKeys: [
+      "sales_goods_services",
+      "gross_profit_by_product",
+      "gross_profit_by_ar_customer",
+    ],
+  },
+  inventory: {
+    key: "inventory",
+    label: "คลังสินค้า",
+    description: "สต็อกคงเหลือ สินค้าถึงจุดสั่งซื้อ และซื้อ/ตั้งหนี้",
+    reportKeys: [
+      "stock_balance",
+      "stock_reorder",
+      "purchase_goods_payables",
+    ],
+  },
+  finance_ar: {
+    key: "finance_ar",
+    label: "การเงินลูกหนี้",
+    description: "ซื้อ/ตั้งหนี้ เคลื่อนไหวลูกหนี้ และรับชำระหนี้",
+    reportKeys: [
+      "purchase_goods_payables",
+      "ar_customer_movement",
+      "ar_debt_receipt",
+    ],
+  },
+} satisfies Record<ReportPresetKey, ReportPresetCatalogEntry>;
+
+export function getReportPresetEntry(
+  presetKey: ReportPresetKey,
+): (typeof reportPresetCatalog)[ReportPresetKey] {
+  return reportPresetCatalog[presetKey];
+}
+
+export function matchReportPreset(reportKeys: ReportKey[]): ReportPresetKey | null {
+  const normalized = normalizeReportKeySet(reportKeys);
+  for (const presetKey of reportPresetKeyValues) {
+    if (
+      sameReportKeyOrder(
+        normalized,
+        normalizeReportKeySet(reportPresetCatalog[presetKey].reportKeys),
+      )
+    ) {
+      return presetKey;
+    }
+  }
+  return null;
+}
+
+function normalizeReportKeySet(reportKeys: ReportKey[]) {
+  const order = new Map<ReportKey, number>(
+    reportKeyValues.map((reportKey, index) => [reportKey, index]),
+  );
+  return [...new Set(reportKeys)].sort(
+    (left, right) => (order.get(left) ?? 999) - (order.get(right) ?? 999),
+  );
+}
+
+function sameReportKeyOrder(left: ReportKey[], right: ReportKey[]) {
+  return (
+    left.length === right.length &&
+    left.every((reportKey, index) => reportKey === right[index])
+  );
+}
+
 export function isReportKey(value: string | null | undefined): value is ReportKey {
   return reportKeySchema.safeParse(value).success;
 }

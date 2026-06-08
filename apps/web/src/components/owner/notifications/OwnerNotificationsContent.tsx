@@ -4,13 +4,17 @@ import { useMemo } from "react";
 import {
   deriveNotificationPeriodRange,
   getReportCatalogEntry,
+  getReportPresetEntry,
+  matchReportPreset,
   reportKeyValues,
+  reportPresetKeyValues,
   type LineTargetRecord,
   type NotificationDigestMode,
   type NotificationPeriodPreset,
   type NotificationPeriodStrategy,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
+  type ReportPresetKey,
   type ReportKey,
   type Tenant,
 } from "@ai-bcc/shared";
@@ -64,6 +68,7 @@ export type OwnerNotificationsContentProps = {
   onRemoveNotificationTime: (time: string) => void;
   onSaveNotificationRule: () => Promise<void>;
   onSelectNotificationRule: (rule: OwnerNotificationRule) => void;
+  onSetNotificationReportKeys: (reportKeys: ReportKey[]) => void;
   onToggleNotificationReportKey: (reportKey: ReportKey) => void;
   onToggleNotificationTarget: (targetId: string) => void;
   onToggleNotificationWeekday: (weekday: number) => void;
@@ -167,6 +172,7 @@ export function OwnerNotificationsContent({
   onRemoveNotificationTime,
   onSaveNotificationRule,
   onSelectNotificationRule,
+  onSetNotificationReportKeys,
   onToggleNotificationReportKey,
   onToggleNotificationTarget,
   onToggleNotificationWeekday,
@@ -324,6 +330,7 @@ export function OwnerNotificationsContent({
   const latestBasisReports = notificationReportKeys.filter(
     (reportKey) => reportKey === "stock_reorder",
   );
+  const selectedReportPreset = matchReportPreset(notificationReportKeys);
   const actionBlockedReason = getNotificationActionBlockedReason({
     editingNotificationRuleId,
     isDirty,
@@ -422,7 +429,9 @@ export function OwnerNotificationsContent({
 
               <ReportPickerSection
                 notificationReportKeys={notificationReportKeys}
+                onSetNotificationReportKeys={onSetNotificationReportKeys}
                 onToggleNotificationReportKey={onToggleNotificationReportKey}
+                selectedReportPreset={selectedReportPreset}
               />
 
               <SchedulePeriodSection
@@ -690,10 +699,14 @@ function PlanBasicsSection({
 
 function ReportPickerSection({
   notificationReportKeys,
+  onSetNotificationReportKeys,
   onToggleNotificationReportKey,
+  selectedReportPreset,
 }: {
   notificationReportKeys: ReportKey[];
+  onSetNotificationReportKeys: (reportKeys: ReportKey[]) => void;
   onToggleNotificationReportKey: (reportKey: ReportKey) => void;
+  selectedReportPreset: ReportPresetKey | null;
 }) {
   const reportsByCategory = reportKeyValues.reduce(
     (acc, reportKey) => {
@@ -711,6 +724,57 @@ function ReportPickerSection({
       description="เลือกเฉพาะรายงานที่แผนนี้จะส่งเข้า LINE"
       title="รายงาน"
     >
+      <div className="mb-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white">
+              ชุดรายงานด่วน
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ตอนนี้เลือก{" "}
+              {selectedReportPreset
+                ? getReportPresetEntry(selectedReportPreset).label
+                : "กำหนดเอง"}{" "}
+              · {notificationReportKeys.length} รายงาน
+            </p>
+          </div>
+          {selectedReportPreset === "executive_full" ? (
+            <Badge color="warning">LINE ยาว</Badge>
+          ) : selectedReportPreset ? (
+            <Badge color="success">Preset</Badge>
+          ) : (
+            <Badge color="light">กำหนดเอง</Badge>
+          )}
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {reportPresetKeyValues.map((presetKey) => {
+            const preset = getReportPresetEntry(presetKey);
+            const active = selectedReportPreset === presetKey;
+            return (
+              <button
+                className={`min-h-11 rounded-lg border p-3 text-left transition ${
+                  active
+                    ? "border-brand-200 bg-white text-brand-800 shadow-sm dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
+                }`}
+                key={preset.key}
+                onClick={() => onSetNotificationReportKeys([...preset.reportKeys])}
+                type="button"
+              >
+                <span className="block text-sm font-semibold">{preset.label}</span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {preset.description} · {preset.reportKeys.length} รายงาน
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {selectedReportPreset === "executive_full" ? (
+          <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-100">
+            ชุดนี้ส่งครบ 8 ใบ LINE จะยาว เหมาะกับช่วงตรวจระบบหรือร้านที่ต้องการอ่านตัวเลขครบทุกวัน
+          </p>
+        ) : null}
+      </div>
       <div className="grid gap-3 lg:grid-cols-2">
         {Object.entries(reportsByCategory).map(([category, reportKeys]) => (
           <div

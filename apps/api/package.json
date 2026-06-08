@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "migrate:local-json-to-postgres": "tsx src/migrate-local-json-to-postgres.ts",
+    "notification-preset:apply": "tsx src/apply-notification-report-preset.ts",
+    "reconcile:notification-run": "tsx src/reconcile-notification-run.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },

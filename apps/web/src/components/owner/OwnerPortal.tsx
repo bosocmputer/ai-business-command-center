@@ -2921,6 +2921,7 @@ export default function OwnerPortal({
           onExecuteNotificationRule={executeSelectedNotificationRule}
           onSelectNotificationRule={applyNotificationRuleToForm}
           onNewNotificationRule={resetNotificationRuleForm}
+          onSetNotificationReportKeys={setNotificationReportKeys}
           onToggleNotificationReportKey={toggleNotificationReportKey}
           onToggleReportPermission={toggleReportPermission}
           onSaveReportPermissions={saveReportPermissions}
@@ -3146,6 +3147,7 @@ type OwnerSectionContentProps = {
   onExecuteNotificationRule: (mode: "dry_run" | "send") => Promise<void>;
   onSelectNotificationRule: (rule: OwnerNotificationRule) => void;
   onNewNotificationRule: () => void;
+  onSetNotificationReportKeys: (reportKeys: ReportKey[]) => void;
   onToggleNotificationReportKey: (reportKey: ReportKey) => void;
   onToggleReportPermission: (
     profileKey: LineAccessProfileKey,
