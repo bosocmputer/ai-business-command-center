@@ -44,12 +44,32 @@ describe("gross profit reports", () => {
       date_to: "2026-05-29",
     });
 
-    expect(query.text).toContain("with detail_by_doc as");
-    expect(query.text).toContain("inner join ic_trans t");
+    expect(query.text).toContain("with filtered_docs as");
+    expect(query.text).toContain("detail_by_doc as");
+    expect(query.text).toContain("inner join filtered_docs t");
     expect(query.text).toContain("left join ar_customer c");
     expect(query.text).toContain("group by d.doc_no, d.doc_date, d.trans_flag");
     expect(query.text).toContain("group by coalesce(nullif(t.cust_code, '')");
     expect(query.values).toEqual(["2026-05-01", "2026-05-29"]);
+  });
+
+  it("pushes optional time filters through filtered document headers", () => {
+    const query = buildGrossProfitByProductQuery({
+      date_from: "2026-06-08",
+      date_to: "2026-06-08",
+      time_from: "00:00",
+      time_to: "18:30",
+    });
+
+    expect(query.text).toContain("substring(h.doc_time::text");
+    expect(query.text).toContain("$3::time");
+    expect(query.text).toContain("$4::time");
+    expect(query.values).toEqual([
+      "2026-06-08",
+      "2026-06-08",
+      "00:00",
+      "18:30",
+    ]);
   });
 
   it("summarizes product gross profit with returns and margin", () => {

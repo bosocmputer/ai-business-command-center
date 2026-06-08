@@ -10,6 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import {
+  deriveNotificationPeriodRange,
   deriveMorningBriefDateRange,
   getReportCatalogEntry,
   type BusinessSignalThresholdsConfig,
@@ -20,6 +21,7 @@ import {
   type LineRecipientRecord,
   type LineTargetRecord,
   type NotificationPeriodPreset,
+  type NotificationPeriodStrategy,
   type NotificationDigestMode,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
@@ -420,6 +422,8 @@ export default function OwnerPortal({
   const [notificationEnabled, setNotificationEnabled] = useState(false);
   const [notificationPeriodPreset, setNotificationPeriodPreset] =
     useState<NotificationPeriodPreset>("yesterday");
+  const [notificationPeriodStrategy, setNotificationPeriodStrategy] =
+    useState<NotificationPeriodStrategy>("executive_checkpoints");
   const [notificationDigestMode, setNotificationDigestMode] =
     useState<NotificationDigestMode>("action_only");
   const [notificationWeekdays, setNotificationWeekdays] = useState<number[]>([
@@ -709,6 +713,7 @@ export default function OwnerPortal({
       setNotificationName(rule.name);
       setNotificationEnabled(rule.enabled);
       setNotificationPeriodPreset(rule.period_preset);
+      setNotificationPeriodStrategy(rule.period_strategy ?? "same_period_all_runs");
       setNotificationDigestMode(rule.digest_mode ?? "action_only");
       setNotificationWeekdays(
         rule.schedule[0]?.weekdays ?? [1, 2, 3, 4, 5, 6, 7],
@@ -735,6 +740,7 @@ export default function OwnerPortal({
     setNotificationName("Daily SML digest");
     setNotificationEnabled(false);
     setNotificationPeriodPreset("yesterday");
+    setNotificationPeriodStrategy("executive_checkpoints");
     setNotificationDigestMode("action_only");
     setNotificationWeekdays([1, 2, 3, 4, 5, 6, 7]);
     setNotificationTimes(["08:00"]);
@@ -2367,6 +2373,13 @@ export default function OwnerPortal({
     if (!notificationTimes.length) {
       throw new Error("กรุณาเพิ่มเวลาแจ้งเตือนอย่างน้อย 1 รอบ");
     }
+    const invalidTime = notificationTimes.find((time) => !isValidNotificationTime(time));
+    if (invalidTime) {
+      throw new Error(`เวลาแจ้งเตือนไม่ถูกต้อง: ${invalidTime}`);
+    }
+    if (notificationTimes.length > 12) {
+      throw new Error("ตั้งเวลาแจ้งเตือนได้สูงสุด 12 รอบต่อแผน");
+    }
     if (!notificationWeekdays.length) {
       throw new Error("กรุณาเลือกวันที่ต้องการแจ้งเตือน");
     }
@@ -2383,6 +2396,7 @@ export default function OwnerPortal({
       enabled: notificationEnabled,
       timezone: "Asia/Bangkok",
       period_preset: notificationPeriodPreset,
+      period_strategy: notificationPeriodStrategy,
       digest_mode: notificationDigestMode,
       schedule: [
         {
@@ -2433,6 +2447,7 @@ export default function OwnerPortal({
                     enabled: payload.enabled,
                     timezone: payload.timezone,
                     period_preset: payload.period_preset,
+                    period_strategy: payload.period_strategy,
                     digest_mode: payload.digest_mode,
                     schedule: payload.schedule,
                     report_keys: payload.report_keys,
@@ -2662,13 +2677,26 @@ export default function OwnerPortal({
   }
 
   function addNotificationTime() {
-    if (!/^\d{2}:\d{2}$/.test(notificationTimeInput)) {
+    if (!isValidNotificationTime(notificationTimeInput)) {
       setResult({ tone: "warning", message: "เวลาแจ้งเตือนต้องอยู่ในรูปแบบ HH:mm" });
       return;
     }
-    setNotificationTimes((current) =>
-      [...new Set([...current, notificationTimeInput])].sort(),
-    );
+    if (
+      !notificationTimes.includes(notificationTimeInput) &&
+      notificationTimes.length >= 12
+    ) {
+      setResult({
+        tone: "warning",
+        message: "ตั้งเวลาแจ้งเตือนได้สูงสุด 12 รอบต่อแผน",
+      });
+      return;
+    }
+    setNotificationTimes((current) => {
+      if (current.includes(notificationTimeInput)) {
+        return current;
+      }
+      return [...current, notificationTimeInput].sort();
+    });
   }
 
   function removeNotificationTime(time: string) {
@@ -2786,6 +2814,7 @@ export default function OwnerPortal({
           notificationDigestMode={notificationDigestMode}
           notificationName={notificationName}
           notificationPeriodPreset={notificationPeriodPreset}
+          notificationPeriodStrategy={notificationPeriodStrategy}
           notificationReportKeys={notificationReportKeys}
           notificationRuleRuns={notificationRuleRuns}
           notificationRules={notificationRules}
@@ -2862,6 +2891,7 @@ export default function OwnerPortal({
           setNotificationDigestMode={setNotificationDigestMode}
           setNotificationName={setNotificationName}
           setNotificationPeriodPreset={setNotificationPeriodPreset}
+          setNotificationPeriodStrategy={setNotificationPeriodStrategy}
           setNotificationTimeInput={setNotificationTimeInput}
           setNewTenantId={setNewTenantId}
           setNewTenantName={setNewTenantName}
@@ -2986,6 +3016,7 @@ type OwnerSectionContentProps = {
   notificationDigestMode: NotificationDigestMode;
   notificationName: string;
   notificationPeriodPreset: NotificationPeriodPreset;
+  notificationPeriodStrategy: NotificationPeriodStrategy;
   notificationReportKeys: ReportKey[];
   notificationRuleRuns: NotificationRuleRunRecord[];
   notificationRules: OwnerNotificationRule[];
@@ -3096,6 +3127,7 @@ type OwnerSectionContentProps = {
   setNotificationDigestMode: (value: NotificationDigestMode) => void;
   setNotificationName: (value: string) => void;
   setNotificationPeriodPreset: (value: NotificationPeriodPreset) => void;
+  setNotificationPeriodStrategy: (value: NotificationPeriodStrategy) => void;
   setNotificationTimeInput: (value: string) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
@@ -4244,6 +4276,23 @@ const NOTIFICATION_PERIOD_OPTIONS: Array<{
   { value: "last_7_days", label: "ย้อนหลัง 7 วัน" },
 ];
 
+const NOTIFICATION_PERIOD_STRATEGY_OPTIONS: Array<{
+  value: NotificationPeriodStrategy;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "executive_checkpoints",
+    label: "รอบผู้บริหาร",
+    description: "เช้าอ่านเมื่อวานเต็มวัน เย็นอ่านวันนี้ถึงเวลาแจ้งเตือน",
+  },
+  {
+    value: "same_period_all_runs",
+    label: "ช่วงเดิมทุกเวลา",
+    description: "ใช้ preset เดิมเหมือนกันทุกเวลาที่ส่ง",
+  },
+];
+
 const NOTIFICATION_DIGEST_MODE_OPTIONS: Array<{
   value: NotificationDigestMode;
   label: string;
@@ -4271,6 +4320,7 @@ function OwnerNotificationsContent({
   notificationDigestMode,
   notificationName,
   notificationPeriodPreset,
+  notificationPeriodStrategy,
   notificationReportKeys,
   notificationRuleRuns,
   notificationRules,
@@ -4294,6 +4344,7 @@ function OwnerNotificationsContent({
   setNotificationDigestMode,
   setNotificationName,
   setNotificationPeriodPreset,
+  setNotificationPeriodStrategy,
   setNotificationTimeInput,
   setSelectedTenantId,
   tenants,
@@ -4325,6 +4376,15 @@ function OwnerNotificationsContent({
     notificationReportKeys.every((reportKey) =>
       canLineTargetReceiveReport(target, reportKey),
     ),
+  );
+  const periodPreviewRows = buildNotificationPeriodPreviewRows({
+    periodPreset: notificationPeriodPreset,
+    periodStrategy: notificationPeriodStrategy,
+    times: notificationTimes,
+    weekdays: notificationWeekdays,
+  });
+  const latestBasisReports = notificationReportKeys.filter(
+    (reportKey) => reportKey === "stock_reorder",
   );
 
   return (
@@ -4477,7 +4537,37 @@ function OwnerNotificationsContent({
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  ช่วงข้อมูล
+                  นโยบายช่วงข้อมูล
+                </span>
+                <select
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  onChange={(event) =>
+                    setNotificationPeriodStrategy(
+                      event.target.value as NotificationPeriodStrategy,
+                    )
+                  }
+                  value={notificationPeriodStrategy}
+                >
+                  {NOTIFICATION_PERIOD_STRATEGY_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {
+                    NOTIFICATION_PERIOD_STRATEGY_OPTIONS.find(
+                      (item) => item.value === notificationPeriodStrategy,
+                    )?.description
+                  }
+                </span>
+              </label>
+            </div>
+
+            {notificationPeriodStrategy === "same_period_all_runs" ? (
+              <label className="mt-4 block max-w-md">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  ช่วงข้อมูลแบบเดิม
                 </span>
                 <select
                   className="mt-2 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-sm focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
@@ -4495,7 +4585,7 @@ function OwnerNotificationsContent({
                   ))}
                 </select>
               </label>
-            </div>
+            ) : null}
 
             <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -4612,6 +4702,45 @@ function OwnerNotificationsContent({
                   </button>
                 ))}
               </div>
+              {periodPreviewRows.length ? (
+                <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      รอบถัดไปจะใช้ช่วงข้อมูลอะไร
+                    </p>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      เวลาแจ้งเตือนคือเวลาส่ง LINE
+                    </span>
+                  </div>
+                  <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+                    {periodPreviewRows.map((row) => (
+                      <div
+                        className="grid gap-1 border-b border-gray-100 px-3 py-2 text-sm last:border-b-0 dark:border-gray-800 md:grid-cols-[150px_minmax(0,1fr)]"
+                        key={`${row.scheduledDate}-${row.scheduledTime}`}
+                      >
+                        <span className="font-semibold text-gray-800 dark:text-white">
+                          {row.scheduledLabel}
+                        </span>
+                        <span className="text-gray-600 dark:text-gray-300">
+                          {row.periodLabel}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {latestBasisReports.length ? (
+                    <p className="mt-2 text-xs leading-5 text-warning-700 dark:text-warning-300">
+                      {latestBasisReports
+                        .map((reportKey) => getReportCatalogEntry(reportKey).shortLabel)
+                        .join(", ")}{" "}
+                      ใช้ข้อมูลล่าสุดจาก SML ไม่ได้อิงช่วงเวลาในตารางนี้
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-warning-700 dark:text-warning-300">
+                  เลือกวันที่ส่งและเวลาอย่างน้อย 1 รอบเพื่อดูตัวอย่างช่วงข้อมูล
+                </p>
+              )}
             </div>
 
             <div className="mt-5">
@@ -4730,10 +4859,20 @@ function OwnerNotificationsContent({
                   >
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-gray-900 dark:text-white">
-                        {formatNotificationPeriod(run.period_from, run.period_to)}
+                        {formatNotificationPeriodWithTime(
+                          run.period_from,
+                          run.period_to,
+                          run.period_from_time,
+                          run.period_to_time,
+                        )}
                       </p>
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {run.scheduled_local_date} {run.scheduled_local_time} · attempt {run.attempt}
+                        {run.scheduled_local_date} {run.scheduled_local_time} ·{" "}
+                        {formatNotificationPeriodStrategy(run.period_strategy)} · attempt{" "}
+                        {run.attempt}
+                        {run.unknown_doc_time_count
+                          ? ` · เวลาเอกสารว่าง ${run.unknown_doc_time_count} รายการ`
+                          : ""}
                       </p>
                     </div>
                     <Badge color={notificationRunTone(run.status)}>
@@ -8808,7 +8947,16 @@ function formatNotificationSchedule(rule: OwnerNotificationRule) {
               weekday,
           )
           .join(", ");
-  return `${days} · ${schedule.times.join(", ")} · ${formatNotificationPeriodPreset(rule.period_preset)}`;
+  return `${days} · ${schedule.times.join(", ")} · ${formatNotificationPeriodStrategy(
+    rule.period_strategy ?? "same_period_all_runs",
+  )}`;
+}
+
+function formatNotificationPeriodStrategy(value: NotificationPeriodStrategy) {
+  return (
+    NOTIFICATION_PERIOD_STRATEGY_OPTIONS.find((item) => item.value === value)
+      ?.label ?? value
+  );
 }
 
 function formatNotificationPeriodPreset(value: NotificationPeriodPreset) {
@@ -8825,12 +8973,98 @@ function formatNotificationDigestMode(value: NotificationDigestMode) {
   );
 }
 
-function formatNotificationPeriod(dateFrom: string, dateTo: string) {
-  if (dateFrom === dateTo) {
-    return dateFrom;
+function formatNotificationPeriodWithTime(
+  dateFrom: string,
+  dateTo: string,
+  timeFrom?: string | null,
+  timeTo?: string | null,
+) {
+  const startTime = timeFrom ?? "00:00";
+  const endTime = timeTo ?? "23:59";
+  return `${dateFrom} ${startTime} ถึง ${dateTo} ${endTime}`;
+}
+
+function isValidNotificationTime(value: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function buildNotificationPeriodPreviewRows(input: {
+  periodPreset: NotificationPeriodPreset;
+  periodStrategy: NotificationPeriodStrategy;
+  times: string[];
+  weekdays: number[];
+}) {
+  const validTimes = [...new Set(input.times.filter(isValidNotificationTime))].sort();
+  const weekdays = new Set(input.weekdays);
+  if (!validTimes.length || !weekdays.size) {
+    return [];
   }
 
-  return `${dateFrom} ถึง ${dateTo}`;
+  const now = new Date();
+  const rows: Array<{
+    scheduledDate: string;
+    scheduledTime: string;
+    scheduledLabel: string;
+    periodLabel: string;
+  }> = [];
+
+  for (let offset = 0; offset <= 14 && rows.length < 4; offset += 1) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + offset);
+    const scheduledDate = toLocalYmd(date);
+    const isoWeekday = toIsoWeekday(date);
+    if (!weekdays.has(isoWeekday)) {
+      continue;
+    }
+
+    for (const scheduledTime of validTimes) {
+      const scheduledAt = localDateTime(scheduledDate, scheduledTime);
+      if (scheduledAt.getTime() <= now.getTime()) {
+        continue;
+      }
+      const params = deriveNotificationPeriodRange({
+        periodPreset: input.periodPreset,
+        periodStrategy: input.periodStrategy,
+        scheduledLocalDate: scheduledDate,
+        scheduledLocalTime: scheduledTime,
+        timeZone: "Asia/Bangkok",
+      });
+      rows.push({
+        scheduledDate,
+        scheduledTime,
+        scheduledLabel: `${scheduledDate} ${scheduledTime}`,
+        periodLabel: formatNotificationPeriodWithTime(
+          params.date_from,
+          params.date_to,
+          params.time_from,
+          params.time_to,
+        ),
+      });
+      if (rows.length >= 4) {
+        break;
+      }
+    }
+  }
+
+  return rows;
+}
+
+function localDateTime(ymd: string, hhmm: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const [hour, minute] = hhmm.split(":").map(Number);
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+}
+
+function toLocalYmd(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toIsoWeekday(date: Date) {
+  const weekday = date.getDay();
+  return weekday === 0 ? 7 : weekday;
 }
 
 function notificationRunTone(status: NotificationRuleRunRecord["status"]) {

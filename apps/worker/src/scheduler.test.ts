@@ -26,9 +26,23 @@ describe("notification rule worker scheduler", () => {
     expect(readNotificationRulesWorkerConfig({})).toMatchObject({
       enabled: true,
       apiBaseUrl: "http://api:4000",
+      catchUpMinutes: 15,
       mode: "send",
       workerId: "worker_notification_rules_1",
       heartbeatToken: null,
     });
+  });
+
+  it("bounds notification catch-up minutes from env", () => {
+    expect(
+      readNotificationRulesWorkerConfig({
+        WORKER_NOTIFICATION_CATCH_UP_MINUTES: "90",
+      }).catchUpMinutes,
+    ).toBe(60);
+    expect(
+      readNotificationRulesWorkerConfig({
+        WORKER_NOTIFICATION_CATCH_UP_MINUTES: "-3",
+      }).catchUpMinutes,
+    ).toBe(0);
   });
 });

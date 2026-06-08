@@ -8,9 +8,9 @@ import {
   buildNotificationIdempotencyKey,
   deriveNotificationPeriodRange,
   deriveMorningBriefDateRange,
+  getDueNotificationRuleTimes,
   getNextNotificationRunAt,
   getZonedDateTimeParts,
-  isNotificationRuleDue,
   allowedLineActionSchema,
   lineSendRequestSchema,
   lineAccessProfileKeySchema,
@@ -41,6 +41,7 @@ import {
   type StockBalanceSnapshot,
   type StockReorderSnapshot,
   isoDateSchema,
+  localTimeSchema,
   salesGoodsServicesParamsSchema,
   tenantIdSchema,
   tenantStatusSchema,
@@ -51,6 +52,7 @@ import {
   businessSignalStatusSchema,
   businessSignalThresholdsSchema,
   notificationDigestModeSchema,
+  notificationPeriodStrategySchema,
   tenantFeatureFlagsSchema,
 } from "@ai-bcc/shared";
 import {
@@ -819,6 +821,7 @@ app.patch("/api/owner/notification-rules/:id", async (request, reply) => {
     enabled: body.data.enabled ?? existing.enabled,
     timezone: body.data.timezone ?? existing.timezone,
     period_preset: body.data.period_preset ?? existing.period_preset,
+    period_strategy: body.data.period_strategy ?? existing.period_strategy,
     schedule: body.data.schedule ?? existing.schedule,
     report_keys: body.data.report_keys ?? existing.report_keys,
     target_ids: body.data.target_ids ?? existing.target_ids,
@@ -838,6 +841,7 @@ app.patch("/api/owner/notification-rules/:id", async (request, reply) => {
     schedule: normalizeNotificationSchedulePayload(candidate.schedule),
     report_keys: uniqueReportKeys(candidate.report_keys),
     target_ids: uniqueStrings(candidate.target_ids),
+    period_strategy: candidate.period_strategy,
     digest_mode: candidate.digest_mode,
     updated_at: new Date().toISOString(),
   });
@@ -2075,10 +2079,12 @@ app.get(
       });
     }
 
-    const params = {
+    const params = toReportParams({
       date_from: query.data.date_from,
       date_to: query.data.date_to,
-    };
+      time_from: query.data.time_from,
+      time_to: query.data.time_to,
+    });
     const rangeError = validateCustomerReportRange(params);
     if (rangeError) {
       return reply.status(400).send({ error: rangeError });
@@ -2142,10 +2148,12 @@ app.get(
 
     const paramsFromQuery =
       query.data.date_from && query.data.date_to
-        ? {
+        ? toReportParams({
             date_from: query.data.date_from,
             date_to: query.data.date_to,
-          }
+            time_from: query.data.time_from,
+            time_to: query.data.time_to,
+          })
         : null;
     const rangeError = paramsFromQuery
       ? validateCustomerReportRange(paramsFromQuery)
@@ -2317,10 +2325,12 @@ app.get(
       });
     }
 
-    const params = {
+    const params = toReportParams({
       date_from: query.data.date_from,
       date_to: query.data.date_to,
-    };
+      time_from: query.data.time_from,
+      time_to: query.data.time_to,
+    });
     const rangeError = validateCustomerReportRange(params);
     if (rangeError) {
       return reply.status(400).send({ error: rangeError });
@@ -2387,10 +2397,12 @@ app.get(
         error: "date_from and date_to are required for purchase document detail.",
       });
     }
-    const params = {
+    const params = toReportParams({
       date_from: query.data.date_from,
       date_to: query.data.date_to,
-    };
+      time_from: query.data.time_from,
+      time_to: query.data.time_to,
+    });
     const rangeError = validateCustomerReportRange(params);
     if (rangeError) {
       return reply.status(400).send({ error: rangeError });
@@ -2668,44 +2680,57 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
   const rules = (await systemStore.listNotificationRules())
     .filter((rule) => rule.enabled)
     .slice(0, 500);
+  const catchUpMinutes = body.data.catch_up_minutes ?? 15;
 
-  for (const rule of rules) {
+  ruleLoop: for (const rule of rules) {
     if (processed.length >= limit) {
       break;
     }
 
-    const due = isNotificationRuleDue({ rule, now });
-    if (!due) {
-      continue;
-    }
-
-    const idempotencyKey = buildNotificationIdempotencyKey({
-      ruleId: rule.id,
-      scheduledLocalDate: due.date,
-      scheduledLocalTime: due.time,
-    });
-    const existing = await systemStore.getNotificationRuleRunByKey(
-      idempotencyKey,
-    );
-    if (existing) {
-      skipped.push({
-        rule_id: rule.id,
-        reason: "duplicate_minute",
-        status: existing.status,
-      });
-      continue;
-    }
-
-    const result = await executeNotificationRule({
+    const dueTimes = getDueNotificationRuleTimes({
       rule,
-      mode,
-      force: false,
       now,
-      scheduledLocalDate: due.date,
-      scheduledLocalTime: due.time,
-      source: "worker_due",
+      catchUpMinutes,
     });
-    processed.push(result);
+    if (!dueTimes.length) {
+      continue;
+    }
+
+    for (const due of dueTimes) {
+      if (processed.length >= limit) {
+        break ruleLoop;
+      }
+
+      const idempotencyKey = buildNotificationIdempotencyKey({
+        ruleId: rule.id,
+        scheduledLocalDate: due.date,
+        scheduledLocalTime: due.time,
+      });
+      const existing = await systemStore.getNotificationRuleRunByKey(
+        idempotencyKey,
+      );
+      if (existing) {
+        skipped.push({
+          rule_id: rule.id,
+          scheduled_local_date: due.date,
+          scheduled_local_time: due.time,
+          reason: "duplicate_minute",
+          status: existing.status,
+        });
+        continue;
+      }
+
+      const result = await executeNotificationRule({
+        rule,
+        mode,
+        force: false,
+        now,
+        scheduledLocalDate: due.date,
+        scheduledLocalTime: due.time,
+        source: "worker_due",
+      });
+      processed.push(result);
+    }
   }
 
   const failedRuns = (
@@ -3579,10 +3604,15 @@ app.get(
       });
     }
 
-    const params = {
-      date_from: query.data.date_from,
-      date_to: query.data.date_to,
-    };
+    const snapshot = await systemStore.getSnapshotByRunId(
+      access.tenantId,
+      access.runId,
+      access.reportKey,
+    );
+    if (!snapshot || !isClassicReportSnapshot(snapshot)) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+    const params = snapshot.params;
     const rangeError = validateViewerReportRange(params);
     if (rangeError) {
       return reply.status(400).send({ error: rangeError });
@@ -3652,10 +3682,15 @@ app.get(
       });
     }
 
-    const params = {
-      date_from: query.data.date_from,
-      date_to: query.data.date_to,
-    };
+    const snapshot = await systemStore.getSnapshotByRunId(
+      access.tenantId,
+      access.runId,
+      access.reportKey,
+    );
+    if (!snapshot || !isClassicReportSnapshot(snapshot)) {
+      return reply.status(404).send({ error: "Snapshot not found" });
+    }
+    const params = snapshot.params;
     const rangeError = validateViewerReportRange(params);
     if (rangeError) {
       return reply.status(400).send({ error: rangeError });
@@ -5453,6 +5488,17 @@ async function persistBusinessSignals(
   return saved;
 }
 
+function countUnknownDocTimeInSnapshot(snapshot: ReportSnapshot) {
+  if (
+    snapshot.report_key === "sales_goods_services" ||
+    snapshot.report_key === "purchase_goods_payables"
+  ) {
+    return snapshot.documents.filter((document) => !document.doc_time).length;
+  }
+
+  return 0;
+}
+
 async function executeNotificationRule(input: {
   rule: NotificationRuleRecord;
   mode: LineSendMode;
@@ -5495,6 +5541,9 @@ async function executeNotificationRule(input: {
         });
   const params = deriveNotificationPeriodRange({
     periodPreset: input.rule.period_preset,
+    periodStrategy: input.rule.period_strategy,
+    scheduledLocalDate: zoned.date,
+    scheduledLocalTime: zoned.time,
     now: input.now,
     timeZone: input.rule.timezone,
   });
@@ -5518,6 +5567,10 @@ async function executeNotificationRule(input: {
     timezone: input.rule.timezone || BANGKOK_TIME_ZONE,
     period_from: params.date_from,
     period_to: params.date_to,
+    period_from_time: params.time_from ?? null,
+    period_to_time: params.time_to ?? null,
+    period_strategy: input.rule.period_strategy,
+    unknown_doc_time_count: 0,
     status: "running",
     attempt,
     idempotency_key: idempotencyKey,
@@ -5605,6 +5658,12 @@ async function executeNotificationRule(input: {
         mode: input.mode,
         attempt,
         idempotency_key: idempotencyKey,
+        period_strategy: input.rule.period_strategy,
+        period_from: params.date_from,
+        period_to: params.date_to,
+        period_from_time: params.time_from ?? null,
+        period_to_time: params.time_to ?? null,
+        unknown_doc_time_count: run.unknown_doc_time_count,
         safe_error_message: safeErrorMessage,
         next_retry_at: nextRetryAt,
       },
@@ -5635,6 +5694,7 @@ async function executeNotificationRule(input: {
     enabled: true,
     timezone: input.rule.timezone,
     period_preset: input.rule.period_preset,
+    period_strategy: input.rule.period_strategy,
     schedule: input.rule.schedule,
     report_keys: input.rule.report_keys,
     target_ids: input.rule.target_ids,
@@ -5677,6 +5737,13 @@ async function executeNotificationRule(input: {
     }
     snapshots.push(result.snapshot);
   }
+  run = {
+    ...run,
+    unknown_doc_time_count: snapshots.reduce(
+      (total, snapshot) => total + countUnknownDocTimeInSnapshot(snapshot),
+      0,
+    ),
+  };
 
   const businessSignals = businessSignalsEnabled
     ? await persistBusinessSignals(
@@ -5957,6 +6024,12 @@ async function executeNotificationRule(input: {
       mode: input.mode,
       attempt,
       idempotency_key: idempotencyKey,
+      period_strategy: input.rule.period_strategy,
+      period_from: params.date_from,
+      period_to: params.date_to,
+      period_from_time: params.time_from ?? null,
+      period_to_time: params.time_to ?? null,
+      unknown_doc_time_count: run.unknown_doc_time_count,
       report_run_ids: reportRunIds,
       delivery_ids: deliveries.map((delivery) => delivery.id),
       delivery_statuses: deliveries.map((delivery) => delivery.status),
@@ -6090,6 +6163,7 @@ async function validateNotificationRulePayload(input: {
   enabled: boolean;
   timezone: string;
   period_preset: NotificationRuleRecord["period_preset"];
+  period_strategy: NotificationRuleRecord["period_strategy"];
   schedule: NotificationRuleRecord["schedule"];
   report_keys: ReportKey[];
   target_ids: string[];
@@ -6220,6 +6294,7 @@ function notificationRuleAuditMetadata(rule: NotificationRuleRecord) {
     enabled: rule.enabled,
     timezone: rule.timezone,
     period_preset: rule.period_preset,
+    period_strategy: rule.period_strategy,
     schedule: rule.schedule,
     report_keys: rule.report_keys,
     target_ids_count: rule.target_ids.length,
@@ -6366,6 +6441,12 @@ function isSignedViewerPdfSnapshot(
     snapshot.report_key === "sales_goods_services" ||
     snapshot.report_key === "purchase_goods_payables"
   );
+}
+
+function isClassicReportSnapshot(
+  snapshot: ReportSnapshot,
+): snapshot is SalesGoodsServicesSnapshot | PurchaseGoodsPayablesSnapshot {
+  return isSignedViewerPdfSnapshot(snapshot);
 }
 
 function buildDefaultTenantReportRolePermission(input: {
@@ -7676,6 +7757,20 @@ function validateViewerReportRange(params: SalesGoodsServicesParams) {
   return null;
 }
 
+function toReportParams(input: {
+  date_from: string;
+  date_to: string;
+  time_from?: string | null;
+  time_to?: string | null;
+}): SalesGoodsServicesParams {
+  return salesGoodsServicesParamsSchema.parse({
+    date_from: input.date_from,
+    date_to: input.date_to,
+    time_from: input.time_from ?? undefined,
+    time_to: input.time_to ?? undefined,
+  });
+}
+
 type SignedViewerPdfAccess = {
   tenantId: TenantId;
   reportKey: Extract<
@@ -7745,11 +7840,13 @@ async function prepareSignedViewerPdfRequest(
     };
   }
 
-  const params = {
+  const requestedParams = toReportParams({
     date_from: query.data.date_from,
     date_to: query.data.date_to,
-  };
-  const rangeError = validateViewerReportRange(params);
+    time_from: query.data.time_from,
+    time_to: query.data.time_to,
+  });
+  const rangeError = validateViewerReportRange(requestedParams);
   if (rangeError) {
     return {
       ok: false,
@@ -7776,6 +7873,7 @@ async function prepareSignedViewerPdfRequest(
       }),
     };
   }
+  const params = snapshot.params;
 
   try {
     const prepared = await prepareSignedViewerPdf({
@@ -7827,6 +7925,8 @@ async function prepareSignedViewerPdf(input: {
     runId: input.access.runId,
     dateFrom: input.params.date_from,
     dateTo: input.params.date_to,
+    timeFrom: input.params.time_from,
+    timeTo: input.params.time_to,
   };
   const cacheKey = buildReportPdfCacheKey(cacheIdentity);
   const cachedPdf = await readCachedReportPdf({
@@ -7836,6 +7936,8 @@ async function prepareSignedViewerPdf(input: {
     runId: input.access.runId,
     dateFrom: input.params.date_from,
     dateTo: input.params.date_to,
+    timeFrom: input.params.time_from,
+    timeTo: input.params.time_to,
   });
   if (cachedPdf) {
     const durationMs = Date.now() - startedAt;
@@ -7901,6 +8003,8 @@ async function prepareSignedViewerPdfCacheMiss(input: {
     runId: input.access.runId,
     dateFrom: input.params.date_from,
     dateTo: input.params.date_to,
+    timeFrom: input.params.time_from,
+    timeTo: input.params.time_to,
   });
   if (cachedPdf) {
     return {
@@ -8187,6 +8291,8 @@ const documentDetailQuerySchema = z.object({
   doc_no: z.string().trim().min(1).max(120),
   date_from: isoDateSchema.optional(),
   date_to: isoDateSchema.optional(),
+  time_from: localTimeSchema.optional(),
+  time_to: localTimeSchema.optional(),
 }).superRefine((value, ctx) => {
   if (Boolean(value.date_from) !== Boolean(value.date_to)) {
     ctx.addIssue({
@@ -8200,6 +8306,8 @@ const documentDetailQuerySchema = z.object({
     const parsed = salesGoodsServicesParamsSchema.safeParse({
       date_from: value.date_from,
       date_to: value.date_to,
+      time_from: value.time_from,
+      time_to: value.time_to,
     });
     if (!parsed.success) {
       ctx.addIssue({
@@ -8216,6 +8324,8 @@ const customerReportRangeQuerySchema = salesGoodsServicesParamsSchema;
 const customerDocumentsPageQuerySchema = z.object({
   date_from: isoDateSchema,
   date_to: isoDateSchema,
+  time_from: localTimeSchema.optional(),
+  time_to: localTimeSchema.optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   page_size: z.coerce.number().int().min(5).max(50).optional().default(10),
   search: z.string().trim().max(120).optional().default(""),
@@ -8223,6 +8333,8 @@ const customerDocumentsPageQuerySchema = z.object({
   const parsed = salesGoodsServicesParamsSchema.safeParse({
     date_from: value.date_from,
     date_to: value.date_to,
+    time_from: value.time_from,
+    time_to: value.time_to,
   });
   if (!parsed.success) {
     ctx.addIssue({
@@ -8236,6 +8348,8 @@ const customerDocumentsPageQuerySchema = z.object({
 const viewerDocumentsBaseSchema = signedViewerAuthSchema.extend({
   date_from: isoDateSchema,
   date_to: isoDateSchema,
+  time_from: localTimeSchema.optional(),
+  time_to: localTimeSchema.optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   page_size: z.coerce.number().int().min(5).max(50).optional().default(10),
   search: z.string().trim().max(120).optional().default(""),
@@ -8246,6 +8360,8 @@ const viewerDocumentsQuerySchema = viewerDocumentsBaseSchema.superRefine(
     const parsed = salesGoodsServicesParamsSchema.safeParse({
       date_from: value.date_from,
       date_to: value.date_to,
+      time_from: value.time_from,
+      time_to: value.time_to,
     });
     if (!parsed.success) {
       ctx.addIssue({
@@ -8265,6 +8381,8 @@ const viewerDocumentDetailQuerySchema = viewerDocumentsBaseSchema
     const parsed = salesGoodsServicesParamsSchema.safeParse({
       date_from: value.date_from,
       date_to: value.date_to,
+      time_from: value.time_from,
+      time_to: value.time_to,
     });
     if (!parsed.success) {
       ctx.addIssue({
@@ -8279,11 +8397,15 @@ const viewerPdfQuerySchema = signedViewerAuthSchema
   .extend({
     date_from: isoDateSchema,
     date_to: isoDateSchema,
+    time_from: localTimeSchema.optional(),
+    time_to: localTimeSchema.optional(),
   })
   .superRefine((value, ctx) => {
     const parsed = salesGoodsServicesParamsSchema.safeParse({
       date_from: value.date_from,
       date_to: value.date_to,
+      time_from: value.time_from,
+      time_to: value.time_to,
     });
     if (!parsed.success) {
       ctx.addIssue({
@@ -8320,15 +8442,13 @@ const notificationRulePatchSchema = z.object({
   enabled: z.boolean().optional(),
   timezone: z.string().trim().min(1).max(80).optional(),
   period_preset: notificationPeriodPresetSchema.optional(),
+  period_strategy: notificationPeriodStrategySchema.optional(),
   digest_mode: notificationDigestModeSchema.optional(),
   schedule: z
     .array(
       z.object({
         weekdays: z.array(z.coerce.number().int().min(1).max(7)).min(1).max(7),
-        times: z
-          .array(z.string().regex(/^\d{2}:\d{2}$/))
-          .min(1)
-          .max(12),
+        times: z.array(localTimeSchema).min(1).max(12),
       }),
     )
     .min(1)
@@ -8346,6 +8466,7 @@ const notificationRuleTickSchema = z.object({
   mode: z.enum(["dry_run", "send"]).optional(),
   now: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  catch_up_minutes: z.coerce.number().int().min(0).max(60).optional(),
 });
 
 const ownerTenantsQuerySchema = z.object({

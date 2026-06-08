@@ -54,12 +54,45 @@ export function validateGrossProfitParams(
   return salesGoodsServicesParamsSchema.parse(input);
 }
 
+function buildDocumentTimeWindowFilter(
+  alias: string,
+  params: SalesGoodsServicesParams,
+  startIndex = 3,
+) {
+  if (!params.time_from || !params.time_to) {
+    return { sql: "", values: [] as string[] };
+  }
+
+  return {
+    sql: `
+    and (
+      nullif(substring(${alias}.doc_time::text from '^[0-9]{1,2}:[0-9]{2}'), '') is null
+      or (
+        ${alias}.doc_date::date
+        + substring(${alias}.doc_time::text from '^[0-9]{1,2}:[0-9]{2}')::time
+      ) between ($1::date + $${startIndex}::time) and ($2::date + $${startIndex + 1}::time)
+    )`,
+    values: [params.time_from, params.time_to],
+  };
+}
+
 export function buildGrossProfitByProductQuery(params: SalesGoodsServicesParams) {
   validateGrossProfitParams(params);
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
 
   return {
     text: `
-with detail_agg as (
+with filtered_docs as (
+  select
+    h.doc_no,
+    h.doc_date,
+    h.trans_flag
+  from ic_trans h
+  where h.doc_date between $1::date and $2::date
+    and h.trans_flag in (44, 46, 48)
+${timeFilter.sql}
+),
+detail_agg as (
   select
     d.item_code,
     coalesce(sum(case
@@ -82,6 +115,13 @@ with detail_agg as (
     and d.last_status = 0
     and d.doc_date between $1::date and $2::date
     and d.trans_flag in (44, 46, 48)
+    and exists (
+      select 1
+      from filtered_docs h
+      where h.doc_no = d.doc_no
+        and h.doc_date = d.doc_date
+        and h.trans_flag = d.trans_flag
+    )
   group by d.item_code
 )
 select
@@ -101,7 +141,7 @@ where i.item_type <> 5
   and (coalesce(a.qty_sale, 0) <> 0 or coalesce(a.qty_sale_return, 0) <> 0)
 order by i.code
 `,
-    values: [params.date_from, params.date_to],
+    values: [params.date_from, params.date_to, ...timeFilter.values],
   };
 }
 
@@ -109,10 +149,22 @@ export function buildGrossProfitByArCustomerQuery(
   params: SalesGoodsServicesParams,
 ) {
   validateGrossProfitParams(params);
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
 
   return {
     text: `
-with detail_by_doc as (
+with filtered_docs as (
+  select
+    h.doc_no,
+    h.doc_date,
+    h.trans_flag,
+    h.cust_code
+  from ic_trans h
+  where h.doc_date between $1::date and $2::date
+    and h.trans_flag in (44, 46, 48)
+${timeFilter.sql}
+),
+detail_by_doc as (
   select
     d.doc_no,
     d.doc_date,
@@ -137,6 +189,13 @@ with detail_by_doc as (
     and d.last_status = 0
     and d.doc_date between $1::date and $2::date
     and d.trans_flag in (44, 46, 48)
+    and exists (
+      select 1
+      from filtered_docs h
+      where h.doc_no = d.doc_no
+        and h.doc_date = d.doc_date
+        and h.trans_flag = d.trans_flag
+    )
   group by d.doc_no, d.doc_date, d.trans_flag
 )
 select
@@ -149,7 +208,7 @@ select
   coalesce(sum(d.amount_sale_return), 0) as amount_sale_return,
   coalesce(sum(d.cost_sale_return), 0) as cost_sale_return
 from detail_by_doc d
-inner join ic_trans t on t.doc_no = d.doc_no
+inner join filtered_docs t on t.doc_no = d.doc_no
   and t.doc_date = d.doc_date
   and t.trans_flag = d.trans_flag
 left join ar_customer c on c.code = t.cust_code
@@ -158,7 +217,7 @@ having coalesce(sum(d.qty_sale), 0) <> 0
   or coalesce(sum(d.qty_sale_return), 0) <> 0
 order by ar_code
 `,
-    values: [params.date_from, params.date_to],
+    values: [params.date_from, params.date_to, ...timeFilter.values],
   };
 }
 
@@ -277,7 +336,12 @@ export function renderGrossProfitLinePreview(input: {
     reportTitle,
     "",
     `บริษัท: ${tenantName}`,
-    `ช่วงข้อมูล: ${formatReportPeriodWithTime(snapshot.params.date_from, snapshot.params.date_to)}`,
+    `ช่วงข้อมูล: ${formatReportPeriodWithTime(
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+      snapshot.params.time_from,
+      snapshot.params.time_to,
+    )}`,
     `อัปเดต: ${generatedAt}`,
     "",
     `ยอดขายสุทธิหลังคืน: ${formatMoney(snapshot.summary.net_amount)} บาท`,
@@ -436,6 +500,8 @@ function buildGrossProfitFlexMessage(input: {
     subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
       snapshot.params.date_to,
+      snapshot.params.time_from,
+      snapshot.params.time_to,
     )}`,
     altText: `${title} ${input.tenantName} ${formatReportPeriod(
       snapshot.params.date_from,
@@ -517,10 +583,15 @@ function resolveQualityStatus(
   return source === "sample_snapshot" ? "stale" : "valid";
 }
 
-function formatReportPeriodWithTime(dateFrom: string, dateTo: string) {
+function formatReportPeriodWithTime(
+  dateFrom: string,
+  dateTo: string,
+  timeFrom?: string,
+  timeTo?: string,
+) {
   const from = formatDateSlash(dateFrom);
   const to = formatDateSlash(dateTo);
-  return `${from} 00:00 - ${to} 23:59`;
+  return `${from} ${timeFrom ?? "00:00"} - ${to} ${timeTo ?? "23:59"}`;
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {

@@ -56,10 +56,16 @@ export const isoDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
 
+export const localTimeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be HH:mm");
+
 export const salesGoodsServicesParamsSchema = z
   .object({
     date_from: isoDateSchema,
     date_to: isoDateSchema,
+    time_from: localTimeSchema.optional(),
+    time_to: localTimeSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.date_from > value.date_to) {
@@ -67,6 +73,25 @@ export const salesGoodsServicesParamsSchema = z
         code: z.ZodIssueCode.custom,
         message: "date_from must be earlier than or equal to date_to",
         path: ["date_from"],
+      });
+    }
+    if (Boolean(value.time_from) !== Boolean(value.time_to)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "time_from and time_to must be provided together",
+        path: value.time_from ? ["time_to"] : ["time_from"],
+      });
+    }
+    if (
+      value.date_from === value.date_to &&
+      value.time_from &&
+      value.time_to &&
+      value.time_from > value.time_to
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "time_from must be earlier than or equal to time_to",
+        path: ["time_from"],
       });
     }
   });
@@ -1055,6 +1080,11 @@ export const notificationPeriodPresetSchema = z.enum([
   "last_7_days",
 ]);
 
+export const notificationPeriodStrategySchema = z.enum([
+  "same_period_all_runs",
+  "executive_checkpoints",
+]);
+
 export const notificationRuleRunStatusSchema = z.enum([
   "running",
   "success",
@@ -1070,7 +1100,7 @@ export const notificationDigestModeSchema = z.enum([
 export const notificationScheduleEntrySchema = z.object({
   weekdays: z.array(z.coerce.number().int().min(1).max(7)).min(1).max(7),
   times: z
-    .array(z.string().regex(/^\d{2}:\d{2}$/))
+    .array(localTimeSchema)
     .min(1)
     .max(12),
 });
@@ -1081,6 +1111,7 @@ export const notificationRulePayloadSchema = z.object({
   enabled: z.boolean().default(true),
   timezone: z.string().trim().min(1).max(80).default(BANGKOK_TIME_ZONE),
   period_preset: notificationPeriodPresetSchema.default("yesterday"),
+  period_strategy: notificationPeriodStrategySchema.default("same_period_all_runs"),
   schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
   report_keys: z.array(reportKeySchema).min(1).max(6),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),
@@ -1089,6 +1120,9 @@ export const notificationRulePayloadSchema = z.object({
 
 export type NotificationPeriodPreset = z.infer<
   typeof notificationPeriodPresetSchema
+>;
+export type NotificationPeriodStrategy = z.infer<
+  typeof notificationPeriodStrategySchema
 >;
 export type NotificationRuleRunStatus = z.infer<
   typeof notificationRuleRunStatusSchema
@@ -1130,6 +1164,10 @@ export type NotificationRuleRunRecord = {
   timezone: string;
   period_from: string;
   period_to: string;
+  period_from_time: string | null;
+  period_to_time: string | null;
+  period_strategy: NotificationPeriodStrategy;
+  unknown_doc_time_count: number;
   status: NotificationRuleRunStatus;
   attempt: number;
   idempotency_key: string;
@@ -1145,11 +1183,40 @@ export type NotificationRuleRunRecord = {
 
 export function deriveNotificationPeriodRange(input: {
   periodPreset: NotificationPeriodPreset;
+  periodStrategy?: NotificationPeriodStrategy;
+  scheduledLocalDate?: string;
+  scheduledLocalTime?: string;
   now?: Date;
   timeZone?: string;
 }): SalesGoodsServicesParams {
   const timeZone = input.timeZone ?? BANGKOK_TIME_ZONE;
-  const currentYmd = formatDateInTimeZone(input.now ?? new Date(), timeZone);
+  const zoned =
+    input.scheduledLocalDate && input.scheduledLocalTime
+      ? { date: input.scheduledLocalDate, time: input.scheduledLocalTime }
+      : getZonedDateTimeParts({
+          now: input.now ?? new Date(),
+          timeZone,
+        });
+  const currentYmd = zoned.date;
+
+  if (input.periodStrategy === "executive_checkpoints") {
+    if (zoned.time < "12:00") {
+      const yesterday = addDays(currentYmd, -1);
+      return {
+        date_from: yesterday,
+        date_to: yesterday,
+        time_from: "00:00",
+        time_to: "23:59",
+      };
+    }
+
+    return {
+      date_from: currentYmd,
+      date_to: currentYmd,
+      time_from: "00:00",
+      time_to: zoned.time,
+    };
+  }
 
   if (input.periodPreset === "today_so_far") {
     return { date_from: currentYmd, date_to: currentYmd };
@@ -1187,21 +1254,47 @@ export function isNotificationRuleDue(input: {
   rule: Pick<NotificationRuleRecord, "enabled" | "schedule" | "timezone">;
   now: Date;
 }) {
+  return (
+    getDueNotificationRuleTimes({
+      rule: input.rule,
+      now: input.now,
+      catchUpMinutes: 0,
+    })[0] ?? null
+  );
+}
+
+export function getDueNotificationRuleTimes(input: {
+  rule: Pick<NotificationRuleRecord, "enabled" | "schedule" | "timezone">;
+  now: Date;
+  catchUpMinutes?: number;
+}) {
   if (!input.rule.enabled) {
-    return null;
+    return [];
   }
 
-  const zoned = getZonedDateTimeParts({
-    now: input.now,
-    timeZone: input.rule.timezone || BANGKOK_TIME_ZONE,
-  });
-  const due = input.rule.schedule.some(
-    (entry) =>
-      entry.weekdays.includes(zoned.isoWeekday) &&
-      entry.times.includes(zoned.time),
-  );
+  const timeZone = input.rule.timezone || BANGKOK_TIME_ZONE;
+  const catchUpMinutes = Math.max(0, Math.floor(input.catchUpMinutes ?? 0));
+  const dueByKey = new Map<
+    string,
+    { date: string; time: string; isoWeekday: number }
+  >();
 
-  return due ? zoned : null;
+  for (let minuteOffset = catchUpMinutes; minuteOffset >= 0; minuteOffset -= 1) {
+    const candidate = new Date(input.now.getTime() - minuteOffset * 60_000);
+    const zoned = getZonedDateTimeParts({ now: candidate, timeZone });
+    const due = input.rule.schedule.some(
+      (entry) =>
+        entry.weekdays.includes(zoned.isoWeekday) &&
+        entry.times.includes(zoned.time),
+    );
+    if (due) {
+      dueByKey.set(`${zoned.date}T${zoned.time}`, zoned);
+    }
+  }
+
+  return [...dueByKey.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => value);
 }
 
 export function buildNotificationIdempotencyKey(input: {

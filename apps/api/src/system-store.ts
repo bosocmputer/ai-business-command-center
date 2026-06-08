@@ -29,6 +29,7 @@ import {
   businessSignalStatusSchema,
   businessSignalThresholdsSchema,
   notificationDigestModeSchema,
+  notificationPeriodStrategySchema,
   reportKeySchema,
   tenantFeatureFlagsSchema,
 } from "@ai-bcc/shared";
@@ -1847,6 +1848,7 @@ select
   enabled,
   timezone,
   period_preset,
+  period_strategy,
   schedule_json,
   report_keys_json,
   target_ids_json,
@@ -1878,6 +1880,7 @@ select
   enabled,
   timezone,
   period_preset,
+  period_strategy,
   schedule_json,
   report_keys_json,
   target_ids_json,
@@ -1909,6 +1912,7 @@ insert into notification_rules (
   enabled,
   timezone,
   period_preset,
+  period_strategy,
   schedule_json,
   report_keys_json,
   target_ids_json,
@@ -1921,12 +1925,13 @@ insert into notification_rules (
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12::jsonb, $13::timestamptz, $14, $15, $16::timestamptz, $17::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13::jsonb, $14::timestamptz, $15, $16, $17::timestamptz, $18::timestamptz)
 on conflict (id) do update
 set name = excluded.name,
     enabled = excluded.enabled,
     timezone = excluded.timezone,
     period_preset = excluded.period_preset,
+    period_strategy = excluded.period_strategy,
     schedule_json = excluded.schedule_json,
     report_keys_json = excluded.report_keys_json,
     target_ids_json = excluded.target_ids_json,
@@ -1944,6 +1949,7 @@ returning
   enabled,
   timezone,
   period_preset,
+  period_strategy,
   schedule_json,
   report_keys_json,
   target_ids_json,
@@ -1963,6 +1969,7 @@ returning
         rule.enabled,
         rule.timezone,
         rule.period_preset,
+        rule.period_strategy,
         JSON.stringify(rule.schedule),
         JSON.stringify(rule.report_keys),
         JSON.stringify(rule.target_ids),
@@ -1996,6 +2003,10 @@ select
   timezone,
   period_from,
   period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
   status,
   attempt,
   idempotency_key,
@@ -2031,6 +2042,10 @@ select
   timezone,
   period_from,
   period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
   status,
   attempt,
   idempotency_key,
@@ -2064,6 +2079,10 @@ insert into notification_rule_runs (
   timezone,
   period_from,
   period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
   status,
   attempt,
   idempotency_key,
@@ -2076,10 +2095,14 @@ insert into notification_rule_runs (
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15::timestamptz, $16::timestamptz, $17::timestamptz, $18::timestamptz, $19::timestamptz)
+values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz, $22::timestamptz, $23::timestamptz)
 on conflict (id) do update
 set status = excluded.status,
     attempt = excluded.attempt,
+    period_from_time = excluded.period_from_time,
+    period_to_time = excluded.period_to_time,
+    period_strategy = excluded.period_strategy,
+    unknown_doc_time_count = excluded.unknown_doc_time_count,
     report_run_ids_json = excluded.report_run_ids_json,
     delivery_ids_json = excluded.delivery_ids_json,
     safe_error_message = excluded.safe_error_message,
@@ -2096,6 +2119,10 @@ returning
   timezone,
   period_from,
   period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
   status,
   attempt,
   idempotency_key,
@@ -2117,6 +2144,10 @@ returning
         run.timezone,
         run.period_from,
         run.period_to,
+        run.period_from_time,
+        run.period_to_time,
+        run.period_strategy,
+        run.unknown_doc_time_count,
         run.status,
         run.attempt,
         run.idempotency_key,
@@ -2923,6 +2954,7 @@ function mapNotificationRuleRow(
     name: row.name,
     enabled: row.enabled,
     timezone: row.timezone,
+    period_strategy: row.period_strategy,
     period_preset: row.period_preset,
     schedule: row.schedule_json,
     report_keys: row.report_keys_json,
@@ -2956,6 +2988,15 @@ function mapNotificationRuleRunRow(
     timezone: row.timezone,
     period_from: toDateOnly(row.period_from),
     period_to: toDateOnly(row.period_to),
+    period_from_time:
+      typeof row.period_from_time === "string" ? row.period_from_time : null,
+    period_to_time:
+      typeof row.period_to_time === "string" ? row.period_to_time : null,
+    period_strategy: row.period_strategy,
+    unknown_doc_time_count:
+      typeof row.unknown_doc_time_count === "number"
+        ? row.unknown_doc_time_count
+        : Number(row.unknown_doc_time_count ?? 0),
     status: row.status,
     attempt: row.attempt,
     idempotency_key: row.idempotency_key,
@@ -3314,6 +3355,7 @@ function normalizeNotificationRule(
     enabled: rule.enabled !== false,
     timezone: typeof rule.timezone === "string" ? rule.timezone : "Asia/Bangkok",
     period_preset: normalizeNotificationPeriodPreset(rule.period_preset),
+    period_strategy: normalizeNotificationPeriodStrategy(rule.period_strategy),
     schedule,
     report_keys: reportKeys,
     target_ids: targetIds,
@@ -3374,6 +3416,16 @@ function normalizeNotificationRuleRun(
       typeof run.period_from === "string" ? run.period_from.slice(0, 10) : now.slice(0, 10),
     period_to:
       typeof run.period_to === "string" ? run.period_to.slice(0, 10) : now.slice(0, 10),
+    period_from_time:
+      typeof run.period_from_time === "string" ? run.period_from_time : null,
+    period_to_time:
+      typeof run.period_to_time === "string" ? run.period_to_time : null,
+    period_strategy: normalizeNotificationPeriodStrategy(run.period_strategy),
+    unknown_doc_time_count:
+      typeof run.unknown_doc_time_count === "number" &&
+      Number.isFinite(run.unknown_doc_time_count)
+        ? Math.max(0, Math.floor(run.unknown_doc_time_count))
+        : 0,
     status: normalizeNotificationRunStatus(run.status, "failed"),
     attempt:
       typeof run.attempt === "number" && Number.isInteger(run.attempt)
@@ -3423,7 +3475,8 @@ function normalizeNotificationSchedule(
       const times = Array.isArray(item.times)
         ? item.times.filter(
             (time): time is string =>
-              typeof time === "string" && /^\d{2}:\d{2}$/.test(time),
+              typeof time === "string" &&
+              /^([01]\d|2[0-3]):[0-5]\d$/.test(time),
           )
         : [];
 
@@ -3448,6 +3501,13 @@ function normalizeNotificationPeriodPreset(
   }
 
   return "yesterday";
+}
+
+function normalizeNotificationPeriodStrategy(
+  value: unknown,
+): NotificationRuleRecord["period_strategy"] {
+  const parsed = notificationPeriodStrategySchema.safeParse(value);
+  return parsed.success ? parsed.data : "same_period_all_runs";
 }
 
 function normalizeNotificationDigestMode(
@@ -3936,6 +3996,7 @@ create table if not exists notification_rules (
   enabled boolean not null default true,
   timezone text not null default 'Asia/Bangkok',
   period_preset text not null default 'yesterday',
+  period_strategy text not null default 'same_period_all_runs',
   schedule_json jsonb not null,
   report_keys_json jsonb not null,
   target_ids_json jsonb not null,
@@ -3950,7 +4011,8 @@ create table if not exists notification_rules (
 );
 
 alter table notification_rules
-  add column if not exists digest_mode text not null default 'action_only';
+  add column if not exists digest_mode text not null default 'action_only',
+  add column if not exists period_strategy text not null default 'same_period_all_runs';
 
 create index if not exists notification_rules_tenant_idx
 on notification_rules (tenant_id, enabled, updated_at desc);
@@ -3964,6 +4026,10 @@ create table if not exists notification_rule_runs (
   timezone text not null default 'Asia/Bangkok',
   period_from date not null,
   period_to date not null,
+  period_from_time text,
+  period_to_time text,
+  period_strategy text not null default 'same_period_all_runs',
+  unknown_doc_time_count integer not null default 0,
   status text not null,
   attempt integer not null default 1,
   idempotency_key text not null unique,
@@ -3976,6 +4042,12 @@ create table if not exists notification_rule_runs (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table notification_rule_runs
+  add column if not exists period_from_time text,
+  add column if not exists period_to_time text,
+  add column if not exists period_strategy text not null default 'same_period_all_runs',
+  add column if not exists unknown_doc_time_count integer not null default 0;
 
 create index if not exists notification_rule_runs_rule_idx
 on notification_rule_runs (rule_id, created_at desc);

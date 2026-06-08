@@ -41,8 +41,31 @@ export function validatePurchaseGoodsPayablesParams(
   return salesGoodsServicesParamsSchema.parse(input);
 }
 
+function buildDocumentTimeWindowFilter(
+  alias: string,
+  params: SalesGoodsServicesParams,
+  startIndex = 3,
+) {
+  if (!params.time_from || !params.time_to) {
+    return { sql: "", values: [] as string[] };
+  }
+
+  return {
+    sql: `
+  and (
+    nullif(substring(${alias}.doc_time::text from '^[0-9]{1,2}:[0-9]{2}'), '') is null
+    or (
+      ${alias}.doc_date::date
+      + substring(${alias}.doc_time::text from '^[0-9]{1,2}:[0-9]{2}')::time
+    ) between ($1::date + $${startIndex}::time) and ($2::date + $${startIndex + 1}::time)
+  )`,
+    values: [params.time_from, params.time_to],
+  };
+}
+
 export function buildPurchaseHeaderQuery(params: SalesGoodsServicesParams) {
   validatePurchaseGoodsPayablesParams(params);
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
 
   return {
     text: `
@@ -76,15 +99,17 @@ left join ap_supplier s on s.code = h.cust_code
 where h.trans_flag in (12)
   and h.last_status = 0
   and h.doc_date between $1::date and $2::date
+${timeFilter.sql}
   and h.is_doc_copy <> 1
 order by h.doc_date, h.doc_no, h.doc_time, h.cust_code
 `,
-    values: [params.date_from, params.date_to],
+    values: [params.date_from, params.date_to, ...timeFilter.values],
   };
 }
 
 export function buildPurchaseDetailQuery(params: SalesGoodsServicesParams) {
   validatePurchaseGoodsPayablesParams(params);
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
 
   return {
     text: `
@@ -102,6 +127,7 @@ with filtered_headers as (
   where h.trans_flag in (12)
     and h.last_status = 0
     and h.doc_date between $1::date and $2::date
+${timeFilter.sql}
     and h.is_doc_copy <> 1
 )
 select
@@ -145,12 +171,13 @@ where d.trans_flag in (12)
   and d.doc_date between $1::date and $2::date
 order by d.doc_date, d.doc_no, d.line_number
 `,
-    values: [params.date_from, params.date_to],
+    values: [params.date_from, params.date_to, ...timeFilter.values],
   };
 }
 
 export function buildPurchasePdfCountQuery(params: SalesGoodsServicesParams) {
   validatePurchaseGoodsPayablesParams(params);
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
 
   return {
     text: `
@@ -163,6 +190,7 @@ with filtered_headers as (
   where h.trans_flag in (12)
     and h.last_status = 0
     and h.doc_date between $1::date and $2::date
+${timeFilter.sql}
     and h.is_doc_copy <> 1
 )
 select
@@ -179,7 +207,7 @@ left join lateral (
     and d.doc_date between $1::date and $2::date
 ) detail_stats on true
 `,
-    values: [params.date_from, params.date_to],
+    values: [params.date_from, params.date_to, ...timeFilter.values],
   };
 }
 
@@ -192,6 +220,8 @@ export function buildPurchaseDocumentDetailQuery(
   if (!normalizedDocNo) {
     throw new Error("doc_no is required");
   }
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
+  const docNoParam = 3 + timeFilter.values.length;
 
   return {
     text: `
@@ -227,7 +257,8 @@ with filtered_headers as (
   where h.trans_flag in (12)
     and h.last_status = 0
     and h.doc_date between $1::date and $2::date
-    and h.doc_no = $3
+${timeFilter.sql}
+    and h.doc_no = $${docNoParam}
     and h.is_doc_copy <> 1
 )
 select
@@ -283,7 +314,12 @@ left join ic_inventory i on i.code = d.item_code
 left join ic_unit u on u.code = d.unit_code
 order by h.doc_date, h.doc_no, d.line_number
 `,
-    values: [params.date_from, params.date_to, normalizedDocNo],
+    values: [
+      params.date_from,
+      params.date_to,
+      ...timeFilter.values,
+      normalizedDocNo,
+    ],
   };
 }
 
@@ -300,6 +336,10 @@ export function buildPurchaseDocumentPageQuery(
   const pageSize = Math.min(50, Math.max(1, Math.floor(options.pageSize)));
   const offset = (page - 1) * pageSize;
   const search = options.search?.trim() || null;
+  const timeFilter = buildDocumentTimeWindowFilter("h", params);
+  const searchParam = 3 + timeFilter.values.length;
+  const pageSizeParam = searchParam + 1;
+  const offsetParam = searchParam + 2;
 
   return {
     text: `
@@ -335,15 +375,16 @@ with filtered_headers as (
   where h.trans_flag in (12)
     and h.last_status = 0
     and h.doc_date between $1::date and $2::date
+${timeFilter.sql}
     and h.is_doc_copy <> 1
     and (
-      nullif($3::text, '') is null
-      or lower(coalesce(h.doc_no, '')) like '%' || lower($3::text) || '%'
-      or lower(coalesce(h.cust_code, '')) like '%' || lower($3::text) || '%'
-      or lower(coalesce(s.name_1, '')) like '%' || lower($3::text) || '%'
-      or lower(coalesce(h.cashier_code, '')) like '%' || lower($3::text) || '%'
-      or h.doc_date::text like '%' || $3::text || '%'
-      or h.total_amount::text like '%' || $3::text || '%'
+      nullif($${searchParam}::text, '') is null
+      or lower(coalesce(h.doc_no, '')) like '%' || lower($${searchParam}::text) || '%'
+      or lower(coalesce(h.cust_code, '')) like '%' || lower($${searchParam}::text) || '%'
+      or lower(coalesce(s.name_1, '')) like '%' || lower($${searchParam}::text) || '%'
+      or lower(coalesce(h.cashier_code, '')) like '%' || lower($${searchParam}::text) || '%'
+      or h.doc_date::text like '%' || $${searchParam}::text || '%'
+      or h.total_amount::text like '%' || $${searchParam}::text || '%'
     )
 ),
 paged_headers as (
@@ -352,8 +393,8 @@ paged_headers as (
     count(*) over() as total_count
   from filtered_headers
   order by doc_date desc, doc_no desc, doc_time desc nulls last
-  limit $4::int
-  offset $5::int
+  limit $${pageSizeParam}::int
+  offset $${offsetParam}::int
 )
 select
   h.rownum,
@@ -395,7 +436,14 @@ left join lateral (
 ) detail_stats on true
 order by h.doc_date desc, h.doc_no desc, h.doc_time desc nulls last
 `,
-    values: [params.date_from, params.date_to, search, pageSize, offset],
+    values: [
+      params.date_from,
+      params.date_to,
+      ...timeFilter.values,
+      search,
+      pageSize,
+      offset,
+    ],
   };
 }
 
@@ -594,7 +642,12 @@ export function renderPurchaseGoodsPayablesLinePreview(input: {
     "รายงานซื้อ/ตั้งหนี้",
     "",
     `บริษัท: ${tenantName}`,
-    `ช่วงข้อมูล: ${formatReportPeriodWithTime(snapshot.params.date_from, snapshot.params.date_to)}`,
+    `ช่วงข้อมูล: ${formatReportPeriodWithTime(
+      snapshot.params.date_from,
+      snapshot.params.date_to,
+      snapshot.params.time_from,
+      snapshot.params.time_to,
+    )}`,
     `อัปเดต: ${generatedAt}`,
     "",
     `ยอดซื้อ/ตั้งหนี้: ${formatMoney(snapshot.summary.total_purchase)} บาท`,
@@ -660,6 +713,8 @@ function buildPurchaseGoodsPayablesFlexMessage(input: {
     subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
       snapshot.params.date_to,
+      snapshot.params.time_from,
+      snapshot.params.time_to,
     )}`,
     altText: `ซื้อ/ตั้งหนี้ ${input.tenantName} ${formatReportPeriod(
       snapshot.params.date_from,
@@ -927,13 +982,20 @@ function formatReportPeriod(dateFrom: string, dateTo: string) {
   return `${formatThaiDate(dateFrom)} - ${formatThaiDate(dateTo)}`;
 }
 
-function formatReportPeriodWithTime(dateFrom: string, dateTo: string) {
+function formatReportPeriodWithTime(
+  dateFrom: string,
+  dateTo: string,
+  timeFrom?: string,
+  timeTo?: string,
+) {
   const from = formatDateSlash(dateFrom);
   const to = formatDateSlash(dateTo);
+  const startTime = timeFrom ?? "00:00";
+  const endTime = timeTo ?? "23:59";
   if (dateFrom === dateTo) {
-    return `${from} 00:00 - ${to} 23:59`;
+    return `${from} ${startTime} - ${to} ${endTime}`;
   }
-  return `${from} 00:00 - ${to} 23:59`;
+  return `${from} ${startTime} - ${to} ${endTime}`;
 }
 
 function formatDateSlash(ymd: string) {

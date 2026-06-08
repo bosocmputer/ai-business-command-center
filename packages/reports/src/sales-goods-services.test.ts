@@ -42,6 +42,34 @@ describe("sales_goods_services contract", () => {
     expect(query.values).toEqual(["2026-05-10", "2026-05-19"]);
   });
 
+  it("applies optional time windows without shifting document page params", () => {
+    const query = buildSalesDocumentPageQuery(
+      {
+        date_from: "2026-06-08",
+        date_to: "2026-06-08",
+        time_from: "00:00",
+        time_to: "18:30",
+      },
+      { page: 2, pageSize: 10, search: "IV" },
+    );
+
+    expect(query.text).toContain("substring(h.doc_time::text");
+    expect(query.text).toContain("$3::time");
+    expect(query.text).toContain("$4::time");
+    expect(query.text).toContain("nullif($5::text");
+    expect(query.text).toContain("limit $6::int");
+    expect(query.text).toContain("offset $7::int");
+    expect(query.values).toEqual([
+      "2026-06-08",
+      "2026-06-08",
+      "00:00",
+      "18:30",
+      "IV",
+      10,
+      10,
+    ]);
+  });
+
   it("uses the approved SML header filters for sale documents", () => {
     const query = buildSalesHeaderQuery({
       date_from: "2026-05-10",

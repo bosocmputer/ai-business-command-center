@@ -356,6 +356,8 @@ function PremiumReportViewer({
   }, [
     snapshot.params.date_from,
     snapshot.params.date_to,
+    snapshot.params.time_from,
+    snapshot.params.time_to,
     snapshot.report_key,
     snapshot.run_id,
   ]);
@@ -423,6 +425,7 @@ function PremiumReportViewer({
           page_size: "10",
           search: nextSearch,
         });
+        appendPeriodTimeParams(params, snapshot.params);
         const response = await fetch(
           `${API_BASE_URL}/api/reports/${encodeURIComponent(
             viewer.tenantId,
@@ -477,6 +480,7 @@ function PremiumReportViewer({
         date_to: snapshot.params.date_to,
         doc_no: document.doc_no,
       });
+      appendPeriodTimeParams(params, snapshot.params);
       const response = await fetch(
         `${API_BASE_URL}/api/reports/${encodeURIComponent(
           viewer.tenantId,
@@ -508,11 +512,15 @@ function PremiumReportViewer({
       viewer,
       dateFrom: snapshot.params.date_from,
       dateTo: snapshot.params.date_to,
+      timeFrom: snapshot.params.time_from,
+      timeTo: snapshot.params.time_to,
     });
     const downloadUrl = buildViewerPdfUrl({
       viewer,
       dateFrom: snapshot.params.date_from,
       dateTo: snapshot.params.date_to,
+      timeFrom: snapshot.params.time_from,
+      timeTo: snapshot.params.time_to,
     });
     const timers: number[] = [];
 
@@ -590,6 +598,8 @@ function PremiumReportViewer({
     viewer,
     dateFrom: snapshot.params.date_from,
     dateTo: snapshot.params.date_to,
+    timeFrom: snapshot.params.time_from,
+    timeTo: snapshot.params.time_to,
   });
 
   if (isStockReorderSnapshot(snapshot)) {
@@ -672,10 +682,7 @@ function PremiumReportViewer({
               </h1>
               <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
                 {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
-                {formatReportPeriod(
-                  snapshot.params.date_from,
-                  snapshot.params.date_to,
-                )}{" "}
+                {formatReportPeriodFromParams(snapshot.params)}{" "}
                 · อัปเดต {generatedAt}
               </p>
             </div>
@@ -966,10 +973,7 @@ function GrossProfitReportViewer({
                 </h1>
                 <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
                   {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
-                  {formatReportPeriod(
-                    snapshot.params.date_from,
-                    snapshot.params.date_to,
-                  )}{" "}
+                  {formatReportPeriodFromParams(snapshot.params)}{" "}
                   · อัปเดต {generatedAt}
                 </p>
               </div>
@@ -2031,10 +2035,7 @@ function TrustPanel({ snapshot }: { snapshot: ClassicViewerReportSnapshot }) {
           <dl className="grid gap-2 border-t border-[#E4E7EC] px-3 py-3 text-[12px] leading-[18px] sm:grid-cols-2">
             <Fact
               label="ช่วงวันที่"
-              value={formatReportPeriod(
-                snapshot.params.date_from,
-                snapshot.params.date_to,
-              )}
+              value={formatReportPeriodFromParams(snapshot.params)}
             />
             <Fact
               label="ยอดหัวเอกสาร"
@@ -2665,6 +2666,8 @@ function buildViewerPdfUrl(input: {
   viewer: ViewerParams;
   dateFrom: string;
   dateTo: string;
+  timeFrom?: string;
+  timeTo?: string;
 }) {
   const params = new URLSearchParams({
     token: input.viewer.token,
@@ -2672,6 +2675,12 @@ function buildViewerPdfUrl(input: {
     date_from: input.dateFrom,
     date_to: input.dateTo,
     pdf_layout: REPORT_PDF_LAYOUT_VERSION,
+  });
+  appendPeriodTimeParams(params, {
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+    time_from: input.timeFrom,
+    time_to: input.timeTo,
   });
   return `${API_BASE_URL}/api/reports/${encodeURIComponent(
     input.viewer.tenantId,
@@ -2682,6 +2691,8 @@ function buildViewerPdfPrepareUrl(input: {
   viewer: ViewerParams;
   dateFrom: string;
   dateTo: string;
+  timeFrom?: string;
+  timeTo?: string;
 }) {
   const params = new URLSearchParams({
     token: input.viewer.token,
@@ -2690,9 +2701,30 @@ function buildViewerPdfPrepareUrl(input: {
     date_to: input.dateTo,
     pdf_layout: REPORT_PDF_LAYOUT_VERSION,
   });
+  appendPeriodTimeParams(params, {
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+    time_from: input.timeFrom,
+    time_to: input.timeTo,
+  });
   return `${API_BASE_URL}/api/reports/${encodeURIComponent(
     input.viewer.tenantId,
   )}/${encodeURIComponent(input.viewer.reportKey)}/pdf/prepare?${params}`;
+}
+
+function appendPeriodTimeParams(
+  params: URLSearchParams,
+  period: {
+    date_from: string;
+    date_to: string;
+    time_from?: string;
+    time_to?: string;
+  },
+) {
+  if (period.time_from && period.time_to) {
+    params.set("time_from", period.time_from);
+    params.set("time_to", period.time_to);
+  }
 }
 
 function openPdfDownloadUrl(downloadUrl: string) {
@@ -2734,6 +2766,23 @@ function formatTenantName(tenantId: string) {
 
 function formatSource(source: ReportSnapshot["source"]) {
   return source === "sample_snapshot" ? "ข้อมูลตัวอย่าง" : "ข้อมูลจาก SML";
+}
+
+function formatReportPeriodFromParams(period: {
+  date_from: string;
+  date_to: string;
+  time_from?: string;
+  time_to?: string;
+}) {
+  if (period.time_from && period.time_to) {
+    if (period.date_from === period.date_to) {
+      return `${formatThaiDate(period.date_from)} ${period.time_from}-${period.time_to}`;
+    }
+    return `${formatThaiDate(period.date_from)} ${period.time_from} - ${formatThaiDate(
+      period.date_to,
+    )} ${period.time_to}`;
+  }
+  return formatReportPeriod(period.date_from, period.date_to);
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {

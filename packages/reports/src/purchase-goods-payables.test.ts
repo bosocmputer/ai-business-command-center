@@ -83,6 +83,42 @@ describe("purchase_goods_payables contract", () => {
     expect(page.values).toEqual(["2026-05-01", "2026-05-21", "vendor", 25, 25]);
   });
 
+  it("applies optional time windows before document query params", () => {
+    const params = {
+      date_from: "2026-06-08",
+      date_to: "2026-06-08",
+      time_from: "00:00",
+      time_to: "18:30",
+    };
+    const detail = buildPurchaseDocumentDetailQuery(params, "PU-001");
+    const page = buildPurchaseDocumentPageQuery(params, {
+      page: 2,
+      pageSize: 25,
+      search: "vendor",
+    });
+
+    expect(detail.text).toContain("h.doc_no = $5");
+    expect(detail.values).toEqual([
+      "2026-06-08",
+      "2026-06-08",
+      "00:00",
+      "18:30",
+      "PU-001",
+    ]);
+    expect(page.text).toContain("nullif($5::text");
+    expect(page.text).toContain("limit $6::int");
+    expect(page.text).toContain("offset $7::int");
+    expect(page.values).toEqual([
+      "2026-06-08",
+      "2026-06-08",
+      "00:00",
+      "18:30",
+      "vendor",
+      25,
+      25,
+    ]);
+  });
+
   it("summarizes header truth, suppliers, products, and reconciliation separately", () => {
     const snapshot = summarizePurchaseGoodsPayables({
       tenant_id: "tenant_demo_remote",

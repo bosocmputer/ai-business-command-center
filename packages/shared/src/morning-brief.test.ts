@@ -3,6 +3,7 @@ import {
   buildNotificationIdempotencyKey,
   deriveMorningBriefDateRange,
   deriveNotificationPeriodRange,
+  getDueNotificationRuleTimes,
   getSmlBranchMeaning,
   isNotificationRuleDue,
   type NotificationRuleRecord,
@@ -43,6 +44,7 @@ describe("notification rule scheduling", () => {
     enabled: true,
     timezone: "Asia/Bangkok",
     period_preset: "yesterday",
+    period_strategy: "same_period_all_runs",
     schedule: [{ weekdays: [1, 2, 3, 4, 5, 6, 7], times: ["08:00", "18:30"] }],
     report_keys: ["sales_goods_services"],
     target_ids: ["line_target_demo"],
@@ -73,6 +75,7 @@ describe("notification rule scheduling", () => {
     expect(
       deriveNotificationPeriodRange({
         periodPreset: "last_7_days",
+        periodStrategy: "same_period_all_runs",
         now: new Date("2026-05-19T01:00:00.000Z"),
         timeZone: "Asia/Bangkok",
       }),
@@ -80,6 +83,54 @@ describe("notification rule scheduling", () => {
       date_from: "2026-05-13",
       date_to: "2026-05-19",
     });
+  });
+
+  it("derives executive checkpoint periods from the scheduled local time", () => {
+    expect(
+      deriveNotificationPeriodRange({
+        periodPreset: "yesterday",
+        periodStrategy: "executive_checkpoints",
+        scheduledLocalDate: "2026-06-08",
+        scheduledLocalTime: "08:00",
+        timeZone: "Asia/Bangkok",
+      }),
+    ).toEqual({
+      date_from: "2026-06-07",
+      date_to: "2026-06-07",
+      time_from: "00:00",
+      time_to: "23:59",
+    });
+
+    expect(
+      deriveNotificationPeriodRange({
+        periodPreset: "yesterday",
+        periodStrategy: "executive_checkpoints",
+        scheduledLocalDate: "2026-06-08",
+        scheduledLocalTime: "18:30",
+        timeZone: "Asia/Bangkok",
+      }),
+    ).toEqual({
+      date_from: "2026-06-08",
+      date_to: "2026-06-08",
+      time_from: "00:00",
+      time_to: "18:30",
+    });
+  });
+
+  it("finds due notification times inside a catch-up window without duplicates", () => {
+    expect(
+      getDueNotificationRuleTimes({
+        rule,
+        now: new Date("2026-05-19T01:14:30.000Z"),
+        catchUpMinutes: 15,
+      }),
+    ).toEqual([
+      {
+        date: "2026-05-19",
+        time: "08:00",
+        isoWeekday: 2,
+      },
+    ]);
   });
 
   it("builds minute-scoped idempotency keys", () => {

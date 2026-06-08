@@ -6,6 +6,7 @@ import {
 export type NotificationRulesWorkerConfig = {
   enabled: boolean;
   apiBaseUrl: string;
+  catchUpMinutes: number;
   mode: LineSendMode;
   workerId: string;
   heartbeatToken: string | null;
@@ -21,6 +22,10 @@ export function readNotificationRulesWorkerConfig(
       env.WORKER_API_BASE_URL ||
       "http://api:4000"
     ).replace(/\/$/, ""),
+    catchUpMinutes: readNumber(env.WORKER_NOTIFICATION_CATCH_UP_MINUTES, 15, {
+      min: 0,
+      max: 60,
+    }),
     mode: env.WORKER_NOTIFICATION_MODE === "dry_run" ? "dry_run" : "send",
     workerId: env.WORKER_ID || "worker_notification_rules_1",
     heartbeatToken: env.WORKER_HEARTBEAT_TOKEN?.trim() || null,
@@ -74,6 +79,7 @@ export async function callNotificationRulesTick(input: {
         "x-ai-bcc-worker-token": input.config.heartbeatToken,
       },
       body: JSON.stringify({
+        catch_up_minutes: input.config.catchUpMinutes,
         mode: input.config.mode,
       }),
     },
@@ -141,4 +147,19 @@ function readBoolean(value: string | undefined, fallback: boolean) {
   }
 
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function readNumber(
+  value: string | undefined,
+  fallback: number,
+  limits: { min: number; max: number },
+) {
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(limits.max, Math.max(limits.min, Math.floor(parsed)));
 }

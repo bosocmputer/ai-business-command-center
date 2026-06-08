@@ -35,6 +35,8 @@ export type ReportPdfCacheIdentity = {
   runId: string;
   dateFrom: string;
   dateTo: string;
+  timeFrom?: string | null;
+  timeTo?: string | null;
   layoutVersion?: string;
 };
 
@@ -76,6 +78,8 @@ export function buildReportPdfCacheKey(input: ReportPdfCacheIdentity) {
         input.runId,
         input.dateFrom,
         input.dateTo,
+        input.timeFrom ?? "",
+        input.timeTo ?? "",
         layoutVersion,
       ].join("|"),
     )
@@ -88,6 +92,8 @@ export function buildReportPdfFilename(input: {
   reportKey: ReportKey;
   dateFrom: string;
   dateTo: string;
+  timeFrom?: string | null;
+  timeTo?: string | null;
 }) {
   const tenantLabel = (input.tenantSlug || input.tenantId)
     .replace(/^tenant[_-]/, "")
@@ -99,7 +105,11 @@ export function buildReportPdfFilename(input: {
     input.dateFrom === input.dateTo
       ? input.dateFrom
       : `${input.dateFrom}_to_${input.dateTo}`;
-  return `${tenantLabel || "TENANT"}_${input.reportKey}_${dateLabel}.pdf`;
+  const timeLabel =
+    input.timeFrom && input.timeTo
+      ? `_${input.timeFrom.replace(":", "")}_to_${input.timeTo.replace(":", "")}`
+      : "";
+  return `${tenantLabel || "TENANT"}_${input.reportKey}_${dateLabel}${timeLabel}.pdf`;
 }
 
 export function validateReportPdfLimits(input: {
@@ -168,6 +178,8 @@ export async function buildReportPdf(input: {
     runId: input.tokenRunId,
     dateFrom: input.params.date_from,
     dateTo: input.params.date_to,
+    timeFrom: input.params.time_from,
+    timeTo: input.params.time_to,
   });
   const cachePath = path.join(cacheDir, `${cacheKey}.pdf`);
   const filename = buildReportPdfFilename({
@@ -176,6 +188,8 @@ export async function buildReportPdf(input: {
     reportKey: input.snapshot.report_key,
     dateFrom: input.params.date_from,
     dateTo: input.params.date_to,
+    timeFrom: input.params.time_from,
+    timeTo: input.params.time_to,
   });
   const cachedPdf = await readValidCachedPdf(cachePath);
   if (cachedPdf) {
@@ -244,6 +258,8 @@ export async function readCachedReportPdf(input: {
   runId: string;
   dateFrom: string;
   dateTo: string;
+  timeFrom?: string | null;
+  timeTo?: string | null;
 }): Promise<CachedReportPdf | null> {
   const cacheDir = input.cacheDir ?? getReportPdfCacheDir();
   await mkdir(cacheDir, { recursive: true });
@@ -253,6 +269,8 @@ export async function readCachedReportPdf(input: {
     runId: input.runId,
     dateFrom: input.dateFrom,
     dateTo: input.dateTo,
+    timeFrom: input.timeFrom,
+    timeTo: input.timeTo,
   });
   const cachePath = path.join(cacheDir, `${cacheKey}.pdf`);
   const pdf = await readValidCachedPdf(cachePath);
@@ -268,6 +286,8 @@ export async function readCachedReportPdf(input: {
       reportKey: input.reportKey,
       dateFrom: input.dateFrom,
       dateTo: input.dateTo,
+      timeFrom: input.timeFrom,
+      timeTo: input.timeTo,
     }),
     cachePath,
   };
