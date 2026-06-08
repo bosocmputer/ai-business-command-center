@@ -27,6 +27,56 @@ afterEach(async () => {
 });
 
 describe("local JSON system store", () => {
+  it("does not overwrite an owner-edited tenant name when seeds are reloaded", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+
+    const seedTenant: Tenant = {
+      id: "tenant_demo_remote",
+      name: "DEMO SHOP",
+      databaseName: "demo",
+      description: "seed description",
+      datasourceConfigured: false,
+      status: "active",
+      planCode: "business",
+      suspendedReason: null,
+      currentPeriodEnd: null,
+    };
+
+    const firstStore = createSystemStore();
+    await firstStore.initialize({
+      tenants: [seedTenant],
+      reportDefinitions: [],
+    });
+    await firstStore.upsertTenant({
+      ...seedTenant,
+      name: "กระบี่",
+      databaseName: "krabi",
+      description: "owner edited",
+    });
+    await firstStore.close();
+
+    const secondStore = createSystemStore();
+    await secondStore.initialize({
+      tenants: [seedTenant],
+      reportDefinitions: [],
+    });
+
+    await expect(secondStore.listTenants()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "tenant_demo_remote",
+          name: "กระบี่",
+          databaseName: "krabi",
+          description: "owner edited",
+        }),
+      ]),
+    );
+
+    await secondStore.close();
+  });
+
   it("persists report runs, snapshots, and audit logs across restarts", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
     tempDirs.push(dir);

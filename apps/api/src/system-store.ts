@@ -989,12 +989,8 @@ insert into tenants (
 )
 values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11::timestamptz)
 on conflict (id) do update
-set name = excluded.name,
-    database_name = excluded.database_name,
-    description = excluded.description,
-    datasource_configured = excluded.datasource_configured,
-    feature_flags_json = coalesce(tenants.feature_flags_json, excluded.feature_flags_json),
-    business_signal_thresholds_json = coalesce(tenants.business_signal_thresholds_json, excluded.business_signal_thresholds_json)
+set feature_flags_json = excluded.feature_flags_json || tenants.feature_flags_json,
+    business_signal_thresholds_json = excluded.business_signal_thresholds_json || tenants.business_signal_thresholds_json
 `,
       [
         tenant.id,
@@ -3745,10 +3741,16 @@ function mergeTenants(existing: Tenant[], seeds: Tenant[]) {
       normalizedSeed.id,
       current
         ? {
-            ...current,
             ...normalizedSeed,
-            status: current.status,
-            featureFlags: current.featureFlags ?? normalizedSeed.featureFlags,
+            ...current,
+            featureFlags: normalizeTenantFeatureFlags({
+              ...normalizedSeed.featureFlags,
+              ...current.featureFlags,
+            }),
+            businessSignalThresholds: normalizeBusinessSignalThresholds({
+              ...normalizedSeed.businessSignalThresholds,
+              ...current.businessSignalThresholds,
+            }),
           }
         : normalizedSeed,
     );

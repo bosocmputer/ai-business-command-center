@@ -3178,12 +3178,13 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     openSalesViewerPermission.allowed && salesSnapshot?.report_key === "sales_goods_services"
       ? await buildReportViewerUrl(salesSnapshot)
       : null;
+  const targetTenantName = (await getTenantOrNull(target.tenant_id))?.name;
   const salesPreview =
     salesSnapshot?.report_key === "sales_goods_services"
       ? renderSalesGoodsServicesLinePreview({
           snapshot: salesSnapshot,
           dashboardUrl: salesViewerUrl,
-          tenantName: getTenantDefinition(target.tenant_id)?.name,
+          tenantName: targetTenantName,
         })
       : null;
   const openPurchaseViewerPermission = canAccessLineReport({
@@ -3201,7 +3202,7 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
       ? renderPurchaseGoodsPayablesLinePreview({
           snapshot: purchaseSnapshot,
           dashboardUrl: purchaseViewerUrl,
-          tenantName: getTenantDefinition(target.tenant_id)?.name,
+          tenantName: targetTenantName,
         })
       : null;
   const preview = buildMorningBriefCarouselPreview({
@@ -3808,7 +3809,7 @@ app.get(
       data: renderSalesGoodsServicesLinePreview({
         snapshot,
         dashboardUrl: await buildReportViewerUrl(snapshot),
-        tenantName: getTenantDefinition(params.data.tenantId)?.name,
+        tenantName: (await getTenantOrNull(params.data.tenantId))?.name,
       }),
     };
   },
@@ -3866,7 +3867,7 @@ app.get(
       data: renderPurchaseGoodsPayablesLinePreview({
         snapshot,
         dashboardUrl: await buildReportViewerUrl(snapshot),
-        tenantName: getTenantDefinition(params.data.tenantId)?.name,
+        tenantName: (await getTenantOrNull(params.data.tenantId))?.name,
       }),
     };
   },
@@ -3918,7 +3919,7 @@ app.get(
     const preview = renderReportLinePreview(reportRuntimeRegistry, {
       snapshot,
       dashboardUrl,
-      tenantName: getTenantDefinition(params.data.tenantId)?.name,
+      tenantName: (await getTenantOrNull(params.data.tenantId))?.name,
     });
     if (!preview) {
       return reply.status(500).send({
@@ -3975,7 +3976,7 @@ app.post(
     const preview = renderSalesGoodsServicesLinePreview({
       snapshot,
       dashboardUrl: await buildReportViewerUrl(snapshot),
-      tenantName: getTenantDefinition(tenantId)?.name,
+      tenantName: tenant.name,
     });
     const defaultTarget = (await listEffectiveLineTargets(tenantId)).find(
       (target) =>
@@ -4110,7 +4111,7 @@ app.post(
     let preview: ReportLinePreview = renderSalesGoodsServicesLinePreview({
       snapshot: runResult.snapshot,
       dashboardUrl: null,
-      tenantName: getTenantDefinition(tenantId)?.name,
+      tenantName: tenant.name,
     });
 
     for (const target of targets) {
@@ -4202,7 +4203,7 @@ app.post(
         ? renderSalesGoodsServicesLinePreview({
             snapshot: runResult.snapshot,
             dashboardUrl: salesViewerUrl2,
-            tenantName: getTenantDefinition(tenantId)?.name,
+            tenantName: tenant.name,
           })
         : null;
       const openPurchaseViewerPermission = canAccessLineReport({
@@ -4220,7 +4221,7 @@ app.post(
           ? renderPurchaseGoodsPayablesLinePreview({
               snapshot: purchaseSnapshot,
               dashboardUrl: purchaseViewerUrl2,
-              tenantName: getTenantDefinition(tenantId)?.name,
+              tenantName: tenant.name,
             })
           : null;
       preview = buildMorningBriefCarouselPreview({
@@ -8086,7 +8087,7 @@ async function prepareSignedViewerPdfCacheMiss(input: {
   }
 
   const pdf = await buildReportPdf({
-    tenantName: getTenantDefinition(input.access.tenantId)?.name,
+    tenantName: (await getTenantOrNull(input.access.tenantId))?.name,
     tenantSlug: input.tenantSlug,
     snapshot: input.snapshot,
     rows,

@@ -24,6 +24,7 @@ import {
   type StockBalanceSnapshot,
   type StockReorderRow,
   type StockReorderSnapshot,
+  type Tenant,
   type TopProduct,
   type TopSupplier,
 } from "@ai-bcc/shared";
@@ -36,6 +37,11 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
 
 type SnapshotResponse = {
   data?: ViewerReportSnapshot;
+  error?: string;
+};
+
+type TenantsResponse = {
+  data?: Tenant[];
   error?: string;
 };
 
@@ -326,6 +332,7 @@ function PremiumReportViewer({
   viewer: ViewerParams;
 }) {
   const [snapshot, setSnapshot] = useState<ViewerReportSnapshot>(initialSnapshot);
+  const [tenantDisplayName, setTenantDisplayName] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(initialSnapshot.params.date_from);
   const [dateTo, setDateTo] = useState(initialSnapshot.params.date_to);
   const [rangeLoading, setRangeLoading] = useState(false);
@@ -346,10 +353,33 @@ function PremiumReportViewer({
 
   const title = getViewerReportTitle(snapshot);
   const generatedAt = formatDateTime(snapshot.generated_at);
+  const tenantName = tenantDisplayName ?? snapshot.tenant_id;
 
   useEffect(() => {
     document.title = `${title} | AI Business Center`;
   }, [title]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTenantName() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/tenants`);
+        const payload = (await response.json()) as TenantsResponse;
+        const tenant = payload.data?.find((item) => item.id === snapshot.tenant_id);
+        if (!cancelled && tenant) {
+          setTenantDisplayName(tenant.name);
+        }
+      } catch {
+        if (!cancelled) {
+          setTenantDisplayName(null);
+        }
+      }
+    }
+    void loadTenantName();
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.tenant_id]);
 
   useEffect(() => {
     setPdfDownloadState({ status: "idle" });
@@ -607,6 +637,7 @@ function PremiumReportViewer({
       <StockReorderReportViewer
         generatedAt={generatedAt}
         snapshot={snapshot}
+        tenantName={tenantName}
       />
     );
   }
@@ -624,6 +655,7 @@ function PremiumReportViewer({
         rangeError={rangeError}
         rangeLoading={rangeLoading}
         snapshot={snapshot}
+        tenantName={tenantName}
       />
     );
   }
@@ -641,6 +673,7 @@ function PremiumReportViewer({
         rangeError={rangeError}
         rangeLoading={rangeLoading}
         snapshot={snapshot}
+        tenantName={tenantName}
       />
     );
   }
@@ -681,7 +714,7 @@ function PremiumReportViewer({
                 {copy.title}
               </h1>
               <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
-                {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+                {tenantName} · ช่วงข้อมูล{" "}
                 {formatReportPeriodFromParams(snapshot.params)}{" "}
                 · อัปเดต {generatedAt}
               </p>
@@ -912,6 +945,7 @@ function PremiumReportViewer({
 function GrossProfitReportViewer({
   snapshot,
   generatedAt,
+  tenantName,
   dateFrom,
   dateTo,
   rangeLoading,
@@ -923,6 +957,7 @@ function GrossProfitReportViewer({
 }: {
   snapshot: GrossProfitViewerReportSnapshot;
   generatedAt: string;
+  tenantName: string;
   dateFrom: string;
   dateTo: string;
   rangeLoading: boolean;
@@ -972,7 +1007,7 @@ function GrossProfitReportViewer({
                   {title}
                 </h1>
                 <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
-                  {formatTenantName(snapshot.tenant_id)} · ช่วงข้อมูล{" "}
+                  {tenantName} · ช่วงข้อมูล{" "}
                   {formatReportPeriodFromParams(snapshot.params)}{" "}
                   · อัปเดต {generatedAt}
                 </p>
@@ -1190,6 +1225,7 @@ function GrossProfitReportViewer({
 function StockBalanceReportViewer({
   snapshot,
   generatedAt,
+  tenantName,
   dateFrom,
   dateTo,
   rangeLoading,
@@ -1201,6 +1237,7 @@ function StockBalanceReportViewer({
 }: {
   snapshot: StockBalanceViewerReportSnapshot;
   generatedAt: string;
+  tenantName: string;
   dateFrom: string;
   dateTo: string;
   rangeLoading: boolean;
@@ -1258,7 +1295,7 @@ function StockBalanceReportViewer({
                   รายงานสต็อกคงเหลือ
                 </h1>
                 <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
-                  {formatTenantName(snapshot.tenant_id)} · คงเหลือ ณ{" "}
+                  {tenantName} · คงเหลือ ณ{" "}
                   {formatThaiDate(snapshot.params.date_to)}{" "}
                   · อัปเดต {generatedAt}
                 </p>
@@ -1447,9 +1484,11 @@ function StockBalanceReportViewer({
 
 function StockReorderReportViewer({
   snapshot,
+  tenantName,
   generatedAt,
 }: {
   snapshot: StockReorderViewerReportSnapshot;
+  tenantName: string;
   generatedAt: string;
 }) {
   const hasOutOfStock = snapshot.summary.out_of_stock_count > 0;
@@ -1490,7 +1529,7 @@ function StockReorderReportViewer({
                   รายงานสินค้าถึงจุดสั่งซื้อ
                 </h1>
                 <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
-                  {formatTenantName(snapshot.tenant_id)} · ข้อมูลล่าสุดจาก SML ·
+                  {tenantName} · ข้อมูลล่าสุดจาก SML ·
                   อัปเดต {generatedAt}
                 </p>
               </div>
@@ -2752,16 +2791,6 @@ function compactMoney(value: number) {
     return `${Math.round(value / 1_000)}K`;
   }
   return `${Math.round(value)}`;
-}
-
-function formatTenantName(tenantId: string) {
-  if (tenantId === "tenant_demo_remote") {
-    return "DEMO SHOP";
-  }
-  if (tenantId === "tenant_office_sml1_2026") {
-    return "248 SHOP";
-  }
-  return tenantId;
 }
 
 function formatSource(source: ReportSnapshot["source"]) {
