@@ -21,8 +21,10 @@ import {
   type LineAccessProfileKey,
   type LineRecipientRecord,
   type LineSendMode,
+  type ArDebtReceiptSnapshot,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductSnapshot,
+  type ArCustomerMovementSnapshot,
   morningBriefRequestSchema,
   notificationPeriodPresetSchema,
   notificationRulePayloadSchema,
@@ -79,6 +81,8 @@ import {
   runGrossProfitByProductReport,
   runPurchaseGoodsPayablesReport,
   runSalesGoodsServicesReport,
+  runArDebtReceiptReport,
+  runArCustomerMovementReport,
   runStockBalanceReport,
   runStockReorderReport,
   testDatasourceConnection,
@@ -197,6 +201,8 @@ const reportRuntimeRegistry = createReportRuntimeRegistry({
   runGrossProfitReport: runAndPersistGrossProfitReport,
   runStockBalanceReport: runAndPersistStockBalanceReport,
   runStockReorderReport: runAndPersistStockReorderReport,
+  runArCustomerMovementReport: runAndPersistArCustomerMovementReport,
+  runArDebtReceiptReport: runAndPersistArDebtReceiptReport,
 });
 
 await systemStore.initialize({
@@ -5081,6 +5087,257 @@ function toSafeStockReorderErrorMessage(error: unknown) {
   return toSafeErrorMessage(error);
 }
 
+async function runAndPersistArCustomerMovementReport(input: {
+  tenantId: TenantId;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      snapshot: ArCustomerMovementSnapshot;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 424 | 500;
+      error: string;
+      runRecord: ReportRunRecord;
+    }
+> {
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, "ar_customer_movement"),
+    tenant_id: input.tenantId,
+    report_key: "ar_customer_movement",
+    params: input.params,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: "ar_customer_movement",
+      params: input.params,
+      source_basis: "ar_movement_as_of_date",
+      contains_customer_ar_data: true,
+    },
+  });
+
+  if (!datasource) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message =
+      "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน";
+    await systemStore.upsertRun(runRecord);
+    return {
+      ok: false,
+      statusCode: 424,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+
+  try {
+    const snapshot = await runArCustomerMovementReport({
+      tenant_id: input.tenantId,
+      run_id: runRecord.id,
+      params: input.params,
+      datasource,
+    });
+
+    runRecord.status = "success";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.row_count = snapshot.summary.document_count;
+    await systemStore.upsertRun(runRecord);
+    await systemStore.saveSnapshot(snapshot);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "ar_customer_movement_report_run_succeeded",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "ar_customer_movement",
+        row_count: runRecord.row_count,
+        quality_status: snapshot.quality_status,
+        source_basis: snapshot.source_basis,
+        contains_customer_ar_data: true,
+      },
+    });
+
+    return { ok: true, snapshot, runRecord };
+  } catch (error) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message = toSafeArCustomerMovementErrorMessage(error);
+    await systemStore.upsertRun(runRecord);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "ar_customer_movement_report_run_failed",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "ar_customer_movement",
+        safe_error_message: runRecord.safe_error_message,
+        source_basis: "ar_movement_as_of_date",
+        contains_customer_ar_data: true,
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 500,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+}
+
+function toSafeArCustomerMovementErrorMessage(error: unknown) {
+  if (
+    error instanceof Error &&
+    /timeout|timed out|canceling statement/i.test(error.message)
+  ) {
+    return "รายงานเคลื่อนไหวลูกหนี้ใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้งหรือตรวจประสิทธิภาพ query";
+  }
+  return toSafeErrorMessage(error);
+}
+
+async function runAndPersistArDebtReceiptReport(input: {
+  tenantId: TenantId;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      snapshot: ArDebtReceiptSnapshot;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 424 | 500;
+      error: string;
+      runRecord: ReportRunRecord;
+    }
+> {
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, "ar_debt_receipt"),
+    tenant_id: input.tenantId,
+    report_key: "ar_debt_receipt",
+    params: input.params,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: "ar_debt_receipt",
+      params: input.params,
+      source_basis: "ar_debt_receipt_doc_date",
+      contains_customer_ar_data: true,
+    },
+  });
+
+  if (!datasource) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message =
+      "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน";
+    await systemStore.upsertRun(runRecord);
+    return {
+      ok: false,
+      statusCode: 424,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+
+  try {
+    const snapshot = await runArDebtReceiptReport({
+      tenant_id: input.tenantId,
+      run_id: runRecord.id,
+      params: input.params,
+      datasource,
+    });
+
+    runRecord.status = "success";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.row_count = snapshot.summary.receipt_count;
+    await systemStore.upsertRun(runRecord);
+    await systemStore.saveSnapshot(snapshot);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "ar_debt_receipt_report_run_succeeded",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "ar_debt_receipt",
+        row_count: runRecord.row_count,
+        quality_status: snapshot.quality_status,
+        source_basis: snapshot.source_basis,
+        unmatched_payment_count: snapshot.summary.unmatched_payment_count,
+        contains_customer_ar_data: true,
+      },
+    });
+
+    return { ok: true, snapshot, runRecord };
+  } catch (error) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message = toSafeArDebtReceiptErrorMessage(error);
+    await systemStore.upsertRun(runRecord);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "ar_debt_receipt_report_run_failed",
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: "ar_debt_receipt",
+        safe_error_message: runRecord.safe_error_message,
+        source_basis: "ar_debt_receipt_doc_date",
+        contains_customer_ar_data: true,
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 500,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+}
+
+function toSafeArDebtReceiptErrorMessage(error: unknown) {
+  if (
+    error instanceof Error &&
+    /timeout|timed out|canceling statement/i.test(error.message)
+  ) {
+    return "รายงานรับชำระหนี้ใช้เวลานานเกินไป กรุณาลองช่วงวันที่สั้นลงหรือตรวจประสิทธิภาพ query";
+  }
+  return toSafeErrorMessage(error);
+}
+
 async function buildSalesComparison(input: {
   tenantId: TenantId;
   runId: string;
@@ -6592,6 +6849,23 @@ function shouldUpgradeLegacyDefaultReportKeys(input: {
         "gross_profit_by_product",
         "gross_profit_by_ar_customer",
         "stock_balance",
+      ],
+      [
+        "sales_goods_services",
+        "purchase_goods_payables",
+        "gross_profit_by_product",
+        "gross_profit_by_ar_customer",
+        "stock_balance",
+        "stock_reorder",
+      ],
+      [
+        "sales_goods_services",
+        "purchase_goods_payables",
+        "gross_profit_by_product",
+        "gross_profit_by_ar_customer",
+        "stock_balance",
+        "stock_reorder",
+        "ar_customer_movement",
       ],
     ],
     sales_manager: [["sales_goods_services"]],
@@ -8524,7 +8798,7 @@ const notificationRulePatchSchema = z.object({
     .min(1)
     .max(7)
     .optional(),
-  report_keys: z.array(reportKeySchema).min(1).max(6).optional(),
+  report_keys: z.array(reportKeySchema).min(1).max(8).optional(),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).optional(),
 });
 

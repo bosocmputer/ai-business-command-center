@@ -121,6 +121,7 @@ const REPORT_CATEGORY_LABELS: Record<string, string> = {
   purchase: "ซื้อ",
   gross_profit: "กำไร",
   inventory: "สต็อก",
+  ar: "ลูกหนี้",
 };
 
 type ComparableNotificationRule = {

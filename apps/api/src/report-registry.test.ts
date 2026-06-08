@@ -52,6 +52,14 @@ describe("report runtime registry", () => {
         runnerCalls += 1;
         return fakeRunOutcome("stock_reorder");
       },
+      runArCustomerMovementReport: async () => {
+        runnerCalls += 1;
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        runnerCalls += 1;
+        return fakeRunOutcome("ar_debt_receipt");
+      },
     });
 
     expect(runnerCalls).toBe(0);
@@ -81,6 +89,14 @@ describe("report runtime registry", () => {
       runStockReorderReport: async () => {
         calls.push("reorder");
         return fakeRunOutcome("stock_reorder");
+      },
+      runArCustomerMovementReport: async () => {
+        calls.push("ar");
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        calls.push("receipt");
+        return fakeRunOutcome("ar_debt_receipt");
       },
     });
 
@@ -116,6 +132,14 @@ describe("report runtime registry", () => {
         calls.push("reorder");
         return fakeRunOutcome("stock_reorder");
       },
+      runArCustomerMovementReport: async () => {
+        calls.push("ar");
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        calls.push("receipt");
+        return fakeRunOutcome("ar_debt_receipt");
+      },
     });
 
     await runReportRuntimeEntry(registry, "stock_balance", runInput);
@@ -146,11 +170,95 @@ describe("report runtime registry", () => {
         calls.push("reorder");
         return fakeRunOutcome("stock_reorder");
       },
+      runArCustomerMovementReport: async () => {
+        calls.push("ar");
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        calls.push("receipt");
+        return fakeRunOutcome("ar_debt_receipt");
+      },
     });
 
     await runReportRuntimeEntry(registry, "stock_reorder", runInput);
 
     expect(calls).toEqual(["reorder"]);
+  });
+
+  it("routes AR customer movement through its dedicated runner", async () => {
+    const calls: string[] = [];
+    const registry = createReportRuntimeRegistry({
+      runSalesGoodsServicesReport: async () => {
+        calls.push("sales");
+        return fakeRunOutcome("sales_goods_services");
+      },
+      runPurchaseGoodsPayablesReport: async () => {
+        calls.push("purchase");
+        return fakeRunOutcome("purchase_goods_payables");
+      },
+      runGrossProfitReport: async (input) => {
+        calls.push(`gross:${input.reportKey}`);
+        return fakeRunOutcome(input.reportKey);
+      },
+      runStockBalanceReport: async () => {
+        calls.push("stock");
+        return fakeRunOutcome("stock_balance");
+      },
+      runStockReorderReport: async () => {
+        calls.push("reorder");
+        return fakeRunOutcome("stock_reorder");
+      },
+      runArCustomerMovementReport: async () => {
+        calls.push("ar");
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        calls.push("receipt");
+        return fakeRunOutcome("ar_debt_receipt");
+      },
+    });
+
+    await runReportRuntimeEntry(registry, "ar_customer_movement", runInput);
+
+    expect(calls).toEqual(["ar"]);
+  });
+
+  it("routes AR debt receipt through its dedicated runner", async () => {
+    const calls: string[] = [];
+    const registry = createReportRuntimeRegistry({
+      runSalesGoodsServicesReport: async () => {
+        calls.push("sales");
+        return fakeRunOutcome("sales_goods_services");
+      },
+      runPurchaseGoodsPayablesReport: async () => {
+        calls.push("purchase");
+        return fakeRunOutcome("purchase_goods_payables");
+      },
+      runGrossProfitReport: async (input) => {
+        calls.push(`gross:${input.reportKey}`);
+        return fakeRunOutcome(input.reportKey);
+      },
+      runStockBalanceReport: async () => {
+        calls.push("stock");
+        return fakeRunOutcome("stock_balance");
+      },
+      runStockReorderReport: async () => {
+        calls.push("reorder");
+        return fakeRunOutcome("stock_reorder");
+      },
+      runArCustomerMovementReport: async () => {
+        calls.push("ar");
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        calls.push("receipt");
+        return fakeRunOutcome("ar_debt_receipt");
+      },
+    });
+
+    await runReportRuntimeEntry(registry, "ar_debt_receipt", runInput);
+
+    expect(calls).toEqual(["receipt"]);
   });
 
   it("does not silently fallback to another report when a handler is missing", async () => {
@@ -174,6 +282,8 @@ describe("report runtime registry", () => {
       "Gross Profit by AR Customer",
       "Stock Balance",
       "Stock Reorder",
+      "AR Customer Movement",
+      "AR Debt Receipt",
     ]);
   });
 });

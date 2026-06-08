@@ -16,6 +16,8 @@ export const reportKeyValues = [
   "gross_profit_by_ar_customer",
   "stock_balance",
   "stock_reorder",
+  "ar_customer_movement",
+  "ar_debt_receipt",
 ] as const;
 
 export const reportKeySchema = z.enum(reportKeyValues);
@@ -106,7 +108,12 @@ export const dataQualityStatusSchema = z.enum([
 
 export type TenantId = z.infer<typeof tenantIdSchema>;
 export type ReportKey = z.infer<typeof reportKeySchema>;
-export type ReportCategory = "sales" | "purchase" | "gross_profit" | "inventory";
+export type ReportCategory =
+  | "sales"
+  | "purchase"
+  | "gross_profit"
+  | "inventory"
+  | "ar";
 export type ReportCatalogEntryFor<K extends ReportKey = ReportKey> = {
   key: K;
   definitionName: string;
@@ -226,6 +233,40 @@ export const reportCatalog = {
     permissionLabel: "สินค้าถึงจุดสั่งซื้อ",
     permissionDescription: "สินค้าที่คงเหลือต่ำกว่าจุดสั่งซื้อจาก SML",
     sensitive: false,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: false,
+    },
+  },
+  ar_customer_movement: {
+    key: "ar_customer_movement",
+    definitionName: "AR Customer Movement",
+    label: "รายงานเคลื่อนไหวลูกหนี้",
+    shortLabel: "เคลื่อนไหวลูกหนี้",
+    category: "ar",
+    permissionLabel: "เคลื่อนไหวลูกหนี้",
+    permissionDescription:
+      "เอกสารเคลื่อนไหวลูกหนี้และยอดรับชำระจาก SML มีชื่อลูกค้าและยอดเงิน",
+    sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: false,
+    },
+  },
+  ar_debt_receipt: {
+    key: "ar_debt_receipt",
+    definitionName: "AR Debt Receipt",
+    label: "รายงานรับชำระหนี้",
+    shortLabel: "รับชำระหนี้",
+    category: "ar",
+    permissionLabel: "รับชำระหนี้",
+    permissionDescription:
+      "เอกสารรับชำระหนี้ ลูกหนี้ และยอดเงินสด/โอนจาก SML",
+    sensitive: true,
     capabilities: {
       lineCard: true,
       signedViewer: true,
@@ -659,13 +700,131 @@ export type StockReorderSnapshot = {
   };
 };
 
+export type ArCustomerMovementType =
+  | "ar_increase"
+  | "ar_decrease"
+  | "receipt";
+
+export type ArCustomerMovementRow = {
+  roworder: number | null;
+  doc_sort: number;
+  movement_type: ArCustomerMovementType;
+  cust_code: string;
+  cust_name: string;
+  doc_type: number;
+  doc_date: string;
+  doc_no: string;
+  tax_doc_no: string;
+  doc_ref: string;
+  credit_day: number;
+  amount: number;
+};
+
+export type ArCustomerMovementCustomerSummary = {
+  cust_code: string;
+  cust_name: string;
+  document_count: number;
+  ar_increase_amount: number;
+  ar_decrease_amount: number;
+  receipt_amount: number;
+  net_movement_amount: number;
+};
+
+export type ArCustomerMovementSummary = {
+  document_count: number;
+  customer_count: number;
+  ar_increase_amount: number;
+  ar_decrease_amount: number;
+  receipt_amount: number;
+  net_movement_amount: number;
+  top_customer_name: string | null;
+};
+
+export type ArCustomerMovementSnapshot = {
+  tenant_id: TenantId;
+  report_key: "ar_customer_movement";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  source_basis: "ar_movement_as_of_date";
+  summary: ArCustomerMovementSummary;
+  top_customers: ArCustomerMovementCustomerSummary[];
+  top_documents: ArCustomerMovementRow[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
+export type ArDebtReceiptPaymentStatus =
+  | "matched"
+  | "missing_payment_split"
+  | "mismatched_payment_split";
+
+export type ArDebtReceiptRow = {
+  doc_date: string;
+  doc_no: string;
+  billing_date: string | null;
+  cust_code: string;
+  cust_name: string;
+  cash_amount: number;
+  transfer_amount: number;
+  total_received_amount: number;
+  payment_split_amount: number;
+  payment_difference_amount: number;
+  payment_status: ArDebtReceiptPaymentStatus;
+};
+
+export type ArDebtReceiptCustomerSummary = {
+  cust_code: string;
+  cust_name: string;
+  receipt_count: number;
+  cash_amount: number;
+  transfer_amount: number;
+  total_received_amount: number;
+  unmatched_payment_count: number;
+};
+
+export type ArDebtReceiptSummary = {
+  receipt_count: number;
+  customer_count: number;
+  total_received_amount: number;
+  cash_amount: number;
+  transfer_amount: number;
+  unmatched_payment_count: number;
+  top_customer_name: string | null;
+};
+
+export type ArDebtReceiptSnapshot = {
+  tenant_id: TenantId;
+  report_key: "ar_debt_receipt";
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  source_basis: "ar_debt_receipt_doc_date";
+  summary: ArDebtReceiptSummary;
+  top_customers: ArDebtReceiptCustomerSummary[];
+  top_receipts: ArDebtReceiptRow[];
+  data_quality_notes: string[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
 export type ReportSnapshot =
   | SalesGoodsServicesSnapshot
   | PurchaseGoodsPayablesSnapshot
   | GrossProfitByProductSnapshot
   | GrossProfitByArCustomerSnapshot
   | StockBalanceSnapshot
-  | StockReorderSnapshot;
+  | StockReorderSnapshot
+  | ArCustomerMovementSnapshot
+  | ArDebtReceiptSnapshot;
 
 export const businessSignalSeveritySchema = z.enum([
   "info",
@@ -980,12 +1139,44 @@ export type StockReorderLinePreview = {
   dashboard_url: string | null;
 };
 
+export type ArCustomerMovementLinePreview = {
+  tenant_id: TenantId;
+  report_key: "ar_customer_movement";
+  run_id: string;
+  generated_at: string;
+  source: ArCustomerMovementSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
+export type ArDebtReceiptLinePreview = {
+  tenant_id: TenantId;
+  report_key: "ar_debt_receipt";
+  run_id: string;
+  generated_at: string;
+  source: ArDebtReceiptSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
 export type ReportLinePreview =
   | SalesGoodsServicesLinePreview
   | PurchaseGoodsPayablesLinePreview
   | GrossProfitLinePreview
   | StockBalanceLinePreview
-  | StockReorderLinePreview;
+  | StockReorderLinePreview
+  | ArCustomerMovementLinePreview
+  | ArDebtReceiptLinePreview;
 
 export type LineDeliveryStatus =
   | "dry_run"
@@ -1113,7 +1304,7 @@ export const notificationRulePayloadSchema = z.object({
   period_preset: notificationPeriodPresetSchema.default("yesterday"),
   period_strategy: notificationPeriodStrategySchema.default("executive_checkpoints"),
   schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
-  report_keys: z.array(reportKeySchema).min(1).max(6),
+  report_keys: z.array(reportKeySchema).min(1).max(8),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),
   digest_mode: notificationDigestModeSchema.default("action_only"),
 });

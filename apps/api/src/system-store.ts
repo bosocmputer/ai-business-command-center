@@ -2800,6 +2800,12 @@ function getSnapshotRowCount(snapshot: ReportSnapshot) {
   if (snapshot.report_key === "stock_reorder") {
     return snapshot.summary.reorder_count;
   }
+  if (snapshot.report_key === "ar_customer_movement") {
+    return snapshot.summary.document_count;
+  }
+  if (snapshot.report_key === "ar_debt_receipt") {
+    return snapshot.summary.receipt_count;
+  }
   if (
     snapshot.report_key === "gross_profit_by_product" ||
     snapshot.report_key === "gross_profit_by_ar_customer"

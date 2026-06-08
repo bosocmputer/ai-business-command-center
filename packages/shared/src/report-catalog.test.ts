@@ -8,7 +8,7 @@ import {
 } from "./index.js";
 
 describe("report catalog", () => {
-  it("keeps the report key schema and catalog on the same six keys", () => {
+  it("keeps the report key schema and catalog on the same eight keys", () => {
     expect(reportKeyValues).toEqual([
       "sales_goods_services",
       "purchase_goods_payables",
@@ -16,6 +16,8 @@ describe("report catalog", () => {
       "gross_profit_by_ar_customer",
       "stock_balance",
       "stock_reorder",
+      "ar_customer_movement",
+      "ar_debt_receipt",
     ]);
     expect(reportKeySchema.options).toEqual([...reportKeyValues]);
     expect(Object.keys(reportCatalog)).toEqual([...reportKeyValues]);
@@ -83,10 +85,42 @@ describe("report catalog", () => {
     });
   });
 
+  it("adds AR customer movement as a sensitive AR report", () => {
+    expect(getReportCatalogEntry("ar_customer_movement")).toMatchObject({
+      label: "รายงานเคลื่อนไหวลูกหนี้",
+      shortLabel: "เคลื่อนไหวลูกหนี้",
+      category: "ar",
+      sensitive: true,
+      capabilities: {
+        lineCard: true,
+        signedViewer: true,
+        pdf: false,
+        businessSignals: false,
+      },
+    });
+  });
+
+  it("adds AR debt receipt as a sensitive AR report", () => {
+    expect(getReportCatalogEntry("ar_debt_receipt")).toMatchObject({
+      label: "รายงานรับชำระหนี้",
+      shortLabel: "รับชำระหนี้",
+      category: "ar",
+      sensitive: true,
+      capabilities: {
+        lineCard: true,
+        signedViewer: true,
+        pdf: false,
+        businessSignals: false,
+      },
+    });
+  });
+
   it("validates report keys through one shared helper", () => {
     expect(isReportKey("purchase_goods_payables")).toBe(true);
     expect(isReportKey("stock_balance")).toBe(true);
     expect(isReportKey("stock_reorder")).toBe(true);
+    expect(isReportKey("ar_customer_movement")).toBe(true);
+    expect(isReportKey("ar_debt_receipt")).toBe(true);
     expect(isReportKey("unknown_report")).toBe(false);
   });
 });

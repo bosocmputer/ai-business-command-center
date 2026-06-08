@@ -7,6 +7,12 @@ import type { ApexOptions } from "apexcharts";
 import {
   formatSmlBranchLabel,
   isReportKey,
+  type ArDebtReceiptCustomerSummary,
+  type ArDebtReceiptRow,
+  type ArDebtReceiptSnapshot,
+  type ArCustomerMovementCustomerSummary,
+  type ArCustomerMovementRow,
+  type ArCustomerMovementSnapshot,
   type BranchSales,
   type GrossProfitBaseRow,
   type GrossProfitByArCustomerRow,
@@ -121,12 +127,19 @@ type GrossProfitViewerReportKey = Extract<
 
 type StockBalanceViewerReportKey = Extract<ReportKey, "stock_balance">;
 type StockReorderViewerReportKey = Extract<ReportKey, "stock_reorder">;
+type ArCustomerMovementViewerReportKey = Extract<
+  ReportKey,
+  "ar_customer_movement"
+>;
+type ArDebtReceiptViewerReportKey = Extract<ReportKey, "ar_debt_receipt">;
 
 type ViewerReportKey =
   | ClassicViewerReportKey
   | GrossProfitViewerReportKey
   | StockBalanceViewerReportKey
-  | StockReorderViewerReportKey;
+  | StockReorderViewerReportKey
+  | ArCustomerMovementViewerReportKey
+  | ArDebtReceiptViewerReportKey;
 
 type ViewerReportSnapshot = Extract<
   ReportSnapshot,
@@ -144,6 +157,8 @@ type GrossProfitViewerReportSnapshot =
 
 type StockBalanceViewerReportSnapshot = StockBalanceSnapshot;
 type StockReorderViewerReportSnapshot = StockReorderSnapshot;
+type ArCustomerMovementViewerReportSnapshot = ArCustomerMovementSnapshot;
+type ArDebtReceiptViewerReportSnapshot = ArDebtReceiptSnapshot;
 
 const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 const PDF_PROGRESS_STAGES = [
@@ -635,6 +650,26 @@ function PremiumReportViewer({
   if (isStockReorderSnapshot(snapshot)) {
     return (
       <StockReorderReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
+    );
+  }
+
+  if (isArCustomerMovementSnapshot(snapshot)) {
+    return (
+      <ArCustomerMovementReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
+    );
+  }
+
+  if (isArDebtReceiptSnapshot(snapshot)) {
+    return (
+      <ArDebtReceiptReportViewer
         generatedAt={generatedAt}
         snapshot={snapshot}
         tenantName={tenantName}
@@ -1639,6 +1674,628 @@ function StockReorderReportViewer({
   );
 }
 
+function ArCustomerMovementReportViewer({
+  snapshot,
+  tenantName,
+  generatedAt,
+}: {
+  snapshot: ArCustomerMovementViewerReportSnapshot;
+  tenantName: string;
+  generatedAt: string;
+}) {
+  const topCustomers = snapshot.top_customers.slice(0, 10);
+  const topDocuments = snapshot.top_documents.slice(0, 20);
+  const topCustomer = topCustomers[0] ?? null;
+  const arSettlementAmount =
+    snapshot.summary.ar_decrease_amount + snapshot.summary.receipt_amount;
+  const hasMovement = snapshot.summary.document_count > 0;
+  const hasNetIncrease = snapshot.summary.net_movement_amount > 0;
+
+  return (
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="screen-report-viewer">
+        <div className="border-b border-[#E4E7EC] bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                    รายงานลูกหนี้
+                  </span>
+                  <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
+                    {formatSource(snapshot.source)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 ${
+                      hasNetIncrease
+                        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                        : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                    }`}
+                  >
+                    {hasNetIncrease ? "มีข้อสังเกต" : "พร้อมใช้"}
+                  </span>
+                  <span className="rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[#B54708]">
+                    ข้อมูลลูกหนี้
+                  </span>
+                </div>
+                <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
+                  รายงานเคลื่อนไหวลูกหนี้
+                </h1>
+                <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
+                  {tenantName} · ข้อมูลถึงวันที่{" "}
+                  {formatThaiDate(snapshot.params.date_to)} จาก SML · อัปเดต{" "}
+                  {generatedAt}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <a
+                  href="#ar-customers"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                >
+                  ดูลูกหนี้สำคัญ
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PremiumKpi
+                label="ยอดเคลื่อนไหวสุทธิ"
+                value={`${formatMoney(snapshot.summary.net_movement_amount)} บาท`}
+                emphasis
+              />
+              <PremiumKpi
+                label="ลูกหนี้"
+                value={`${formatInteger(snapshot.summary.customer_count)} ราย`}
+              />
+              <PremiumKpi
+                label="เอกสาร"
+                value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
+              />
+              <PremiumKpi
+                label="รับชำระ/ลดหนี้"
+                value={`${formatMoney(arSettlementAmount)} บาท`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                  สรุปผู้บริหาร
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  วันนี้ควรรู้อะไร
+                </h2>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
+                  hasNetIncrease
+                    ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                    : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                }`}
+              >
+                {hasNetIncrease ? "มีข้อสังเกต" : "พร้อมใช้"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <InsightCard
+                index={1}
+                title="ข้อมูลถึงวันที่"
+                body={`รวมเอกสารเคลื่อนไหวลูกหนี้ถึงวันที่ ${formatThaiDate(
+                  snapshot.params.date_to,
+                )} จาก SML`}
+              />
+              <InsightCard
+                index={2}
+                title="ใช้เพื่อดู movement"
+                body="รายงานนี้ไม่ใช่ aging หรือรายงานยอดเปิดบิล และไม่ตัดข้อมูลตามเวลาแจ้งเตือน"
+              />
+              <InsightCard
+                index={3}
+                title="ลูกหนี้มูลค่าสูง"
+                body={
+                  topCustomer
+                    ? `${topCustomer.cust_name || topCustomer.cust_code} สุทธิ ${formatMoney(
+                        topCustomer.net_movement_amount,
+                      )} บาท`
+                    : "ยังไม่มีเอกสารเคลื่อนไหวลูกหนี้ถึงวันที่นี้"
+                }
+              />
+            </div>
+
+            {!hasMovement && (
+              <p className="mt-4 rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] px-3 py-2 text-[14px] leading-[22px] text-[#475467]">
+                ยังไม่พบเอกสารเคลื่อนไหวลูกหนี้ในข้อมูลถึงวันที่นี้
+              </p>
+            )}
+          </section>
+
+          <section
+            id="ar-customers"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                ลูกหนี้สำคัญ
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                ลูกหนี้ที่มียอดเคลื่อนไหวสูงสุด
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                แสดงเฉพาะรายการสรุปจาก snapshot ที่ส่งมาแล้ว ไม่โหลดข้อมูลจาก SML ตอนเปิดหน้านี้
+              </p>
+            </div>
+            <ArCustomerRowsTable rows={topCustomers} />
+          </section>
+
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                เอกสารสำคัญ
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                เอกสารมูลค่าสูงสุด
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                ใช้ดูเอกสารที่ควรตรวจต่อก่อนตัดสินใจ ไม่ใช่ตาราง movement ทั้งหมด
+              </p>
+            </div>
+            <ArCustomerDocumentRowsTable rows={topDocuments} />
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function ArCustomerRowsTable({
+  rows,
+}: {
+  rows: ArCustomerMovementCustomerSummary[];
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีลูกหนี้ที่มีเอกสารเคลื่อนไหวถึงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_90px_130px_130px_130px] md:gap-3">
+        <span>ลูกหนี้</span>
+        <span className="text-right">เอกสาร</span>
+        <span className="text-right">เพิ่มลูกหนี้</span>
+        <span className="text-right">ลด/รับชำระ</span>
+        <span className="text-right">สุทธิ</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row) => {
+          const settlementAmount = row.ar_decrease_amount + row.receipt_amount;
+          return (
+            <div
+              key={row.cust_code || row.cust_name}
+              className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_90px_130px_130px_130px] md:items-center"
+            >
+              <div className="min-w-0">
+                <p className="break-words font-semibold text-[#101828]">
+                  {row.cust_name || "ไม่ระบุชื่อลูกหนี้"}
+                </p>
+                <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                  รหัส {row.cust_code || "-"}
+                </p>
+              </div>
+              <MobileFact
+                label="เอกสาร"
+                value={`${formatInteger(row.document_count)} ใบ`}
+              />
+              <MobileFact
+                label="เพิ่มลูกหนี้"
+                value={`${formatMoney(row.ar_increase_amount)} บาท`}
+              />
+              <MobileFact
+                label="ลด/รับชำระ"
+                value={`${formatMoney(settlementAmount)} บาท`}
+              />
+              <MobileFact
+                danger={row.net_movement_amount > 0}
+                label="สุทธิ"
+                value={`${formatSignedMoney(row.net_movement_amount)} บาท`}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ArCustomerDocumentRowsTable({
+  rows,
+}: {
+  rows: ArCustomerMovementRow[];
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีเอกสารเคลื่อนไหวลูกหนี้ถึงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_120px_130px] md:gap-3">
+        <span>วันที่</span>
+        <span>ลูกหนี้</span>
+        <span>เอกสาร</span>
+        <span>ประเภท</span>
+        <span className="text-right">ยอดเงิน</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row, index) => (
+          <div
+            key={`${row.doc_no}-${row.doc_date}-${index}`}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_120px_130px] md:items-center"
+          >
+            <MobileFact label="วันที่" value={formatThaiDate(row.doc_date)} />
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.cust_name || "ไม่ระบุชื่อลูกหนี้"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                รหัส {row.cust_code || "-"}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="break-all font-semibold text-[#101828]">
+                {row.doc_no || "-"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                {row.tax_doc_no || row.doc_ref || "ไม่มีเลขอ้างอิง"}
+              </p>
+            </div>
+            <MobileFact
+              label="ประเภท"
+              value={formatArMovementType(row.movement_type)}
+            />
+            <MobileFact
+              danger={row.movement_type === "ar_increase"}
+              label="ยอดเงิน"
+              value={`${formatMoney(row.amount)} บาท`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ArDebtReceiptReportViewer({
+  snapshot,
+  tenantName,
+  generatedAt,
+}: {
+  snapshot: ArDebtReceiptViewerReportSnapshot;
+  tenantName: string;
+  generatedAt: string;
+}) {
+  const topCustomers = snapshot.top_customers.slice(0, 10);
+  const topReceipts = snapshot.top_receipts.slice(0, 20);
+  const topCustomer = topCustomers[0] ?? null;
+  const hasWarning = snapshot.summary.unmatched_payment_count > 0;
+
+  return (
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="screen-report-viewer">
+        <div className="border-b border-[#E4E7EC] bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                    รายงานลูกหนี้
+                  </span>
+                  <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
+                    {formatSource(snapshot.source)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 ${
+                      hasWarning
+                        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                        : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                    }`}
+                  >
+                    {hasWarning ? "ควรตรวจยอด" : "พร้อมใช้"}
+                  </span>
+                  <span className="rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[#B54708]">
+                    ข้อมูลลูกหนี้
+                  </span>
+                </div>
+                <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
+                  รายงานรับชำระหนี้
+                </h1>
+                <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
+                  {tenantName} · วันที่รับชำระ{" "}
+                  {formatReportPeriod(
+                    snapshot.params.date_from,
+                    snapshot.params.date_to,
+                  )}{" "}
+                  จาก SML · อัปเดต {generatedAt}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <a
+                  href="#ar-debt-receipts"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                >
+                  ดูเอกสารรับชำระ
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PremiumKpi
+                label="ยอดรับชำระรวม"
+                value={`${formatMoney(snapshot.summary.total_received_amount)} บาท`}
+                emphasis
+              />
+              <PremiumKpi
+                label="ลูกหนี้"
+                value={`${formatInteger(snapshot.summary.customer_count)} ราย`}
+              />
+              <PremiumKpi
+                label="เอกสาร"
+                value={`${formatInteger(snapshot.summary.receipt_count)} ใบ`}
+              />
+              <PremiumKpi
+                label="เงินสด/โอน"
+                value={`${formatMoney(snapshot.summary.cash_amount)} / ${formatMoney(
+                  snapshot.summary.transfer_amount,
+                )} บาท`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                  สรุปผู้บริหาร
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  วันนี้ควรรู้อะไร
+                </h2>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
+                  hasWarning
+                    ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                    : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                }`}
+              >
+                {hasWarning ? "มีข้อสังเกต" : "พร้อมใช้"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <InsightCard
+                index={1}
+                title="ยอดรับชำระรวม"
+                body={`${formatMoney(
+                  snapshot.summary.total_received_amount,
+                )} บาท จาก ${formatInteger(snapshot.summary.receipt_count)} เอกสาร`}
+              />
+              <InsightCard
+                index={2}
+                title="อิงวันที่รับชำระ"
+                body="รายงานนี้อิงวันที่เอกสารรับชำระ ไม่ตัดตามเวลาแจ้งเตือน"
+              />
+              <InsightCard
+                index={3}
+                title="ลูกหนี้รับชำระสูงสุด"
+                body={
+                  topCustomer
+                    ? `${topCustomer.cust_name || topCustomer.cust_code} ${formatMoney(
+                        topCustomer.total_received_amount,
+                      )} บาท`
+                    : "ยังไม่มีเอกสารรับชำระหนี้ในช่วงวันที่นี้"
+                }
+              />
+            </div>
+
+            {snapshot.data_quality_notes.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {snapshot.data_quality_notes.map((note) => (
+                  <p
+                    className="rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[14px] leading-[22px] text-[#B54708]"
+                    key={note}
+                  >
+                    {note}
+                  </p>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                ลูกหนี้สำคัญ
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                ลูกหนี้ที่รับชำระสูงสุด
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                แสดงเฉพาะรายการสรุปจาก snapshot ที่ส่งมาแล้ว ไม่โหลดข้อมูลจาก SML ตอนเปิดหน้านี้
+              </p>
+            </div>
+            <ArDebtReceiptCustomerRowsTable rows={topCustomers} />
+          </section>
+
+          <section
+            id="ar-debt-receipts"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                เอกสารรับชำระ
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                เอกสารรับชำระมูลค่าสูงสุด
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                ใช้ตรวจเอกสารรับชำระสำคัญและช่องทางรับเงินก่อนปิดยอด
+              </p>
+            </div>
+            <ArDebtReceiptRowsTable rows={topReceipts} />
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function ArDebtReceiptCustomerRowsTable({
+  rows,
+}: {
+  rows: ArDebtReceiptCustomerSummary[];
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีลูกหนี้ที่มีเอกสารรับชำระในช่วงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_90px_120px_120px_130px_100px] md:gap-3">
+        <span>ลูกหนี้</span>
+        <span className="text-right">เอกสาร</span>
+        <span className="text-right">เงินสด</span>
+        <span className="text-right">โอน</span>
+        <span className="text-right">รวม</span>
+        <span className="text-right">ควรตรวจ</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row) => (
+          <div
+            key={row.cust_code || row.cust_name}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_90px_120px_120px_130px_100px] md:items-center"
+          >
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.cust_name || "ไม่ระบุชื่อลูกหนี้"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                รหัส {row.cust_code || "-"}
+              </p>
+            </div>
+            <MobileFact
+              label="เอกสาร"
+              value={`${formatInteger(row.receipt_count)} ใบ`}
+            />
+            <MobileFact
+              label="เงินสด"
+              value={`${formatMoney(row.cash_amount)} บาท`}
+            />
+            <MobileFact
+              label="โอน"
+              value={`${formatMoney(row.transfer_amount)} บาท`}
+            />
+            <MobileFact
+              label="รวม"
+              value={`${formatMoney(row.total_received_amount)} บาท`}
+            />
+            <MobileFact
+              danger={row.unmatched_payment_count > 0}
+              label="ควรตรวจ"
+              value={`${formatInteger(row.unmatched_payment_count)} ใบ`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ArDebtReceiptRowsTable({ rows }: { rows: ArDebtReceiptRow[] }) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีเอกสารรับชำระหนี้ในช่วงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_150px_130px_130px] md:gap-3">
+        <span>วันที่รับชำระ</span>
+        <span>ลูกหนี้</span>
+        <span>เอกสาร</span>
+        <span>เงินสด/โอน</span>
+        <span className="text-right">ยอดรับชำระ</span>
+        <span className="text-right">สถานะ</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row, index) => (
+          <div
+            key={`${row.doc_no}-${row.doc_date}-${index}`}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_150px_130px_130px] md:items-center"
+          >
+            <MobileFact
+              label="วันที่รับชำระ"
+              value={formatThaiDate(row.doc_date)}
+            />
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.cust_name || "ไม่ระบุชื่อลูกหนี้"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                รหัส {row.cust_code || "-"}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="break-all font-semibold text-[#101828]">
+                {row.doc_no || "-"}
+              </p>
+              <p className="mt-0.5 break-words text-[12px] leading-[18px] text-[#667085]">
+                วันที่วางบิล{" "}
+                {row.billing_date ? formatThaiDate(row.billing_date) : "-"}
+              </p>
+            </div>
+            <MobileFact
+              label="เงินสด/โอน"
+              value={`${formatMoney(row.cash_amount)} / ${formatMoney(
+                row.transfer_amount,
+              )} บาท`}
+            />
+            <MobileFact
+              label="ยอดรับชำระ"
+              value={`${formatMoney(row.total_received_amount)} บาท`}
+            />
+            <MobileFact
+              danger={row.payment_status !== "matched"}
+              label="สถานะ"
+              value={formatArDebtReceiptStatus(row)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StockReorderRowsTable({ rows }: { rows: StockReorderRow[] }) {
   if (!rows.length) {
     return (
@@ -2559,6 +3216,12 @@ function BriefErrorState({ message }: { message: string }) {
 }
 
 function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
+  if (isArDebtReceiptSnapshot(snapshot)) {
+    return "รายงานรับชำระหนี้";
+  }
+  if (isArCustomerMovementSnapshot(snapshot)) {
+    return "รายงานเคลื่อนไหวลูกหนี้";
+  }
   if (isStockReorderSnapshot(snapshot)) {
     return "รายงานสินค้าถึงจุดสั่งซื้อ";
   }
@@ -2599,6 +3262,18 @@ function isStockReorderSnapshot(
   snapshot: ViewerReportSnapshot,
 ): snapshot is StockReorderViewerReportSnapshot {
   return snapshot.report_key === "stock_reorder";
+}
+
+function isArCustomerMovementSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is ArCustomerMovementViewerReportSnapshot {
+  return snapshot.report_key === "ar_customer_movement";
+}
+
+function isArDebtReceiptSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is ArDebtReceiptViewerReportSnapshot {
+  return snapshot.report_key === "ar_debt_receipt";
 }
 
 function getGrossProfitTitle(reportKey: GrossProfitViewerReportKey) {
@@ -2899,6 +3574,28 @@ function formatSignedMoney(value: number) {
     return `-${formatted}`;
   }
   return formatted;
+}
+
+function formatArMovementType(
+  movementType: ArCustomerMovementRow["movement_type"],
+) {
+  if (movementType === "ar_decrease") {
+    return "ลดลูกหนี้";
+  }
+  if (movementType === "receipt") {
+    return "รับชำระ";
+  }
+  return "เพิ่มลูกหนี้";
+}
+
+function formatArDebtReceiptStatus(row: ArDebtReceiptRow) {
+  if (row.payment_status === "missing_payment_split") {
+    return "รอแยกช่องทาง";
+  }
+  if (row.payment_status === "mismatched_payment_split") {
+    return `ต่าง ${formatMoney(row.payment_difference_amount)} บาท`;
+  }
+  return "ตรงกัน";
 }
 
 function formatComparisonPoint(point: SalesComparisonPoint) {

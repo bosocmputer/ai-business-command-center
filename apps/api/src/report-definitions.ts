@@ -82,4 +82,32 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
       sensitivity: "inventory_reorder_without_cost",
     },
   },
+  {
+    report_key: "ar_customer_movement",
+    name: getReportCatalogEntry("ar_customer_movement").definitionName,
+    version: "0.1.0",
+    contract_json: {
+      report_key: "ar_customer_movement",
+      params: ["date_to"],
+      ar_movement_truth:
+        "ic_trans/ap_ar_trans/as_trans documents accumulated to date_to",
+      customer_lookup: "cust_code -> ar_customer.name_1",
+      source_basis: "ar_movement_as_of_date",
+      sensitivity: "contains_customer_ar_amounts",
+    },
+  },
+  {
+    report_key: "ar_debt_receipt",
+    name: getReportCatalogEntry("ar_debt_receipt").definitionName,
+    version: "0.1.0",
+    contract_json: {
+      report_key: "ar_debt_receipt",
+      params: ["date_from", "date_to"],
+      receipt_truth: "ap_ar_trans.total_net_value where trans_flag = 239",
+      payment_split_truth: "cb_trans.cash_amount and cb_trans.tranfer_amount",
+      customer_lookup: "cust_code -> ar_customer.name_1",
+      source_basis: "ar_debt_receipt_doc_date",
+      sensitivity: "contains_customer_ar_receipts",
+    },
+  },
 ];

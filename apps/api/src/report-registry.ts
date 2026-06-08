@@ -1,6 +1,8 @@
 import {
   getReportCatalogEntry,
   reportKeyValues,
+  type ArDebtReceiptSnapshot,
+  type ArCustomerMovementSnapshot,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductSnapshot,
   type PurchaseGoodsPayablesSnapshot,
@@ -17,6 +19,8 @@ import {
 } from "@ai-bcc/shared";
 import {
   renderGrossProfitLinePreview,
+  renderArDebtReceiptLinePreview,
+  renderArCustomerMovementLinePreview,
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
   renderStockBalanceLinePreview,
@@ -58,6 +62,12 @@ export type ReportRuntimeRegistryDependencies = {
     input: ReportRuntimeRunInput,
   ) => Promise<ReportRuntimeRunOutcome>;
   runStockReorderReport: (
+    input: ReportRuntimeRunInput,
+  ) => Promise<ReportRuntimeRunOutcome>;
+  runArCustomerMovementReport: (
+    input: ReportRuntimeRunInput,
+  ) => Promise<ReportRuntimeRunOutcome>;
+  runArDebtReceiptReport: (
     input: ReportRuntimeRunInput,
   ) => Promise<ReportRuntimeRunOutcome>;
 };
@@ -146,6 +156,26 @@ export function createReportRuntimeRegistry(
       renderLinePreview: (input) =>
         renderStockReorderLinePreview({
           snapshot: input.snapshot as StockReorderSnapshot,
+          dashboardUrl: input.dashboardUrl,
+          tenantName: input.tenantName,
+        }),
+    }),
+    ar_customer_movement: buildRuntimeEntry({
+      key: "ar_customer_movement",
+      run: dependencies.runArCustomerMovementReport,
+      renderLinePreview: (input) =>
+        renderArCustomerMovementLinePreview({
+          snapshot: input.snapshot as ArCustomerMovementSnapshot,
+          dashboardUrl: input.dashboardUrl,
+          tenantName: input.tenantName,
+        }),
+    }),
+    ar_debt_receipt: buildRuntimeEntry({
+      key: "ar_debt_receipt",
+      run: dependencies.runArDebtReceiptReport,
+      renderLinePreview: (input) =>
+        renderArDebtReceiptLinePreview({
+          snapshot: input.snapshot as ArDebtReceiptSnapshot,
           dashboardUrl: input.dashboardUrl,
           tenantName: input.tenantName,
         }),

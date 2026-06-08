@@ -997,6 +997,8 @@ function formatReportKey(reportKey: ReportKey) {
     gross_profit_by_ar_customer: "กำไรลูกหนี้",
     stock_balance: "สต็อกคงเหลือ",
     stock_reorder: "ถึงจุดสั่งซื้อ",
+    ar_customer_movement: "เคลื่อนไหวลูกหนี้",
+    ar_debt_receipt: "รับชำระหนี้",
   };
   return labels[reportKey];
 }

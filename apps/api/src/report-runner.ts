@@ -12,8 +12,12 @@ import {
   buildPurchasePdfCountQuery,
   buildGrossProfitByArCustomerQuery,
   buildGrossProfitByProductQuery,
+  buildArDebtReceiptQuery,
+  buildArCustomerMovementQuery,
   buildStockBalanceQuery,
   buildStockReorderQuery,
+  summarizeArDebtReceipt,
+  summarizeArCustomerMovement,
   summarizePurchaseGoodsPayables,
   summarizeGrossProfitByArCustomer,
   summarizeGrossProfitByProduct,
@@ -21,6 +25,8 @@ import {
   summarizeStockBalance,
   summarizeStockReorder,
   validateGrossProfitParams,
+  validateArDebtReceiptParams,
+  validateArCustomerMovementParams,
   validatePurchaseGoodsPayablesParams,
   validateSalesGoodsServicesParams,
   validateStockBalanceParams,
@@ -28,6 +34,8 @@ import {
 } from "@ai-bcc/reports";
 import {
   getSmlBranchMeaning,
+  type ArDebtReceiptSnapshot,
+  type ArCustomerMovementSnapshot,
   type GrossProfitByArCustomerRow,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductRow,
@@ -500,6 +508,74 @@ export async function runStockReorderReport(input: {
       );
 
       return summarizeStockReorder({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows,
+      });
+    },
+  );
+}
+
+export async function runArCustomerMovementReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<ArCustomerMovementSnapshot> {
+  const params = validateArCustomerMovementParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
+      const query = buildArCustomerMovementQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeArCustomerMovement({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows,
+      });
+    },
+  );
+}
+
+export async function runArDebtReceiptReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<ArDebtReceiptSnapshot> {
+  const params = validateArDebtReceiptParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
+      const query = buildArDebtReceiptQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeArDebtReceipt({
         tenant_id: input.tenant_id,
         run_id: input.run_id,
         params,

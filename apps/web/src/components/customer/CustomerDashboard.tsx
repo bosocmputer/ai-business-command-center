@@ -2838,6 +2838,8 @@ function formatCustomerReportLabel(reportKey: ReportKey) {
     gross_profit_by_ar_customer: "รายงานกำไรลูกหนี้",
     stock_balance: "รายงานสต็อกคงเหลือ",
     stock_reorder: "รายงานสินค้าถึงจุดสั่งซื้อ",
+    ar_customer_movement: "รายงานเคลื่อนไหวลูกหนี้",
+    ar_debt_receipt: "รายงานรับชำระหนี้",
   };
   return labels[reportKey];
 }
