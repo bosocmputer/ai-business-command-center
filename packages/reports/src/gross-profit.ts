@@ -492,8 +492,16 @@ function buildGrossProfitFlexMessage(input: {
     snapshot.summary.gross_profit < 0 ? "#B42318" : undefined;
   const viewNote =
     snapshot.report_key === "gross_profit_by_product"
-      ? "ยอดรวมเดียวกัน แยกตามสินค้า"
-      : "ยอดรวมเดียวกัน แยกตามลูกหนี้";
+      ? "ยอดรวมเดียวกัน แยกดูตามสินค้า"
+      : "ยอดรวมเดียวกัน แยกดูตามลูกหนี้";
+  const topLineLabel =
+    snapshot.summary.negative_gross_profit_count > 0
+      ? snapshot.report_key === "gross_profit_by_product"
+        ? "สินค้าที่ควรดู"
+        : "ลูกหนี้ที่ควรดู"
+      : snapshot.report_key === "gross_profit_by_product"
+        ? "สินค้ากำไรเด่น"
+        : "ลูกหนี้กำไรเด่น";
 
   return buildExecutiveDigestFlexMessage({
     variant: "executive_report_v2",
@@ -537,12 +545,12 @@ function buildGrossProfitFlexMessage(input: {
     insight: input.insight,
     topLine: topRow && topLabel
       ? {
-          label: "รายการเด่น",
+          label: topLineLabel,
           value: `${truncateLineText(topLabel, 34)}: กำไร ${formatMoney(topRow.gross_profit)} บาท (${formatMargin(
             topRow.gross_margin_percent,
           )})`,
         }
-      : { label: "รายการเด่น", value: `ยังไม่มี${rowLabel}ในช่วงนี้` },
+      : { label: topLineLabel, value: `ยังไม่มี${rowLabel}ในช่วงนี้` },
     note: viewNote,
     noteTone: "neutral",
     dashboardUrl: input.dashboardUrl,
@@ -570,7 +578,7 @@ function getGrossProfitDigestStatus(
     return { text: "ควรตรวจทันที", severity: "critical" };
   }
   if (snapshot.summary.negative_gross_profit_count > 0) {
-    return { text: "มีข้อสังเกต", severity: "notice" };
+    return { text: "ควรตรวจรายการ", severity: "notice" };
   }
   return { text: "พร้อมใช้", severity: "ready" };
 }

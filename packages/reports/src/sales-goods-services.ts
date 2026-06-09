@@ -1112,7 +1112,7 @@ function getSalesDigestStatus(
       (branch) => branch.branch_code === "no_branch" && branch.total_amount > 0,
     )
   ) {
-    return { text: "มีข้อสังเกต", severity: "notice" };
+    return { text: "ควรตรวจยอด", severity: "notice" };
   }
   return { text: "พร้อมใช้", severity: "ready" };
 }

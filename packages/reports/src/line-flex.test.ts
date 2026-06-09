@@ -34,14 +34,15 @@ describe("buildExecutiveDigestFlexMessage", () => {
       generatedAt: "9 มิ.ย. 2026 08:01",
       status: { text: "ควรตรวจยอด", severity: "notice" },
       primaryAmount: {
-        value: "2,535,461.62",
+        value: "135,197,722.72",
         unit: "บาท",
         compact: true,
       },
       metrics: [
         { label: "ลูกหนี้", value: "40 ราย" },
         { label: "เอกสาร", value: "54 ใบ" },
-        { label: "เงินสด/โอน", value: "0.00 / 1,309,790.51 บาท" },
+        { label: "เงินสด", value: "0.00 บาท" },
+        { label: "โอน", value: "1,309,790.51 บาท" },
       ],
       insight: "พบ 11 เอกสารที่ควรตรวจช่องทางรับเงิน",
       topLine: {
@@ -58,11 +59,19 @@ describe("buildExecutiveDigestFlexMessage", () => {
     expect(payload).toContain("รับเงิน · รายวัน");
     expect(payload).toContain("สิ่งที่ควรดู");
     expect(payload).toContain("baseline");
-    expect(payload).toContain("2,535,461.62");
+    expect(payload).toContain("135,197,722.72");
     expect(payload).toContain("บาท");
+    expect(payload).toContain("เงินสด");
+    expect(payload).toContain("โอน");
     expect(payload).toContain("เปิดรายละเอียด");
     expect(payload).toContain("#FFF7ED");
     expect(payload).not.toContain("วันนี้ควรรู้อะไร");
+    const primaryAmountNode = bubble.body.contents
+      .find((content: any) => content.type === "box" && content.layout === "baseline")
+      .contents.find(
+        (content: any) => content.type === "text" && content.text === "135,197,722.72",
+      );
+    expect(primaryAmountNode.size).toBe("lg");
     expect(bubble.body.contents.length).toBeGreaterThan(5);
   });
 });

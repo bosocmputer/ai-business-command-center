@@ -864,7 +864,7 @@ function getPurchaseDigestStatus(
     return { text: "ข้อมูลเก่า", severity: "notice" };
   }
   if (snapshot.quality_status === "reconciled_with_warning") {
-    return { text: "มีข้อสังเกต", severity: "notice" };
+    return { text: "ควรตรวจยอด", severity: "notice" };
   }
   return { text: "พร้อมใช้", severity: "ready" };
 }

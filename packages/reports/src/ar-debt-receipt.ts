@@ -385,10 +385,12 @@ function buildArDebtReceiptFlexMessage(input: {
         value: `${formatInteger(snapshot.summary.receipt_count)} ใบ`,
       },
       {
-        label: "เงินสด/โอน",
-        value: `${formatMoney(snapshot.summary.cash_amount)} / ${formatMoney(
-          snapshot.summary.transfer_amount,
-        )} บาท`,
+        label: "เงินสด",
+        value: `${formatMoney(snapshot.summary.cash_amount)} บาท`,
+      },
+      {
+        label: "โอน",
+        value: `${formatMoney(snapshot.summary.transfer_amount)} บาท`,
       },
     ],
     insight: input.insight,
@@ -400,7 +402,10 @@ function buildArDebtReceiptFlexMessage(input: {
           )} บาท`,
         }
       : { label: "ลูกหนี้รับชำระสูงสุด", value: "ยังไม่มีเอกสารรับชำระ" },
-    note: "รายงานนี้อิงวันที่เอกสารรับชำระ ไม่ตัดตามเวลาแจ้งเตือน",
+    note:
+      snapshot.summary.unmatched_payment_count > 0
+        ? "ควรตรวจช่องทางรับเงิน: บางเอกสารเงินสด/โอนไม่ตรงกับยอดรับชำระ"
+        : "รายงานนี้อิงวันที่เอกสารรับชำระ ไม่ตัดตามเวลาแจ้งเตือน",
     noteTone:
       snapshot.summary.unmatched_payment_count > 0 ? "warning" : "neutral",
     dashboardUrl: input.dashboardUrl,

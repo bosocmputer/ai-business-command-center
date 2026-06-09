@@ -500,7 +500,7 @@ function getStockBalanceDigestStatus(
     return { text: "ควรตรวจทันที", severity: "critical" };
   }
   if (snapshot.summary.zero_or_missing_cost_count > 0) {
-    return { text: "มีข้อสังเกต", severity: "notice" };
+    return { text: "ควรตรวจต้นทุน", severity: "notice" };
   }
   return { text: "พร้อมใช้", severity: "ready" };
 }

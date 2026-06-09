@@ -440,7 +440,7 @@ function buildArCustomerMovementFlexMessage(input: {
           )} บาท`,
         }
       : { label: "ลูกหนี้มูลค่าสูง", value: "ยังไม่มีเอกสารเคลื่อนไหว" },
-    note: "ข้อมูลสะสมถึงวันที่จาก SML ใช้ดูการเคลื่อนไหวลูกหนี้ ไม่ใช่รายงานจัดอายุหนี้",
+    note: "ข้อมูลสะสมถึงวันที่จาก SML ใช้ดูการเคลื่อนไหวลูกหนี้",
     noteTone: "neutral",
     dashboardUrl: input.dashboardUrl,
   });

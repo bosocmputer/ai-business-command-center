@@ -158,7 +158,7 @@ describe("gross profit reports", () => {
       },
     });
     expect(JSON.stringify(preview.flex_message)).toContain(
-      "ยอดรวมเดียวกัน แยกตามลูกหนี้",
+      "ยอดรวมเดียวกัน แยกดูตามลูกหนี้",
     );
     expect(JSON.stringify(preview.flex_message)).not.toContain("snapshot");
     expect(JSON.stringify(preview.flex_message)).not.toContain("query");
@@ -265,7 +265,7 @@ describe("gross profit reports", () => {
       (content: any) => content.type === "text" && content.text === "50.00",
     );
 
-    expect(JSON.stringify(preview.flex_message)).toContain("มีข้อสังเกต");
+    expect(JSON.stringify(preview.flex_message)).toContain("ควรตรวจรายการ");
     expect(primaryAmountNode.color).toBe("#111827");
   });
 
@@ -306,10 +306,10 @@ describe("gross profit reports", () => {
     const flexPayload = JSON.stringify(preview.flex_message);
     expect(flexPayload).toContain("กำไรขั้นต้นสินค้า");
     expect(flexPayload).not.toContain("รายงานกำไรขั้นต้นสินค้า");
-    expect(flexPayload).toContain("รายการเด่น");
+    expect(flexPayload).toContain("สินค้ากำไรเด่น");
     expect(flexPayload).not.toContain("Top สินค้า");
     expect(flexPayload).toContain("เปิดรายละเอียด");
-    expect(flexPayload).toContain("ยอดรวมเดียวกัน แยกตามสินค้า");
+    expect(flexPayload).toContain("ยอดรวมเดียวกัน แยกดูตามสินค้า");
     expect(flexPayload).not.toContain("branch_code");
     expect(flexPayload).not.toContain("ic_trans");
     expect(flexPayload).not.toContain("snapshot");

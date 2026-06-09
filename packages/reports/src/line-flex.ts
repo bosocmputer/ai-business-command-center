@@ -297,7 +297,7 @@ function buildExecutiveReportV2Bubble(
           type: "box",
           layout: "vertical",
           spacing: "sm",
-          contents: input.metrics.slice(0, 3).map((metric) =>
+          contents: input.metrics.slice(0, 4).map((metric) =>
             buildFlexMetricRow(metric.label, truncateLineText(metric.value, 42)),
           ),
         },
@@ -363,6 +363,7 @@ function formatPrimaryAmountText(input: ReturnType<typeof normalizePrimaryAmount
 function buildPrimaryAmountBaseline(
   input: ReturnType<typeof normalizePrimaryAmount>,
 ) {
+  const sizes = getPrimaryAmountSizes(input);
   return {
     type: "box",
     layout: "baseline",
@@ -372,7 +373,7 @@ function buildPrimaryAmountBaseline(
         type: "text",
         text: input.value,
         weight: "bold",
-        size: input.compact ? "xl" : "xxl",
+        size: sizes.value,
         color: input.color,
         flex: 0,
         wrap: true,
@@ -384,7 +385,7 @@ function buildPrimaryAmountBaseline(
               type: "text",
               text: input.unit,
               weight: "bold",
-              size: input.compact ? "md" : "xl",
+              size: sizes.unit,
               color: input.color,
               flex: 1,
               wrap: true,
@@ -394,6 +395,18 @@ function buildPrimaryAmountBaseline(
         : []),
     ],
   };
+}
+
+function getPrimaryAmountSizes(input: ReturnType<typeof normalizePrimaryAmount>) {
+  if (!input.compact) {
+    return { value: "xxl", unit: "xl" };
+  }
+
+  const normalizedLength = input.value.replace(/\s/g, "").length;
+  if (normalizedLength >= 14) {
+    return { value: "lg", unit: "sm" };
+  }
+  return { value: "xl", unit: "md" };
 }
 
 function buildFlexNoteBlock(value: string, tone: ExecutiveDigestNoteTone) {

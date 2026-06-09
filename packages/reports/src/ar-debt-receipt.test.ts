@@ -183,6 +183,11 @@ describe("AR debt receipt report", () => {
       "รายงานนี้อิงวันที่เอกสารรับชำระ ไม่ตัดตามเวลาแจ้งเตือน",
     );
     expect(JSON.stringify(preview.flex_message)).toContain("ตรวจช่องทางรับเงิน");
+    expect(JSON.stringify(preview.flex_message)).toContain("เงินสด");
+    expect(JSON.stringify(preview.flex_message)).toContain("โอน");
+    expect(JSON.stringify(preview.flex_message)).toContain(
+      "ควรตรวจช่องทางรับเงิน",
+    );
     expect(userVisiblePayload).not.toContain("trans_flag");
     expect(userVisiblePayload).not.toContain("ap_ar_trans");
     expect(userVisiblePayload).not.toContain("cb_trans");
