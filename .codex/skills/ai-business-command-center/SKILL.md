@@ -1,6 +1,6 @@
 ---
 name: ai-business-command-center
-description: Use this skill when working on the AI Business Command Center: multi-channel Morning Brief / Business Brief hub, SML PostgreSQL reports, FlowAccount finance brief foundation, dashboard, LINE OA Morning Brief, subscription/multi-tenant design, security, tests, deployment, or future chatbot over approved reports.
+description: "Use this skill when working on the AI Business Command Center: multi-channel Morning Brief / Business Brief hub, SML PostgreSQL reports, FlowAccount finance brief foundation, dashboard, LINE OA Morning Brief, subscription/multi-tenant design, security, tests, deployment, or future chatbot over approved reports."
 ---
 
 # AI Business Command Center Skill
@@ -22,7 +22,7 @@ Important: Do not assume new integrations are linked to SML. Treat each source a
 
 ## Quick Context (read this first — saves token vs reading all docs)
 
-**Server:** `192.168.2.109` | SSH: `sshpass -p 'boss123456' ssh bosscatdog@192.168.2.109`
+**Server:** `192.168.2.109` | SSH user: `bosscatdog` | retrieve password/key from local secret source or deployment notes, never from tracked docs.
 **Deploy dir:** `/home/bosscatdog/deployments/ai-business-command-center`
 **Latest commit:** `050b2a2`
 
@@ -38,8 +38,8 @@ Tables: `tenants, report_runs, report_snapshots, line_deliveries, line_targets, 
 **Planned channel:** `flowaccount_finance` foundation only; no SML sync/document creation by default
 **PDF layout:** `sml-row-v5` | Max: 300 docs / 5,000 rows / 31 days
 
-**Owner login:** `superadmin/superadmin` (pilot only)
-**Mutation auth header:** `x-ai-bcc-admin-token`
+**Owner login:** pilot owner account; retrieve current password from local secret source, never from tracked docs.
+**Mutation auth header:** `x-ai-bcc-admin-token`; retrieve the token value from local secret source or deployment environment.
 
 **Morning Brief:** 08:00 Asia/Bangkok, period=yesterday, tenant_demo_remote only
 

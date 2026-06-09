@@ -341,7 +341,7 @@ Browser QA:
 - Smoke PDF จำลองข้อมูลชื่อยาว/สินค้า wrap หลายบรรทัด render ได้, header ซ้ำทุกหน้า, total row ไม่ overlap
 - `/` redirect ไป `/owner`
 - ถ้ายังไม่ login, `/owner` และ `/command-center` redirect ไป `/signin?next=...`
-- login ด้วย `superadmin/superadmin` เข้า `/owner` ได้
+- login ด้วย pilot owner account เข้า `/owner` ได้; retrieve current password from local secret source.
 - logout แล้วกลับไป `/signin`
 - `/owner` เห็นร้าน DEMO SHOP และ 248 SHOP ในภาพรวม พร้อมงานที่ต้องทำต่อ
 - `/owner/tenants` เห็น tenant operations และไม่มี horizontal overflow
@@ -363,7 +363,7 @@ Browser QA:
 ## สิ่งที่ยังเป็น MVP ไม่ใช่ Production เต็ม
 
 - Owner auth เป็น signed cookie login แล้ว แต่ยังเป็น single admin user ไม่ใช่ user table/role เต็ม
-- ค่า credential เริ่มต้น `superadmin/superadmin` ใช้เฉพาะ owner pilot และไม่แสดงบน UI; production จริงควรย้ายไป user/role table หรือ strong secret ที่หมุนได้
+- ค่า credential owner pilot ต้องเก็บนอก tracked docs และไม่แสดงบน UI; production จริงควรย้ายไป user/role table หรือ strong secret ที่หมุนได้
 - Mutation API ใช้ owner session แล้ว แต่ยังไม่ใช่ user/role permission เต็ม
 - trycloudflare เป็น quick tunnel ชั่วคราว ไม่ใช่ domain/named tunnel
 - SML DB credential ยังอยู่ใน env; เพิ่ม secret vault/table foundation แล้ว แต่ยังไม่ migrate credential จริงเข้า encrypted datasource workflow
