@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ApexOptions } from "apexcharts";
 import {
@@ -43,7 +43,6 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
 
 type SnapshotResponse = {
   data?: ViewerReportSnapshot;
-  dashboard_access?: DashboardAccess | null;
   error?: string;
 };
 
@@ -54,68 +53,6 @@ type TenantsResponse = {
 
 type ViewerRunResponse = {
   data?: ViewerReportSnapshot;
-  error?: string;
-};
-
-type DashboardAccess = {
-  token: string;
-  expires_at: string;
-  source_run_id: string;
-  allowed_report_keys: ReportKey[];
-  max_date_window_days: number;
-  lookback_days: number;
-};
-
-type ExecutiveDashboardRunStatus =
-  | "queued"
-  | "running"
-  | "success"
-  | "success_with_warnings"
-  | "failed";
-
-type ExecutiveDashboardReportResult = {
-  report_key: ReportKey;
-  status: "success" | "success_with_warning" | "failed";
-  freshness: "fresh" | "reference" | "unavailable";
-  run_id: string | null;
-  snapshot_generated_at: string | null;
-  duration_ms: number | null;
-  row_count: number | null;
-  degraded_reason: string | null;
-};
-
-type ExecutiveDashboardRun = {
-  id: string;
-  tenant_id: string;
-  source_run_id: string;
-  params: {
-    date_from: string;
-    date_to: string;
-    time_from?: string;
-    time_to?: string;
-  };
-  report_keys: ReportKey[];
-  status: ExecutiveDashboardRunStatus;
-  report_run_ids: string[];
-  report_results: ExecutiveDashboardReportResult[];
-  snapshots: ViewerReportSnapshot[];
-  safe_error_message: string | null;
-  queued_at: string | null;
-  claimed_at: string | null;
-  started_at: string | null;
-  finished_at: string | null;
-  progress_stage: string | null;
-  progress_percent: number | null;
-  progress_current_report_key: ReportKey | null;
-  progress_done_reports: number | null;
-  progress_total_reports: number | null;
-  progress_updated_at: string | null;
-};
-
-type ExecutiveDashboardRunResponse = {
-  data?: ExecutiveDashboardRun;
-  reused?: boolean;
-  message?: string;
   error?: string;
 };
 
@@ -147,7 +84,6 @@ type LoadState =
   | {
       status: "ready";
       snapshot: ViewerReportSnapshot;
-      dashboardAccess: DashboardAccess | null;
     }
   | { status: "error"; message: string };
 
@@ -369,7 +305,6 @@ export default function CommandCenterBriefViewer() {
         setState({
           status: "ready",
           snapshot: payload.data,
-          dashboardAccess: payload.dashboard_access ?? null,
         });
       } catch (error) {
         if (controller.signal.aborted) {
@@ -399,7 +334,6 @@ export default function CommandCenterBriefViewer() {
 
   return (
     <PremiumReportViewer
-      dashboardAccess={state.dashboardAccess}
       initialSnapshot={state.snapshot}
       viewer={{
         tenantId: tenantId!,
@@ -412,11 +346,9 @@ export default function CommandCenterBriefViewer() {
 }
 
 function PremiumReportViewer({
-  dashboardAccess,
   initialSnapshot,
   viewer,
 }: {
-  dashboardAccess: DashboardAccess | null;
   initialSnapshot: ViewerReportSnapshot;
   viewer: ViewerParams;
 }) {
@@ -439,7 +371,6 @@ function PremiumReportViewer({
   const [pdfDownloadState, setPdfDownloadState] = useState<PdfDownloadState>({
     status: "idle",
   });
-  const [dashboardPanelOpen, setDashboardPanelOpen] = useState(false);
 
   const title = getViewerReportTitle(snapshot);
   const generatedAt = formatDateTime(snapshot.generated_at);
@@ -721,95 +652,70 @@ function PremiumReportViewer({
     timeFrom: snapshot.params.time_from,
     timeTo: snapshot.params.time_to,
   });
-  const dashboardModePanel = dashboardAccess ? (
-    <ExecutiveDashboardModePanel
-      access={dashboardAccess}
-      evidenceSnapshot={initialSnapshot}
-      open={dashboardPanelOpen}
-      onOpenChange={setDashboardPanelOpen}
-      tenantId={viewer.tenantId}
-      tenantName={tenantName}
-    />
-  ) : null;
-  const dashboardNotice = dashboardAccess ? (
-    <ExecutiveDashboardAccessNotice
-      access={dashboardAccess}
-      evidenceSnapshot={initialSnapshot}
-      onOpen={() => setDashboardPanelOpen(true)}
-      tenantName={tenantName}
-    />
-  ) : null;
-  const renderWithDashboardShell = (children: ReactNode) => (
-    <>
-      {dashboardNotice}
-      {children}
-      {dashboardModePanel}
-    </>
-  );
 
   if (isStockReorderSnapshot(snapshot)) {
-    return renderWithDashboardShell(
-        <StockReorderReportViewer
-          generatedAt={generatedAt}
-          snapshot={snapshot}
-          tenantName={tenantName}
-        />
+    return (
+      <StockReorderReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
     );
   }
 
   if (isArCustomerMovementSnapshot(snapshot)) {
-    return renderWithDashboardShell(
-        <ArCustomerMovementReportViewer
-          generatedAt={generatedAt}
-          snapshot={snapshot}
-          tenantName={tenantName}
-        />
+    return (
+      <ArCustomerMovementReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
     );
   }
 
   if (isArDebtReceiptSnapshot(snapshot)) {
-    return renderWithDashboardShell(
-        <ArDebtReceiptReportViewer
-          generatedAt={generatedAt}
-          snapshot={snapshot}
-          tenantName={tenantName}
-        />
+    return (
+      <ArDebtReceiptReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
     );
   }
 
   if (isStockBalanceSnapshot(snapshot)) {
-    return renderWithDashboardShell(
-        <StockBalanceReportViewer
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          generatedAt={generatedAt}
-          onApplyPreset={applyPreset}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          onRunRange={() => void runRange()}
-          rangeError={rangeError}
-          rangeLoading={rangeLoading}
-          snapshot={snapshot}
-          tenantName={tenantName}
-        />
+    return (
+      <StockBalanceReportViewer
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        generatedAt={generatedAt}
+        onApplyPreset={applyPreset}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onRunRange={() => void runRange()}
+        rangeError={rangeError}
+        rangeLoading={rangeLoading}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
     );
   }
 
   if (isGrossProfitSnapshot(snapshot)) {
-    return renderWithDashboardShell(
-        <GrossProfitReportViewer
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          generatedAt={generatedAt}
-          onApplyPreset={applyPreset}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          onRunRange={() => void runRange()}
-          rangeError={rangeError}
-          rangeLoading={rangeLoading}
-          snapshot={snapshot}
-          tenantName={tenantName}
-        />
+    return (
+      <GrossProfitReportViewer
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        generatedAt={generatedAt}
+        onApplyPreset={applyPreset}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onRunRange={() => void runRange()}
+        rangeError={rangeError}
+        rangeLoading={rangeLoading}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
     );
   }
 
@@ -821,7 +727,7 @@ function PremiumReportViewer({
     snapshot.quality_status === "reconciled_with_warning" ||
     Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
 
-  return renderWithDashboardShell(
+  return (
     <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
       <div className="screen-report-viewer">
       <div className="border-b border-[#E4E7EC] bg-white">
@@ -1047,50 +953,6 @@ function PremiumReportViewer({
       </div>
       </div>
     </main>
-  );
-}
-
-function ExecutiveDashboardAccessNotice({
-  access,
-  evidenceSnapshot,
-  onOpen,
-  tenantName,
-}: {
-  access: DashboardAccess;
-  evidenceSnapshot: ViewerReportSnapshot;
-  onOpen: () => void;
-  tenantName: string;
-}) {
-  return (
-    <div className="border-b border-[#D0D5DD] bg-[#EFF6FF] px-4 py-3 text-[#101828] print:hidden sm:px-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-[#B2DDFF] bg-white px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#175CD3]">
-              Dashboard Mode พร้อมใช้
-            </span>
-            <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#475467]">
-              {formatInteger(access.allowed_report_keys.length)} รายงาน
-            </span>
-          </div>
-          <p className="mt-2 text-[14px] font-semibold leading-[22px]">
-            หน้านี้ยังเป็นหลักฐานจาก LINE รอบเดิม แต่สามารถเลือกวันที่อื่นเพื่อสร้าง dashboard ใหม่ได้
-          </p>
-          <p className="mt-1 text-[13px] leading-5 text-[#475467]">
-            {tenantName} · รอบ LINE {formatReportPeriodFromParams(
-              evidenceSnapshot.params,
-            )} · ย้อนหลังได้ {formatInteger(access.lookback_days)} วัน
-          </p>
-        </div>
-        <button
-          className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] sm:w-fit"
-          onClick={onOpen}
-          type="button"
-        >
-          วิเคราะห์วันที่อื่น
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -3380,336 +3242,6 @@ function BriefErrorState({ message }: { message: string }) {
   );
 }
 
-function ExecutiveDashboardModePanel({
-  access,
-  evidenceSnapshot,
-  open,
-  onOpenChange,
-  tenantId,
-  tenantName,
-}: {
-  access: DashboardAccess;
-  evidenceSnapshot: ViewerReportSnapshot;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  tenantId: string;
-  tenantName: string;
-}) {
-  const [dateFrom, setDateFrom] = useState(evidenceSnapshot.params.date_from);
-  const [dateTo, setDateTo] = useState(evidenceSnapshot.params.date_to);
-  const [run, setRun] = useState<ExecutiveDashboardRun | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isActive = run?.status === "queued" || run?.status === "running";
-
-  useEffect(() => {
-    if (!run || !isActive) {
-      return;
-    }
-    const controller = new AbortController();
-    const timer = window.setInterval(() => {
-      void fetchDashboardRun({
-        access,
-        runId: run.id,
-        tenantId,
-        signal: controller.signal,
-      })
-        .then((nextRun) => {
-          if (nextRun) {
-            setRun(nextRun);
-          }
-        })
-        .catch(() => undefined);
-    }, 2000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [access, isActive, run, tenantId]);
-
-  async function startDashboardRun() {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/reports/${encodeURIComponent(
-          tenantId,
-        )}/executive-dashboard-runs`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            dashboard_token: access.token,
-            date_from: dateFrom,
-            date_to: dateTo,
-            client_request_id:
-              typeof crypto !== "undefined" && "randomUUID" in crypto
-                ? crypto.randomUUID()
-                : `${Date.now()}`,
-          }),
-        },
-      );
-      const payload = (await response.json()) as ExecutiveDashboardRunResponse;
-      if (!response.ok || !payload.data) {
-        throw new Error(payload.error || "เริ่มวิเคราะห์ข้อมูลไม่สำเร็จ");
-      }
-      setRun(payload.data);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "เริ่มวิเคราะห์ข้อมูลไม่สำเร็จ กรุณาลองใหม่",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function applyQuickChoice(choice: "today" | "yesterday" | "month") {
-    const today = toIsoDate(new Date());
-    if (choice === "today") {
-      setDateFrom(today);
-      setDateTo(today);
-      return;
-    }
-    if (choice === "yesterday") {
-      const range = buildPresetRange("yesterday");
-      setDateFrom(range.date_from);
-      setDateTo(range.date_to);
-      return;
-    }
-    const now = new Date();
-    setDateFrom(toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)));
-    setDateTo(today);
-  }
-
-  const snapshots = run?.snapshots ?? [];
-  const kpis = buildExecutiveDashboardKpis(snapshots);
-  const progress = run?.progress_percent ?? 0;
-  const progressLabel = run ? formatDashboardProgressLabel(run) : null;
-  const terminalRun =
-    run?.status === "success" ||
-    run?.status === "success_with_warnings" ||
-    run?.status === "failed"
-      ? run
-      : null;
-
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-40 print:hidden">
-      <div className="mx-auto flex max-w-7xl justify-end px-3 pb-3 sm:px-6">
-        {!open ? (
-          <button
-            className="rounded-xl bg-[#101828] px-4 py-3 text-[14px] font-semibold leading-[22px] text-white shadow-lg transition hover:bg-[#1D2939]"
-            onClick={() => onOpenChange(true)}
-            type="button"
-          >
-            วิเคราะห์วันที่อื่น
-          </button>
-        ) : (
-          <section className="max-h-[82vh] w-full overflow-auto rounded-2xl border border-[#D0D5DD] bg-white shadow-2xl lg:w-[760px]">
-            <div className="sticky top-0 z-10 border-b border-[#EAECF0] bg-white px-4 py-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[12px] font-semibold leading-[18px] text-[#2563EB]">
-                    Dashboard Mode
-                  </p>
-                  <h2 className="text-[18px] font-semibold leading-7 text-[#101828]">
-                    วิเคราะห์วันที่อื่น
-                  </h2>
-                  <p className="mt-1 text-[13px] leading-5 text-[#667085]">
-                    ค่าแรกของหน้านี้ยังเป็นข้อมูลจาก LINE รอบนี้ ส่วนนี้จะสร้างข้อมูลใหม่ตามวันที่ที่เลือก
-                  </p>
-                </div>
-                <button
-                  className="h-9 rounded-lg border border-[#D0D5DD] bg-white px-3 text-[13px] font-semibold text-[#344054]"
-                  onClick={() => onOpenChange(false)}
-                  type="button"
-                >
-                  ปิด
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-4 p-4">
-              <div className="rounded-xl border border-[#E4E7EC] bg-[#F9FAFB] p-3">
-                <div className="flex flex-wrap items-center gap-2 text-[12px] font-semibold leading-[18px]">
-                  <span className="rounded-full border border-[#ABEFC6] bg-[#ECFDF3] px-2.5 py-1 text-[#027A48]">
-                    ข้อมูลจาก LINE รอบนี้ยังล็อกไว้
-                  </span>
-                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#475467]">
-                    เลือกย้อนหลังได้ {formatInteger(access.lookback_days)} วัน
-                  </span>
-                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#475467]">
-                    สูงสุด {formatInteger(access.max_date_window_days)} วันต่อครั้ง
-                  </span>
-                </div>
-                <p className="mt-2 text-[13px] leading-5 text-[#475467]">
-                  {tenantName} · จาก LINE รอบ {formatReportPeriodFromParams(
-                    evidenceSnapshot.params,
-                  )}
-                </p>
-              </div>
-
-              <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
-                <div>
-                  <div className="flex flex-wrap gap-2">
-                    <PresetButton label="วันนี้" onClick={() => applyQuickChoice("today")} />
-                    <PresetButton
-                      label="เมื่อวาน"
-                      onClick={() => applyQuickChoice("yesterday")}
-                    />
-                    <PresetButton label="เดือนนี้" onClick={() => applyQuickChoice("month")} />
-                  </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <DateInput label="จากวันที่" value={dateFrom} onChange={setDateFrom} />
-                    <DateInput label="ถึงวันที่" value={dateTo} onChange={setDateTo} />
-                  </div>
-                </div>
-                <button
-                  className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={loading || isActive}
-                  onClick={() => void startDashboardRun()}
-                  type="button"
-                >
-                  {isActive ? "กำลังสร้างข้อมูล" : loading ? "กำลังรับงาน" : "ดูข้อมูล"}
-                </button>
-              </div>
-
-              {error && (
-                <p className="rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
-                  {error}
-                </p>
-              )}
-
-              {run && (
-                <div className="rounded-xl border border-[#E4E7EC] bg-white p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[13px] font-semibold leading-5 text-[#101828]">
-                        {progressLabel}
-                      </p>
-                      <p className="mt-1 text-[12px] leading-[18px] text-[#667085]">
-                        ช่วงที่เลือก {formatReportPeriodFromParams(run.params)}
-                      </p>
-                    </div>
-                    <span className={dashboardStatusClassName(run.status)}>
-                      {formatDashboardRunStatus(run.status)}
-                    </span>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]">
-                    <div
-                      className="h-full rounded-full bg-[#2563EB] transition-all"
-                      style={{ width: `${Math.max(5, Math.min(100, progress))}%` }}
-                    />
-                  </div>
-                  {run.safe_error_message && (
-                    <p className="mt-3 rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[13px] leading-5 text-[#B54708]">
-                      {run.safe_error_message}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {terminalRun && (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {kpis.map((kpi) => (
-                      <PremiumKpi key={kpi.label} label={kpi.label} value={kpi.value} />
-                    ))}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {access.allowed_report_keys.map((reportKey) => {
-                      const result =
-                        terminalRun.report_results.find(
-                          (item) => item.report_key === reportKey,
-                        ) ?? null;
-                      const cardSnapshot =
-                        snapshots.find((item) => item.report_key === reportKey) ??
-                        null;
-                      return (
-                        <DashboardReportCard
-                          key={reportKey}
-                          reportKey={reportKey}
-                          result={result}
-                          snapshot={cardSnapshot}
-                        />
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
-        )}
-      </div>
-    </div>
-  );
-}
-
-async function fetchDashboardRun(input: {
-  access: DashboardAccess;
-  runId: string;
-  tenantId: string;
-  signal?: AbortSignal;
-}) {
-  const params = new URLSearchParams({
-    dashboard_token: input.access.token,
-  });
-  const response = await fetch(
-    `${API_BASE_URL}/api/reports/${encodeURIComponent(
-      input.tenantId,
-    )}/executive-dashboard-runs/${encodeURIComponent(input.runId)}?${params}`,
-    { signal: input.signal },
-  );
-  const payload = (await response.json()) as ExecutiveDashboardRunResponse;
-  if (!response.ok || !payload.data) {
-    throw new Error(payload.error || "โหลดสถานะ dashboard ไม่สำเร็จ");
-  }
-  return payload.data;
-}
-
-function DashboardReportCard({
-  reportKey,
-  result,
-  snapshot,
-}: {
-  reportKey: ReportKey;
-  result: ExecutiveDashboardReportResult | null;
-  snapshot: ViewerReportSnapshot | null;
-}) {
-  const status = result ? formatDashboardFreshness(result) : "รอข้อมูล";
-  return (
-    <div className="rounded-xl border border-[#E4E7EC] bg-[#F9FAFB] p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-[15px] font-semibold leading-6 text-[#101828]">
-            {getReportTitleFromKey(reportKey)}
-          </h3>
-          <p className="mt-1 text-[12px] leading-[18px] text-[#667085]">
-            {result?.duration_ms != null
-              ? `ใช้เวลา ${formatDuration(result.duration_ms)}`
-              : "ยังไม่มีเวลารัน"}
-            {result?.row_count != null
-              ? ` · ${formatInteger(result.row_count)} rows`
-              : ""}
-          </p>
-        </div>
-        <span className={dashboardFreshnessClassName(result)}>
-          {status}
-        </span>
-      </div>
-      <p className="mt-3 break-words text-[18px] font-semibold leading-7 text-[#101828]">
-        {snapshot ? getDashboardSnapshotPrimaryValue(snapshot) : "ยังไม่มีข้อมูล"}
-      </p>
-      {result?.degraded_reason && (
-        <p className="mt-2 rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[12px] leading-[18px] text-[#B54708]">
-          ใช้ข้อมูลอ้างอิงหรือข้อมูลสดไม่พร้อมสำหรับรายงานนี้
-        </p>
-      )}
-    </div>
-  );
-}
-
 function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
   if (isArDebtReceiptSnapshot(snapshot)) {
     return "รายงานรับชำระหนี้";
@@ -3727,190 +3259,6 @@ function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
     return getGrossProfitTitle(snapshot.report_key);
   }
   return reportCopy[snapshot.report_key].title;
-}
-
-function getReportTitleFromKey(reportKey: ReportKey) {
-  switch (reportKey) {
-    case "sales_goods_services":
-      return "ขายสินค้าและบริการ";
-    case "purchase_goods_payables":
-      return "ซื้อ/ตั้งหนี้";
-    case "gross_profit_by_product":
-      return "กำไรขั้นต้นสินค้า";
-    case "gross_profit_by_ar_customer":
-      return "กำไรขั้นต้นลูกหนี้";
-    case "stock_balance":
-      return "สต็อกคงเหลือ";
-    case "stock_reorder":
-      return "สินค้าถึงจุดสั่งซื้อ";
-    case "ar_customer_movement":
-      return "เคลื่อนไหวลูกหนี้";
-    case "ar_debt_receipt":
-      return "รับชำระหนี้";
-  }
-}
-
-function buildExecutiveDashboardKpis(snapshots: ViewerReportSnapshot[]) {
-  const sales = findDashboardSnapshot(snapshots, "sales_goods_services");
-  const grossProfit =
-    findDashboardSnapshot(snapshots, "gross_profit_by_product") ??
-    findDashboardSnapshot(snapshots, "gross_profit_by_ar_customer");
-  const receipt = findDashboardSnapshot(snapshots, "ar_debt_receipt");
-  const stock = findDashboardSnapshot(snapshots, "stock_balance");
-
-  return [
-    {
-      label: "ยอดขาย",
-      value: sales
-        ? `${formatMoney(sales.summary.total_sales)} บาท`
-        : "ยังไม่มีข้อมูล",
-    },
-    {
-      label: "กำไรขั้นต้น",
-      value: grossProfit
-        ? `${formatMoney(grossProfit.summary.gross_profit)} บาท`
-        : "ยังไม่มีข้อมูล",
-    },
-    {
-      label: "รับชำระ",
-      value: receipt
-        ? `${formatMoney(receipt.summary.total_received_amount)} บาท`
-        : "ยังไม่มีข้อมูล",
-    },
-    {
-      label: "มูลค่าสต็อก",
-      value: stock
-        ? `${formatMoney(stock.summary.stock_value)} บาท`
-        : "ยังไม่มีข้อมูล",
-    },
-  ];
-}
-
-function findDashboardSnapshot<K extends ViewerReportKey>(
-  snapshots: ViewerReportSnapshot[],
-  reportKey: K,
-): Extract<ViewerReportSnapshot, { report_key: K }> | null {
-  return (
-    snapshots.find(
-      (snapshot): snapshot is Extract<ViewerReportSnapshot, { report_key: K }> =>
-        snapshot.report_key === reportKey,
-    ) ?? null
-  );
-}
-
-function getDashboardSnapshotPrimaryValue(snapshot: ViewerReportSnapshot) {
-  if (snapshot.report_key === "sales_goods_services") {
-    return `${formatMoney(snapshot.summary.total_sales)} บาท`;
-  }
-  if (snapshot.report_key === "purchase_goods_payables") {
-    return `${formatMoney(snapshot.summary.total_purchase)} บาท`;
-  }
-  if (isGrossProfitSnapshot(snapshot)) {
-    return `${formatMoney(snapshot.summary.gross_profit)} บาท`;
-  }
-  if (isStockBalanceSnapshot(snapshot)) {
-    return `${formatMoney(snapshot.summary.stock_value)} บาท`;
-  }
-  if (isStockReorderSnapshot(snapshot)) {
-    return `${formatInteger(snapshot.summary.reorder_count)} รายการ`;
-  }
-  if (isArCustomerMovementSnapshot(snapshot)) {
-    return `${formatMoney(snapshot.summary.net_movement_amount)} บาท`;
-  }
-  if (isArDebtReceiptSnapshot(snapshot)) {
-    return `${formatMoney(snapshot.summary.total_received_amount)} บาท`;
-  }
-  return "ยังไม่มีข้อมูล";
-}
-
-function formatDashboardProgressLabel(run: ExecutiveDashboardRun) {
-  if (run.progress_stage === "queued") {
-    return "รอคิวสร้าง dashboard";
-  }
-  if (run.progress_stage === "claimed") {
-    return "เริ่มงานแล้ว";
-  }
-  if (run.progress_stage === "running_report") {
-    const reportName = run.progress_current_report_key
-      ? getReportTitleFromKey(run.progress_current_report_key)
-      : "รายงาน";
-    const done = run.progress_done_reports ?? 0;
-    const total = run.progress_total_reports ?? run.report_keys.length;
-    return `กำลังสร้างรายงาน ${done}/${total}: ${reportName}`;
-  }
-  if (run.progress_stage === "completed") {
-    return "สร้าง dashboard เสร็จแล้ว";
-  }
-  if (run.progress_stage === "failed") {
-    return "สร้าง dashboard ไม่สำเร็จ";
-  }
-  return "กำลังสร้าง dashboard";
-}
-
-function formatDashboardRunStatus(status: ExecutiveDashboardRunStatus) {
-  if (status === "queued") {
-    return "รอคิว";
-  }
-  if (status === "running") {
-    return "กำลังรัน";
-  }
-  if (status === "success") {
-    return "สำเร็จ";
-  }
-  if (status === "success_with_warnings") {
-    return "สำเร็จพร้อมข้อสังเกต";
-  }
-  return "ไม่สำเร็จ";
-}
-
-function dashboardStatusClassName(status: ExecutiveDashboardRunStatus) {
-  if (status === "failed") {
-    return "rounded-full border border-[#FECDCA] bg-[#FEF3F2] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#B42318]";
-  }
-  if (status === "success_with_warnings") {
-    return "rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#B54708]";
-  }
-  if (status === "success") {
-    return "rounded-full border border-[#ABEFC6] bg-[#ECFDF3] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#027A48]";
-  }
-  return "rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#1D4ED8]";
-}
-
-function formatDashboardFreshness(
-  result: ExecutiveDashboardReportResult,
-) {
-  if (result.status === "failed") {
-    return "ไม่พร้อม";
-  }
-  if (result.freshness === "fresh") {
-    return "สด";
-  }
-  if (result.freshness === "reference") {
-    return "ข้อมูลอ้างอิง";
-  }
-  return "ไม่พร้อม";
-}
-
-function dashboardFreshnessClassName(
-  result: ExecutiveDashboardReportResult | null,
-) {
-  if (!result || result.status === "failed" || result.freshness === "unavailable") {
-    return "rounded-full border border-[#FECDCA] bg-[#FEF3F2] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#B42318]";
-  }
-  if (result.freshness === "reference") {
-    return "rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#B54708]";
-  }
-  return "rounded-full border border-[#ABEFC6] bg-[#ECFDF3] px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#027A48]";
-}
-
-function formatDuration(durationMs: number) {
-  const seconds = Math.max(0, Math.round(durationMs / 1000));
-  if (seconds < 60) {
-    return `${seconds} วินาที`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return rest ? `${minutes} นาที ${rest} วินาที` : `${minutes} นาที`;
 }
 
 function isClassicSnapshot(

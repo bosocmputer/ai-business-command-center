@@ -3534,18 +3534,7 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    const dashboardAccess = await createDashboardAccessForSnapshot({
-      snapshot,
-      signingSecret,
-    }).catch((error) => {
-      request.log.warn(
-        { error, report_key: snapshot.report_key },
-        "dashboard access token creation failed",
-      );
-      return null;
-    });
-
-    return { data: snapshot, dashboard_access: dashboardAccess };
+    return { data: snapshot };
   },
 );
 
@@ -3628,18 +3617,7 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    const dashboardAccess = await createDashboardAccessForSnapshot({
-      snapshot,
-      signingSecret,
-    }).catch((error) => {
-      request.log.warn(
-        { error, report_key: snapshot.report_key },
-        "dashboard access token creation failed",
-      );
-      return null;
-    });
-
-    return { data: snapshot, dashboard_access: dashboardAccess };
+    return { data: snapshot };
   },
 );
 
@@ -3727,18 +3705,7 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    const dashboardAccess = await createDashboardAccessForSnapshot({
-      snapshot,
-      signingSecret,
-    }).catch((error) => {
-      request.log.warn(
-        { error, report_key: snapshot.report_key },
-        "dashboard access token creation failed",
-      );
-      return null;
-    });
-
-    return { data: snapshot, dashboard_access: dashboardAccess };
+    return { data: snapshot };
   },
 );
 
