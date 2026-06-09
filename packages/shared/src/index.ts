@@ -1400,11 +1400,19 @@ export const notificationPeriodStrategySchema = z.enum([
 ]);
 
 export const notificationRuleRunStatusSchema = z.enum([
+  "queued",
   "running",
   "success",
   "success_with_warnings",
   "failed",
   "skipped",
+]);
+
+export const notificationRuleRunSourceSchema = z.enum([
+  "worker_due",
+  "worker_retry",
+  "manual_test",
+  "manual_run_now",
 ]);
 
 export const notificationDigestModeSchema = z.enum([
@@ -1441,6 +1449,9 @@ export type NotificationPeriodStrategy = z.infer<
 >;
 export type NotificationRuleRunStatus = z.infer<
   typeof notificationRuleRunStatusSchema
+>;
+export type NotificationRuleRunSource = z.infer<
+  typeof notificationRuleRunSourceSchema
 >;
 export type NotificationDigestMode = z.infer<
   typeof notificationDigestModeSchema
@@ -1484,6 +1495,8 @@ export type NotificationRuleRunRecord = {
   period_strategy: NotificationPeriodStrategy;
   unknown_doc_time_count: number;
   status: NotificationRuleRunStatus;
+  mode: LineSendMode;
+  source: NotificationRuleRunSource;
   attempt: number;
   idempotency_key: string;
   report_run_ids: string[];
@@ -1491,6 +1504,10 @@ export type NotificationRuleRunRecord = {
   safe_error_message: string | null;
   started_at: string | null;
   finished_at: string | null;
+  queued_at: string | null;
+  claimed_at: string | null;
+  worker_id: string | null;
+  client_request_id: string | null;
   next_retry_at: string | null;
   created_at: string;
   updated_at: string;

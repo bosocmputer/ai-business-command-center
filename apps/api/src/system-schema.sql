@@ -216,7 +216,13 @@ create table if not exists notification_rule_runs (
   timezone text not null default 'Asia/Bangkok',
   period_from date not null,
   period_to date not null,
+  period_from_time text,
+  period_to_time text,
+  period_strategy text not null default 'executive_checkpoints',
+  unknown_doc_time_count integer not null default 0,
   status text not null,
+  mode text not null default 'send',
+  source text not null default 'worker_due',
   attempt integer not null default 1,
   idempotency_key text not null unique,
   report_run_ids_json jsonb not null default '[]'::jsonb,
@@ -224,7 +230,31 @@ create table if not exists notification_rule_runs (
   safe_error_message text,
   started_at timestamptz,
   finished_at timestamptz,
+  queued_at timestamptz,
+  claimed_at timestamptz,
+  worker_id text,
+  client_request_id text,
   next_retry_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table notification_rule_runs
+  add column if not exists period_from_time text,
+  add column if not exists period_to_time text,
+  add column if not exists period_strategy text not null default 'executive_checkpoints',
+  add column if not exists unknown_doc_time_count integer not null default 0,
+  add column if not exists mode text not null default 'send',
+  add column if not exists source text not null default 'worker_due',
+  add column if not exists queued_at timestamptz,
+  add column if not exists claimed_at timestamptz,
+  add column if not exists worker_id text,
+  add column if not exists client_request_id text;
+
+create index if not exists notification_rule_runs_queued_idx
+on notification_rule_runs (status, queued_at, created_at)
+where status = 'queued';
+
+create index if not exists notification_rule_runs_active_manual_idx
+on notification_rule_runs (rule_id, scheduled_local_date, scheduled_local_time, mode, source, status, created_at desc)
+where status in ('queued', 'running');

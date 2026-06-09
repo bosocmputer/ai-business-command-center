@@ -1,4 +1,10 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -933,20 +939,36 @@ app.post(
     if (!manualSchedule.ok) {
       return reply.status(400).send({ error: manualSchedule.error });
     }
+    const fallbackZoned = getZonedDateTimeParts({
+      now: new Date(),
+      timeZone: rule.timezone || BANGKOK_TIME_ZONE,
+    });
+    const scheduledLocalDate =
+      manualSchedule.scheduledLocalDate ?? fallbackZoned.date;
+    const scheduledLocalTime =
+      manualSchedule.scheduledLocalTime ?? fallbackZoned.time;
 
-    const result = await executeNotificationRule({
+    const queued = await enqueueManualNotificationRuleRun({
       rule,
       mode: body.data.mode ?? "dry_run",
-      force: true,
-      now: new Date(),
-      scheduledLocalDate: manualSchedule.scheduledLocalDate,
-      scheduledLocalTime: manualSchedule.scheduledLocalTime,
+      scheduledLocalDate,
+      scheduledLocalTime,
       source: "manual_test",
+      clientRequestId: body.data.client_request_id,
     });
+    kickNotificationQueueProcessor(queued.run.id);
 
-    return result.ok
-      ? { data: result }
-      : reply.status(result.statusCode).send({ error: result.error, data: result });
+    return reply.status(202).send({
+      data: {
+        ok: true,
+        accepted: true,
+        reused: queued.reused,
+        status: queued.run.status,
+        run_id: queued.run.id,
+        run: queued.run,
+        mode: queued.run.mode,
+      },
+    });
   },
 );
 
@@ -983,20 +1005,36 @@ app.post(
     if (!manualSchedule.ok) {
       return reply.status(400).send({ error: manualSchedule.error });
     }
+    const fallbackZoned = getZonedDateTimeParts({
+      now: new Date(),
+      timeZone: rule.timezone || BANGKOK_TIME_ZONE,
+    });
+    const scheduledLocalDate =
+      manualSchedule.scheduledLocalDate ?? fallbackZoned.date;
+    const scheduledLocalTime =
+      manualSchedule.scheduledLocalTime ?? fallbackZoned.time;
 
-    const result = await executeNotificationRule({
+    const queued = await enqueueManualNotificationRuleRun({
       rule,
       mode: body.data.mode ?? "send",
-      force: true,
-      now: new Date(),
-      scheduledLocalDate: manualSchedule.scheduledLocalDate,
-      scheduledLocalTime: manualSchedule.scheduledLocalTime,
+      scheduledLocalDate,
+      scheduledLocalTime,
       source: "manual_run_now",
+      clientRequestId: body.data.client_request_id,
     });
+    kickNotificationQueueProcessor(queued.run.id);
 
-    return result.ok
-      ? { data: result }
-      : reply.status(result.statusCode).send({ error: result.error, data: result });
+    return reply.status(202).send({
+      data: {
+        ok: true,
+        accepted: true,
+        reused: queued.reused,
+        status: queued.run.status,
+        run_id: queued.run.id,
+        run: queued.run,
+        mode: queued.run.mode,
+      },
+    });
   },
 );
 
@@ -2715,6 +2753,25 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
   const limit = body.data.limit ?? 20;
   const processed = [];
   const skipped = [];
+  const queuedResult = await processQueuedNotificationRuleRuns({
+    limit: Math.min(NOTIFICATION_QUEUE_BACKGROUND_LIMIT, limit),
+    workerId: body.data.worker_id ?? "worker_notification_rules",
+    now,
+  });
+  processed.push(...queuedResult.processed);
+  skipped.push(...queuedResult.skipped);
+  if (queuedResult.skipped.some((item) => item.reason === "processor_busy")) {
+    return {
+      data: {
+        processed,
+        skipped,
+        stale_failed: queuedResult.stale_failed,
+        checked_rules: 0,
+        checked_at: now.toISOString(),
+        mode,
+      },
+    };
+  }
   const rules = (await systemStore.listNotificationRules())
     .filter((rule) => rule.enabled)
     .slice(0, 500);
@@ -2758,15 +2815,31 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
         continue;
       }
 
-      const result = await executeNotificationRule({
-        rule,
-        mode,
-        force: false,
-        now,
-        scheduledLocalDate: due.date,
-        scheduledLocalTime: due.time,
-        source: "worker_due",
-      });
+      if (notificationQueueProcessorActive) {
+        skipped.push({
+          rule_id: rule.id,
+          scheduled_local_date: due.date,
+          scheduled_local_time: due.time,
+          reason: "processor_busy",
+        });
+        continue;
+      }
+      notificationQueueProcessorActive = true;
+      let result: NotificationRuleExecutionResult;
+      try {
+        result = await executeNotificationRule({
+          rule,
+          mode,
+          force: false,
+          now,
+          scheduledLocalDate: due.date,
+          scheduledLocalTime: due.time,
+          source: "worker_due",
+          workerId: body.data.worker_id ?? "worker_notification_rules",
+        });
+      } finally {
+        notificationQueueProcessorActive = false;
+      }
       processed.push(result);
     }
   }
@@ -2809,16 +2882,31 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
       continue;
     }
 
-    const result = await executeNotificationRule({
-      rule,
-      mode,
-      force: false,
-      now,
-      scheduledLocalDate: failedRun.scheduled_local_date,
-      scheduledLocalTime: failedRun.scheduled_local_time,
-      attempt: failedRun.attempt + 1,
-      source: "worker_retry",
-    });
+    if (notificationQueueProcessorActive) {
+      skipped.push({
+        rule_id: rule.id,
+        reason: "processor_busy",
+        status: failedRun.status,
+      });
+      continue;
+    }
+    notificationQueueProcessorActive = true;
+    let result: NotificationRuleExecutionResult;
+    try {
+      result = await executeNotificationRule({
+        rule,
+        mode,
+        force: false,
+        now,
+        scheduledLocalDate: failedRun.scheduled_local_date,
+        scheduledLocalTime: failedRun.scheduled_local_time,
+        attempt: failedRun.attempt + 1,
+        source: "worker_retry",
+        workerId: body.data.worker_id ?? "worker_notification_rules",
+      });
+    } finally {
+      notificationQueueProcessorActive = false;
+    }
     processed.push(result);
   }
 
@@ -2826,6 +2914,7 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
     data: {
       processed,
       skipped,
+      stale_failed: queuedResult.stale_failed,
       checked_rules: rules.length,
       checked_at: now.toISOString(),
       mode,
@@ -5657,6 +5746,31 @@ type DegradedNotificationReport = {
   preview: ReportLinePreview;
 };
 
+type NotificationRuleExecutionSource = NotificationRuleRunRecord["source"];
+
+type NotificationRuleExecutionResult =
+  | {
+      ok: true;
+      status: "sent" | "processed" | "skipped";
+      run: NotificationRuleRunRecord;
+      deliveries: LineDeliveryRecord[];
+      report_run_ids: string[];
+      mode: LineSendMode;
+    }
+  | {
+      ok: false;
+      statusCode: 403 | 424 | 500;
+      error: string;
+      run: NotificationRuleRunRecord;
+      deliveries: LineDeliveryRecord[];
+      report_run_ids: string[];
+      mode: LineSendMode;
+    };
+
+const NOTIFICATION_QUEUE_STALE_MS = 20 * 60 * 1000;
+const NOTIFICATION_QUEUE_BACKGROUND_LIMIT = 1;
+let notificationQueueProcessorActive = false;
+
 function getBusinessSignalThresholdsForTenant(tenant: Tenant) {
   const thresholds = businessSignalThresholdsSchema.parse(
     tenant.businessSignalThresholds ?? {},
@@ -5721,6 +5835,273 @@ function countUnknownDocTimeInSnapshot(snapshot: ReportSnapshot) {
   return 0;
 }
 
+function normalizeClientRequestId(value: string | undefined | null) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length <= 120 ? trimmed : randomUUID();
+}
+
+function buildManualNotificationRunId(input: {
+  ruleId: string;
+  scheduledLocalDate: string;
+  scheduledLocalTime: string;
+  mode: LineSendMode;
+  source: NotificationRuleExecutionSource;
+  clientRequestId: string;
+}) {
+  const digest = createHash("sha256")
+    .update(
+      [
+        input.ruleId,
+        input.scheduledLocalDate,
+        input.scheduledLocalTime,
+        input.mode,
+        input.source,
+        input.clientRequestId,
+      ].join("|"),
+    )
+    .digest("hex")
+    .slice(0, 20);
+  return `notification_run_${input.ruleId}_${digest}`;
+}
+
+async function enqueueManualNotificationRuleRun(input: {
+  rule: NotificationRuleRecord;
+  mode: LineSendMode;
+  scheduledLocalDate: string;
+  scheduledLocalTime: string;
+  source: "manual_test" | "manual_run_now";
+  clientRequestId?: string | null;
+}) {
+  const clientRequestId = normalizeClientRequestId(input.clientRequestId);
+  const runId = buildManualNotificationRunId({
+    ruleId: input.rule.id,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+    mode: input.mode,
+    source: input.source,
+    clientRequestId,
+  });
+  const existingById = await systemStore.getNotificationRuleRun(runId);
+  if (existingById) {
+    return { run: existingById, reused: true, clientRequestId };
+  }
+  const activeRun = await systemStore.findActiveNotificationRuleRun({
+    ruleId: input.rule.id,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+    mode: input.mode,
+    source: input.source,
+    clientRequestId,
+  });
+  if (activeRun) {
+    return { run: activeRun, reused: true, clientRequestId };
+  }
+
+  const params = deriveNotificationPeriodRange({
+    periodPreset: input.rule.period_preset,
+    periodStrategy: input.rule.period_strategy,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+    now: new Date(),
+    timeZone: input.rule.timezone,
+  });
+  const baseIdempotencyKey = buildNotificationIdempotencyKey({
+    ruleId: input.rule.id,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+  });
+  const nowIso = new Date().toISOString();
+  const run = await systemStore.upsertNotificationRuleRun({
+    id: runId,
+    rule_id: input.rule.id,
+    tenant_id: input.rule.tenant_id,
+    scheduled_local_date: input.scheduledLocalDate,
+    scheduled_local_time: input.scheduledLocalTime,
+    timezone: input.rule.timezone || BANGKOK_TIME_ZONE,
+    period_from: params.date_from,
+    period_to: params.date_to,
+    period_from_time: params.time_from ?? null,
+    period_to_time: params.time_to ?? null,
+    period_strategy: input.rule.period_strategy,
+    unknown_doc_time_count: 0,
+    status: "queued",
+    mode: input.mode,
+    source: input.source,
+    attempt: 1,
+    idempotency_key: `${baseIdempotencyKey}:${input.source}:${clientRequestId}`,
+    report_run_ids: [],
+    delivery_ids: [],
+    safe_error_message: null,
+    started_at: null,
+    finished_at: null,
+    queued_at: nowIso,
+    claimed_at: null,
+    worker_id: null,
+    client_request_id: clientRequestId,
+    next_retry_at: null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: input.rule.tenant_id,
+    actor_id: null,
+    action: "notification_rule_run_queued",
+    target_type: "notification_rule_run",
+    target_id: run.id,
+    metadata_json: {
+      notification_rule_id: input.rule.id,
+      mode: input.mode,
+      source: input.source,
+      client_request_id: clientRequestId,
+      scheduled_local_date: input.scheduledLocalDate,
+      scheduled_local_time: input.scheduledLocalTime,
+      period_from: params.date_from,
+      period_to: params.date_to,
+      period_from_time: params.time_from ?? null,
+      period_to_time: params.time_to ?? null,
+    },
+  });
+
+  return { run, reused: false, clientRequestId };
+}
+
+async function failClaimedNotificationRun(input: {
+  run: NotificationRuleRunRecord;
+  safeErrorMessage: string;
+}) {
+  const failedAt = new Date().toISOString();
+  const run = await systemStore.upsertNotificationRuleRun({
+    ...input.run,
+    status: "failed",
+    safe_error_message: input.safeErrorMessage,
+    finished_at: failedAt,
+    next_retry_at: null,
+    updated_at: failedAt,
+  });
+  const rule = await systemStore.getNotificationRule(run.rule_id);
+  if (rule) {
+    await systemStore.upsertNotificationRule({
+      ...rule,
+      last_run_at: failedAt,
+      last_run_status: "failed",
+      last_safe_error_message: input.safeErrorMessage,
+      updated_at: failedAt,
+    });
+  }
+  return run;
+}
+
+async function markStaleNotificationQueueRuns(now: Date) {
+  const failedAt = now.toISOString();
+  const staleRuns = await systemStore.markStaleNotificationRuleRunsFailed({
+    staleBefore: new Date(now.getTime() - NOTIFICATION_QUEUE_STALE_MS).toISOString(),
+    failedAt,
+    safeErrorMessage:
+      "งานแจ้งเตือนค้างนานเกินไป กรุณากดส่งใหม่หรือรอรอบถัดไป",
+  });
+  for (const run of staleRuns) {
+    const rule = await systemStore.getNotificationRule(run.rule_id);
+    if (rule) {
+      await systemStore.upsertNotificationRule({
+        ...rule,
+        last_run_at: failedAt,
+        last_run_status: "failed",
+        last_safe_error_message: run.safe_error_message,
+        updated_at: failedAt,
+      });
+    }
+  }
+  return staleRuns;
+}
+
+async function processQueuedNotificationRuleRuns(input: {
+  limit?: number;
+  workerId: string;
+  now?: Date;
+}) {
+  if (notificationQueueProcessorActive) {
+    return {
+      processed: [] as NotificationRuleExecutionResult[],
+      skipped: [{ reason: "processor_busy" }],
+      stale_failed: [] as NotificationRuleRunRecord[],
+    };
+  }
+
+  notificationQueueProcessorActive = true;
+  try {
+    const now = input.now ?? new Date();
+    const staleFailed = await markStaleNotificationQueueRuns(now);
+    const queuedRuns = await systemStore.listQueuedNotificationRuleRuns(
+      input.limit ?? NOTIFICATION_QUEUE_BACKGROUND_LIMIT,
+    );
+    const processed: NotificationRuleExecutionResult[] = [];
+    const skipped: Array<Record<string, unknown>> = [];
+
+    for (const queuedRun of queuedRuns) {
+      const claimedRun = await systemStore.claimQueuedNotificationRuleRun({
+        runId: queuedRun.id,
+        claimedAt: new Date().toISOString(),
+        workerId: input.workerId,
+      });
+      if (!claimedRun) {
+        skipped.push({ run_id: queuedRun.id, reason: "already_claimed" });
+        continue;
+      }
+
+      const rule = await systemStore.getNotificationRule(claimedRun.rule_id);
+      if (!rule || !rule.enabled) {
+        const failedRun = await failClaimedNotificationRun({
+          run: claimedRun,
+          safeErrorMessage: !rule
+            ? "ไม่พบแผนแจ้งเตือนที่คิวนี้อ้างอิง"
+            : "แผนแจ้งเตือนถูกปิดใช้งานก่อนเริ่มรัน",
+        });
+        processed.push({
+          ok: false,
+          statusCode: 424,
+          error: failedRun.safe_error_message ?? "รันแผนแจ้งเตือนไม่สำเร็จ",
+          run: failedRun,
+          deliveries: [],
+          report_run_ids: failedRun.report_run_ids,
+          mode: claimedRun.mode,
+        });
+        continue;
+      }
+
+      const result = await executeNotificationRule({
+        rule,
+        mode: claimedRun.mode,
+        force: true,
+        now,
+        scheduledLocalDate: claimedRun.scheduled_local_date,
+        scheduledLocalTime: claimedRun.scheduled_local_time,
+        attempt: claimedRun.attempt,
+        source: claimedRun.source,
+        run: claimedRun,
+        workerId: input.workerId,
+        clientRequestId: claimedRun.client_request_id,
+      });
+      processed.push(result);
+    }
+
+    return { processed, skipped, stale_failed: staleFailed };
+  } finally {
+    notificationQueueProcessorActive = false;
+  }
+}
+
+function kickNotificationQueueProcessor(runId: string) {
+  setTimeout(() => {
+    void processQueuedNotificationRuleRuns({
+      limit: NOTIFICATION_QUEUE_BACKGROUND_LIMIT,
+      workerId: "api_manual_background",
+    }).catch((err) => {
+      app.log.error({ err, runId }, "Manual notification queue processor failed");
+    });
+  }, 0);
+}
+
 async function executeNotificationRule(input: {
   rule: NotificationRuleRecord;
   mode: LineSendMode;
@@ -5729,29 +6110,20 @@ async function executeNotificationRule(input: {
   scheduledLocalDate?: string;
   scheduledLocalTime?: string;
   attempt?: number;
-  source: "worker_due" | "worker_retry" | "manual_test" | "manual_run_now";
-}): Promise<
-  | {
-      ok: true;
-      status: "sent" | "processed" | "skipped";
-      run: NotificationRuleRunRecord;
-      deliveries: LineDeliveryRecord[];
-      report_run_ids: string[];
-      mode: LineSendMode;
-    }
-  | {
-      ok: false;
-      statusCode: 403 | 424 | 500;
-      error: string;
-      run: NotificationRuleRunRecord;
-      deliveries: LineDeliveryRecord[];
-      report_run_ids: string[];
-      mode: LineSendMode;
-    }
-> {
+  source: NotificationRuleExecutionSource;
+  run?: NotificationRuleRunRecord;
+  workerId?: string | null;
+  clientRequestId?: string | null;
+}): Promise<NotificationRuleExecutionResult> {
   const tenant = await getTenantOrNull(input.rule.tenant_id);
   const zoned =
-    input.scheduledLocalDate && input.scheduledLocalTime
+    input.run
+      ? {
+          date: input.run.scheduled_local_date,
+          time: input.run.scheduled_local_time,
+          isoWeekday: 1,
+        }
+      : input.scheduledLocalDate && input.scheduledLocalTime
       ? {
           date: input.scheduledLocalDate,
           time: input.scheduledLocalTime,
@@ -5761,50 +6133,78 @@ async function executeNotificationRule(input: {
           now: input.now,
           timeZone: input.rule.timezone || BANGKOK_TIME_ZONE,
         });
-  const params = deriveNotificationPeriodRange({
-    periodPreset: input.rule.period_preset,
-    periodStrategy: input.rule.period_strategy,
-    scheduledLocalDate: zoned.date,
-    scheduledLocalTime: zoned.time,
-    now: input.now,
-    timeZone: input.rule.timezone,
-  });
-  const attempt = input.attempt ?? 1;
+  const params = input.run
+    ? {
+        date_from: input.run.period_from,
+        date_to: input.run.period_to,
+        time_from: input.run.period_from_time ?? undefined,
+        time_to: input.run.period_to_time ?? undefined,
+      }
+    : deriveNotificationPeriodRange({
+        periodPreset: input.rule.period_preset,
+        periodStrategy: input.rule.period_strategy,
+        scheduledLocalDate: zoned.date,
+        scheduledLocalTime: zoned.time,
+        now: input.now,
+        timeZone: input.rule.timezone,
+      });
+  const attempt = input.run?.attempt ?? input.attempt ?? 1;
   const baseIdempotencyKey = buildNotificationIdempotencyKey({
     ruleId: input.rule.id,
     scheduledLocalDate: zoned.date,
     scheduledLocalTime: zoned.time,
     attempt,
   });
-  const idempotencyKey = input.force
-    ? `${baseIdempotencyKey}:manual:${Date.now()}`
-    : baseIdempotencyKey;
+  const idempotencyKey =
+    input.run?.idempotency_key ??
+    (input.force
+      ? `${baseIdempotencyKey}:manual:${Date.now()}`
+      : baseIdempotencyKey);
   const nowIso = new Date().toISOString();
-  let run: NotificationRuleRunRecord = {
-    id: `notification_run_${input.rule.id}_${Date.now()}_${attempt}`,
-    rule_id: input.rule.id,
-    tenant_id: input.rule.tenant_id,
-    scheduled_local_date: zoned.date,
-    scheduled_local_time: zoned.time,
-    timezone: input.rule.timezone || BANGKOK_TIME_ZONE,
-    period_from: params.date_from,
-    period_to: params.date_to,
-    period_from_time: params.time_from ?? null,
-    period_to_time: params.time_to ?? null,
-    period_strategy: input.rule.period_strategy,
-    unknown_doc_time_count: 0,
-    status: "running",
-    attempt,
-    idempotency_key: idempotencyKey,
-    report_run_ids: [],
-    delivery_ids: [],
-    safe_error_message: null,
-    started_at: nowIso,
-    finished_at: null,
-    next_retry_at: null,
-    created_at: nowIso,
-    updated_at: nowIso,
-  };
+  let run: NotificationRuleRunRecord = input.run
+    ? {
+        ...input.run,
+        status: "running",
+        mode: input.mode,
+        source: input.source,
+        started_at: input.run.started_at ?? nowIso,
+        claimed_at: input.run.claimed_at ?? nowIso,
+        worker_id: input.workerId ?? input.run.worker_id,
+        client_request_id:
+          input.clientRequestId ?? input.run.client_request_id ?? null,
+        updated_at: nowIso,
+      }
+    : {
+        id: `notification_run_${input.rule.id}_${Date.now()}_${attempt}`,
+        rule_id: input.rule.id,
+        tenant_id: input.rule.tenant_id,
+        scheduled_local_date: zoned.date,
+        scheduled_local_time: zoned.time,
+        timezone: input.rule.timezone || BANGKOK_TIME_ZONE,
+        period_from: params.date_from,
+        period_to: params.date_to,
+        period_from_time: params.time_from ?? null,
+        period_to_time: params.time_to ?? null,
+        period_strategy: input.rule.period_strategy,
+        unknown_doc_time_count: 0,
+        status: "running",
+        mode: input.mode,
+        source: input.source,
+        attempt,
+        idempotency_key: idempotencyKey,
+        report_run_ids: [],
+        delivery_ids: [],
+        safe_error_message: null,
+        started_at: nowIso,
+        finished_at: null,
+        queued_at: null,
+        claimed_at: input.workerId ? nowIso : null,
+        worker_id: input.workerId ?? null,
+        client_request_id: input.clientRequestId ?? null,
+        next_retry_at: null,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
 
   const existingRun = input.force
     ? null
@@ -5820,7 +6220,7 @@ async function executeNotificationRule(input: {
     };
   }
 
-  run = await systemStore.upsertNotificationRuleRun(run);
+  run = input.run ? run : await systemStore.upsertNotificationRuleRun(run);
   const degradedReports: DegradedNotificationReport[] = [];
   const getDegradedAuditMetadata = () => {
     if (!degradedReports.length) {
@@ -5989,13 +6389,33 @@ async function executeNotificationRule(input: {
       }
     }
 
+    const reportStartedAt = Date.now();
     const result = await runAndPersistReportByKey({
       tenantId: input.rule.tenant_id,
       reportKey,
       params,
       requestAction: "notification_rule_report_run_requested",
     });
+    const reportDurationMs = Date.now() - reportStartedAt;
     reportRunIds.push(result.runRecord.id);
+    if (reportDurationMs >= 45_000) {
+      await systemStore.appendAuditLog({
+        tenant_id: input.rule.tenant_id,
+        actor_id: null,
+        action: "notification_rule_report_slow",
+        target_type: "report_run",
+        target_id: result.runRecord.id,
+        metadata_json: {
+          notification_rule_id: input.rule.id,
+          report_key: reportKey,
+          duration_ms: reportDurationMs,
+          source: input.source,
+          mode: input.mode,
+          scheduled_local_date: zoned.date,
+          scheduled_local_time: zoned.time,
+        },
+      });
+    }
     if (!result.ok) {
       if (
         reportKey === "stock_balance" &&
@@ -6737,7 +7157,9 @@ async function buildTenantDeleteImpact(tenant: Tenant) {
     systemStore.listLineDeliveries(tenant.id),
   ]);
 
-  const runningRuns = notificationRuns.filter((run) => run.status === "running");
+  const runningRuns = notificationRuns.filter(
+    (run) => run.status === "queued" || run.status === "running",
+  );
   const blockers = runningRuns.length
     ? [
         {
@@ -8866,6 +9288,7 @@ const notificationRuleExecuteSchema = z.object({
   mode: z.enum(["dry_run", "send"]).optional(),
   scheduled_local_date: isoDateSchema.optional(),
   scheduled_local_time: localTimeSchema.optional(),
+  client_request_id: z.string().trim().min(1).max(120).optional(),
 }).superRefine((value, ctx) => {
   if (Boolean(value.scheduled_local_date) !== Boolean(value.scheduled_local_time)) {
     ctx.addIssue({
@@ -8883,6 +9306,7 @@ const notificationRuleTickSchema = z.object({
   now: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   catch_up_minutes: z.coerce.number().int().min(0).max(60).optional(),
+  worker_id: z.string().trim().min(1).max(120).optional(),
 });
 
 const ownerTenantsQuerySchema = z.object({

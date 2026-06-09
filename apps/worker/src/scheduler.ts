@@ -81,6 +81,7 @@ export async function callNotificationRulesTick(input: {
       body: JSON.stringify({
         catch_up_minutes: input.config.catchUpMinutes,
         mode: input.config.mode,
+        worker_id: input.config.workerId,
       }),
     },
   );

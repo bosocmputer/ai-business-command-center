@@ -209,6 +209,8 @@ describe("local JSON system store", () => {
       period_strategy: "executive_checkpoints",
       unknown_doc_time_count: 0,
       status: "failed",
+      mode: "send",
+      source: "worker_due",
       attempt: 1,
       idempotency_key:
         "notification_rule:notification_rule_persisted:2026-05-19:08:00:1",
@@ -217,6 +219,10 @@ describe("local JSON system store", () => {
       safe_error_message: "LINE push failed with status 500.",
       started_at: "2026-05-19T01:00:06.000Z",
       finished_at: "2026-05-19T01:00:07.000Z",
+      queued_at: null,
+      claimed_at: null,
+      worker_id: null,
+      client_request_id: null,
       next_retry_at: "2026-05-19T01:03:07.000Z",
       created_at: "2026-05-19T01:00:06.000Z",
       updated_at: "2026-05-19T01:00:07.000Z",
@@ -468,6 +474,138 @@ describe("local JSON system store", () => {
       alreadyCancelled: true,
       tenant: { status: "cancelled", suspendedReason: "ลูกค้ายกเลิก pilot" },
     });
+
+    await store.close();
+  });
+
+  it("claims queued notification runs once and fails stale jobs", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+
+    const tenant: Tenant = {
+      id: "tenant_demo_remote",
+      name: "Demo Remote",
+      databaseName: "demo",
+      description: "test",
+      datasourceConfigured: true,
+      status: "active",
+      planCode: "business",
+      suspendedReason: null,
+      currentPeriodEnd: null,
+    };
+    const store = createSystemStore();
+    await store.initialize({
+      tenants: [tenant],
+      reportDefinitions: [
+        {
+          report_key: "sales_goods_services",
+          name: "Sales Goods and Services",
+          version: "0.1.0",
+          contract_json: {},
+        },
+      ],
+    });
+
+    const rule: NotificationRuleRecord = {
+      id: "notification_rule_queue",
+      tenant_id: "tenant_demo_remote",
+      name: "Queued digest",
+      enabled: true,
+      timezone: "Asia/Bangkok",
+      period_preset: "yesterday",
+      period_strategy: "executive_checkpoints",
+      schedule: [{ weekdays: [1, 2, 3, 4, 5, 6, 7], times: ["08:00"] }],
+      report_keys: ["sales_goods_services"],
+      target_ids: ["line_target_exec"],
+      message_packaging: "digest",
+      digest_mode: "action_only",
+      retry_policy: { max_attempts: 2, retry_delay_minutes: 3 },
+      last_run_at: null,
+      last_run_status: null,
+      last_safe_error_message: null,
+      created_at: "2026-06-09T00:55:00.000Z",
+      updated_at: "2026-06-09T00:55:00.000Z",
+    };
+    await store.upsertNotificationRule(rule);
+
+    const queuedRun: NotificationRuleRunRecord = {
+      id: "notification_run_queue",
+      rule_id: rule.id,
+      tenant_id: "tenant_demo_remote",
+      scheduled_local_date: "2026-06-09",
+      scheduled_local_time: "08:00",
+      timezone: "Asia/Bangkok",
+      period_from: "2026-06-08",
+      period_to: "2026-06-08",
+      period_from_time: "00:00",
+      period_to_time: "23:59",
+      period_strategy: "executive_checkpoints",
+      unknown_doc_time_count: 0,
+      status: "queued",
+      mode: "send",
+      source: "manual_run_now",
+      attempt: 1,
+      idempotency_key: "notification_rule:queue:2026-06-09:08:00:1:manual",
+      report_run_ids: [],
+      delivery_ids: [],
+      safe_error_message: null,
+      started_at: null,
+      finished_at: null,
+      queued_at: "2026-06-09T00:55:00.000Z",
+      claimed_at: null,
+      worker_id: null,
+      client_request_id: "client-1",
+      next_retry_at: null,
+      created_at: "2026-06-09T00:55:00.000Z",
+      updated_at: "2026-06-09T00:55:00.000Z",
+    };
+    await store.upsertNotificationRuleRun(queuedRun);
+
+    await expect(
+      store.findActiveNotificationRuleRun({
+        ruleId: rule.id,
+        scheduledLocalDate: "2026-06-09",
+        scheduledLocalTime: "08:00",
+        mode: "send",
+        source: "manual_run_now",
+        clientRequestId: "client-1",
+      }),
+    ).resolves.toMatchObject({ id: queuedRun.id, status: "queued" });
+    await expect(store.listQueuedNotificationRuleRuns(1)).resolves.toEqual([
+      expect.objectContaining({ id: queuedRun.id }),
+    ]);
+
+    const claimed = await store.claimQueuedNotificationRuleRun({
+      runId: queuedRun.id,
+      claimedAt: "2026-06-09T00:55:05.000Z",
+      workerId: "worker-test",
+    });
+    expect(claimed).toMatchObject({
+      id: queuedRun.id,
+      status: "running",
+      worker_id: "worker-test",
+    });
+    await expect(
+      store.claimQueuedNotificationRuleRun({
+        runId: queuedRun.id,
+        claimedAt: "2026-06-09T00:55:06.000Z",
+        workerId: "worker-second",
+      }),
+    ).resolves.toBeNull();
+
+    const stale = await store.markStaleNotificationRuleRunsFailed({
+      staleBefore: "2026-06-09T01:20:00.000Z",
+      failedAt: "2026-06-09T01:20:01.000Z",
+      safeErrorMessage: "stale",
+    });
+    expect(stale).toEqual([
+      expect.objectContaining({
+        id: queuedRun.id,
+        status: "failed",
+        safe_error_message: "stale",
+      }),
+    ]);
 
     await store.close();
   });

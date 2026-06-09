@@ -146,9 +146,31 @@ export type SystemStore = {
     ruleId?: string;
     limit?: number;
   }): Promise<NotificationRuleRunRecord[]>;
+  getNotificationRuleRun(id: string): Promise<NotificationRuleRunRecord | null>;
   getNotificationRuleRunByKey(
     idempotencyKey: string,
   ): Promise<NotificationRuleRunRecord | null>;
+  findActiveNotificationRuleRun(input: {
+    ruleId: string;
+    scheduledLocalDate: string;
+    scheduledLocalTime: string;
+    mode: NotificationRuleRunRecord["mode"];
+    source: NotificationRuleRunRecord["source"];
+    clientRequestId?: string | null;
+  }): Promise<NotificationRuleRunRecord | null>;
+  listQueuedNotificationRuleRuns(
+    limit?: number,
+  ): Promise<NotificationRuleRunRecord[]>;
+  claimQueuedNotificationRuleRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }): Promise<NotificationRuleRunRecord | null>;
+  markStaleNotificationRuleRunsFailed(input: {
+    staleBefore: string;
+    failedAt: string;
+    safeErrorMessage: string;
+  }): Promise<NotificationRuleRunRecord[]>;
   upsertNotificationRuleRun(
     run: NotificationRuleRunRecord,
   ): Promise<NotificationRuleRunRecord>;
@@ -619,6 +641,109 @@ class LocalJsonSystemStore implements SystemStore {
         (run) => run.idempotency_key === idempotencyKey,
       ) ?? null
     );
+  }
+
+  async getNotificationRuleRun(id: string) {
+    return (
+      this.requireData().notificationRuleRuns.find((run) => run.id === id) ??
+      null
+    );
+  }
+
+  async findActiveNotificationRuleRun(input: {
+    ruleId: string;
+    scheduledLocalDate: string;
+    scheduledLocalTime: string;
+    mode: NotificationRuleRunRecord["mode"];
+    source: NotificationRuleRunRecord["source"];
+    clientRequestId?: string | null;
+  }) {
+    const activeRuns = this.requireData().notificationRuleRuns
+      .filter(
+        (run) =>
+          run.rule_id === input.ruleId &&
+          run.scheduled_local_date === input.scheduledLocalDate &&
+          run.scheduled_local_time === input.scheduledLocalTime &&
+          run.mode === input.mode &&
+          run.source === input.source &&
+          (run.status === "queued" || run.status === "running"),
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (input.clientRequestId) {
+      const exact = activeRuns.find(
+        (run) => run.client_request_id === input.clientRequestId,
+      );
+      if (exact) {
+        return exact;
+      }
+    }
+    return activeRuns[0] ?? null;
+  }
+
+  async listQueuedNotificationRuleRuns(limit = 20) {
+    return this.requireData().notificationRuleRuns
+      .filter((run) => run.status === "queued")
+      .sort((a, b) =>
+        (a.queued_at ?? a.created_at).localeCompare(b.queued_at ?? b.created_at),
+      )
+      .slice(0, limit);
+  }
+
+  async claimQueuedNotificationRuleRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }) {
+    const data = this.requireData();
+    const existing = data.notificationRuleRuns.find(
+      (run) => run.id === input.runId,
+    );
+    if (!existing || existing.status !== "queued") {
+      return null;
+    }
+    const claimed: NotificationRuleRunRecord = {
+      ...existing,
+      status: "running",
+      started_at: existing.started_at ?? input.claimedAt,
+      claimed_at: input.claimedAt,
+      worker_id: input.workerId,
+      updated_at: input.claimedAt,
+    };
+    await this.upsertNotificationRuleRun(claimed);
+    return claimed;
+  }
+
+  async markStaleNotificationRuleRunsFailed(input: {
+    staleBefore: string;
+    failedAt: string;
+    safeErrorMessage: string;
+  }) {
+    const data = this.requireData();
+    const staleRuns: NotificationRuleRunRecord[] = [];
+    data.notificationRuleRuns = data.notificationRuleRuns.map((run) => {
+      if (run.status !== "queued" && run.status !== "running") {
+        return run;
+      }
+      const anchor =
+        run.claimed_at ?? run.started_at ?? run.queued_at ?? run.created_at;
+      if (anchor >= input.staleBefore) {
+        return run;
+      }
+      const failed: NotificationRuleRunRecord = {
+        ...run,
+        status: "failed",
+        safe_error_message: run.safe_error_message ?? input.safeErrorMessage,
+        finished_at: input.failedAt,
+        next_retry_at: null,
+        updated_at: input.failedAt,
+      };
+      staleRuns.push(failed);
+      return failed;
+    });
+    if (staleRuns.length) {
+      await this.persist();
+    }
+    return staleRuns;
   }
 
   async upsertNotificationRuleRun(run: NotificationRuleRunRecord) {
@@ -2004,6 +2129,8 @@ select
   period_strategy,
   unknown_doc_time_count,
   status,
+  mode,
+  source,
   attempt,
   idempotency_key,
   report_run_ids_json,
@@ -2011,6 +2138,10 @@ select
   safe_error_message,
   started_at,
   finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
   next_retry_at,
   created_at,
   updated_at
@@ -2043,6 +2174,8 @@ select
   period_strategy,
   unknown_doc_time_count,
   status,
+  mode,
+  source,
   attempt,
   idempotency_key,
   report_run_ids_json,
@@ -2050,6 +2183,10 @@ select
   safe_error_message,
   started_at,
   finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
   next_retry_at,
   created_at,
   updated_at
@@ -2061,6 +2198,260 @@ limit 1
     );
 
     return result.rows[0] ? mapNotificationRuleRunRow(result.rows[0]) : null;
+  }
+
+  async getNotificationRuleRun(id: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where id = $1
+limit 1
+`,
+      [id],
+    );
+
+    return result.rows[0] ? mapNotificationRuleRunRow(result.rows[0]) : null;
+  }
+
+  async findActiveNotificationRuleRun(input: {
+    ruleId: string;
+    scheduledLocalDate: string;
+    scheduledLocalTime: string;
+    mode: NotificationRuleRunRecord["mode"];
+    source: NotificationRuleRunRecord["source"];
+    clientRequestId?: string | null;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where rule_id = $1
+  and scheduled_local_date = $2::date
+  and scheduled_local_time = $3
+  and mode = $4
+  and source = $5
+  and status in ('queued', 'running')
+order by case when client_request_id = $6 then 0 else 1 end, created_at desc
+limit 1
+`,
+      [
+        input.ruleId,
+        input.scheduledLocalDate,
+        input.scheduledLocalTime,
+        input.mode,
+        input.source,
+        input.clientRequestId ?? null,
+      ],
+    );
+
+    return result.rows[0] ? mapNotificationRuleRunRow(result.rows[0]) : null;
+  }
+
+  async listQueuedNotificationRuleRuns(limit = 20) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where status = 'queued'
+order by queued_at asc nulls last, created_at asc
+limit $1
+`,
+      [limit],
+    );
+
+    return result.rows.map(mapNotificationRuleRunRow);
+  }
+
+  async claimQueuedNotificationRuleRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update notification_rule_runs
+set status = 'running',
+    started_at = coalesce(started_at, $2::timestamptz),
+    claimed_at = $2::timestamptz,
+    worker_id = $3,
+    updated_at = $2::timestamptz
+where id = $1
+  and status = 'queued'
+returning
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  created_at,
+  updated_at
+`,
+      [input.runId, input.claimedAt, input.workerId],
+    );
+
+    return result.rows[0] ? mapNotificationRuleRunRow(result.rows[0]) : null;
+  }
+
+  async markStaleNotificationRuleRunsFailed(input: {
+    staleBefore: string;
+    failedAt: string;
+    safeErrorMessage: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update notification_rule_runs
+set status = 'failed',
+    safe_error_message = coalesce(safe_error_message, $2),
+    finished_at = $3::timestamptz,
+    next_retry_at = null,
+    updated_at = $3::timestamptz
+where status in ('queued', 'running')
+  and coalesce(claimed_at, started_at, queued_at, created_at) < $1::timestamptz
+returning
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  created_at,
+  updated_at
+`,
+      [input.staleBefore, input.safeErrorMessage, input.failedAt],
+    );
+
+    return result.rows.map(mapNotificationRuleRunRow);
   }
 
   async upsertNotificationRuleRun(run: NotificationRuleRunRecord) {
@@ -2080,6 +2471,8 @@ insert into notification_rule_runs (
   period_strategy,
   unknown_doc_time_count,
   status,
+  mode,
+  source,
   attempt,
   idempotency_key,
   report_run_ids_json,
@@ -2087,13 +2480,19 @@ insert into notification_rule_runs (
   safe_error_message,
   started_at,
   finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
   next_retry_at,
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz, $22::timestamptz, $23::timestamptz)
+values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20, $21::timestamptz, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25, $26, $27::timestamptz, $28::timestamptz, $29::timestamptz)
 on conflict (id) do update
 set status = excluded.status,
+    mode = excluded.mode,
+    source = excluded.source,
     attempt = excluded.attempt,
     period_from_time = excluded.period_from_time,
     period_to_time = excluded.period_to_time,
@@ -2104,6 +2503,10 @@ set status = excluded.status,
     safe_error_message = excluded.safe_error_message,
     started_at = excluded.started_at,
     finished_at = excluded.finished_at,
+    queued_at = excluded.queued_at,
+    claimed_at = excluded.claimed_at,
+    worker_id = excluded.worker_id,
+    client_request_id = excluded.client_request_id,
     next_retry_at = excluded.next_retry_at,
     updated_at = excluded.updated_at
 returning
@@ -2120,6 +2523,8 @@ returning
   period_strategy,
   unknown_doc_time_count,
   status,
+  mode,
+  source,
   attempt,
   idempotency_key,
   report_run_ids_json,
@@ -2127,6 +2532,10 @@ returning
   safe_error_message,
   started_at,
   finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
   next_retry_at,
   created_at,
   updated_at
@@ -2145,6 +2554,8 @@ returning
         run.period_strategy,
         run.unknown_doc_time_count,
         run.status,
+        run.mode,
+        run.source,
         run.attempt,
         run.idempotency_key,
         JSON.stringify(run.report_run_ids),
@@ -2152,6 +2563,10 @@ returning
         run.safe_error_message,
         run.started_at,
         run.finished_at,
+        run.queued_at,
+        run.claimed_at,
+        run.worker_id,
+        run.client_request_id,
         run.next_retry_at,
         run.created_at,
         run.updated_at,
@@ -3000,6 +3415,8 @@ function mapNotificationRuleRunRow(
         ? row.unknown_doc_time_count
         : Number(row.unknown_doc_time_count ?? 0),
     status: row.status,
+    mode: row.mode,
+    source: row.source,
     attempt: row.attempt,
     idempotency_key: row.idempotency_key,
     report_run_ids: row.report_run_ids_json,
@@ -3011,6 +3428,15 @@ function mapNotificationRuleRunRow(
     finished_at: row.finished_at
       ? toIsoString(row.finished_at as string | Date)
       : null,
+    queued_at: row.queued_at
+      ? toIsoString(row.queued_at as string | Date)
+      : null,
+    claimed_at: row.claimed_at
+      ? toIsoString(row.claimed_at as string | Date)
+      : null,
+    worker_id: typeof row.worker_id === "string" ? row.worker_id : null,
+    client_request_id:
+      typeof row.client_request_id === "string" ? row.client_request_id : null,
     next_retry_at: row.next_retry_at
       ? toIsoString(row.next_retry_at as string | Date)
       : null,
@@ -3429,6 +3855,8 @@ function normalizeNotificationRuleRun(
         ? Math.max(0, Math.floor(run.unknown_doc_time_count))
         : 0,
     status: normalizeNotificationRunStatus(run.status, "failed"),
+    mode: normalizeLineSendMode(run.mode),
+    source: normalizeNotificationRunSource(run.source),
     attempt:
       typeof run.attempt === "number" && Number.isInteger(run.attempt)
         ? Math.max(1, run.attempt)
@@ -3446,6 +3874,11 @@ function normalizeNotificationRuleRun(
         : null,
     started_at: typeof run.started_at === "string" ? run.started_at : null,
     finished_at: typeof run.finished_at === "string" ? run.finished_at : null,
+    queued_at: typeof run.queued_at === "string" ? run.queued_at : null,
+    claimed_at: typeof run.claimed_at === "string" ? run.claimed_at : null,
+    worker_id: typeof run.worker_id === "string" ? run.worker_id : null,
+    client_request_id:
+      typeof run.client_request_id === "string" ? run.client_request_id : null,
     next_retry_at:
       typeof run.next_retry_at === "string" ? run.next_retry_at : null,
     created_at: run.created_at ?? now,
@@ -3546,6 +3979,7 @@ function normalizeNotificationRunStatus<T extends NotificationRuleRecord["last_r
   fallback: T,
 ) {
   if (
+    value === "queued" ||
     value === "running" ||
     value === "success" ||
     value === "success_with_warnings" ||
@@ -3556,6 +3990,24 @@ function normalizeNotificationRunStatus<T extends NotificationRuleRecord["last_r
   }
 
   return fallback;
+}
+
+function normalizeLineSendMode(value: unknown): NotificationRuleRunRecord["mode"] {
+  return value === "dry_run" ? "dry_run" : "send";
+}
+
+function normalizeNotificationRunSource(
+  value: unknown,
+): NotificationRuleRunRecord["source"] {
+  if (
+    value === "worker_due" ||
+    value === "worker_retry" ||
+    value === "manual_test" ||
+    value === "manual_run_now"
+  ) {
+    return value;
+  }
+  return "worker_due";
 }
 
 function normalizeLineTargets(
@@ -4040,6 +4492,8 @@ create table if not exists notification_rule_runs (
   period_strategy text not null default 'executive_checkpoints',
   unknown_doc_time_count integer not null default 0,
   status text not null,
+  mode text not null default 'send',
+  source text not null default 'worker_due',
   attempt integer not null default 1,
   idempotency_key text not null unique,
   report_run_ids_json jsonb not null default '[]'::jsonb,
@@ -4047,6 +4501,10 @@ create table if not exists notification_rule_runs (
   safe_error_message text,
   started_at timestamptz,
   finished_at timestamptz,
+  queued_at timestamptz,
+  claimed_at timestamptz,
+  worker_id text,
+  client_request_id text,
   next_retry_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -4056,7 +4514,13 @@ alter table notification_rule_runs
   add column if not exists period_from_time text,
   add column if not exists period_to_time text,
   add column if not exists period_strategy text not null default 'executive_checkpoints',
-  add column if not exists unknown_doc_time_count integer not null default 0;
+  add column if not exists unknown_doc_time_count integer not null default 0,
+  add column if not exists mode text not null default 'send',
+  add column if not exists source text not null default 'worker_due',
+  add column if not exists queued_at timestamptz,
+  add column if not exists claimed_at timestamptz,
+  add column if not exists worker_id text,
+  add column if not exists client_request_id text;
 
 create index if not exists notification_rule_runs_rule_idx
 on notification_rule_runs (rule_id, created_at desc);
@@ -4064,6 +4528,14 @@ on notification_rule_runs (rule_id, created_at desc);
 create index if not exists notification_rule_runs_retry_idx
 on notification_rule_runs (status, next_retry_at)
 where next_retry_at is not null;
+
+create index if not exists notification_rule_runs_queued_idx
+on notification_rule_runs (status, queued_at, created_at)
+where status = 'queued';
+
+create index if not exists notification_rule_runs_active_manual_idx
+on notification_rule_runs (rule_id, scheduled_local_date, scheduled_local_time, mode, source, status, created_at desc)
+where status in ('queued', 'running');
 
 create table if not exists line_targets (
   id text primary key,

@@ -184,7 +184,10 @@ type OwnerNotificationRule = NotificationRuleRecord & {
 
 type NotificationRuleRunResult = {
   ok: boolean;
-  status?: "sent" | "processed" | "skipped";
+  accepted?: boolean;
+  reused?: boolean;
+  status?: NotificationRuleRunRecord["status"] | "sent" | "processed" | "skipped";
+  run_id?: string;
   run?: NotificationRuleRunRecord;
   deliveries?: LineDeliveryRecord[];
   report_run_ids?: string[];
@@ -446,6 +449,8 @@ export default function OwnerPortal({
   );
   const [lastNotificationRunResult, setLastNotificationRunResult] =
     useState<NotificationRuleRunResult | null>(null);
+  const [pendingNotificationRunId, setPendingNotificationRunId] =
+    useState<string | null>(null);
   const [datasourceTests, setDatasourceTests] = useState<
     Record<string, DatasourceTestResult>
   >({});
@@ -714,6 +719,29 @@ export default function OwnerPortal({
     [applySystemConfigState],
   );
 
+  const refreshNotificationRuleRuns = useCallback(async (ruleId: string) => {
+    const headers = buildRememberedAdminJsonHeaders();
+    if (!headers) {
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/owner/notification-rules/${ruleId}/runs`,
+      { headers },
+    );
+    if (!response.ok) {
+      return;
+    }
+    const payload = (await response.json()) as {
+      data?: NotificationRuleRunRecord[];
+    };
+    const runs = payload.data ?? [];
+    setNotificationRuleRuns((current) => [
+      ...runs,
+      ...current.filter((run) => run.rule_id !== ruleId),
+    ]);
+  }, []);
+
   const applyNotificationRuleToForm = useCallback(
     (rule: OwnerNotificationRule) => {
       setEditingNotificationRuleId(rule.id);
@@ -732,6 +760,7 @@ export default function OwnerPortal({
       setNotificationReportKeys(rule.report_keys);
       setNotificationTargetIds(rule.target_ids);
       setLastNotificationRunResult(null);
+      setPendingNotificationRunId(null);
     },
     [],
   );
@@ -759,6 +788,7 @@ export default function OwnerPortal({
     setNotificationReportKeys(["sales_goods_services", "purchase_goods_payables"]);
     setNotificationTargetIds(defaultTargets);
     setLastNotificationRunResult(null);
+    setPendingNotificationRunId(null);
   }, [selectedTenantLineTargets]);
 
   const loadStoreSetupDetail = useCallback(async (tenantId: string) => {
@@ -845,6 +875,61 @@ export default function OwnerPortal({
   useEffect(() => {
     void loadOwnerData({ promptForToken: false });
   }, [loadOwnerData]);
+
+  useEffect(() => {
+    if (!pendingNotificationRunId || !editingNotificationRuleId) {
+      return;
+    }
+
+    const pendingRun = notificationRuleRuns.find(
+      (run) => run.id === pendingNotificationRunId,
+    );
+    if (
+      pendingRun &&
+      pendingRun.status !== "queued" &&
+      pendingRun.status !== "running"
+    ) {
+      setPendingNotificationRunId(null);
+      setLastNotificationRunResult((current) =>
+        current?.run_id === pendingNotificationRunId
+          ? {
+              ...current,
+              ok:
+                pendingRun.status === "success" ||
+                pendingRun.status === "success_with_warnings" ||
+                pendingRun.status === "skipped",
+              status: pendingRun.status,
+              run: pendingRun,
+            }
+          : current,
+      );
+      setResult({
+        tone:
+          pendingRun.status === "success" ||
+          pendingRun.status === "success_with_warnings" ||
+          pendingRun.status === "skipped"
+            ? "success"
+            : "warning",
+        message:
+          pendingRun.status === "success" ||
+          pendingRun.status === "success_with_warnings"
+            ? "รันแผนแจ้งเตือนเสร็จแล้ว ตรวจผลล่าสุดในตาราง run"
+            : pendingRun.safe_error_message ?? "รันแผนแจ้งเตือนไม่สำเร็จ",
+      });
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshNotificationRuleRuns(editingNotificationRuleId);
+    }, 2000);
+    void refreshNotificationRuleRuns(editingNotificationRuleId);
+    return () => window.clearInterval(intervalId);
+  }, [
+    editingNotificationRuleId,
+    notificationRuleRuns,
+    pendingNotificationRunId,
+    refreshNotificationRuleRuns,
+  ]);
 
   useEffect(() => {
     selectedTenantIdRef.current = selectedTenantId;
@@ -2592,6 +2677,10 @@ export default function OwnerPortal({
         if (!headers) {
           throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนทดสอบแผนแจ้งเตือน");
         }
+        const clientRequestId =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
         const response = await fetch(
           `${API_BASE_URL}/api/owner/notification-rules/${editingNotificationRuleId}/${
@@ -2604,6 +2693,7 @@ export default function OwnerPortal({
               mode,
               scheduled_local_date: notificationManualScheduledDate,
               scheduled_local_time: notificationManualScheduledTime,
+              client_request_id: clientRequestId,
             }),
           },
         );
@@ -2616,14 +2706,15 @@ export default function OwnerPortal({
         }
 
         setLastNotificationRunResult(payload.data);
+        setPendingNotificationRunId(payload.data.run_id ?? payload.data.run?.id ?? null);
         setResult({
-          tone: payload.data.ok ? "success" : "warning",
+          tone: "success",
           message:
             mode === "send"
-              ? "ส่งแผนแจ้งเตือนแล้ว ตรวจผลล่าสุดในตาราง run"
-              : "ทดสอบแผนแจ้งเตือนแบบ dry run แล้ว",
+              ? "รับงานส่งจริงแล้ว ระบบกำลังรันรายงานและจะอัปเดตผลอัตโนมัติ"
+              : "รับงานทดสอบแล้ว ระบบกำลังรันรายงานและจะอัปเดตผลอัตโนมัติ",
         });
-        await loadOwnerData();
+        await refreshNotificationRuleRuns(editingNotificationRuleId);
       },
     );
   }
@@ -5925,6 +6016,9 @@ function formatRunStatus(status: string | null) {
   }
   if (status === "failed") {
     return "ล้มเหลว";
+  }
+  if (status === "queued") {
+    return "รอคิว";
   }
   if (status === "running") {
     return "กำลังรัน";

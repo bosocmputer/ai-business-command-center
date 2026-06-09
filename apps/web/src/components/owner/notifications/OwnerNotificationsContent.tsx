@@ -41,6 +41,11 @@ type OwnerNotificationRule = NotificationRuleRecord & {
 
 type NotificationRuleRunResult = {
   ok: boolean;
+  accepted?: boolean;
+  reused?: boolean;
+  status?: NotificationRuleRunRecord["status"] | "sent" | "processed" | "skipped";
+  run_id?: string;
+  run?: NotificationRuleRunRecord;
   mode?: "dry_run" | "send";
 };
 
@@ -271,9 +276,24 @@ export function OwnerNotificationsContent({
     (selectedTenantId
       ? busy === `notification-create-${selectedTenantId}`
       : false);
-  const dryRunBusy = editingNotificationRuleId
-    ? busy === `notification-run-${editingNotificationRuleId}-dry_run`
-    : false;
+  const activeManualRun = useMemo(
+    () =>
+      selectedRuns.find(
+        (run) =>
+          (run.status === "queued" || run.status === "running") &&
+          (lastNotificationRunResult?.run_id
+            ? run.id === lastNotificationRunResult.run_id
+            : run.scheduled_local_date === notificationManualScheduledDate &&
+              run.scheduled_local_time === notificationManualScheduledTime &&
+              (run.source === "manual_test" || run.source === "manual_run_now")),
+      ) ?? null,
+    [
+      lastNotificationRunResult?.run_id,
+      notificationManualScheduledDate,
+      notificationManualScheduledTime,
+      selectedRuns,
+    ],
+  );
   const sendBusy = editingNotificationRuleId
     ? busy === `notification-run-${editingNotificationRuleId}-send`
     : false;
@@ -337,7 +357,7 @@ export function OwnerNotificationsContent({
     manualScheduleValidation,
   });
   const canExecuteManualRun =
-    !actionBlockedReason && !dryRunBusy && !sendBusy;
+    !actionBlockedReason && !sendBusy && !activeManualRun;
 
   return (
     <div className="space-y-4">
@@ -401,7 +421,7 @@ export function OwnerNotificationsContent({
                     ตั้งค่าแผนแจ้งเตือน
                   </h2>
                   <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    {selectedTenantName} · แก้ draft ได้ก่อนบันทึก แต่การทดสอบและส่งจริงจะใช้แผนที่บันทึกแล้วเท่านั้น
+                    {selectedTenantName} · แก้ draft ได้ก่อนบันทึก แต่การส่งจริงจะใช้แผนที่บันทึกแล้วเท่านั้น
                   </p>
                 </div>
                 {selectedRule?.next_run ? (
@@ -482,8 +502,8 @@ export function OwnerNotificationsContent({
           <section className="grid gap-4 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
             <ManualRunPanel
               actionBlockedReason={actionBlockedReason}
+              activeManualRun={activeManualRun}
               canExecuteManualRun={canExecuteManualRun}
-              dryRunBusy={dryRunBusy}
               isDirty={isDirty}
               lastNotificationRunResult={lastNotificationRunResult}
               manualPeriodLabel={manualPeriodLabel}
@@ -802,7 +822,8 @@ function ReportPickerSection({
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-800 dark:text-white">
                         <span>{entry.permissionLabel}</span>
-                        {reportKey === "stock_balance" ? (
+                        {reportKey === "stock_balance" ||
+                        reportKey === "ar_customer_movement" ? (
                           <Badge color="warning">รายงานหนัก</Badge>
                         ) : null}
                       </span>
@@ -1049,8 +1070,8 @@ function LineTargetSection({
 
 function ManualRunPanel({
   actionBlockedReason,
+  activeManualRun,
   canExecuteManualRun,
-  dryRunBusy,
   isDirty,
   lastNotificationRunResult,
   manualPeriodLabel,
@@ -1065,8 +1086,8 @@ function ManualRunPanel({
   setNotificationManualScheduledTime,
 }: {
   actionBlockedReason: string | null;
+  activeManualRun: NotificationRuleRunRecord | null;
   canExecuteManualRun: boolean;
-  dryRunBusy: boolean;
   isDirty: boolean;
   lastNotificationRunResult: NotificationRuleRunResult | null;
   manualPeriodLabel: string;
@@ -1085,14 +1106,26 @@ function ManualRunPanel({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            ทดสอบและส่งจริง
+            ส่งแจ้งเตือนจริง
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            เลือกรอบที่จะจำลองจากแผนที่บันทึกแล้ว
+            เลือกรอบจากแผนที่บันทึกแล้ว ระบบจะรับงานและอัปเดตผลให้อัตโนมัติ
           </p>
         </div>
-        <Badge color={manualScheduleValidation.ok && !isDirty ? "success" : "warning"}>
-          {manualScheduleValidation.ok && !isDirty ? "พร้อมรัน" : "ตรวจรอบ"}
+        <Badge
+          color={
+            activeManualRun
+              ? "warning"
+              : manualScheduleValidation.ok && !isDirty
+                ? "success"
+                : "warning"
+          }
+        >
+          {activeManualRun
+            ? formatNotificationRunStatus(activeManualRun.status)
+            : manualScheduleValidation.ok && !isDirty
+              ? "พร้อมรัน"
+              : "ตรวจรอบ"}
         </Badge>
       </div>
 
@@ -1166,28 +1199,38 @@ function ManualRunPanel({
             แผนนี้มีสต็อกคงเหลือซึ่งเป็นรายงานหนัก ระบบจะลองดึงสดก่อน ถ้าช้าเกินไปจะส่งพร้อมข้อสังเกตและข้อมูลอ้างอิงล่าสุดถ้ามี
           </p>
         ) : null}
+        {savedRule?.report_keys.includes("ar_customer_movement") ? (
+          <p className="mt-2 text-xs leading-5 text-warning-700 dark:text-warning-300">
+            แผนนี้มีเคลื่อนไหวลูกหนี้ซึ่งอาจใช้เวลานานเมื่อข้อมูลเยอะ หน้าเว็บจะรอผลแบบอัตโนมัติ 1-2 นาที
+          </p>
+        ) : null}
+        {activeManualRun ? (
+          <div className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-100">
+            รับงานแล้ว · {formatNotificationRunStatus(activeManualRun.status)} ·{" "}
+            ใช้เวลา {formatNotificationRunElapsed(activeManualRun)}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
-          disabled={!canExecuteManualRun || dryRunBusy}
-          onClick={() => void onExecuteNotificationRule("dry_run")}
-          size="sm"
-          variant="outline"
-        >
-          {dryRunBusy ? "กำลังทดสอบ..." : "ทดสอบแบบไม่ส่งจริง"}
-        </Button>
-        <Button
           disabled={!canExecuteManualRun || sendBusy}
           onClick={() => void onExecuteNotificationRule("send")}
           size="sm"
-          variant="outline"
         >
-          {sendBusy ? "กำลังส่ง..." : "ส่งจริงตอนนี้"}
+          {activeManualRun
+            ? "รอผลรันปัจจุบัน"
+            : sendBusy
+              ? "กำลังรับงาน..."
+              : "ส่งจริงตอนนี้"}
         </Button>
         {lastNotificationRunResult ? (
           <Badge color={lastNotificationRunResult.ok ? "success" : "warning"}>
-            {lastNotificationRunResult.mode ?? "dry_run"}
+            {lastNotificationRunResult.accepted
+              ? "รับงานแล้ว"
+              : lastNotificationRunResult.mode === "send"
+                ? "ส่งจริง"
+                : "รันล่าสุด"}
           </Badge>
         ) : null}
       </div>
@@ -1215,7 +1258,11 @@ function RunHistoryPanel({
         </div>
         {lastNotificationRunResult ? (
           <Badge color={lastNotificationRunResult.ok ? "success" : "warning"}>
-            {lastNotificationRunResult.mode ?? "dry_run"}
+            {lastNotificationRunResult.accepted
+              ? "รับงานแล้ว"
+              : lastNotificationRunResult.mode === "send"
+                ? "ส่งจริง"
+                : "รันล่าสุด"}
           </Badge>
         ) : null}
       </div>
@@ -1237,6 +1284,7 @@ function RunHistoryPanel({
                   {run.scheduled_local_date} {run.scheduled_local_time} ·{" "}
                   {formatNotificationPeriodStrategy()} · attempt{" "}
                   {run.attempt}
+                  {" · "}ใช้เวลา {formatNotificationRunElapsed(run)}
                   {run.unknown_doc_time_count
                     ? ` · เวลาเอกสารว่าง ${run.unknown_doc_time_count} รายการ`
                     : ""}
@@ -1617,6 +1665,9 @@ function toIsoWeekday(date: Date) {
 }
 
 function notificationRunTone(status: NotificationRuleRunRecord["status"]) {
+  if (status === "queued" || status === "running") {
+    return "warning" as const;
+  }
   if (status === "success") {
     return "success" as const;
   }
@@ -1632,6 +1683,9 @@ function notificationRunTone(status: NotificationRuleRunRecord["status"]) {
 function formatNotificationRunStatus(
   status: NotificationRuleRunRecord["status"],
 ) {
+  if (status === "queued") {
+    return "รอคิว";
+  }
   if (status === "success") {
     return "สำเร็จ";
   }
@@ -1645,4 +1699,21 @@ function formatNotificationRunStatus(
     return "กำลังรัน";
   }
   return "ข้าม";
+}
+
+function formatNotificationRunElapsed(run: NotificationRuleRunRecord) {
+  const startedAt =
+    run.started_at ?? run.claimed_at ?? run.queued_at ?? run.created_at;
+  const finishedAt = run.finished_at ?? new Date().toISOString();
+  const elapsedMs = Math.max(
+    0,
+    new Date(finishedAt).getTime() - new Date(startedAt).getTime(),
+  );
+  const seconds = Math.floor(elapsedMs / 1000);
+  if (seconds < 60) {
+    return `${seconds} วินาที`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes} นาที ${remainingSeconds} วินาที`;
 }
