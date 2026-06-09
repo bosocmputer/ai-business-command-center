@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ApexOptions } from "apexcharts";
 import {
@@ -439,6 +439,7 @@ function PremiumReportViewer({
   const [pdfDownloadState, setPdfDownloadState] = useState<PdfDownloadState>({
     status: "idle",
   });
+  const [dashboardPanelOpen, setDashboardPanelOpen] = useState(false);
 
   const title = getViewerReportTitle(snapshot);
   const generatedAt = formatDateTime(snapshot.generated_at);
@@ -724,53 +725,60 @@ function PremiumReportViewer({
     <ExecutiveDashboardModePanel
       access={dashboardAccess}
       evidenceSnapshot={initialSnapshot}
+      open={dashboardPanelOpen}
+      onOpenChange={setDashboardPanelOpen}
       tenantId={viewer.tenantId}
       tenantName={tenantName}
     />
   ) : null;
+  const dashboardNotice = dashboardAccess ? (
+    <ExecutiveDashboardAccessNotice
+      access={dashboardAccess}
+      evidenceSnapshot={initialSnapshot}
+      onOpen={() => setDashboardPanelOpen(true)}
+      tenantName={tenantName}
+    />
+  ) : null;
+  const renderWithDashboardShell = (children: ReactNode) => (
+    <>
+      {dashboardNotice}
+      {children}
+      {dashboardModePanel}
+    </>
+  );
 
   if (isStockReorderSnapshot(snapshot)) {
-    return (
-      <>
+    return renderWithDashboardShell(
         <StockReorderReportViewer
           generatedAt={generatedAt}
           snapshot={snapshot}
           tenantName={tenantName}
         />
-        {dashboardModePanel}
-      </>
     );
   }
 
   if (isArCustomerMovementSnapshot(snapshot)) {
-    return (
-      <>
+    return renderWithDashboardShell(
         <ArCustomerMovementReportViewer
           generatedAt={generatedAt}
           snapshot={snapshot}
           tenantName={tenantName}
         />
-        {dashboardModePanel}
-      </>
     );
   }
 
   if (isArDebtReceiptSnapshot(snapshot)) {
-    return (
-      <>
+    return renderWithDashboardShell(
         <ArDebtReceiptReportViewer
           generatedAt={generatedAt}
           snapshot={snapshot}
           tenantName={tenantName}
         />
-        {dashboardModePanel}
-      </>
     );
   }
 
   if (isStockBalanceSnapshot(snapshot)) {
-    return (
-      <>
+    return renderWithDashboardShell(
         <StockBalanceReportViewer
           dateFrom={dateFrom}
           dateTo={dateTo}
@@ -784,14 +792,11 @@ function PremiumReportViewer({
           snapshot={snapshot}
           tenantName={tenantName}
         />
-        {dashboardModePanel}
-      </>
     );
   }
 
   if (isGrossProfitSnapshot(snapshot)) {
-    return (
-      <>
+    return renderWithDashboardShell(
         <GrossProfitReportViewer
           dateFrom={dateFrom}
           dateTo={dateTo}
@@ -805,8 +810,6 @@ function PremiumReportViewer({
           snapshot={snapshot}
           tenantName={tenantName}
         />
-        {dashboardModePanel}
-      </>
     );
   }
 
@@ -818,7 +821,7 @@ function PremiumReportViewer({
     snapshot.quality_status === "reconciled_with_warning" ||
     Math.abs(snapshot.reconciliation.difference_amount) > 0.01;
 
-  return (
+  return renderWithDashboardShell(
     <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
       <div className="screen-report-viewer">
       <div className="border-b border-[#E4E7EC] bg-white">
@@ -1043,8 +1046,51 @@ function PremiumReportViewer({
         </section>
       </div>
       </div>
-      {dashboardModePanel}
     </main>
+  );
+}
+
+function ExecutiveDashboardAccessNotice({
+  access,
+  evidenceSnapshot,
+  onOpen,
+  tenantName,
+}: {
+  access: DashboardAccess;
+  evidenceSnapshot: ViewerReportSnapshot;
+  onOpen: () => void;
+  tenantName: string;
+}) {
+  return (
+    <div className="border-b border-[#D0D5DD] bg-[#EFF6FF] px-4 py-3 text-[#101828] print:hidden sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-[#B2DDFF] bg-white px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#175CD3]">
+              Dashboard Mode พร้อมใช้
+            </span>
+            <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[12px] font-semibold leading-[18px] text-[#475467]">
+              {formatInteger(access.allowed_report_keys.length)} รายงาน
+            </span>
+          </div>
+          <p className="mt-2 text-[14px] font-semibold leading-[22px]">
+            หน้านี้ยังเป็นหลักฐานจาก LINE รอบเดิม แต่สามารถเลือกวันที่อื่นเพื่อสร้าง dashboard ใหม่ได้
+          </p>
+          <p className="mt-1 text-[13px] leading-5 text-[#475467]">
+            {tenantName} · รอบ LINE {formatReportPeriodFromParams(
+              evidenceSnapshot.params,
+            )} · ย้อนหลังได้ {formatInteger(access.lookback_days)} วัน
+          </p>
+        </div>
+        <button
+          className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] sm:w-fit"
+          onClick={onOpen}
+          type="button"
+        >
+          วิเคราะห์วันที่อื่น
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -3337,15 +3383,18 @@ function BriefErrorState({ message }: { message: string }) {
 function ExecutiveDashboardModePanel({
   access,
   evidenceSnapshot,
+  open,
+  onOpenChange,
   tenantId,
   tenantName,
 }: {
   access: DashboardAccess;
   evidenceSnapshot: ViewerReportSnapshot;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   tenantId: string;
   tenantName: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState(evidenceSnapshot.params.date_from);
   const [dateTo, setDateTo] = useState(evidenceSnapshot.params.date_to);
   const [run, setRun] = useState<ExecutiveDashboardRun | null>(null);
@@ -3451,7 +3500,7 @@ function ExecutiveDashboardModePanel({
         {!open ? (
           <button
             className="rounded-xl bg-[#101828] px-4 py-3 text-[14px] font-semibold leading-[22px] text-white shadow-lg transition hover:bg-[#1D2939]"
-            onClick={() => setOpen(true)}
+            onClick={() => onOpenChange(true)}
             type="button"
           >
             วิเคราะห์วันที่อื่น
@@ -3473,7 +3522,7 @@ function ExecutiveDashboardModePanel({
                 </div>
                 <button
                   className="h-9 rounded-lg border border-[#D0D5DD] bg-white px-3 text-[13px] font-semibold text-[#344054]"
-                  onClick={() => setOpen(false)}
+                  onClick={() => onOpenChange(false)}
                   type="button"
                 >
                   ปิด
