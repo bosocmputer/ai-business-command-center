@@ -87,6 +87,8 @@ Before committing graph output:
 
 1. Run `corepack pnpm graph:preflight`.
 2. Confirm `graphify-out/graph.json` size is reasonable.
+   The current preflight budget is 20 MB and can be tightened or relaxed with
+   `GRAPHIFY_MAX_GRAPH_BYTES` during local review.
 3. Search the graph for `.env`, token-like strings, customer exports, screenshots, PDFs, and runtime/cache paths.
 4. Ask at least three smoke questions: `runAndPersistReportByKey`, `buildNotificationReportPreview`, `verifySignedViewerRequest`.
 5. Open source files for one answer and verify the graph's flow against real code.

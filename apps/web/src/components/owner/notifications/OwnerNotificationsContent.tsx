@@ -1303,6 +1303,14 @@ function RunHistoryPanel({
                   {run.safe_error_message}
                 </p>
               ) : null}
+              {run.report_results?.length ? (
+                <div className="lg:col-span-4">
+                  <NotificationReportResultsList
+                    compact
+                    results={run.report_results}
+                  />
+                </div>
+              ) : null}
               {isNotificationRunActive(run) ? (
                 <div className="lg:col-span-4">
                   <NotificationRunProgressCard compact run={run} />
@@ -1363,6 +1371,47 @@ function NotificationRunProgressCard({
       <p className="mt-2 text-xs leading-5 text-brand-800/80 dark:text-brand-100/80">
         ใช้เวลา {formatNotificationRunElapsed(run)}
       </p>
+      {!compact && run.report_results?.length ? (
+        <NotificationReportResultsList results={run.report_results} />
+      ) : null}
+    </div>
+  );
+}
+
+function NotificationReportResultsList({
+  compact = false,
+  results,
+}: {
+  compact?: boolean;
+  results: NonNullable<NotificationRuleRunRecord["report_results"]>;
+}) {
+  return (
+    <div
+      className={`grid gap-2 ${
+        compact ? "mt-1 sm:grid-cols-2 xl:grid-cols-4" : "mt-3 sm:grid-cols-2"
+      }`}
+    >
+      {results.map((result) => {
+        const catalog = getReportCatalogEntry(result.report_key);
+        return (
+          <div
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-800 dark:bg-gray-900/40"
+            key={result.report_key}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 truncate font-semibold text-gray-900 dark:text-white">
+                {catalog.shortLabel}
+              </p>
+              <Badge color={notificationReportResultTone(result)}>
+                {formatNotificationReportFreshness(result)}
+              </Badge>
+            </div>
+            <p className="mt-1 leading-5 text-gray-500 dark:text-gray-400">
+              {formatNotificationReportResultMeta(result)}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1729,6 +1778,52 @@ function notificationRunTone(status: NotificationRuleRunRecord["status"]) {
   return "light" as const;
 }
 
+function notificationReportResultTone(
+  result: NonNullable<NotificationRuleRunRecord["report_results"]>[number],
+) {
+  if (result.freshness === "fresh") {
+    return "success" as const;
+  }
+  if (result.status === "failed" || result.freshness === "unavailable") {
+    return "warning" as const;
+  }
+  return "light" as const;
+}
+
+function formatNotificationReportFreshness(
+  result: NonNullable<NotificationRuleRunRecord["report_results"]>[number],
+) {
+  if (result.freshness === "fresh") {
+    return "สด";
+  }
+  if (result.freshness === "reference") {
+    return "ข้อมูลอ้างอิง";
+  }
+  if (result.status === "failed") {
+    return "ไม่สำเร็จ";
+  }
+  return "ไม่พร้อม";
+}
+
+function formatNotificationReportResultMeta(
+  result: NonNullable<NotificationRuleRunRecord["report_results"]>[number],
+) {
+  const parts: string[] = [];
+  if (typeof result.duration_ms === "number") {
+    parts.push(`ใช้เวลา ${formatDurationMs(result.duration_ms)}`);
+  }
+  if (typeof result.row_count === "number") {
+    parts.push(`${result.row_count.toLocaleString("th-TH")} rows`);
+  }
+  if (result.freshness === "reference" && result.snapshot_generated_at) {
+    parts.push(`อ้างอิง ${formatThaiDateTimeShort(result.snapshot_generated_at)}`);
+  }
+  if (!parts.length && result.degraded_reason) {
+    parts.push("ข้อมูลสดไม่พร้อม");
+  }
+  return parts.join(" · ") || "รอผลรายงาน";
+}
+
 function isNotificationRunActive(run: NotificationRuleRunRecord) {
   return run.status === "queued" || run.status === "running";
 }
@@ -1812,4 +1907,29 @@ function formatNotificationRunElapsed(run: NotificationRuleRunRecord) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes} นาที ${remainingSeconds} วินาที`;
+}
+
+function formatDurationMs(durationMs: number) {
+  const seconds = Math.max(0, Math.round(durationMs / 1000));
+  if (seconds < 60) {
+    return `${seconds} วินาที`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes} นาที ${remainingSeconds} วินาที`;
+}
+
+function formatThaiDateTimeShort(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("th-TH", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Bangkok",
+  }).format(date);
 }

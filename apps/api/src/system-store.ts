@@ -16,6 +16,7 @@ import {
   type ReportKey,
   type ReportRunRecord,
   type ReportSnapshot,
+  type SalesGoodsServicesParams,
   type Tenant,
   type TenantFeatureFlags,
   type TenantId,
@@ -108,6 +109,11 @@ export type SystemStore = {
   getLatestSnapshot(
     tenantId: TenantId,
     reportKey?: ReportKey,
+  ): Promise<ReportSnapshot | null>;
+  getLatestSnapshotByParams(
+    tenantId: TenantId,
+    reportKey: ReportKey,
+    params: SalesGoodsServicesParams,
   ): Promise<ReportSnapshot | null>;
   getSnapshotByRunId(
     tenantId: TenantId,
@@ -441,6 +447,24 @@ class LocalJsonSystemStore implements SystemStore {
         .filter(
           (snapshot) =>
             snapshot.tenant_id === tenantId && snapshot.report_key === reportKey,
+        )
+        .sort((a, b) => b.generated_at.localeCompare(a.generated_at))[0] ?? null
+    );
+  }
+
+  async getLatestSnapshotByParams(
+    tenantId: TenantId,
+    reportKey: ReportKey,
+    params: SalesGoodsServicesParams,
+  ) {
+    const data = this.requireData();
+    return (
+      data.snapshots
+        .filter(
+          (snapshot) =>
+            snapshot.tenant_id === tenantId &&
+            snapshot.report_key === reportKey &&
+            sameReportParams(snapshot.params, params),
         )
         .sort((a, b) => b.generated_at.localeCompare(a.generated_at))[0] ?? null
     );
@@ -1541,6 +1565,40 @@ limit 1
     );
   }
 
+  async getLatestSnapshotByParams(
+    tenantId: TenantId,
+    reportKey: ReportKey,
+    params: SalesGoodsServicesParams,
+  ) {
+    const result = await this.pool.query(
+      `
+select snapshot_json
+from report_snapshots
+where tenant_id = $1
+  and report_key = $2
+  and snapshot_json->'params'->>'date_from' = $3
+  and snapshot_json->'params'->>'date_to' = $4
+  and coalesce(snapshot_json->'params'->>'time_from', '') = $5
+  and coalesce(snapshot_json->'params'->>'time_to', '') = $6
+order by created_at desc
+limit 1
+`,
+      [
+        tenantId,
+        reportKey,
+        params.date_from,
+        params.date_to,
+        params.time_from ?? "",
+        params.time_to ?? "",
+      ],
+    );
+
+    return (
+      (result.rows[0]?.snapshot_json as ReportSnapshot | undefined) ??
+      null
+    );
+  }
+
   async getSnapshotByRunId(
     tenantId: TenantId,
     runId: string,
@@ -2143,6 +2201,7 @@ select
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2194,6 +2253,7 @@ select
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2243,6 +2303,7 @@ select
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2299,6 +2360,7 @@ select
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2361,6 +2423,7 @@ select
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2427,6 +2490,7 @@ returning
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2489,6 +2553,7 @@ returning
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2535,6 +2600,7 @@ insert into notification_rule_runs (
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2553,7 +2619,7 @@ insert into notification_rule_runs (
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20, $21::timestamptz, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25, $26, $27::timestamptz, $28, $29, $30, $31, $32, $33::timestamptz, $34::timestamptz, $35::timestamptz)
+values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25::timestamptz, $26, $27, $28::timestamptz, $29, $30, $31, $32, $33, $34::timestamptz, $35::timestamptz, $36::timestamptz)
 on conflict (id) do update
 set status = excluded.status,
     mode = excluded.mode,
@@ -2564,6 +2630,7 @@ set status = excluded.status,
     period_strategy = excluded.period_strategy,
     unknown_doc_time_count = excluded.unknown_doc_time_count,
     report_run_ids_json = excluded.report_run_ids_json,
+    report_results_json = excluded.report_results_json,
     delivery_ids_json = excluded.delivery_ids_json,
     safe_error_message = excluded.safe_error_message,
     started_at = excluded.started_at,
@@ -2599,6 +2666,7 @@ returning
   attempt,
   idempotency_key,
   report_run_ids_json,
+  report_results_json,
   delivery_ids_json,
   safe_error_message,
   started_at,
@@ -2636,6 +2704,7 @@ returning
         run.attempt,
         run.idempotency_key,
         JSON.stringify(run.report_run_ids),
+        run.report_results ? JSON.stringify(run.report_results) : null,
         JSON.stringify(run.delivery_ids),
         run.safe_error_message,
         run.started_at,
@@ -3313,6 +3382,18 @@ function getSnapshotRowCount(snapshot: ReportSnapshot) {
   return snapshot.summary.document_count + snapshot.summary.line_count;
 }
 
+function sameReportParams(
+  left: SalesGoodsServicesParams,
+  right: SalesGoodsServicesParams,
+) {
+  return (
+    left.date_from === right.date_from &&
+    left.date_to === right.date_to &&
+    (left.time_from ?? "") === (right.time_from ?? "") &&
+    (left.time_to ?? "") === (right.time_to ?? "")
+  );
+}
+
 function toIsoString(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -3503,6 +3584,7 @@ function mapNotificationRuleRunRow(
     attempt: row.attempt,
     idempotency_key: row.idempotency_key,
     report_run_ids: row.report_run_ids_json,
+    report_results: row.report_results_json,
     delivery_ids: row.delivery_ids_json,
     safe_error_message: row.safe_error_message,
     started_at: row.started_at
@@ -3966,6 +4048,7 @@ function normalizeNotificationRuleRun(
     report_run_ids: Array.isArray(run.report_run_ids)
       ? run.report_run_ids.filter((item): item is string => typeof item === "string")
       : [],
+    report_results: normalizeNotificationReportResults(run.report_results),
     delivery_ids: Array.isArray(run.delivery_ids)
       ? run.delivery_ids.filter((item): item is string => typeof item === "string")
       : [],
@@ -4115,6 +4198,66 @@ function normalizeNotificationRunStatus<T extends NotificationRuleRecord["last_r
 function normalizeNotificationRunProgressStage(value: unknown) {
   const parsed = notificationRunProgressStageSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+function normalizeNotificationReportResults(
+  value: unknown,
+): NotificationRuleRunRecord["report_results"] {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const results = value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const result = item as Record<string, unknown>;
+      const reportKey = reportKeySchema.safeParse(result.report_key);
+      if (!reportKey.success) {
+        return null;
+      }
+      const status =
+        result.status === "success" ||
+        result.status === "success_with_warning" ||
+        result.status === "failed"
+          ? result.status
+          : null;
+      const freshness =
+        result.freshness === "fresh" ||
+        result.freshness === "reference" ||
+        result.freshness === "unavailable"
+          ? result.freshness
+          : null;
+      if (!status || !freshness) {
+        return null;
+      }
+
+      return {
+        report_key: reportKey.data,
+        status,
+        freshness,
+        run_id: typeof result.run_id === "string" ? result.run_id : null,
+        snapshot_generated_at:
+          typeof result.snapshot_generated_at === "string"
+            ? result.snapshot_generated_at
+            : null,
+        duration_ms: normalizeProgressInteger(result.duration_ms, 0, 86_400_000),
+        row_count: normalizeProgressInteger(result.row_count, 0, 1_000_000_000),
+        degraded_reason:
+          typeof result.degraded_reason === "string"
+            ? result.degraded_reason
+            : null,
+      };
+    })
+    .filter(
+      (
+        item,
+      ): item is NonNullable<NotificationRuleRunRecord["report_results"]>[number] =>
+        Boolean(item),
+    );
+
+  return results.length ? results : null;
 }
 
 function normalizeProgressReportKey(value: unknown) {
@@ -4644,6 +4787,7 @@ create table if not exists notification_rule_runs (
   attempt integer not null default 1,
   idempotency_key text not null unique,
   report_run_ids_json jsonb not null default '[]'::jsonb,
+  report_results_json jsonb,
   delivery_ids_json jsonb not null default '[]'::jsonb,
   safe_error_message text,
   started_at timestamptz,
@@ -4674,6 +4818,7 @@ alter table notification_rule_runs
   add column if not exists claimed_at timestamptz,
   add column if not exists worker_id text,
   add column if not exists client_request_id text,
+  add column if not exists report_results_json jsonb,
   add column if not exists progress_stage text,
   add column if not exists progress_percent integer,
   add column if not exists progress_current_report_key text,

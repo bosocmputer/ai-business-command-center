@@ -3,9 +3,11 @@ import type {
   DegradedReportLinePreview,
   ReportRunRecord,
   ReportSnapshot,
+  SalesGoodsServicesParams,
   StockBalanceSnapshot,
   TenantId,
 } from "@ai-bcc/shared";
+import { sameReportParams } from "./heavy-report-coalescer.js";
 
 export const STOCK_BALANCE_TIMEOUT_REASON = "stock_balance_timeout";
 export const AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON =
@@ -57,6 +59,7 @@ export function isArCustomerMovementTimeoutMessage(
 
 export function findRecentStockBalanceTimeoutRun(input: {
   runs: ReportRunRecord[];
+  params?: SalesGoodsServicesParams;
   now?: Date;
   cooldownMs?: number;
 }) {
@@ -68,6 +71,9 @@ export function findRecentStockBalanceTimeoutRun(input: {
         return false;
       }
       if (!isStockBalanceTimeoutMessage(run.safe_error_message)) {
+        return false;
+      }
+      if (input.params && !sameReportParams(run.params, input.params)) {
         return false;
       }
       const endedAt = Date.parse(run.finished_at ?? run.started_at);
@@ -82,6 +88,7 @@ export function findRecentStockBalanceTimeoutRun(input: {
 
 export function findRecentArCustomerMovementTimeoutRun(input: {
   runs: ReportRunRecord[];
+  params?: SalesGoodsServicesParams;
   now?: Date;
   cooldownMs?: number;
 }) {
@@ -96,6 +103,9 @@ export function findRecentArCustomerMovementTimeoutRun(input: {
       if (!isArCustomerMovementTimeoutMessage(run.safe_error_message)) {
         return false;
       }
+      if (input.params && !sameReportParams(run.params, input.params)) {
+        return false;
+      }
       const endedAt = Date.parse(run.finished_at ?? run.started_at);
       return (
         Number.isFinite(endedAt) &&
@@ -108,6 +118,7 @@ export function findRecentArCustomerMovementTimeoutRun(input: {
 
 export function resolveStockBalanceFallbackSnapshot(input: {
   snapshot: ReportSnapshot | null;
+  params?: SalesGoodsServicesParams;
   now?: Date;
   maxAgeMs?: number;
 }): StockBalanceFallbackSnapshot | null {
@@ -116,6 +127,9 @@ export function resolveStockBalanceFallbackSnapshot(input: {
     return null;
   }
   if (snapshot.source === "sample_snapshot") {
+    return null;
+  }
+  if (input.params && !sameReportParams(snapshot.params, input.params)) {
     return null;
   }
 
@@ -138,6 +152,7 @@ export function resolveStockBalanceFallbackSnapshot(input: {
 
 export function resolveArCustomerMovementFallbackSnapshot(input: {
   snapshot: ReportSnapshot | null;
+  params?: SalesGoodsServicesParams;
   now?: Date;
   maxAgeMs?: number;
 }): ArCustomerMovementFallbackSnapshot | null {
@@ -146,6 +161,9 @@ export function resolveArCustomerMovementFallbackSnapshot(input: {
     return null;
   }
   if (snapshot.source === "sample_snapshot") {
+    return null;
+  }
+  if (input.params && !sameReportParams(snapshot.params, input.params)) {
     return null;
   }
 

@@ -38,6 +38,7 @@ import {
   getReportCatalogEntry,
   reportKeySchema,
   type NotificationRuleRecord,
+  type NotificationReportResult,
   type NotificationRuleRunRecord,
   type NotificationRunProgressStage,
   type PurchaseGoodsPayablesSnapshot,
@@ -179,6 +180,10 @@ import {
   type ArCustomerMovementFallbackSnapshot,
   type StockBalanceFallbackSnapshot,
 } from "./heavy-report-resilience.js";
+import { createHeavyReportCoalescer } from "./heavy-report-coalescer.js";
+import {
+  getReportExecutionPolicy,
+} from "./report-execution-policy.js";
 
 const app = Fastify({
   logger: {
@@ -229,6 +234,8 @@ const reportRuntimeRegistry = createReportRuntimeRegistry({
   runArCustomerMovementReport: runAndPersistArCustomerMovementReport,
   runArDebtReceiptReport: runAndPersistArDebtReceiptReport,
 });
+const notificationHeavyReportCoalescer =
+  createHeavyReportCoalescer<Awaited<ReturnType<typeof runAndPersistReportByKey>>>();
 
 await systemStore.initialize({
   tenants: listTenants(),
@@ -5950,6 +5957,7 @@ async function enqueueManualNotificationRuleRun(input: {
     attempt: 1,
     idempotency_key: `${baseIdempotencyKey}:${input.source}:${clientRequestId}`,
     report_run_ids: [],
+    report_results: null,
     delivery_ids: [],
     safe_error_message: null,
     started_at: null,
@@ -6207,6 +6215,7 @@ async function executeNotificationRule(input: {
         progress_total_reports:
           input.run.progress_total_reports ?? totalReports,
         progress_updated_at: input.run.progress_updated_at ?? nowIso,
+        report_results: input.run.report_results ?? null,
         updated_at: nowIso,
       }
     : {
@@ -6228,6 +6237,7 @@ async function executeNotificationRule(input: {
         attempt,
         idempotency_key: idempotencyKey,
         report_run_ids: [],
+        report_results: null,
         delivery_ids: [],
         safe_error_message: null,
         started_at: nowIso,
@@ -6262,6 +6272,20 @@ async function executeNotificationRule(input: {
   }
 
   run = input.run ? run : await systemStore.upsertNotificationRuleRun(run);
+  const degradedReports: DegradedNotificationReport[] = [];
+  const reportResults: NotificationReportResult[] = [
+    ...(run.report_results ?? []),
+  ];
+  const recordReportResult = (result: NotificationReportResult) => {
+    const existingIndex = reportResults.findIndex(
+      (item) => item.report_key === result.report_key,
+    );
+    if (existingIndex >= 0) {
+      reportResults[existingIndex] = result;
+      return;
+    }
+    reportResults.push(result);
+  };
   const updateRunProgress = async (progress: {
     stage: NotificationRunProgressStage;
     percent: number;
@@ -6280,11 +6304,13 @@ async function executeNotificationRule(input: {
       progress_total_reports:
         progress.totalReports ?? run.progress_total_reports ?? totalReports,
       progress_updated_at: progressUpdatedAt,
+      report_results: reportResults.length
+        ? [...reportResults]
+        : run.report_results,
       updated_at: progressUpdatedAt,
     });
     return run;
   };
-  const degradedReports: DegradedNotificationReport[] = [];
   const getDegradedAuditMetadata = () => {
     if (!degradedReports.length) {
       return {};
@@ -6329,6 +6355,7 @@ async function executeNotificationRule(input: {
       status: update.status,
       safe_error_message: update.safeErrorMessage ?? null,
       report_run_ids: update.reportRunIds ?? run.report_run_ids,
+      report_results: reportResults.length ? [...reportResults] : null,
       delivery_ids: update.deliveryIds ?? run.delivery_ids,
       finished_at: finishedAt,
       next_retry_at: update.nextRetryAt ?? null,
@@ -6454,16 +6481,19 @@ async function executeNotificationRule(input: {
     if (reportKey === "stock_balance" && heavyReportFallbackEnabled) {
       const recentTimeoutRun = findRecentStockBalanceTimeoutRun({
         runs: await systemStore.listRuns(input.rule.tenant_id, "stock_balance"),
+        params,
       });
       if (recentTimeoutRun) {
         if (!reportRunIds.includes(recentTimeoutRun.id)) {
           reportRunIds.push(recentTimeoutRun.id);
         }
         const fallback = resolveStockBalanceFallbackSnapshot({
-          snapshot: await systemStore.getLatestSnapshot(
+          snapshot: await systemStore.getLatestSnapshotByParams(
             input.rule.tenant_id,
             "stock_balance",
+            params,
           ),
+          params,
         });
         const preview = buildDegradedStockBalancePreview({
           tenantId: input.rule.tenant_id,
@@ -6483,6 +6513,15 @@ async function executeNotificationRule(input: {
           cooldownUsed: true,
           preview,
         });
+        recordReportResult(
+          buildDegradedNotificationReportResult({
+            reportKey,
+            failedRunId: recentTimeoutRun.id,
+            fallback,
+            degradedReason: STOCK_BALANCE_TIMEOUT_REASON,
+            durationMs: null,
+          }),
+        );
         await markReportProgressDone();
         continue;
       }
@@ -6494,16 +6533,19 @@ async function executeNotificationRule(input: {
           input.rule.tenant_id,
           "ar_customer_movement",
         ),
+        params,
       });
       if (recentTimeoutRun) {
         if (!reportRunIds.includes(recentTimeoutRun.id)) {
           reportRunIds.push(recentTimeoutRun.id);
         }
         const fallback = resolveArCustomerMovementFallbackSnapshot({
-          snapshot: await systemStore.getLatestSnapshot(
+          snapshot: await systemStore.getLatestSnapshotByParams(
             input.rule.tenant_id,
             "ar_customer_movement",
+            params,
           ),
+          params,
         });
         const preview = buildDegradedArCustomerMovementPreview({
           tenantId: input.rule.tenant_id,
@@ -6523,17 +6565,27 @@ async function executeNotificationRule(input: {
           cooldownUsed: true,
           preview,
         });
+        recordReportResult(
+          buildDegradedNotificationReportResult({
+            reportKey,
+            failedRunId: recentTimeoutRun.id,
+            fallback,
+            degradedReason: AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON,
+            durationMs: null,
+          }),
+        );
         await markReportProgressDone();
         continue;
       }
     }
 
     const reportStartedAt = Date.now();
-    const result = await runAndPersistReportByKey({
+    const { result, coalesced, policy } = await runNotificationReportWithPolicy({
       tenantId: input.rule.tenant_id,
       reportKey,
       params,
       requestAction: "notification_rule_report_run_requested",
+      heavyReportFallbackEnabled,
     });
     const reportDurationMs = Date.now() - reportStartedAt;
     reportRunIds.push(result.runRecord.id);
@@ -6552,6 +6604,8 @@ async function executeNotificationRule(input: {
           mode: input.mode,
           scheduled_local_date: zoned.date,
           scheduled_local_time: zoned.time,
+          report_execution_policy: policy.mode,
+          coalesced,
         },
       });
     }
@@ -6562,10 +6616,12 @@ async function executeNotificationRule(input: {
         isStockBalanceTimeoutMessage(result.error)
       ) {
         const fallback = resolveStockBalanceFallbackSnapshot({
-          snapshot: await systemStore.getLatestSnapshot(
+          snapshot: await systemStore.getLatestSnapshotByParams(
             input.rule.tenant_id,
             "stock_balance",
+            params,
           ),
+          params,
         });
         const preview = buildDegradedStockBalancePreview({
           tenantId: input.rule.tenant_id,
@@ -6583,6 +6639,15 @@ async function executeNotificationRule(input: {
           cooldownUsed: false,
           preview,
         });
+        recordReportResult(
+          buildDegradedNotificationReportResult({
+            reportKey,
+            failedRunId: result.runRecord.id,
+            fallback,
+            degradedReason: STOCK_BALANCE_TIMEOUT_REASON,
+            durationMs: reportDurationMs,
+          }),
+        );
         await markReportProgressDone();
         continue;
       }
@@ -6592,10 +6657,12 @@ async function executeNotificationRule(input: {
         isArCustomerMovementTimeoutMessage(result.error)
       ) {
         const fallback = resolveArCustomerMovementFallbackSnapshot({
-          snapshot: await systemStore.getLatestSnapshot(
+          snapshot: await systemStore.getLatestSnapshotByParams(
             input.rule.tenant_id,
             "ar_customer_movement",
+            params,
           ),
+          params,
         });
         const preview = buildDegradedArCustomerMovementPreview({
           tenantId: input.rule.tenant_id,
@@ -6613,9 +6680,25 @@ async function executeNotificationRule(input: {
           cooldownUsed: false,
           preview,
         });
+        recordReportResult(
+          buildDegradedNotificationReportResult({
+            reportKey,
+            failedRunId: result.runRecord.id,
+            fallback,
+            degradedReason: AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON,
+            durationMs: reportDurationMs,
+          }),
+        );
         await markReportProgressDone();
         continue;
       }
+      recordReportResult(
+        buildFailedNotificationReportResult({
+          reportKey,
+          runRecord: result.runRecord,
+          durationMs: reportDurationMs,
+        }),
+      );
       if (businessSignalsEnabled) {
         await persistBusinessSignals(
           [
@@ -6636,6 +6719,14 @@ async function executeNotificationRule(input: {
       }
       return failRun(result.error, result.statusCode, reportRunIds);
     }
+    recordReportResult(
+      buildFreshNotificationReportResult({
+        reportKey,
+        runRecord: result.runRecord,
+        snapshot: result.snapshot,
+        durationMs: reportDurationMs,
+      }),
+    );
     snapshots.push(result.snapshot);
     await markReportProgressDone();
   }
@@ -7051,6 +7142,120 @@ function validateManualNotificationSchedule(input: {
     scheduledLocalDate: input.scheduledLocalDate,
     scheduledLocalTime: input.scheduledLocalTime,
   };
+}
+
+async function runNotificationReportWithPolicy(input: {
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+  heavyReportFallbackEnabled: boolean;
+}) {
+  const policy = getReportExecutionPolicy(input.reportKey);
+  if (
+    !input.heavyReportFallbackEnabled ||
+    policy.mode !== "fresh_first_with_reference_fallback"
+  ) {
+    return {
+      result: await runAndPersistReportByKey(input),
+      coalesced: false,
+      policy,
+    };
+  }
+
+  const coalesced = await notificationHeavyReportCoalescer.run({
+    tenantId: input.tenantId,
+    reportKey: input.reportKey,
+    params: input.params,
+    runner: () => runAndPersistReportByKey(input),
+  });
+
+  return {
+    result: coalesced.value,
+    coalesced: coalesced.coalesced,
+    policy,
+  };
+}
+
+function buildFreshNotificationReportResult(input: {
+  reportKey: ReportKey;
+  runRecord: ReportRunRecord;
+  snapshot: ReportSnapshot;
+  durationMs: number;
+}): NotificationReportResult {
+  return {
+    report_key: input.reportKey,
+    status: "success",
+    freshness: "fresh",
+    run_id: input.runRecord.id,
+    snapshot_generated_at: input.snapshot.generated_at,
+    duration_ms: Math.max(0, Math.round(input.durationMs)),
+    row_count: input.runRecord.row_count,
+    degraded_reason: null,
+  };
+}
+
+function buildFailedNotificationReportResult(input: {
+  reportKey: ReportKey;
+  runRecord: ReportRunRecord;
+  durationMs: number;
+  degradedReason?: string | null;
+}): NotificationReportResult {
+  return {
+    report_key: input.reportKey,
+    status: "failed",
+    freshness: "unavailable",
+    run_id: input.runRecord.id,
+    snapshot_generated_at: null,
+    duration_ms: Math.max(0, Math.round(input.durationMs)),
+    row_count: input.runRecord.row_count,
+    degraded_reason: input.degradedReason ?? null,
+  };
+}
+
+function buildDegradedNotificationReportResult(input: {
+  reportKey: ReportKey;
+  failedRunId: string;
+  fallback: StockBalanceFallbackSnapshot | ArCustomerMovementFallbackSnapshot | null;
+  degradedReason: string;
+  durationMs?: number | null;
+}): NotificationReportResult {
+  const snapshot = input.fallback?.snapshot ?? null;
+  return {
+    report_key: input.reportKey,
+    status: "success_with_warning",
+    freshness: snapshot ? "reference" : "unavailable",
+    run_id: snapshot?.run_id ?? input.failedRunId,
+    snapshot_generated_at: snapshot?.generated_at ?? null,
+    duration_ms:
+      typeof input.durationMs === "number"
+        ? Math.max(0, Math.round(input.durationMs))
+        : null,
+    row_count: snapshot ? getSnapshotRowCount(snapshot) : null,
+    degraded_reason: input.degradedReason,
+  };
+}
+
+function getSnapshotRowCount(snapshot: ReportSnapshot) {
+  if (snapshot.report_key === "stock_balance") {
+    return snapshot.summary.sku_count;
+  }
+  if (snapshot.report_key === "stock_reorder") {
+    return snapshot.summary.reorder_count;
+  }
+  if (snapshot.report_key === "ar_customer_movement") {
+    return snapshot.summary.document_count;
+  }
+  if (snapshot.report_key === "ar_debt_receipt") {
+    return snapshot.summary.receipt_count;
+  }
+  if (
+    snapshot.report_key === "gross_profit_by_product" ||
+    snapshot.report_key === "gross_profit_by_ar_customer"
+  ) {
+    return snapshot.summary.row_count;
+  }
+  return snapshot.summary.document_count + snapshot.summary.line_count;
 }
 
 async function runAndPersistReportByKey(input: {

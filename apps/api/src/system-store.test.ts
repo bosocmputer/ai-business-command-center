@@ -112,6 +112,23 @@ describe("local JSON system store", () => {
     const latest = await firstStore.getLatestSnapshot("tenant_demo_remote");
     expect(latest?.tenant_id).toBe("tenant_demo_remote");
     await expect(
+      firstStore.getLatestSnapshotByParams(
+        "tenant_demo_remote",
+        "sales_goods_services",
+        latest?.params ?? { date_from: "2026-05-18", date_to: "2026-05-18" },
+      ),
+    ).resolves.toMatchObject({
+      tenant_id: "tenant_demo_remote",
+      report_key: "sales_goods_services",
+    });
+    await expect(
+      firstStore.getLatestSnapshotByParams(
+        "tenant_demo_remote",
+        "sales_goods_services",
+        { date_from: "2099-01-01", date_to: "2099-01-01" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
       firstStore.getSnapshotByRunId(
         "tenant_demo_remote",
         latest?.run_id ?? "missing",
@@ -215,6 +232,18 @@ describe("local JSON system store", () => {
       idempotency_key:
         "notification_rule:notification_rule_persisted:2026-05-19:08:00:1",
       report_run_ids: [run.id],
+      report_results: [
+        {
+          report_key: "sales_goods_services",
+          status: "failed",
+          freshness: "unavailable",
+          run_id: run.id,
+          snapshot_generated_at: null,
+          duration_ms: 1000,
+          row_count: 0,
+          degraded_reason: null,
+        },
+      ],
       delivery_ids: [delivery.id],
       safe_error_message: "LINE push failed with status 500.",
       started_at: "2026-05-19T01:00:06.000Z",
@@ -342,6 +371,12 @@ describe("local JSON system store", () => {
       id: notificationRun.id,
       status: "failed",
       next_retry_at: "2026-05-19T01:03:07.000Z",
+      report_results: [
+        expect.objectContaining({
+          report_key: "sales_goods_services",
+          freshness: "unavailable",
+        }),
+      ],
     });
     await secondStore.close();
   });
@@ -554,6 +589,7 @@ describe("local JSON system store", () => {
       attempt: 1,
       idempotency_key: "notification_rule:queue:2026-06-09:08:00:1:manual",
       report_run_ids: [],
+      report_results: null,
       delivery_ids: [],
       safe_error_message: null,
       started_at: null,

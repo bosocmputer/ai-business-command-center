@@ -1466,6 +1466,24 @@ export type NotificationRuleRunSource = z.infer<
 export type NotificationRunProgressStage = z.infer<
   typeof notificationRunProgressStageSchema
 >;
+export type NotificationReportResultStatus =
+  | "success"
+  | "success_with_warning"
+  | "failed";
+export type NotificationReportFreshness =
+  | "fresh"
+  | "reference"
+  | "unavailable";
+export type NotificationReportResult = {
+  report_key: ReportKey;
+  status: NotificationReportResultStatus;
+  freshness: NotificationReportFreshness;
+  run_id: string | null;
+  snapshot_generated_at: string | null;
+  duration_ms: number | null;
+  row_count: number | null;
+  degraded_reason: string | null;
+};
 export type NotificationDigestMode = z.infer<
   typeof notificationDigestModeSchema
 >;
@@ -1513,6 +1531,7 @@ export type NotificationRuleRunRecord = {
   attempt: number;
   idempotency_key: string;
   report_run_ids: string[];
+  report_results: NotificationReportResult[] | null;
   delivery_ids: string[];
   safe_error_message: string | null;
   started_at: string | null;

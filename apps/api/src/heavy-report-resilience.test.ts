@@ -68,6 +68,16 @@ describe("heavy report resilience", () => {
     expect(findRecentStockBalanceTimeoutRun({ runs, now })?.id).toBe(
       "run_timeout_recent",
     );
+    expect(
+      findRecentStockBalanceTimeoutRun({
+        runs,
+        now,
+        params: {
+          date_from: "2026-06-08",
+          date_to: "2026-06-08",
+        },
+      }),
+    ).toBeNull();
   });
 
   it("uses cooldown only for recent AR customer movement timeout runs", () => {
@@ -100,6 +110,16 @@ describe("heavy report resilience", () => {
     expect(findRecentArCustomerMovementTimeoutRun({ runs, now })?.id).toBe(
       "run_ar_timeout_recent",
     );
+    expect(
+      findRecentArCustomerMovementTimeoutRun({
+        runs,
+        now,
+        params: {
+          date_from: "2026-06-08",
+          date_to: "2026-06-08",
+        },
+      }),
+    ).toBeNull();
   });
 
   it("accepts only recent real stock balance snapshots as fallback", () => {
@@ -132,6 +152,18 @@ describe("heavy report resilience", () => {
         now: new Date("2026-06-09T11:00:00.000Z"),
       }),
     ).toBeNull();
+    expect(
+      resolveStockBalanceFallbackSnapshot({
+        snapshot,
+        params: {
+          date_from: "2026-06-08",
+          date_to: "2026-06-08",
+          time_from: "00:00",
+          time_to: "23:59",
+        },
+        now: new Date("2026-06-09T11:00:00.000Z"),
+      }),
+    ).toBeNull();
   });
 
   it("accepts only recent real AR customer movement snapshots as fallback", () => {
@@ -161,6 +193,18 @@ describe("heavy report resilience", () => {
           generated_at: "2026-06-09T10:30:00.000Z",
           source: "sample_snapshot",
         }),
+        now: new Date("2026-06-09T11:00:00.000Z"),
+      }),
+    ).toBeNull();
+    expect(
+      resolveArCustomerMovementFallbackSnapshot({
+        snapshot,
+        params: {
+          date_from: "2026-06-08",
+          date_to: "2026-06-08",
+          time_from: "00:00",
+          time_to: "23:59",
+        },
         now: new Date("2026-06-09T11:00:00.000Z"),
       }),
     ).toBeNull();
