@@ -35,6 +35,7 @@ import {
   type TopSupplier,
 } from "@ai-bcc/shared";
 import { getCommandCenterApiBaseUrl } from "./apiBaseUrl";
+import { ExecutiveDetailDashboardV2 } from "./ExecutiveDetailDashboardV2";
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
@@ -329,6 +330,7 @@ export default function CommandCenterBriefViewer() {
     "sales_goods_services") as ReportKey;
   const runId = searchParams.get("run_id");
   const token = searchParams.get("token");
+  const viewerVersion = searchParams.get("viewer_version");
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   useEffect(() => {
@@ -397,16 +399,28 @@ export default function CommandCenterBriefViewer() {
     return <BriefErrorState message={state.message} />;
   }
 
+  const viewer = {
+    tenantId: tenantId!,
+    reportKey: state.snapshot.report_key,
+    runId: runId!,
+    token: token!,
+  };
+
+  if (viewerVersion === "v1") {
+    return (
+      <PremiumReportViewer
+        dashboardAccess={state.dashboardAccess}
+        initialSnapshot={state.snapshot}
+        viewer={viewer}
+      />
+    );
+  }
+
   return (
-    <PremiumReportViewer
+    <ExecutiveDetailDashboardV2
       dashboardAccess={state.dashboardAccess}
       initialSnapshot={state.snapshot}
-      viewer={{
-        tenantId: tenantId!,
-        reportKey: state.snapshot.report_key,
-        runId: runId!,
-        token: token!,
-      }}
+      viewer={viewer}
     />
   );
 }
