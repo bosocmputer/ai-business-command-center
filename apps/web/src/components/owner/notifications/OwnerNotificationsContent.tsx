@@ -792,7 +792,7 @@ function ReportPickerSection({
         {selectedReportPreset === "executive_full" ? (
           <p className="mt-3 rounded-lg border border-success-200 bg-success-50 px-3 py-2 text-xs leading-5 text-success-800 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-100">
             ชุดนี้ส่งครบ 8 ใบ เหมาะกับผู้บริหารที่ต้องการเห็นตัวเลขครบทุกเช้า
-            สต็อกคงเหลือจะลองดึงสดก่อน ถ้าช้าเกินไป LINE จะส่งรายงานอื่นและแจ้งสถานะสต็อกแทน
+            รายงานหนักจะลองดึงสดก่อน ถ้าช้าเกินไป LINE จะส่งรายงานอื่นและแจ้งสถานะพร้อมข้อมูลอ้างอิงล่าสุดถ้ามี
           </p>
         ) : null}
       </div>
@@ -1201,7 +1201,7 @@ function ManualRunPanel({
         ) : null}
         {savedRule?.report_keys.includes("ar_customer_movement") ? (
           <p className="mt-2 text-xs leading-5 text-warning-700 dark:text-warning-300">
-            แผนนี้มีเคลื่อนไหวลูกหนี้ซึ่งอาจใช้เวลานานเมื่อข้อมูลเยอะ หน้าเว็บจะรอผลแบบอัตโนมัติ 1-2 นาที
+            แผนนี้มีเคลื่อนไหวลูกหนี้ซึ่งเป็นรายงานหนัก ระบบจะลองดึงสดก่อน ถ้าช้าเกินไปจะส่งพร้อมข้อสังเกตและข้อมูลอ้างอิงล่าสุดถ้ามี
           </p>
         ) : null}
         {activeManualRun ? (

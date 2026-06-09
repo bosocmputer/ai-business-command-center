@@ -166,11 +166,17 @@ import {
   runReportRuntimeEntry,
 } from "./report-registry.js";
 import {
+  AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON,
+  STOCK_BALANCE_TIMEOUT_REASON,
+  buildDegradedArCustomerMovementPreview,
   buildDegradedStockBalancePreview,
-  buildStockBalanceDegradationAuditMetadata,
+  findRecentArCustomerMovementTimeoutRun,
   findRecentStockBalanceTimeoutRun,
+  isArCustomerMovementTimeoutMessage,
   isStockBalanceTimeoutMessage,
+  resolveArCustomerMovementFallbackSnapshot,
   resolveStockBalanceFallbackSnapshot,
+  type ArCustomerMovementFallbackSnapshot,
   type StockBalanceFallbackSnapshot,
 } from "./heavy-report-resilience.js";
 
@@ -5738,11 +5744,24 @@ function isHeavyReportFallbackEnabled(tenant: Tenant) {
   return getTenantFeatureFlags(tenant).line_heavy_report_fallback_enabled;
 }
 
+function formatDegradedReportNames(reportKeys: ReportKey[]) {
+  const uniqueKeys = [...new Set(reportKeys)];
+  return uniqueKeys
+    .map((reportKey) => getReportCatalogEntry(reportKey).shortLabel)
+    .join(", ");
+}
+
 type DegradedNotificationReport = {
-  reportKey: "stock_balance";
+  reportKey: "stock_balance" | "ar_customer_movement";
+  degradedReason:
+    | typeof STOCK_BALANCE_TIMEOUT_REASON
+    | typeof AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON;
   failedRunId: string;
   safeErrorMessage: string;
-  fallback: StockBalanceFallbackSnapshot | null;
+  fallback:
+    | StockBalanceFallbackSnapshot
+    | ArCustomerMovementFallbackSnapshot
+    | null;
   cooldownUsed: boolean;
   preview: ReportLinePreview;
 };
@@ -6272,12 +6291,18 @@ async function executeNotificationRule(input: {
     }
     const primary = degradedReports[0];
     return {
-      ...buildStockBalanceDegradationAuditMetadata({
-        fallback: primary.fallback,
-        cooldownUsed: primary.cooldownUsed,
-      }),
+      degraded_report_keys: degradedReports.map((report) => report.reportKey),
+      degraded_reason: primary.degradedReason,
+      fallback_source_run_id: primary.fallback?.snapshot.run_id ?? null,
+      fallback_snapshot_generated_at:
+        primary.fallback?.snapshot.generated_at ?? null,
+      fallback_snapshot_age_hours: primary.fallback?.ageHours ?? null,
+      heavy_report_cooldown_used: degradedReports.some(
+        (report) => report.cooldownUsed,
+      ),
       degraded_reports: degradedReports.map((report) => ({
         report_key: report.reportKey,
+        degraded_reason: report.degradedReason,
         failed_run_id: report.failedRunId,
         safe_error_message: report.safeErrorMessage,
         fallback_source_run_id: report.fallback?.snapshot.run_id ?? null,
@@ -6449,10 +6474,51 @@ async function executeNotificationRule(input: {
         });
         degradedReports.push({
           reportKey: "stock_balance",
+          degradedReason: STOCK_BALANCE_TIMEOUT_REASON,
           failedRunId: recentTimeoutRun.id,
           safeErrorMessage:
             recentTimeoutRun.safe_error_message ??
             "รายงานสต็อกคงเหลือใช้เวลานานเกินไป",
+          fallback,
+          cooldownUsed: true,
+          preview,
+        });
+        await markReportProgressDone();
+        continue;
+      }
+    }
+
+    if (reportKey === "ar_customer_movement" && heavyReportFallbackEnabled) {
+      const recentTimeoutRun = findRecentArCustomerMovementTimeoutRun({
+        runs: await systemStore.listRuns(
+          input.rule.tenant_id,
+          "ar_customer_movement",
+        ),
+      });
+      if (recentTimeoutRun) {
+        if (!reportRunIds.includes(recentTimeoutRun.id)) {
+          reportRunIds.push(recentTimeoutRun.id);
+        }
+        const fallback = resolveArCustomerMovementFallbackSnapshot({
+          snapshot: await systemStore.getLatestSnapshot(
+            input.rule.tenant_id,
+            "ar_customer_movement",
+          ),
+        });
+        const preview = buildDegradedArCustomerMovementPreview({
+          tenantId: input.rule.tenant_id,
+          tenantName: tenant.name,
+          failedRunId: recentTimeoutRun.id,
+          fallback,
+          cooldownUsed: true,
+        });
+        degradedReports.push({
+          reportKey: "ar_customer_movement",
+          degradedReason: AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON,
+          failedRunId: recentTimeoutRun.id,
+          safeErrorMessage:
+            recentTimeoutRun.safe_error_message ??
+            "รายงานเคลื่อนไหวลูกหนี้ใช้เวลานานเกินไป",
           fallback,
           cooldownUsed: true,
           preview,
@@ -6510,6 +6576,37 @@ async function executeNotificationRule(input: {
         });
         degradedReports.push({
           reportKey: "stock_balance",
+          degradedReason: STOCK_BALANCE_TIMEOUT_REASON,
+          failedRunId: result.runRecord.id,
+          safeErrorMessage: result.error,
+          fallback,
+          cooldownUsed: false,
+          preview,
+        });
+        await markReportProgressDone();
+        continue;
+      }
+      if (
+        reportKey === "ar_customer_movement" &&
+        heavyReportFallbackEnabled &&
+        isArCustomerMovementTimeoutMessage(result.error)
+      ) {
+        const fallback = resolveArCustomerMovementFallbackSnapshot({
+          snapshot: await systemStore.getLatestSnapshot(
+            input.rule.tenant_id,
+            "ar_customer_movement",
+          ),
+        });
+        const preview = buildDegradedArCustomerMovementPreview({
+          tenantId: input.rule.tenant_id,
+          tenantName: tenant.name,
+          failedRunId: result.runRecord.id,
+          fallback,
+          cooldownUsed: false,
+        });
+        degradedReports.push({
+          reportKey: "ar_customer_movement",
+          degradedReason: AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON,
           failedRunId: result.runRecord.id,
           safeErrorMessage: result.error,
           fallback,
@@ -6846,7 +6943,9 @@ async function executeNotificationRule(input: {
   }
 
   const completedWithWarningsMessage = degradedReports.length
-    ? "ส่งสำเร็จพร้อมข้อสังเกต: สต็อกคงเหลือข้อมูลสดไม่พร้อม"
+    ? `ส่งสำเร็จพร้อมข้อสังเกต: ${formatDegradedReportNames(
+        degradedReports.map((report) => report.reportKey),
+      )} ข้อมูลสดไม่พร้อม`
     : null;
   await finishRun({
     status: deliveries.length
