@@ -709,6 +709,8 @@ function buildPurchaseGoodsPayablesFlexMessage(input: {
   const { snapshot } = input;
   const topSupplier = snapshot.top_suppliers[0];
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "ซื้อ · รายวัน",
     title: "ซื้อ/ตั้งหนี้",
     subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
@@ -722,7 +724,11 @@ function buildPurchaseGoodsPayablesFlexMessage(input: {
     )}: ${formatMoney(snapshot.summary.total_purchase)} บาท`,
     generatedAt: input.generatedAt,
     status: getPurchaseDigestStatus(snapshot),
-    primaryAmount: `${formatMoney(snapshot.summary.total_purchase)} บาท`,
+    primaryAmount: {
+      value: formatMoney(snapshot.summary.total_purchase),
+      unit: "บาท",
+      compact: true,
+    },
     metrics: [
       {
         label: "เอกสารซื้อ",

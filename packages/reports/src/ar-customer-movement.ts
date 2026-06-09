@@ -401,6 +401,8 @@ function buildArCustomerMovementFlexMessage(input: {
   const topCustomer = snapshot.top_customers[0] ?? null;
 
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "ลูกหนี้ · สะสม",
     title: "เคลื่อนไหวลูกหนี้",
     subtitle: `${input.tenantName} · ${input.asOf}`,
     altText: `เคลื่อนไหวลูกหนี้ ${input.tenantName}: สุทธิ ${formatMoney(
@@ -408,7 +410,11 @@ function buildArCustomerMovementFlexMessage(input: {
     )} บาท`,
     generatedAt: input.generatedAt,
     status: getArMovementDigestStatus(snapshot),
-    primaryAmount: `${formatMoney(snapshot.summary.net_movement_amount)} บาท`,
+    primaryAmount: {
+      value: formatMoney(snapshot.summary.net_movement_amount),
+      unit: "บาท",
+      compact: true,
+    },
     metrics: [
       {
         label: "ลูกหนี้",
@@ -434,7 +440,8 @@ function buildArCustomerMovementFlexMessage(input: {
           )} บาท`,
         }
       : { label: "ลูกหนี้มูลค่าสูง", value: "ยังไม่มีเอกสารเคลื่อนไหว" },
-    note: "ข้อมูลถึงวันที่จาก SML ไม่ใช่ aging หรือรายงานยอดเปิดบิล และไม่ตัดตามเวลาแจ้งเตือน",
+    note: "ข้อมูลสะสมถึงวันที่จาก SML ใช้ดูการเคลื่อนไหวลูกหนี้ ไม่ใช่รายงานจัดอายุหนี้",
+    noteTone: "neutral",
     dashboardUrl: input.dashboardUrl,
   });
 }
@@ -445,10 +452,7 @@ function getArMovementDigestStatus(
   if (snapshot.summary.document_count === 0) {
     return { text: "ไม่มีข้อมูล", severity: "notice" };
   }
-  if (snapshot.summary.net_movement_amount > 0) {
-    return { text: "มีข้อสังเกต", severity: "notice" };
-  }
-  return { text: "พร้อมใช้", severity: "ready" };
+  return { text: "ข้อมูลสะสม", severity: "ready" };
 }
 
 function resolveQualityStatus(
@@ -458,7 +462,7 @@ function resolveQualityStatus(
 }
 
 function formatArMovementAsOf(dateTo: string) {
-  return `ข้อมูลถึงวันที่ ${formatDateSlash(dateTo)}`;
+  return `ข้อมูลสะสมถึงวันที่ ${formatDateSlash(dateTo)}`;
 }
 
 function formatDateSlash(ymd: string) {

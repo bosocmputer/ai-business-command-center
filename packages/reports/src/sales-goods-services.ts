@@ -865,6 +865,8 @@ function buildSalesGoodsServicesFlexMessage(input: {
 
   const firstProduct = snapshot.top_products[0];
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "ขาย · รายวัน",
     title: "ขายสินค้าและบริการ",
     subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
@@ -878,7 +880,11 @@ function buildSalesGoodsServicesFlexMessage(input: {
     )}: ${formatMoney(snapshot.summary.total_sales)} บาท`,
     generatedAt: input.generatedAt,
     status: getSalesDigestStatus(snapshot),
-    primaryAmount: `${formatMoney(snapshot.summary.total_sales)} บาท`,
+    primaryAmount: {
+      value: formatMoney(snapshot.summary.total_sales),
+      unit: "บาท",
+      compact: true,
+    },
     metrics: [
       { label: "บิลขาย", value: `${formatInteger(snapshot.summary.document_count)} ใบ` },
       {
@@ -914,6 +920,8 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
   const { snapshot } = input;
   const comparisonText = formatEmptyComparisonSummary(snapshot);
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "ขาย · รายวัน",
     title: "ขายสินค้าและบริการ",
     subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
@@ -927,7 +935,7 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
     )}`,
     generatedAt: input.generatedAt,
     status: { text: "ไม่มีข้อมูล", severity: "notice" },
-    primaryAmount: "0.00 บาท",
+    primaryAmount: { value: "0.00", unit: "บาท" },
     metrics: [
       { label: "บิลขาย", value: "0 ใบ" },
       { label: "รายการขาย", value: "0 รายการ" },

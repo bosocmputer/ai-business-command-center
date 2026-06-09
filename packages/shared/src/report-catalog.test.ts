@@ -142,6 +142,9 @@ describe("report catalog", () => {
     expect(getReportPresetEntry("executive_full").reportKeys).toEqual([
       ...reportKeyValues,
     ]);
+    expect(getReportPresetEntry("executive_full").description).toBe(
+      "ส่งรายงานครบทุกใบ เหมาะกับผู้บริหารที่ต้องการเห็นตัวเลขครบทุกเช้า",
+    );
     expect(getReportPresetEntry("executive_full").reportKeys.length).toBeLessThanOrEqual(
       10,
     );

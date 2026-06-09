@@ -445,6 +445,8 @@ function buildStockBalanceFlexMessage(input: {
   );
 
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "สต็อก · ณ วันที่",
     title: "สต็อกคงเหลือ",
     subtitle: `${input.tenantName} · ${formatStockBalanceAsOf(
       snapshot.params.date_to,
@@ -454,7 +456,11 @@ function buildStockBalanceFlexMessage(input: {
     )}: มูลค่า ${formatMoney(snapshot.summary.stock_value)} บาท`,
     generatedAt: input.generatedAt,
     status: getStockBalanceDigestStatus(snapshot),
-    primaryAmount: `${formatMoney(snapshot.summary.stock_value)} บาท`,
+    primaryAmount: {
+      value: formatMoney(snapshot.summary.stock_value),
+      unit: "บาท",
+      compact: true,
+    },
     metrics: [
       {
         label: "จำนวนสินค้า",
@@ -479,6 +485,7 @@ function buildStockBalanceFlexMessage(input: {
         }
       : { label: "สินค้ามูลค่าสูง", value: "ยังไม่มีข้อมูลในช่วงนี้" },
     note: "ข้อมูลจากระบบขาย SML มีต้นทุนเฉลี่ยและมูลค่าสต็อก",
+    noteTone: "info",
     dashboardUrl: input.dashboardUrl,
   });
 }

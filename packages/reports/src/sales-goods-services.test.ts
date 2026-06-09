@@ -526,7 +526,7 @@ describe("sales_goods_services contract", () => {
 
     expect(preview.line_message_type).toBe("flex");
     expect(preview.flex_message?.altText).toContain("ไม่พบยอดขาย");
-    expect(flexJson).toContain("วันนี้ควรรู้อะไร");
+    expect(flexJson).toContain("สิ่งที่ควรดู");
     expect(flexJson).toContain(
       "ต่ำกว่าวันก่อนหน้า ซึ่งมียอดขาย 6,161.10 บาท จาก 4 บิล",
     );

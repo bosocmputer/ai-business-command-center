@@ -249,6 +249,8 @@ function buildStockReorderFlexMessage(input: {
   const topItem = snapshot.top_items[0] ?? null;
 
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "สต็อก · ล่าสุด",
     title: "สินค้าถึงจุดสั่งซื้อ",
     subtitle: `${input.tenantName} · ข้อมูลล่าสุดจาก SML`,
     altText: `สินค้าถึงจุดสั่งซื้อ ${input.tenantName}: ${formatInteger(
@@ -256,7 +258,10 @@ function buildStockReorderFlexMessage(input: {
     )} รายการ`,
     generatedAt: input.generatedAt,
     status: getStockReorderDigestStatus(snapshot),
-    primaryAmount: `${formatInteger(snapshot.summary.reorder_count)} รายการ`,
+    primaryAmount: {
+      value: formatInteger(snapshot.summary.reorder_count),
+      unit: "รายการ",
+    },
     metrics: [
       {
         label: "ของหมด",
@@ -277,10 +282,11 @@ function buildStockReorderFlexMessage(input: {
           label: "รายการแรกที่ควรดู",
           value: `${truncateLineText(topItem.ic_name || topItem.ic_code, 34)} ขาดอีก ${formatQty(
             topItem.shortage_qty,
-          )} ${topItem.ic_unit_code || ""}`,
+        )} ${topItem.ic_unit_code || ""}`,
         }
       : { label: "รายการแรกที่ควรดู", value: "ยังไม่มีสินค้าต่ำกว่าจุดสั่งซื้อ" },
     note: "ข้อมูลล่าสุดจาก SML เป็นยอดปัจจุบัน ไม่ใช่รายงานย้อนหลังตามวัน",
+    noteTone: "info",
     dashboardUrl: input.dashboardUrl,
   });
 }
@@ -289,10 +295,10 @@ function getStockReorderDigestStatus(
   snapshot: StockReorderSnapshot,
 ): ExecutiveDigestStatus {
   if (snapshot.summary.out_of_stock_count > 0) {
-    return { text: "ควรตรวจทันที", severity: "critical" };
+    return { text: "ควรตรวจสั่งซื้อ", severity: "notice" };
   }
   if (snapshot.summary.low_stock_count > 0) {
-    return { text: "มีข้อสังเกต", severity: "notice" };
+    return { text: "ควรตรวจสั่งซื้อ", severity: "notice" };
   }
   return { text: "พร้อมใช้", severity: "ready" };
 }

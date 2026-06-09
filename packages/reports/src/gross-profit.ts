@@ -496,6 +496,11 @@ function buildGrossProfitFlexMessage(input: {
       : "ยอดรวมเดียวกัน แยกตามลูกหนี้";
 
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker:
+      snapshot.report_key === "gross_profit_by_product"
+        ? "กำไร · มุมสินค้า"
+        : "กำไร · มุมลูกหนี้",
     title,
     subtitle: `${input.tenantName} · ${formatReportPeriodWithTime(
       snapshot.params.date_from,
@@ -509,7 +514,11 @@ function buildGrossProfitFlexMessage(input: {
     )}: กำไร ${formatMoney(snapshot.summary.gross_profit)} บาท`,
     generatedAt: input.generatedAt,
     status: getGrossProfitDigestStatus(snapshot),
-    primaryAmount: `${formatMoney(snapshot.summary.gross_profit)} บาท`,
+    primaryAmount: {
+      value: formatMoney(snapshot.summary.gross_profit),
+      unit: "บาท",
+      compact: true,
+    },
     primaryAmountColor,
     metrics: [
       {
@@ -535,6 +544,7 @@ function buildGrossProfitFlexMessage(input: {
         }
       : { label: "รายการเด่น", value: `ยังไม่มี${rowLabel}ในช่วงนี้` },
     note: viewNote,
+    noteTone: "neutral",
     dashboardUrl: input.dashboardUrl,
   });
 }

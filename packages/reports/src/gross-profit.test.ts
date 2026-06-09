@@ -160,6 +160,8 @@ describe("gross profit reports", () => {
     expect(JSON.stringify(preview.flex_message)).toContain(
       "ยอดรวมเดียวกัน แยกตามลูกหนี้",
     );
+    expect(JSON.stringify(preview.flex_message)).not.toContain("snapshot");
+    expect(JSON.stringify(preview.flex_message)).not.toContain("query");
     expect(preview.warnings).toContain(
       "พบรายการกำไรติดลบ ควรตรวจต้นทุนและเอกสารคืนสินค้า",
     );
@@ -253,8 +255,14 @@ describe("gross profit reports", () => {
       tenantName: "DEMO SHOP",
     });
     const bubble = preview.flex_message?.contents as any;
-    const primaryAmountNode = bubble.body.contents.find(
-      (content: any) => content.type === "text" && content.text === "50.00 บาท",
+    const primaryAmountBox = bubble.body.contents.find(
+      (content: any) =>
+        content.type === "box" &&
+        content.layout === "baseline" &&
+        JSON.stringify(content).includes("50.00"),
+    );
+    const primaryAmountNode = primaryAmountBox.contents.find(
+      (content: any) => content.type === "text" && content.text === "50.00",
     );
 
     expect(JSON.stringify(preview.flex_message)).toContain("มีข้อสังเกต");

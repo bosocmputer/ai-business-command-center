@@ -300,7 +300,7 @@ export const reportPresetCatalog = {
   executive_full: {
     key: "executive_full",
     label: "ผู้บริหารครบ 8 รายงาน",
-    description: "ส่งรายงานครบทุกใบ เหมาะกับช่วงตรวจระบบและร้านที่ต้องการตัวเลขครบ",
+    description: "ส่งรายงานครบทุกใบ เหมาะกับผู้บริหารที่ต้องการเห็นตัวเลขครบทุกเช้า",
     reportKeys: [...reportKeyValues],
   },
   executive_focus: {

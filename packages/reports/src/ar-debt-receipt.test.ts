@@ -154,7 +154,7 @@ describe("AR debt receipt report", () => {
           cust_name: "ลูกค้า A",
           total_net_value: 1200,
           cash_amount: 200,
-          transfer_amount: 1000,
+          transfer_amount: 900,
         }),
       ],
     });
@@ -182,6 +182,7 @@ describe("AR debt receipt report", () => {
     expect(preview.text).toContain(
       "รายงานนี้อิงวันที่เอกสารรับชำระ ไม่ตัดตามเวลาแจ้งเตือน",
     );
+    expect(JSON.stringify(preview.flex_message)).toContain("ตรวจช่องทางรับเงิน");
     expect(userVisiblePayload).not.toContain("trans_flag");
     expect(userVisiblePayload).not.toContain("ap_ar_trans");
     expect(userVisiblePayload).not.toContain("cb_trans");

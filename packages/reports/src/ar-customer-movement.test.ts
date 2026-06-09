@@ -169,8 +169,13 @@ describe("AR customer movement report", () => {
     expect(preview.report_key).toBe("ar_customer_movement");
     expect(preview.line_message_type).toBe("flex");
     expect(preview.text).toContain("รายงานเคลื่อนไหวลูกหนี้");
-    expect(preview.text).toContain("ข้อมูล: ข้อมูลถึงวันที่ 08/06/2026 จาก SML");
+    expect(preview.text).toContain(
+      "ข้อมูล: ข้อมูลสะสมถึงวันที่ 08/06/2026 จาก SML",
+    );
     expect(preview.text).not.toContain("คงค้าง");
+    expect(userVisiblePayload).toContain("ข้อมูลสะสมถึงวันที่");
+    expect(userVisiblePayload).not.toContain("aging");
+    expect(userVisiblePayload).not.toContain("คงค้าง");
     expect(preview.text).not.toContain("18:30");
     expect(preview.text).not.toContain("token=signed");
     expect(userVisiblePayload).not.toContain("trans_flag");

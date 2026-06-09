@@ -361,6 +361,8 @@ function buildArDebtReceiptFlexMessage(input: {
   const topCustomer = snapshot.top_customers[0] ?? null;
 
   return buildExecutiveDigestFlexMessage({
+    variant: "executive_report_v2",
+    kicker: "รับเงิน · รายวัน",
     title: "รับชำระหนี้",
     subtitle: `${input.tenantName} · ${input.period}`,
     altText: `รับชำระหนี้ ${input.tenantName}: ${formatMoney(
@@ -368,7 +370,11 @@ function buildArDebtReceiptFlexMessage(input: {
     )} บาท`,
     generatedAt: input.generatedAt,
     status: getDebtReceiptDigestStatus(snapshot),
-    primaryAmount: `${formatMoney(snapshot.summary.total_received_amount)} บาท`,
+    primaryAmount: {
+      value: formatMoney(snapshot.summary.total_received_amount),
+      unit: "บาท",
+      compact: true,
+    },
     metrics: [
       {
         label: "ลูกหนี้",
@@ -395,6 +401,8 @@ function buildArDebtReceiptFlexMessage(input: {
         }
       : { label: "ลูกหนี้รับชำระสูงสุด", value: "ยังไม่มีเอกสารรับชำระ" },
     note: "รายงานนี้อิงวันที่เอกสารรับชำระ ไม่ตัดตามเวลาแจ้งเตือน",
+    noteTone:
+      snapshot.summary.unmatched_payment_count > 0 ? "warning" : "neutral",
     dashboardUrl: input.dashboardUrl,
   });
 }

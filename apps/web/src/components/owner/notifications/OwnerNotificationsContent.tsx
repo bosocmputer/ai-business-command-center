@@ -739,7 +739,7 @@ function ReportPickerSection({
             </p>
           </div>
           {selectedReportPreset === "executive_full" ? (
-            <Badge color="warning">LINE ยาว</Badge>
+            <Badge color="success">ครบ 8 ใบ</Badge>
           ) : selectedReportPreset ? (
             <Badge color="success">Preset</Badge>
           ) : (
@@ -770,8 +770,8 @@ function ReportPickerSection({
           })}
         </div>
         {selectedReportPreset === "executive_full" ? (
-          <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-100">
-            ชุดนี้ส่งครบ 8 ใบ LINE จะยาว เหมาะกับช่วงตรวจระบบหรือร้านที่ต้องการอ่านตัวเลขครบทุกวัน
+          <p className="mt-3 rounded-lg border border-success-200 bg-success-50 px-3 py-2 text-xs leading-5 text-success-800 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-100">
+            ชุดนี้ส่งครบ 8 ใบ เหมาะกับผู้บริหารที่ต้องการเห็นตัวเลขครบทุกเช้า
             สต็อกคงเหลือจะลองดึงสดก่อน ถ้าช้าเกินไป LINE จะส่งรายงานอื่นและแจ้งสถานะสต็อกแทน
           </p>
         ) : null}
