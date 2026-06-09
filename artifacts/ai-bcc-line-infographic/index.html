@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Business Command Center - LINE Customer Ad</title>
+    <style>
+      :root {
+        --ink: #0f172a;
+        --muted: #526173;
+        --blue: #2563eb;
+        --green: #06c755;
+        --green-dark: #047a34;
+        --amber: #f59e0b;
+        --coral: #f05252;
+        --paper: #ffffff;
+        --line: #d9e3ef;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #dde8f3;
+        color: var(--ink);
+        font-family:
+          "Avenir Next",
+          "Helvetica Neue",
+          Arial,
+          "Noto Sans Thai",
+          sans-serif;
+      }
+
+      .poster {
+        position: relative;
+        width: 1080px;
+        height: 1350px;
+        overflow: hidden;
+        padding: 48px 58px 42px;
+        background:
+          linear-gradient(160deg, rgba(255, 255, 255, 0.96) 0%, rgba(239, 247, 255, 0.95) 48%, rgba(226, 249, 235, 0.96) 100%);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 30px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 25px;
+        font-weight: 900;
+      }
+
+      .mark {
+        display: grid;
+        width: 50px;
+        height: 50px;
+        place-items: center;
+        border-radius: 12px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--blue), #0f766e);
+        font-size: 21px;
+        font-weight: 900;
+      }
+
+      .pill {
+        border: 1px solid rgba(6, 199, 85, 0.28);
+        border-radius: 999px;
+        background: rgba(220, 252, 231, 0.92);
+        color: var(--green-dark);
+        font-size: 18px;
+        font-weight: 900;
+        padding: 11px 18px;
+        white-space: nowrap;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 0.92fr 1.08fr;
+        gap: 34px;
+        align-items: start;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid rgba(37, 99, 235, 0.16);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.78);
+        color: #1d4ed8;
+        font-size: 18px;
+        font-weight: 900;
+        padding: 10px 15px;
+        box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+      }
+
+      .eyebrow-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      h1 {
+        margin: 20px 0 13px;
+        font-size: 60px;
+        line-height: 1.06;
+        letter-spacing: 0;
+      }
+
+      .subhead {
+        margin: 0;
+        color: #243142;
+        font-size: 25px;
+        line-height: 1.42;
+        font-weight: 700;
+      }
+
+      .value-list {
+        display: grid;
+        gap: 11px;
+        margin-top: 26px;
+      }
+
+      .value-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.82);
+        padding: 13px 14px;
+        box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+      }
+
+      .value-icon {
+        display: grid;
+        min-width: 34px;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 50%;
+        color: #fff;
+        background: var(--green);
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .value-item span {
+        font-size: 19px;
+        line-height: 1.32;
+        font-weight: 800;
+      }
+
+      .visual-stage {
+        position: relative;
+        height: 548px;
+      }
+
+      .phone {
+        position: absolute;
+        border: 10px solid #111827;
+        border-radius: 34px;
+        background: #f8fafc;
+        box-shadow: 0 34px 76px rgba(15, 23, 42, 0.24);
+        overflow: hidden;
+      }
+
+      .phone::before {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        width: 96px;
+        height: 18px;
+        border-radius: 999px;
+        background: #111827;
+        content: "";
+        transform: translateX(-50%);
+        z-index: 3;
+      }
+
+      .line-phone {
+        top: 52px;
+        left: 0;
+        width: 292px;
+        z-index: 2;
+        transform: rotate(-3deg);
+      }
+
+      .viewer-phone {
+        top: 0;
+        right: 2px;
+        width: 258px;
+        z-index: 1;
+        transform: rotate(3deg);
+      }
+
+      .chat-screen {
+        min-height: 500px;
+        padding: 45px 15px 16px;
+        background: #edf8ef;
+      }
+
+      .line-header {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 12px;
+        color: var(--green-dark);
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .line-avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      .bubble {
+        border-radius: 20px;
+        background: #fff;
+        padding: 15px;
+        box-shadow: 0 18px 32px rgba(20, 83, 45, 0.14);
+      }
+
+      .bubble-title {
+        font-size: 19px;
+        line-height: 1.18;
+        font-weight: 900;
+      }
+
+      .bubble-meta {
+        margin: 7px 0 13px;
+        color: #65758a;
+        font-size: 11px;
+        line-height: 1.32;
+        font-weight: 800;
+      }
+
+      .line-kpis {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .line-kpi {
+        border: 1px solid #e3ecf5;
+        border-radius: 9px;
+        background: #fbfdff;
+        padding: 9px;
+      }
+
+      .line-kpi small {
+        display: block;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 900;
+      }
+
+      .line-kpi b {
+        display: block;
+        margin-top: 3px;
+        font-size: 16px;
+        line-height: 1.15;
+      }
+
+      .insight {
+        border-left: 4px solid var(--green);
+        margin: 10px 0 12px;
+        padding: 7px 0 7px 10px;
+        color: #1f2937;
+        font-size: 12px;
+        line-height: 1.38;
+        font-weight: 800;
+      }
+
+      .open-report {
+        display: block;
+        border-radius: 11px;
+        background: var(--green);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 900;
+        padding: 12px;
+        text-align: center;
+      }
+
+      .viewer-shot {
+        display: block;
+        width: 100%;
+        height: 500px;
+        object-fit: cover;
+        object-position: top center;
+      }
+
+      .pdf-card {
+        position: absolute;
+        right: 32px;
+        bottom: 0;
+        width: 255px;
+        z-index: 4;
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        border-radius: 12px;
+        background: #fff;
+        padding: 15px;
+        box-shadow: 0 24px 52px rgba(15, 23, 42, 0.2);
+      }
+
+      .pdf-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+
+      .pdf-badge {
+        border-radius: 999px;
+        background: rgba(240, 82, 82, 0.12);
+        color: #be123c;
+        font-size: 12px;
+        font-weight: 900;
+        padding: 6px 9px;
+      }
+
+      .download-badge {
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.1);
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 900;
+        padding: 6px 9px;
+      }
+
+      .pdf-title {
+        margin: 0 0 10px;
+        font-size: 18px;
+        line-height: 1.22;
+        font-weight: 900;
+      }
+
+      .pdf-line {
+        height: 8px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        margin-top: 8px;
+      }
+
+      .pdf-line.short {
+        width: 68%;
+      }
+
+      .pdf-table {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 5px;
+        margin-top: 13px;
+      }
+
+      .pdf-cell {
+        height: 26px;
+        border-radius: 5px;
+        background: #f1f5f9;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 30px 0 16px;
+        font-size: 31px;
+        font-weight: 900;
+      }
+
+      .section-title span {
+        border-radius: 999px;
+        background: var(--blue);
+        color: #fff;
+        font-size: 16px;
+        padding: 9px 13px;
+      }
+
+      .benefits {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+
+      .benefit {
+        min-height: 174px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 20px;
+        box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+      }
+
+      .benefit-icon {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        place-items: center;
+        border-radius: 12px;
+        margin-bottom: 13px;
+        color: #fff;
+        font-size: 23px;
+        font-weight: 900;
+      }
+
+      .benefit-icon.green {
+        background: var(--green);
+      }
+
+      .benefit-icon.blue {
+        background: var(--blue);
+      }
+
+      .benefit-icon.amber {
+        background: var(--amber);
+      }
+
+      .benefit h3 {
+        margin: 0 0 7px;
+        font-size: 24px;
+        line-height: 1.16;
+      }
+
+      .benefit p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.42;
+        font-weight: 700;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr auto 1fr;
+        gap: 12px;
+        align-items: center;
+        margin-top: 24px;
+      }
+
+      .flow-step {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.84);
+        padding: 14px 16px;
+        text-align: center;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+      }
+
+      .flow-step strong {
+        display: block;
+        font-size: 19px;
+      }
+
+      .flow-step span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .arrow {
+        color: var(--blue);
+        font-size: 28px;
+        font-weight: 900;
+      }
+
+      .bottom {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 22px;
+        align-items: center;
+        margin-top: 28px;
+        border-radius: 14px;
+        background: #0f172a;
+        color: #fff;
+        padding: 23px 26px;
+        box-shadow: 0 26px 58px rgba(15, 23, 42, 0.22);
+      }
+
+      .bottom strong {
+        display: block;
+        font-size: 29px;
+        line-height: 1.22;
+      }
+
+      .bottom span {
+        display: block;
+        margin-top: 7px;
+        color: #cbd5e1;
+        font-size: 17px;
+        line-height: 1.38;
+        font-weight: 700;
+      }
+
+      .cta {
+        border-radius: 999px;
+        background: #fff;
+        color: #0f172a;
+        font-size: 24px;
+        font-weight: 900;
+        padding: 16px 26px;
+        white-space: nowrap;
+      }
+
+      .source {
+        position: absolute;
+        right: 58px;
+        bottom: 14px;
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="poster">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark">AI</div>
+          <div>AI Business Command Center</div>
+        </div>
+        <div class="pill">สำหรับผู้บริหารที่ดูรายงานผ่าน LINE</div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <div class="eyebrow">
+            <span class="eyebrow-dot"></span>
+            <span>รายงานธุรกิจแบบ mobile-first</span>
+          </div>
+          <h1>รายงานยอดขายส่งถึง LINE ผู้บริหารทุกเช้า</h1>
+          <p class="subhead">
+            สรุปยอดขายจาก SML ให้อ่านง่าย กดเปิดรายละเอียดบิล
+            และดาวน์โหลด PDF ทางการได้ทันทีบนมือถือ
+          </p>
+
+          <div class="value-list">
+            <div class="value-item">
+              <div class="value-icon">1</div>
+              <span>เห็นยอดขายสำคัญใน LINE ไม่ต้องรอทีมงานสรุปเอง</span>
+            </div>
+            <div class="value-item">
+              <div class="value-icon">2</div>
+              <span>กดเปิดรายงานเพื่อดูตัวเลขและรายการบิลแบบอ่านอย่างเดียว</span>
+            </div>
+            <div class="value-item">
+              <div class="value-icon">3</div>
+              <span>ดาวน์โหลด PDF สำหรับประชุมหรือส่งต่อภายในบริษัท</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="visual-stage" aria-label="Customer LINE report flow">
+          <div class="phone line-phone">
+            <div class="chat-screen">
+              <div class="line-header">
+                <div class="line-avatar"></div>
+                <span>AI Business Report</span>
+              </div>
+              <div class="bubble">
+                <div class="bubble-title">รายงานขายสินค้าและบริการ</div>
+                <div class="bubble-meta">
+                  DEMO SHOP · 10/05/2026 - 19/05/2026 · อัปเดต 08:00
+                </div>
+                <div class="line-kpis">
+                  <div class="line-kpi">
+                    <small>ยอดขายสุทธิ</small>
+                    <b>126,148.78</b>
+                  </div>
+                  <div class="line-kpi">
+                    <small>บิลขาย</small>
+                    <b>68 ใบ</b>
+                  </div>
+                  <div class="line-kpi">
+                    <small>รายการขาย</small>
+                    <b>139</b>
+                  </div>
+                  <div class="line-kpi">
+                    <small>สินค้าหลัก</small>
+                    <b>สินค้า A</b>
+                  </div>
+                </div>
+                <div class="insight">
+                  สรุปที่ควรดู: ยอดขายหลักมาจากสาขาหลัก และเปิดดูบิลต่อได้ทันที
+                </div>
+                <span class="open-report">เปิดรายงาน</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="phone viewer-phone">
+            <img
+              class="viewer-shot"
+              src="screenshots/signed-viewer-mobile.png"
+              alt="Mobile report viewer screenshot"
+            />
+          </div>
+
+          <div class="pdf-card" aria-label="PDF export preview">
+            <div class="pdf-top">
+              <span class="pdf-badge">PDF</span>
+              <span class="download-badge">ดาวน์โหลด</span>
+            </div>
+            <p class="pdf-title">รายงานขาย<br />DEMO SHOP</p>
+            <div class="pdf-line"></div>
+            <div class="pdf-line short"></div>
+            <div class="pdf-table">
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+              <div class="pdf-cell"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-title">
+        <span>สิ่งที่ลูกค้าเห็น</span>
+        ใช้งานง่ายตั้งแต่ข้อความแรก
+      </div>
+
+      <section class="benefits">
+        <article class="benefit">
+          <div class="benefit-icon green">L</div>
+          <h3>ไม่ต้องเข้าระบบบัญชี</h3>
+          <p>ผู้บริหารดูสรุปใน LINE ได้ทันที ส่วนทีมงานยังใช้ระบบเดิมตามปกติ</p>
+        </article>
+        <article class="benefit">
+          <div class="benefit-icon blue">B</div>
+          <h3>ดูรายละเอียดบิล</h3>
+          <p>เปิดรายงานมือถือเพื่อเจาะดูบิลและสินค้าแบบ read-only ได้สะดวก</p>
+        </article>
+        <article class="benefit">
+          <div class="benefit-icon amber">P</div>
+          <h3>ดาวน์โหลด PDF</h3>
+          <p>ได้ไฟล์รายงานทางการสำหรับประชุม ตรวจยอด หรือส่งต่อในทีม</p>
+        </article>
+      </section>
+
+      <section class="flow" aria-label="LINE report customer journey">
+        <div class="flow-step">
+          <strong>LINE แจ้งสรุป</strong>
+          <span>ยอดขายและสัญญาณสำคัญ</span>
+        </div>
+        <div class="arrow">></div>
+        <div class="flow-step">
+          <strong>เปิดรายงาน</strong>
+          <span>ดู KPI และรายละเอียดบิล</span>
+        </div>
+        <div class="arrow">></div>
+        <div class="flow-step">
+          <strong>Export PDF</strong>
+          <span>พร้อมใช้ในงานบริหาร</span>
+        </div>
+      </section>
+
+      <section class="bottom">
+        <div>
+          <strong>เหมาะกับธุรกิจที่อยากเห็นยอดจริงทุกเช้า โดยไม่เพิ่มงานให้ทีมบัญชี</strong>
+          <span>เชื่อมกับฐานข้อมูลเดิม แยกสิทธิ์การดูรายงาน และเปิดใช้เป็น pilot กับข้อมูลจริงได้</span>
+        </div>
+        <div class="cta">ปรึกษาฟรี</div>
+      </section>
+
+      <div class="source">Demo screenshot: DEMO SHOP · AI Business Command Center</div>
+    </main>
+  </body>
+</html>

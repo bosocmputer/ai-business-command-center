@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LINE Executive Full 8 Cards v2 Preview</title>
+    <style>
+      :root {
+        --line-bg: #2f3033;
+        --surface: #ffffff;
+        --header: #f6f8fb;
+        --ink: #101828;
+        --muted: #667085;
+        --border: #e4e7ec;
+        --blue: #2563eb;
+        --green: #047857;
+        --amber: #b45309;
+        --red: #b42318;
+        --soft: #f6f8fb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f3f4f6;
+        color: var(--ink);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      .page {
+        padding: 28px;
+      }
+
+      .brief {
+        max-width: 1120px;
+        margin: 0 auto 20px;
+      }
+
+      .brief h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        line-height: 1.25;
+      }
+
+      .brief p {
+        margin: 0;
+        max-width: 760px;
+        color: #475467;
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .safe-rules {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 8px;
+        max-width: 980px;
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .safe-rules li {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #fff;
+        padding: 9px 11px;
+        color: #475467;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+
+      .mock-shell {
+        overflow: hidden;
+        border-radius: 18px;
+        background: var(--line-bg);
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+      }
+
+      .line-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 18px 18px 8px;
+        color: #e5e7eb;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .line-identity {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .line-meta {
+        color: rgba(229, 231, 235, 0.78);
+        font-size: 12px;
+        font-weight: 650;
+        text-align: right;
+      }
+
+      .bot-avatar {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 2px solid #fff;
+        border-radius: 999px;
+        background: #fbbf24;
+        color: #111827;
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .carousel {
+        display: flex;
+        gap: 14px;
+        overflow-x: auto;
+        padding: 14px 18px 18px;
+        scroll-snap-type: x proximity;
+      }
+
+      .carousel::-webkit-scrollbar {
+        height: 10px;
+      }
+
+      .carousel::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .carousel::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.28);
+      }
+
+      .card {
+        display: flex;
+        flex: 0 0 clamp(286px, 29vw, 308px);
+        min-height: 552px;
+        max-height: 552px;
+        flex-direction: column;
+        overflow: hidden;
+        scroll-snap-align: start;
+        border: 1px solid #d9dee7;
+        border-radius: 18px;
+        background: var(--surface);
+      }
+
+      .card-header {
+        min-height: 118px;
+        padding: 15px 18px 14px;
+        background: var(--soft);
+        border-top: 5px solid var(--tone);
+      }
+
+      .card-kicker {
+        display: inline-flex;
+        width: fit-content;
+        max-width: 100%;
+        margin-bottom: 9px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.74);
+        padding: 4px 9px;
+        color: var(--tone);
+        font-size: 11px;
+        font-weight: 850;
+        line-height: 1.2;
+      }
+
+      .card-title {
+        display: -webkit-box;
+        overflow: hidden;
+        margin: 0;
+        color: var(--ink);
+        font-size: 22px;
+        font-weight: 800;
+        line-height: 1.2;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .card-subtitle {
+        display: -webkit-box;
+        overflow: hidden;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.35;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .card-body {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+        padding: 16px 18px 14px;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .status {
+        border-radius: 999px;
+        background: var(--soft);
+        padding: 4px 8px;
+        color: var(--tone);
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .updated {
+        color: var(--muted);
+        text-align: right;
+      }
+
+      .amount {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        color: var(--ink);
+        line-height: 1.12;
+        overflow-wrap: anywhere;
+      }
+
+      .amount-value {
+        font-size: 34px;
+        font-weight: 850;
+        letter-spacing: 0;
+      }
+
+      .amount-long .amount-value {
+        font-size: 30px;
+      }
+
+      .amount .unit {
+        display: inline-block;
+        font-size: 22px;
+        font-weight: 850;
+        line-height: 1.2;
+      }
+
+      .metric-list {
+        display: grid;
+        gap: 7px;
+        margin-top: 12px;
+      }
+
+      .metric {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+        font-size: 14px;
+        line-height: 1.25;
+      }
+
+      .metric span:first-child {
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      .metric span:last-child {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--ink);
+        font-weight: 800;
+        text-align: right;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .divider {
+        height: 1px;
+        margin: 14px 0 12px;
+        background: var(--border);
+      }
+
+      .info {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 10px;
+      }
+
+      .info-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+
+      .info-value {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 720;
+        line-height: 1.35;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .note {
+        display: -webkit-box;
+        overflow: hidden;
+        margin-top: auto;
+        border-radius: 8px;
+        background: #fffbeb;
+        padding: 8px 9px;
+        color: #92400e;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.35;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .button {
+        display: block;
+        margin: 14px 18px 18px;
+        border-radius: 10px;
+        background: var(--blue);
+        color: #fff;
+        font-size: 17px;
+        font-weight: 750;
+        line-height: 48px;
+        text-align: center;
+        text-decoration: none;
+      }
+
+      .sales {
+        --tone: #2563eb;
+        --soft: #eff6ff;
+      }
+
+      .profit {
+        --tone: #047857;
+        --soft: #ecfdf3;
+      }
+
+      .inventory {
+        --tone: #b45309;
+        --soft: #fffbeb;
+      }
+
+      .ar {
+        --tone: #475467;
+        --soft: #f2f4f7;
+      }
+
+      .action {
+        --tone: #0f766e;
+        --soft: #ecfdf3;
+      }
+
+      .critical {
+        --tone: #b42318;
+        --soft: #fef3f2;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .legend span {
+        border: 1px solid #e5e7eb;
+        border-radius: 999px;
+        background: #fff;
+        padding: 6px 10px;
+        color: #475467;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          padding: 16px;
+        }
+
+        .card {
+          flex-basis: 286px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="brief">
+        <h1>ตัวอย่าง LINE Executive Full 8 Cards v2.1</h1>
+        <p>
+          Mockup นี้เป็น HTML เพื่อดูทิศทางภาพรวมเท่านั้น: ยังส่ง 8 ใบเหมือนเดิม
+          แต่ปรับให้ใกล้ Flex Message จริงขึ้นด้วย baseline amount, max-lines behavior, category tint และ copy ที่บอก basis ของข้อมูลชัดขึ้น
+        </p>
+        <ul class="safe-rules">
+          <li>ใช้ bubble ขนาดเดียวกันทั้ง carousel และคุมข้อความยาวด้วย maxLines-style clamp</li>
+          <li>ไม่ใช้ hero image, video, lineSpacing, maxWidth หรือ scaling เป็นแกนหลักของ v2</li>
+          <li>ใช้ flex ratio สำหรับ metric row และใช้ baseline สำหรับตัวเลขใหญ่ + หน่วย</li>
+        </ul>
+        <div class="legend">
+          <span>ครบ 8 ใบ</span>
+          <span>ไม่เพิ่ม summary card</span>
+          <span>ปุ่มเดิม: เปิดรายละเอียด</span>
+          <span>ตัวเลขเป็นตัวอย่างจากรอบกระบี่</span>
+        </div>
+      </section>
+
+      <section class="mock-shell" aria-label="LINE mockup">
+        <div class="line-header">
+          <div class="line-identity">
+            <div class="bot-avatar">AI</div>
+            <div>AI Business Center</div>
+          </div>
+          <div class="line-meta">8 bubbles · same width · LINE-safe</div>
+        </div>
+
+        <div class="carousel">
+          <article class="card sales">
+            <header class="card-header">
+              <div class="card-kicker">ขาย · รายวัน</div>
+              <h2 class="card-title">ขายสินค้าและบริการ</h2>
+              <div class="card-subtitle">กระบี่ · ยอดวันที่ 08/06/2026</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">มีข้อสังเกต</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:00</span>
+              </div>
+              <div class="amount">
+                <span class="amount-value">5,596,407.59</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>บิลขาย</span><span>245 ใบ</span></div>
+                <div class="metric"><span>รายการขาย</span><span>704 รายการ</span></div>
+                <div class="metric"><span>จำนวนขายรวม</span><span>2,969</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">ยอดหัวบิลและยอดรายละเอียดไม่เท่ากัน ระบบใช้ยอดหัวบิลเป็นตัวเลขหลัก</div>
+              </div>
+              <div class="info">
+                <div class="info-label">สินค้าขายดี</div>
+                <div class="info-value">DST 825-16 D108 14PR: 365,120.00 บาท</div>
+              </div>
+              <div class="note">ใช้ตรวจภาพรวมยอดขายประจำวันและเปิดดูรายละเอียดเอกสารต่อได้</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card sales">
+            <header class="card-header">
+              <div class="card-kicker">ซื้อ · รายวัน</div>
+              <h2 class="card-title">ซื้อ/ตั้งหนี้</h2>
+              <div class="card-subtitle">กระบี่ · ยอดวันที่ 08/06/2026</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">มีข้อสังเกต</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:00</span>
+              </div>
+              <div class="amount">
+                <span class="amount-value">4,188,702.18</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>เอกสารซื้อ</span><span>23 ใบ</span></div>
+                <div class="metric"><span>รายการสินค้า</span><span>87 รายการ</span></div>
+                <div class="metric"><span>จำนวนซื้อรวม</span><span>2,306</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">ยอดหัวเอกสารและยอดรายละเอียดไม่เท่ากัน ระบบใช้ยอดหัวเอกสารเป็นยอดซื้อหลัก</div>
+              </div>
+              <div class="info">
+                <div class="info-label">ผู้จำหน่ายหลัก</div>
+                <div class="info-value">บริษัท แม็กซิส อินเตอร์เนชั่นแนล: 2,754,829.07 บาท</div>
+              </div>
+              <div class="note">เหมาะสำหรับดูเงินออกและตรวจรายการรับเข้าที่มีมูลค่าสูง</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card profit">
+            <header class="card-header">
+              <div class="card-kicker">กำไร · มุมสินค้า</div>
+              <h2 class="card-title">กำไรขั้นต้นสินค้า</h2>
+              <div class="card-subtitle">กระบี่ · มุมสินค้า</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">มีข้อสังเกต</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:00</span>
+              </div>
+              <div class="amount">
+                <span class="amount-value">399,767.17</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>ยอดขายสุทธิ</span><span>5,264,663.07 บาท</span></div>
+                <div class="metric"><span>ต้นทุนสุทธิ</span><span>4,864,895.90 บาท</span></div>
+                <div class="metric"><span>Margin</span><span>7.59%</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">มี 48 รายการที่กำไรติดลบ ควรตรวจเฉพาะรายการเหล่านี้ก่อน</div>
+              </div>
+              <div class="info">
+                <div class="info-label">รายการเด่น</div>
+                <div class="info-value">MAX 1000 R20 16PR UM968: กำไร 50,645.71 บาท</div>
+              </div>
+              <div class="note">ยอดรวมเดียวกับกำไรลูกหนี้ แสดงแยกตามสินค้า</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card profit">
+            <header class="card-header">
+              <div class="card-kicker">กำไร · มุมลูกหนี้</div>
+              <h2 class="card-title">กำไรขั้นต้นลูกหนี้</h2>
+              <div class="card-subtitle">กระบี่ · มุมลูกหนี้</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">มีข้อสังเกต</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:00</span>
+              </div>
+              <div class="amount">
+                <span class="amount-value">399,767.17</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>ยอดขายสุทธิ</span><span>5,264,663.07 บาท</span></div>
+                <div class="metric"><span>ต้นทุนสุทธิ</span><span>4,864,895.90 บาท</span></div>
+                <div class="metric"><span>Margin</span><span>7.59%</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">มี 35 รายการที่กำไรติดลบ ควรตรวจเฉพาะลูกหนี้กลุ่มนี้ก่อน</div>
+              </div>
+              <div class="info">
+                <div class="info-label">รายการเด่น</div>
+                <div class="info-value">บริษัท ช้อปปี้ (ประเทศไทย) จำกัด: กำไร 199,098.40 บาท</div>
+              </div>
+              <div class="note">ยอดรวมเดียวกับกำไรสินค้า แสดงแยกตามลูกหนี้</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card inventory critical">
+            <header class="card-header">
+              <div class="card-kicker">สต็อก · ณ วันที่</div>
+              <h2 class="card-title">สต็อกคงเหลือ</h2>
+              <div class="card-subtitle">กระบี่ · คงเหลือ ณ 08/06/2026</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">ควรตรวจทันที</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:00</span>
+              </div>
+              <div class="amount amount-long">
+                <span class="amount-value">308,885,318.09</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>จำนวนสินค้า</span><span>7,880 รายการ</span></div>
+                <div class="metric"><span>รับเข้าในวัน</span><span>4,149,246.51 บาท</span></div>
+                <div class="metric"><span>จ่ายออกในวัน</span><span>5,175,628.01 บาท</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">พบสินค้าคงเหลือติดลบ 30 รายการ ควรตรวจเอกสารรับเข้า/จ่ายออกก่อนใช้ยอดสต็อกตัดสินใจ</div>
+              </div>
+              <div class="info">
+                <div class="info-label">สินค้ามูลค่าสูง</div>
+                <div class="info-value">MCT 225/75 R14 XCD2 C115/113P: 14,015,830.20 บาท</div>
+              </div>
+              <div class="note">ข้อมูลจากระบบขาย SML มีต้นทุนเฉลี่ยและมูลค่าสต็อก</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card inventory critical">
+            <header class="card-header">
+              <div class="card-kicker">สต็อก · ล่าสุด</div>
+              <h2 class="card-title">สินค้าถึงจุดสั่งซื้อ</h2>
+              <div class="card-subtitle">กระบี่ · ข้อมูลล่าสุดจาก SML</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">ควรตรวจทันที</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:00</span>
+              </div>
+              <div class="amount">
+                <span class="amount-value">257</span>
+                <span class="unit">รายการ</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>ของหมด</span><span>253 รายการ</span></div>
+                <div class="metric"><span>ใกล้หมด</span><span>4 รายการ</span></div>
+                <div class="metric"><span>ค้างรับเข้า</span><span>4</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">มี 253 รายการที่คงเหลือ 0 หรือติดลบ ควรตรวจสั่งซื้อก่อน</div>
+              </div>
+              <div class="info">
+                <div class="info-label">รายการแรกที่ควรดู</div>
+                <div class="info-value">YOKOHAMA 205/55 R16 Bluearth E70 ขาดอีก 3 เส้น</div>
+              </div>
+              <div class="note">ข้อมูลล่าสุดจาก SML เป็นยอดปัจจุบัน ไม่ใช่รายงานย้อนหลังตามวัน</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card ar">
+            <header class="card-header">
+              <div class="card-kicker">ลูกหนี้ · สะสม</div>
+              <h2 class="card-title">เคลื่อนไหวลูกหนี้</h2>
+              <div class="card-subtitle">กระบี่ · ข้อมูลสะสมถึงวันที่ 08/06/2026</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">ข้อมูลสะสม</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:01</span>
+              </div>
+              <div class="amount amount-long">
+                <span class="amount-value">135,324,338.72</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>ลูกหนี้</span><span>5,304 ราย</span></div>
+                <div class="metric"><span>เอกสาร</span><span>478,529 ใบ</span></div>
+                <div class="metric"><span>รับชำระ/ลดหนี้</span><span>8,615,735,268.09 บาท</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">บริษัท ช้อปปี้ (ประเทศไทย) จำกัด มียอดเคลื่อนไหวสุทธิ 7,217,983.53 บาท</div>
+              </div>
+              <div class="info">
+                <div class="info-label">ลูกหนี้มูลค่าสูง</div>
+                <div class="info-value">บริษัท ช้อปปี้ (ประเทศไทย) จำกัด: 7,217,983.53 บาท</div>
+              </div>
+              <div class="note">ข้อมูลสะสมถึงวันที่ ใช้ดูการเคลื่อนไหว ไม่ใช่รายงานจัดอายุหนี้</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+
+          <article class="card action">
+            <header class="card-header">
+              <div class="card-kicker">รับเงิน · รายวัน</div>
+              <h2 class="card-title">รับชำระหนี้</h2>
+              <div class="card-subtitle">กระบี่ · วันที่เอกสารรับชำระ 08/06/2026</div>
+            </header>
+            <div class="card-body">
+              <div class="status-row">
+                <span class="status">ควรตรวจยอด</span>
+                <span class="updated">อัปเดต 9 มิ.ย. 08:01</span>
+              </div>
+              <div class="amount">
+                <span class="amount-value">2,535,461.62</span>
+                <span class="unit">บาท</span>
+              </div>
+              <div class="metric-list">
+                <div class="metric"><span>ลูกหนี้</span><span>40 ราย</span></div>
+                <div class="metric"><span>เอกสาร</span><span>54 ใบ</span></div>
+                <div class="metric"><span>เงินสด/โอน</span><span>0.00 / 1,309,790.51 บาท</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <div class="info-label">วันนี้ควรรู้อะไร</div>
+                <div class="info-value">พบ 11 เอกสารที่ควรตรวจช่องทางรับเงินก่อนปิดยอด</div>
+              </div>
+              <div class="info">
+                <div class="info-label">ลูกหนี้รับชำระสูงสุด</div>
+                <div class="info-value">บริษัท หยก.ยางยนต์ 2016 จำกัด: 753,754.18 บาท</div>
+              </div>
+              <div class="note">อิงวันที่เอกสารรับชำระ ตรวจช่องทางเงินสด/โอนก่อนปิดยอด</div>
+            </div>
+            <a class="button" href="#">เปิดรายละเอียด</a>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
