@@ -36,6 +36,7 @@ import {
   notificationRulePayloadSchema,
   planCodeSchema,
   getReportCatalogEntry,
+  reportKeyValues,
   reportKeySchema,
   type NotificationRuleRecord,
   type NotificationReportResult,
@@ -116,7 +117,11 @@ import {
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
 } from "@ai-bcc/reports";
-import { createSystemStore, type SecretRecord } from "./system-store.js";
+import {
+  createSystemStore,
+  type ExecutiveDashboardRunRecord,
+  type SecretRecord,
+} from "./system-store.js";
 import { fetchLineTargetDisplayName, sendLineBrief } from "./line-client.js";
 import {
   buildMorningBriefCarouselPreview,
@@ -129,7 +134,10 @@ import {
 } from "./line-webhook.js";
 import { reportDefinitionSeeds } from "./report-definitions.js";
 import {
+  createDashboardViewerToken,
+  type DashboardViewerTokenPayload,
   createReportViewerToken,
+  verifyDashboardViewerToken,
   verifyReportViewerToken,
 } from "./report-viewer-token.js";
 import {
@@ -236,6 +244,15 @@ const reportRuntimeRegistry = createReportRuntimeRegistry({
 });
 const notificationHeavyReportCoalescer =
   createHeavyReportCoalescer<Awaited<ReturnType<typeof runAndPersistReportByKey>>>();
+const dashboardRunProcessorState = {
+  running: false,
+};
+const EXECUTIVE_DASHBOARD_QUEUE_BACKGROUND_LIMIT = 1;
+const DASHBOARD_TOKEN_TTL_HOURS = 24;
+const DASHBOARD_TOKEN_LOOKBACK_DAYS = 31;
+const DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS = 31;
+const DASHBOARD_TOKEN_RATE_LIMIT_COUNT = 5;
+const DASHBOARD_TOKEN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 
 await systemStore.initialize({
   tenants: listTenants(),
@@ -2772,8 +2789,23 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
     workerId: body.data.worker_id ?? "worker_notification_rules",
     now,
   });
+  const dashboardQueuedResult = await processQueuedExecutiveDashboardRuns({
+    limit: EXECUTIVE_DASHBOARD_QUEUE_BACKGROUND_LIMIT,
+    workerId: body.data.worker_id ?? "worker_notification_rules",
+  });
   processed.push(...queuedResult.processed);
+  processed.push(
+    ...dashboardQueuedResult.processed.map((run) => ({
+      ok: true as const,
+      status: run.status,
+      run,
+      deliveries: [],
+      report_run_ids: run.report_run_ids,
+      mode: "send" as const,
+    })),
+  );
   skipped.push(...queuedResult.skipped);
+  skipped.push(...dashboardQueuedResult.skipped);
   if (queuedResult.skipped.some((item) => item.reason === "processor_busy")) {
     return {
       data: {
@@ -3502,7 +3534,18 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    return { data: snapshot };
+    const dashboardAccess = await createDashboardAccessForSnapshot({
+      snapshot,
+      signingSecret,
+    }).catch((error) => {
+      request.log.warn(
+        { error, report_key: snapshot.report_key },
+        "dashboard access token creation failed",
+      );
+      return null;
+    });
+
+    return { data: snapshot, dashboard_access: dashboardAccess };
   },
 );
 
@@ -3585,7 +3628,18 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    return { data: snapshot };
+    const dashboardAccess = await createDashboardAccessForSnapshot({
+      snapshot,
+      signingSecret,
+    }).catch((error) => {
+      request.log.warn(
+        { error, report_key: snapshot.report_key },
+        "dashboard access token creation failed",
+      );
+      return null;
+    });
+
+    return { data: snapshot, dashboard_access: dashboardAccess };
   },
 );
 
@@ -3673,7 +3727,213 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    return { data: snapshot };
+    const dashboardAccess = await createDashboardAccessForSnapshot({
+      snapshot,
+      signingSecret,
+    }).catch((error) => {
+      request.log.warn(
+        { error, report_key: snapshot.report_key },
+        "dashboard access token creation failed",
+      );
+      return null;
+    });
+
+    return { data: snapshot, dashboard_access: dashboardAccess };
+  },
+);
+
+app.post(
+  "/api/reports/:tenantId/executive-dashboard-runs",
+  async (request, reply) => {
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid dashboard link." });
+    }
+
+    const body = executiveDashboardRunCreateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid dashboard request.",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const access = await verifyDashboardViewerAccess({
+      tenantId: routeParams.data.tenantId,
+      token: body.data.dashboard_token,
+      reply,
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const range = buildDashboardRunParamsFromSelection({
+      dateFrom: body.data.date_from,
+      dateTo: body.data.date_to,
+      payload: access.payload,
+    });
+    if (!range.ok) {
+      return reply.status(400).send({ error: range.error });
+    }
+
+    const exactActiveRun = await systemStore.findActiveExecutiveDashboardRun({
+      tenantId: access.tenantId,
+      tokenHash: access.tokenHash,
+      params: range.params,
+    });
+    if (exactActiveRun) {
+      return reply.status(202).send({
+        data: await serializeExecutiveDashboardRun(exactActiveRun),
+        reused: true,
+      });
+    }
+
+    const tenantActiveRun = await systemStore.findActiveExecutiveDashboardRun({
+      tenantId: access.tenantId,
+    });
+    if (tenantActiveRun) {
+      if (tenantActiveRun.token_hash === access.tokenHash) {
+        return reply.status(202).send({
+          data: await serializeExecutiveDashboardRun(tenantActiveRun),
+          reused: true,
+          message:
+            "ลิงก์นี้มีงานวิเคราะห์กำลังทำอยู่ ระบบจะแสดงความคืบหน้าของงานเดิมก่อน",
+        });
+      }
+      return reply.status(409).send({
+        error:
+          "ร้านนี้มีงานวิเคราะห์จากลิงก์อื่นกำลังทำอยู่ กรุณารอให้งานนั้นจบแล้วลองใหม่",
+      });
+    }
+
+    const rateLimitSince = new Date(
+      Date.now() - DASHBOARD_TOKEN_RATE_LIMIT_WINDOW_MS,
+    ).toISOString();
+    const recentRunCount = await systemStore.countRecentExecutiveDashboardRuns({
+      tenantId: access.tenantId,
+      tokenHash: access.tokenHash,
+      since: rateLimitSince,
+    });
+    if (recentRunCount >= DASHBOARD_TOKEN_RATE_LIMIT_COUNT) {
+      return reply.status(429).send({
+        error:
+          "ลิงก์นี้เรียกดูช่วงข้อมูลใหม่บ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่",
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const runId = buildExecutiveDashboardRunId({
+      tenantId: access.tenantId,
+      tokenHash: access.tokenHash,
+      params: range.params,
+      clientRequestId: body.data.client_request_id,
+    });
+    const existingRun = await systemStore.getExecutiveDashboardRun(runId);
+    if (existingRun) {
+      return reply.status(202).send({
+        data: await serializeExecutiveDashboardRun(existingRun),
+        reused: true,
+      });
+    }
+
+    const reportKeys = access.payload.allowed_report_keys.filter((reportKey) =>
+      access.tokenRecord.scope_json.allowed_report_keys.includes(reportKey),
+    );
+    if (!reportKeys.length) {
+      return reply.status(403).send({
+        error: "ลิงก์นี้ไม่มีรายงานที่อนุญาตให้เปิด dashboard",
+      });
+    }
+    const run = await systemStore.upsertExecutiveDashboardRun({
+      id: runId,
+      tenant_id: access.tenantId,
+      token_hash: access.tokenHash,
+      token_jti: access.payload.jti,
+      source_run_id: access.payload.source_run_id,
+      params: range.params,
+      report_keys: reportKeys,
+      status: "queued",
+      report_run_ids: [],
+      report_results: [],
+      safe_error_message: null,
+      queued_at: nowIso,
+      claimed_at: null,
+      started_at: null,
+      finished_at: null,
+      worker_id: null,
+      progress_stage: "queued",
+      progress_percent: 5,
+      progress_current_report_key: null,
+      progress_done_reports: 0,
+      progress_total_reports: reportKeys.length,
+      progress_updated_at: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+
+    await systemStore.appendAuditLog({
+      tenant_id: access.tenantId,
+      actor_id: null,
+      action: "executive_dashboard_run_queued",
+      target_type: "executive_dashboard_run",
+      target_id: run.id,
+      metadata_json: {
+        dashboard_token_jti: access.payload.jti,
+        source_run_id: access.payload.source_run_id,
+        selected_date_from: range.params.date_from,
+        selected_date_to: range.params.date_to,
+        selected_time_from: range.params.time_from ?? null,
+        selected_time_to: range.params.time_to ?? null,
+        report_keys: reportKeys,
+      },
+    });
+
+    kickExecutiveDashboardRunProcessor(run.id);
+
+    return reply.status(202).send({
+      data: await serializeExecutiveDashboardRun(run),
+      reused: false,
+    });
+  },
+);
+
+app.get(
+  "/api/reports/:tenantId/executive-dashboard-runs/:runId",
+  async (request, reply) => {
+    const routeParams = executiveDashboardRunParamsSchema.safeParse(
+      request.params,
+    );
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid dashboard run." });
+    }
+
+    const query = executiveDashboardRunQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.status(400).send({ error: "Invalid dashboard link." });
+    }
+
+    const access = await verifyDashboardViewerAccess({
+      tenantId: routeParams.data.tenantId,
+      token: query.data.dashboard_token,
+      reply,
+    });
+    if (!access.ok) {
+      return access.response;
+    }
+
+    const run = await systemStore.getExecutiveDashboardRun(
+      routeParams.data.runId,
+    );
+    if (!run || run.tenant_id !== access.tenantId) {
+      return reply.status(404).send({ error: "ไม่พบงานวิเคราะห์นี้" });
+    }
+    if (run.token_hash !== access.tokenHash) {
+      return reply.status(403).send({
+        error: "ลิงก์นี้ไม่มีสิทธิ์เปิดงานวิเคราะห์นี้",
+      });
+    }
+
+    return { data: await serializeExecutiveDashboardRun(run) };
   },
 );
 
@@ -5735,6 +5995,328 @@ async function buildReportViewerUrl(snapshot: ReportSnapshot) {
   }
 }
 
+async function createDashboardAccessForSnapshot(input: {
+  snapshot: ReportSnapshot;
+  signingSecret: string;
+}) {
+  const allowedReportKeys = await resolveDashboardAllowedReportKeys(input.snapshot);
+  const expiresAt = new Date(
+    Date.now() + DASHBOARD_TOKEN_TTL_HOURS * 60 * 60 * 1000,
+  );
+  const jti = `dash_${randomUUID()}`;
+  const token = createDashboardViewerToken({
+    secret: input.signingSecret,
+    tenantId: input.snapshot.tenant_id,
+    sourceRunId: input.snapshot.run_id,
+    allowedReportKeys,
+    maxDateWindowDays: DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS,
+    lookbackDays: DASHBOARD_TOKEN_LOOKBACK_DAYS,
+    expiresAt,
+    jti,
+  });
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  await systemStore.upsertDashboardViewerToken({
+    token_hash: tokenHash,
+    tenant_id: input.snapshot.tenant_id,
+    source_run_id: input.snapshot.run_id,
+    jti,
+    scope_json: {
+      allowed_report_keys: allowedReportKeys,
+      max_date_window_days: DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS,
+      lookback_days: DASHBOARD_TOKEN_LOOKBACK_DAYS,
+    },
+    expires_at: expiresAt.toISOString(),
+    revoked_at: null,
+    last_used_at: null,
+    created_at: new Date().toISOString(),
+  });
+  await systemStore.appendAuditLog({
+    tenant_id: input.snapshot.tenant_id,
+    actor_id: null,
+    action: "dashboard_viewer_token_issued",
+    target_type: "report_run",
+    target_id: input.snapshot.run_id,
+    metadata_json: {
+      dashboard_token_jti: jti,
+      source_run_id: input.snapshot.run_id,
+      source_report_key: input.snapshot.report_key,
+      allowed_report_keys: allowedReportKeys,
+      max_date_window_days: DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS,
+      lookback_days: DASHBOARD_TOKEN_LOOKBACK_DAYS,
+      expires_at: expiresAt.toISOString(),
+    },
+  });
+
+  return {
+    token,
+    expires_at: expiresAt.toISOString(),
+    source_run_id: input.snapshot.run_id,
+    allowed_report_keys: allowedReportKeys,
+    max_date_window_days: DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS,
+    lookback_days: DASHBOARD_TOKEN_LOOKBACK_DAYS,
+  };
+}
+
+async function resolveDashboardAllowedReportKeys(snapshot: ReportSnapshot) {
+  const runs = await systemStore.listNotificationRuleRuns({
+    tenantId: snapshot.tenant_id,
+    limit: 100,
+  });
+  const sourceNotificationRun = runs.find((run) =>
+    run.report_run_ids.includes(snapshot.run_id),
+  );
+  const reportKeysFromRun =
+    sourceNotificationRun?.report_results
+      ?.map((result) => result.report_key)
+      .filter((reportKey): reportKey is ReportKey =>
+        reportKeyValues.includes(reportKey),
+      ) ?? [];
+  const allowedReportKeys = reportKeyValues.filter((reportKey) =>
+    reportKeysFromRun.includes(reportKey),
+  );
+
+  return allowedReportKeys.length ? allowedReportKeys : [snapshot.report_key];
+}
+
+type DashboardViewerAccess = {
+  ok: true;
+  tenantId: TenantId;
+  payload: DashboardViewerTokenPayload;
+  tokenHash: string;
+  tokenRecord: NonNullable<
+    Awaited<ReturnType<typeof systemStore.getDashboardViewerToken>>
+  >;
+};
+
+async function verifyDashboardViewerAccess(input: {
+  tenantId: TenantId;
+  token: string;
+  reply: FastifyReply;
+}): Promise<DashboardViewerAccess | { ok: false; response: FastifyReply }> {
+  const signingSecret = await readReportViewerSigningSecret();
+  if (!signingSecret) {
+    return {
+      ok: false,
+      response: input.reply.status(503).send({
+        error: "Report viewer signing is not configured.",
+      }),
+    };
+  }
+
+  const verification = verifyDashboardViewerToken({
+    token: input.token,
+    secret: signingSecret,
+    tenantId: input.tenantId,
+  });
+  if (!verification.ok) {
+    const errorMessage =
+      verification.reason === "expired"
+        ? "ลิงก์วิเคราะห์วันที่อื่นหมดอายุแล้ว กรุณาเปิดจาก LINE ล่าสุดอีกครั้ง"
+        : "ลิงก์วิเคราะห์วันที่อื่นไม่ถูกต้อง";
+    const statusCode =
+      verification.reason === "missing" || verification.reason === "malformed"
+        ? 400
+        : 403;
+    return {
+      ok: false,
+      response: input.reply.status(statusCode).send({ error: errorMessage }),
+    };
+  }
+
+  const tokenHash = createHash("sha256").update(input.token).digest("hex");
+  const tokenRecord = await systemStore.getDashboardViewerToken(tokenHash);
+  if (
+    !tokenRecord ||
+    tokenRecord.tenant_id !== input.tenantId ||
+    tokenRecord.jti !== verification.payload.jti ||
+    tokenRecord.source_run_id !== verification.payload.source_run_id
+  ) {
+    return {
+      ok: false,
+      response: input.reply.status(403).send({
+        error: "ลิงก์วิเคราะห์วันที่อื่นไม่อยู่ใน scope ที่ระบบออกให้",
+      }),
+    };
+  }
+  if (tokenRecord.revoked_at) {
+    return {
+      ok: false,
+      response: input.reply.status(403).send({
+        error: "ลิงก์วิเคราะห์วันที่อื่นถูกยกเลิกแล้ว",
+      }),
+    };
+  }
+  if (Date.parse(tokenRecord.expires_at) <= Date.now()) {
+    return {
+      ok: false,
+      response: input.reply.status(403).send({
+        error: "ลิงก์วิเคราะห์วันที่อื่นหมดอายุแล้ว กรุณาเปิดจาก LINE ล่าสุดอีกครั้ง",
+      }),
+    };
+  }
+
+  const tenant = await getTenantOrNull(input.tenantId);
+  if (!tenant) {
+    return {
+      ok: false,
+      response: input.reply.status(404).send({ error: "Tenant not found." }),
+    };
+  }
+  const access = tenantAccessStatus(tenant);
+  if (!access.enabled) {
+    return {
+      ok: false,
+      response: input.reply.status(403).send({
+        error: access.message,
+        tenant_status: tenant.status,
+      }),
+    };
+  }
+
+  const allowedFromRecord = new Set(tokenRecord.scope_json.allowed_report_keys);
+  const allowedFromPayload = verification.payload.allowed_report_keys.filter(
+    (reportKey) => allowedFromRecord.has(reportKey),
+  );
+  if (!allowedFromPayload.length) {
+    return {
+      ok: false,
+      response: input.reply.status(403).send({
+        error: "ลิงก์นี้ไม่มีรายงานที่อนุญาตให้เปิด dashboard",
+      }),
+    };
+  }
+
+  await systemStore.markDashboardViewerTokenUsed({
+    tokenHash,
+    usedAt: new Date().toISOString(),
+  });
+
+  return {
+    ok: true,
+    tenantId: input.tenantId,
+    payload: {
+      ...verification.payload,
+      allowed_report_keys: allowedFromPayload,
+      max_date_window_days: Math.min(
+        verification.payload.max_date_window_days,
+        tokenRecord.scope_json.max_date_window_days,
+      ),
+      lookback_days: Math.min(
+        verification.payload.lookback_days,
+        tokenRecord.scope_json.lookback_days,
+      ),
+    },
+    tokenHash,
+    tokenRecord,
+  };
+}
+
+function buildDashboardRunParamsFromSelection(input: {
+  dateFrom: string;
+  dateTo: string;
+  payload: DashboardViewerTokenPayload;
+}):
+  | { ok: true; params: SalesGoodsServicesParams }
+  | { ok: false; error: string } {
+  const start = Date.parse(`${input.dateFrom}T00:00:00.000Z`);
+  const end = Date.parse(`${input.dateTo}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+    return { ok: false, error: "กรุณาเลือกช่วงวันที่ให้ถูกต้อง" };
+  }
+
+  const inclusiveDays = Math.floor((end - start) / 86_400_000) + 1;
+  if (inclusiveDays > input.payload.max_date_window_days) {
+    return {
+      ok: false,
+      error: `เลือกช่วงข้อมูลได้ไม่เกิน ${input.payload.max_date_window_days} วันต่อครั้ง`,
+    };
+  }
+
+  const today = formatDateInBangkok(new Date());
+  const earliest = addDays(today, -input.payload.lookback_days);
+  if (input.dateFrom < earliest || input.dateTo > today) {
+    return {
+      ok: false,
+      error: `ลิงก์นี้เลือกข้อมูลย้อนหลังได้ถึง ${input.payload.lookback_days} วัน และไม่เปิดวันที่อนาคต`,
+    };
+  }
+
+  const zonedNow = getZonedDateTimeParts({
+    now: new Date(),
+    timeZone: BANGKOK_TIME_ZONE,
+  });
+  const params = toReportParams({
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+    time_from: undefined,
+    time_to: input.dateTo === zonedNow.date ? zonedNow.time : undefined,
+  });
+  const rangeError = validateViewerReportRange(params);
+  if (rangeError) {
+    return { ok: false, error: rangeError };
+  }
+  return { ok: true, params };
+}
+
+function buildExecutiveDashboardRunId(input: {
+  tenantId: TenantId;
+  tokenHash: string;
+  params: SalesGoodsServicesParams;
+  clientRequestId?: string | null;
+}) {
+  const digest = createHash("sha256")
+    .update(
+      [
+        input.tenantId,
+        input.tokenHash,
+        input.params.date_from,
+        input.params.date_to,
+        input.params.time_from ?? "",
+        input.params.time_to ?? "",
+        input.clientRequestId?.trim() || "",
+      ].join("|"),
+    )
+    .digest("hex")
+    .slice(0, 24);
+  return `executive_dashboard_run_${input.tenantId}_${digest}`;
+}
+
+async function serializeExecutiveDashboardRun(run: ExecutiveDashboardRunRecord) {
+  const snapshots = (
+    await Promise.all(
+      run.report_results
+        .map((result) => result.run_id)
+        .filter((runId): runId is string => Boolean(runId))
+        .map((runId) => systemStore.getSnapshotByRunId(run.tenant_id, runId)),
+    )
+  ).filter((snapshot): snapshot is ReportSnapshot => Boolean(snapshot));
+
+  return {
+    id: run.id,
+    tenant_id: run.tenant_id,
+    source_run_id: run.source_run_id,
+    params: run.params,
+    report_keys: run.report_keys,
+    status: run.status,
+    report_run_ids: run.report_run_ids,
+    report_results: run.report_results,
+    safe_error_message: run.safe_error_message,
+    queued_at: run.queued_at,
+    claimed_at: run.claimed_at,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    progress_stage: run.progress_stage,
+    progress_percent: run.progress_percent,
+    progress_current_report_key: run.progress_current_report_key,
+    progress_done_reports: run.progress_done_reports,
+    progress_total_reports: run.progress_total_reports,
+    progress_updated_at: run.progress_updated_at,
+    created_at: run.created_at,
+    updated_at: run.updated_at,
+    snapshots,
+  };
+}
+
 function getTenantFeatureFlags(tenant: Tenant) {
   return tenantFeatureFlagsSchema.parse(tenant.featureFlags ?? {});
 }
@@ -6134,6 +6716,419 @@ function kickNotificationQueueProcessor(runId: string) {
       app.log.error({ err, runId }, "Manual notification queue processor failed");
     });
   }, 0);
+}
+
+function kickExecutiveDashboardRunProcessor(runId: string) {
+  setTimeout(() => {
+    void processQueuedExecutiveDashboardRuns({
+      limit: EXECUTIVE_DASHBOARD_QUEUE_BACKGROUND_LIMIT,
+      workerId: "api_dashboard_background",
+    }).catch((err) => {
+      app.log.error({ err, runId }, "Executive dashboard processor failed");
+    });
+  }, 0);
+}
+
+async function processQueuedExecutiveDashboardRuns(input: {
+  limit?: number;
+  workerId: string;
+}) {
+  if (dashboardRunProcessorState.running) {
+    return {
+      processed: [] as ExecutiveDashboardRunRecord[],
+      skipped: [{ reason: "processor_busy" }],
+    };
+  }
+
+  dashboardRunProcessorState.running = true;
+  try {
+    const queuedRuns = await systemStore.listQueuedExecutiveDashboardRuns(
+      input.limit ?? EXECUTIVE_DASHBOARD_QUEUE_BACKGROUND_LIMIT,
+    );
+    const processed: ExecutiveDashboardRunRecord[] = [];
+    const skipped: Array<Record<string, unknown>> = [];
+
+    for (const queuedRun of queuedRuns) {
+      const claimedRun = await systemStore.claimExecutiveDashboardRun({
+        runId: queuedRun.id,
+        claimedAt: new Date().toISOString(),
+        workerId: input.workerId,
+      });
+      if (!claimedRun) {
+        skipped.push({ run_id: queuedRun.id, reason: "already_claimed" });
+        continue;
+      }
+      processed.push(await executeExecutiveDashboardRun(claimedRun));
+    }
+
+    return { processed, skipped };
+  } finally {
+    dashboardRunProcessorState.running = false;
+  }
+}
+
+async function executeExecutiveDashboardRun(
+  initialRun: ExecutiveDashboardRunRecord,
+) {
+  const startedAtMs = Date.now();
+  const nowIso = new Date().toISOString();
+  const tenant = await getTenantOrNull(initialRun.tenant_id);
+  const totalReports = initialRun.report_keys.length;
+  let run = await systemStore.upsertExecutiveDashboardRun({
+    ...initialRun,
+    status: "running",
+    started_at: initialRun.started_at ?? nowIso,
+    progress_stage: initialRun.progress_stage ?? "claimed",
+    progress_percent: initialRun.progress_percent ?? 10,
+    progress_total_reports: totalReports,
+    progress_updated_at: initialRun.progress_updated_at ?? nowIso,
+    updated_at: nowIso,
+  });
+  const reportResults: NotificationReportResult[] = [...run.report_results];
+  const reportRunIds = new Set(run.report_run_ids);
+
+  const recordReportResult = (result: NotificationReportResult) => {
+    const existingIndex = reportResults.findIndex(
+      (item) => item.report_key === result.report_key,
+    );
+    if (existingIndex >= 0) {
+      reportResults[existingIndex] = result;
+    } else {
+      reportResults.push(result);
+    }
+    if (result.run_id) {
+      reportRunIds.add(result.run_id);
+    }
+  };
+
+  const updateProgress = async (progress: {
+    stage: string;
+    percent: number;
+    currentReportKey?: ReportKey | null;
+    doneReports?: number;
+  }) => {
+    const progressUpdatedAt = new Date().toISOString();
+    run = await systemStore.upsertExecutiveDashboardRun({
+      ...run,
+      report_run_ids: [...reportRunIds],
+      report_results: [...reportResults],
+      progress_stage: progress.stage,
+      progress_percent: clampProgressPercent(progress.percent),
+      progress_current_report_key: progress.currentReportKey ?? null,
+      progress_done_reports:
+        progress.doneReports ?? run.progress_done_reports ?? 0,
+      progress_total_reports: totalReports,
+      progress_updated_at: progressUpdatedAt,
+      updated_at: progressUpdatedAt,
+    });
+    return run;
+  };
+
+  const failRun = async (safeErrorMessage: string) => {
+    const finishedAt = new Date().toISOString();
+    run = await systemStore.upsertExecutiveDashboardRun({
+      ...run,
+      status: "failed",
+      report_run_ids: [...reportRunIds],
+      report_results: [...reportResults],
+      safe_error_message: safeErrorMessage,
+      finished_at: finishedAt,
+      progress_stage: "failed",
+      progress_percent: 100,
+      progress_current_report_key: null,
+      progress_updated_at: finishedAt,
+      updated_at: finishedAt,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: run.tenant_id,
+      actor_id: null,
+      action: "executive_dashboard_run_failed",
+      target_type: "executive_dashboard_run",
+      target_id: run.id,
+      metadata_json: {
+        dashboard_token_jti: run.token_jti,
+        source_run_id: run.source_run_id,
+        selected_date_from: run.params.date_from,
+        selected_date_to: run.params.date_to,
+        report_keys: run.report_keys,
+        safe_error_message: safeErrorMessage,
+        duration_ms: Date.now() - startedAtMs,
+      },
+    });
+    return run;
+  };
+
+  if (!tenant) {
+    return failRun("ไม่พบร้านค้าที่ผูกกับลิงก์ dashboard นี้");
+  }
+  const access = tenantAccessStatus(tenant);
+  if (!access.enabled) {
+    return failRun(access.message);
+  }
+
+  const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
+
+  for (const [reportIndex, reportKey] of run.report_keys.entries()) {
+    await updateProgress({
+      stage: "running_report",
+      percent: calculateReportProgressPercent(reportIndex, totalReports),
+      currentReportKey: reportKey,
+      doneReports: reportIndex,
+    });
+
+    const cachedSnapshot = await systemStore.getLatestSnapshotByParams(
+      run.tenant_id,
+      reportKey,
+      run.params,
+    );
+    if (cachedSnapshot && cachedSnapshot.source !== "sample_snapshot") {
+      recordReportResult(
+        buildReferenceDashboardReportResult({
+          reportKey,
+          snapshot: cachedSnapshot,
+        }),
+      );
+      await updateProgress({
+        stage: "running_report",
+        percent: calculateReportProgressPercent(reportIndex + 1, totalReports),
+        currentReportKey: reportKey,
+        doneReports: reportIndex + 1,
+      });
+      continue;
+    }
+
+    const recentTimeoutRun =
+      reportKey === "stock_balance" && heavyReportFallbackEnabled
+        ? findRecentStockBalanceTimeoutRun({
+            runs: await systemStore.listRuns(run.tenant_id, "stock_balance"),
+            params: run.params,
+          })
+        : reportKey === "ar_customer_movement" && heavyReportFallbackEnabled
+          ? findRecentArCustomerMovementTimeoutRun({
+              runs: await systemStore.listRuns(
+                run.tenant_id,
+                "ar_customer_movement",
+              ),
+              params: run.params,
+            })
+          : null;
+    if (recentTimeoutRun) {
+      const degradedReason =
+        reportKey === "stock_balance"
+          ? STOCK_BALANCE_TIMEOUT_REASON
+          : AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON;
+      const fallback =
+        reportKey === "stock_balance"
+          ? resolveStockBalanceFallbackSnapshot({
+              snapshot: await systemStore.getLatestSnapshotByParams(
+                run.tenant_id,
+                reportKey,
+                run.params,
+              ),
+              params: run.params,
+            })
+          : resolveArCustomerMovementFallbackSnapshot({
+              snapshot: await systemStore.getLatestSnapshotByParams(
+                run.tenant_id,
+                reportKey,
+                run.params,
+              ),
+              params: run.params,
+            });
+      reportRunIds.add(recentTimeoutRun.id);
+      recordReportResult(
+        buildDegradedNotificationReportResult({
+          reportKey,
+          failedRunId: recentTimeoutRun.id,
+          fallback,
+          degradedReason,
+          durationMs: null,
+        }),
+      );
+      await updateProgress({
+        stage: "running_report",
+        percent: calculateReportProgressPercent(reportIndex + 1, totalReports),
+        currentReportKey: reportKey,
+        doneReports: reportIndex + 1,
+      });
+      continue;
+    }
+
+    const reportStartedAt = Date.now();
+    const { result, policy, coalesced } = await runNotificationReportWithPolicy({
+      tenantId: run.tenant_id,
+      reportKey,
+      params: run.params,
+      requestAction: "executive_dashboard_report_run_requested",
+      heavyReportFallbackEnabled,
+    });
+    const durationMs = Date.now() - reportStartedAt;
+    reportRunIds.add(result.runRecord.id);
+    if (durationMs >= 45_000) {
+      await systemStore.appendAuditLog({
+        tenant_id: run.tenant_id,
+        actor_id: null,
+        action: "executive_dashboard_report_slow",
+        target_type: "report_run",
+        target_id: result.runRecord.id,
+        metadata_json: {
+          dashboard_run_id: run.id,
+          report_key: reportKey,
+          duration_ms: durationMs,
+          report_execution_policy: policy.mode,
+          coalesced,
+        },
+      });
+    }
+
+    if (!result.ok) {
+      const isHeavyTimeout =
+        (reportKey === "stock_balance" &&
+          heavyReportFallbackEnabled &&
+          isStockBalanceTimeoutMessage(result.error)) ||
+        (reportKey === "ar_customer_movement" &&
+          heavyReportFallbackEnabled &&
+          isArCustomerMovementTimeoutMessage(result.error));
+      if (isHeavyTimeout) {
+        const degradedReason =
+          reportKey === "stock_balance"
+            ? STOCK_BALANCE_TIMEOUT_REASON
+            : AR_CUSTOMER_MOVEMENT_TIMEOUT_REASON;
+        const fallback =
+          reportKey === "stock_balance"
+            ? resolveStockBalanceFallbackSnapshot({
+                snapshot: await systemStore.getLatestSnapshotByParams(
+                  run.tenant_id,
+                  reportKey,
+                  run.params,
+                ),
+                params: run.params,
+              })
+            : resolveArCustomerMovementFallbackSnapshot({
+                snapshot: await systemStore.getLatestSnapshotByParams(
+                  run.tenant_id,
+                  reportKey,
+                  run.params,
+                ),
+                params: run.params,
+              });
+        recordReportResult(
+          buildDegradedNotificationReportResult({
+            reportKey,
+            failedRunId: result.runRecord.id,
+            fallback,
+            degradedReason,
+            durationMs,
+          }),
+        );
+      } else {
+        recordReportResult(
+          buildFailedNotificationReportResult({
+            reportKey,
+            runRecord: result.runRecord,
+            durationMs,
+          }),
+        );
+      }
+    } else {
+      recordReportResult(
+        buildFreshNotificationReportResult({
+          reportKey,
+          runRecord: result.runRecord,
+          snapshot: result.snapshot,
+          durationMs,
+        }),
+      );
+    }
+
+    await updateProgress({
+      stage: "running_report",
+      percent: calculateReportProgressPercent(reportIndex + 1, totalReports),
+      currentReportKey: reportKey,
+      doneReports: reportIndex + 1,
+    });
+  }
+
+  const usableResults = reportResults.filter(
+    (result) => result.status !== "failed" && result.freshness !== "unavailable",
+  );
+  const warningResults = reportResults.filter(
+    (result) => result.status !== "success" || result.freshness !== "fresh",
+  );
+  const status =
+    usableResults.length === 0
+      ? "failed"
+      : warningResults.length
+        ? "success_with_warnings"
+        : "success";
+  const finishedAt = new Date().toISOString();
+  const safeErrorMessage =
+    status === "failed"
+      ? "สร้าง dashboard ไม่สำเร็จทุกใบ กรุณาลองใหม่ภายหลัง"
+      : warningResults.length
+        ? "มีบางรายงานใช้ข้อมูลอ้างอิงหรือสร้างไม่สำเร็จ"
+        : null;
+
+  run = await systemStore.upsertExecutiveDashboardRun({
+    ...run,
+    status,
+    report_run_ids: [...reportRunIds],
+    report_results: [...reportResults],
+    safe_error_message: safeErrorMessage,
+    finished_at: finishedAt,
+    progress_stage: status === "failed" ? "failed" : "completed",
+    progress_percent: 100,
+    progress_current_report_key: null,
+    progress_done_reports: totalReports,
+    progress_total_reports: totalReports,
+    progress_updated_at: finishedAt,
+    updated_at: finishedAt,
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: run.tenant_id,
+    actor_id: null,
+    action: "executive_dashboard_run_completed",
+    target_type: "executive_dashboard_run",
+    target_id: run.id,
+    metadata_json: {
+      dashboard_token_jti: run.token_jti,
+      source_run_id: run.source_run_id,
+      selected_date_from: run.params.date_from,
+      selected_date_to: run.params.date_to,
+      selected_time_from: run.params.time_from ?? null,
+      selected_time_to: run.params.time_to ?? null,
+      report_keys: run.report_keys,
+      report_results: reportResults.map((result) => ({
+        report_key: result.report_key,
+        freshness: result.freshness,
+        status: result.status,
+        run_id: result.run_id,
+        duration_ms: result.duration_ms,
+        row_count: result.row_count,
+        degraded_reason: result.degraded_reason,
+      })),
+      duration_ms: Date.now() - startedAtMs,
+    },
+  });
+
+  return run;
+}
+
+function buildReferenceDashboardReportResult(input: {
+  reportKey: ReportKey;
+  snapshot: ReportSnapshot;
+}): NotificationReportResult {
+  return {
+    report_key: input.reportKey,
+    status: "success",
+    freshness: "reference",
+    run_id: input.snapshot.run_id,
+    snapshot_generated_at: input.snapshot.generated_at,
+    duration_ms: 0,
+    row_count: getSnapshotRowCount(input.snapshot),
+    degraded_reason: null,
+  };
 }
 
 async function executeNotificationRule(input: {
@@ -9501,6 +10496,22 @@ const signedViewerParamsSchema = z.object({
 const signedViewerAuthSchema = z.object({
   token: z.string().min(1).max(4096),
   run_id: z.string().min(1).max(180),
+});
+
+const executiveDashboardRunParamsSchema = z.object({
+  tenantId: tenantIdSchema,
+  runId: z.string().min(1).max(220),
+});
+
+const executiveDashboardRunCreateSchema = z.object({
+  dashboard_token: z.string().min(1).max(4096),
+  date_from: isoDateSchema,
+  date_to: isoDateSchema,
+  client_request_id: z.string().trim().min(1).max(120).optional(),
+});
+
+const executiveDashboardRunQuerySchema = z.object({
+  dashboard_token: z.string().min(1).max(4096),
 });
 
 const viewerRunBodySchema = signedViewerAuthSchema

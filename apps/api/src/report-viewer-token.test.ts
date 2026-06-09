@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDashboardViewerToken,
   createReportViewerToken,
   maskReportViewerToken,
+  verifyDashboardViewerToken,
   verifyReportViewerToken,
 } from "./report-viewer-token.js";
 
@@ -135,5 +137,103 @@ describe("report viewer signed tokens", () => {
     expect(maskReportViewerToken(token)).not.toContain(secret);
     expect(maskReportViewerToken(token)).toContain("...");
     expect(maskReportViewerToken("short")).toBe("********");
+  });
+});
+
+describe("dashboard viewer signed tokens", () => {
+  it("validates a scoped dashboard token bound to tenant and expiry", () => {
+    const token = createDashboardViewerToken({
+      secret,
+      tenantId: "tenant_demo_remote",
+      sourceRunId: "run_tenant_demo_remote_1",
+      allowedReportKeys: ["sales_goods_services", "stock_balance"],
+      maxDateWindowDays: 31,
+      lookbackDays: 31,
+      expiresAt,
+      jti: "dash_123",
+    });
+
+    expect(
+      verifyDashboardViewerToken({
+        token,
+        secret,
+        tenantId: "tenant_demo_remote",
+        now,
+      }),
+    ).toMatchObject({
+      ok: true,
+      payload: {
+        tenant_id: "tenant_demo_remote",
+        source_run_id: "run_tenant_demo_remote_1",
+        allowed_report_keys: ["sales_goods_services", "stock_balance"],
+        max_date_window_days: 31,
+        lookback_days: 31,
+        jti: "dash_123",
+      },
+    });
+  });
+
+  it("rejects dashboard tokens used against another tenant", () => {
+    const token = createDashboardViewerToken({
+      secret,
+      tenantId: "tenant_demo_remote",
+      sourceRunId: "run_tenant_demo_remote_1",
+      allowedReportKeys: ["sales_goods_services"],
+      maxDateWindowDays: 31,
+      lookbackDays: 31,
+      expiresAt,
+      jti: "dash_123",
+    });
+
+    expect(
+      verifyDashboardViewerToken({
+        token,
+        secret,
+        tenantId: "tenant_office_sml1_2026",
+        now,
+      }),
+    ).toEqual({ ok: false, reason: "forbidden" });
+  });
+
+  it("rejects expired or tampered dashboard tokens", () => {
+    const token = createDashboardViewerToken({
+      secret,
+      tenantId: "tenant_demo_remote",
+      sourceRunId: "run_tenant_demo_remote_1",
+      allowedReportKeys: ["sales_goods_services"],
+      maxDateWindowDays: 31,
+      lookbackDays: 31,
+      expiresAt: new Date("2026-05-18T01:00:00.000Z"),
+      jti: "dash_123",
+    });
+
+    expect(
+      verifyDashboardViewerToken({
+        token,
+        secret,
+        tenantId: "tenant_demo_remote",
+        now,
+      }),
+    ).toEqual({ ok: false, reason: "expired" });
+
+    const validToken = createDashboardViewerToken({
+      secret,
+      tenantId: "tenant_demo_remote",
+      sourceRunId: "run_tenant_demo_remote_1",
+      allowedReportKeys: ["sales_goods_services"],
+      maxDateWindowDays: 31,
+      lookbackDays: 31,
+      expiresAt,
+      jti: "dash_123",
+    });
+
+    expect(
+      verifyDashboardViewerToken({
+        token: `${validToken.slice(0, -3)}abc`,
+        secret,
+        tenantId: "tenant_demo_remote",
+        now,
+      }),
+    ).toEqual({ ok: false, reason: "bad_signature" });
   });
 });

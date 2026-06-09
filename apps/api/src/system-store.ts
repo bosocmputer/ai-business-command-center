@@ -21,6 +21,7 @@ import {
   type TenantFeatureFlags,
   type TenantId,
   type LineAccessProfileKey,
+  type NotificationReportResult,
   type TenantReportRolePermissionRecord,
   type TenantStatus,
   type UserRecord,
@@ -71,6 +72,56 @@ export type SecretRecord = {
 
 export type SecretMetadataRecord = Omit<SecretRecord, "encrypted_value"> & {
   has_encrypted_value: boolean;
+};
+
+export type DashboardViewerTokenRecord = {
+  token_hash: string;
+  tenant_id: TenantId;
+  source_run_id: string;
+  jti: string;
+  scope_json: {
+    allowed_report_keys: ReportKey[];
+    max_date_window_days: number;
+    lookback_days: number;
+  };
+  expires_at: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+};
+
+export type ExecutiveDashboardRunStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "success_with_warnings"
+  | "failed";
+
+export type ExecutiveDashboardRunRecord = {
+  id: string;
+  tenant_id: TenantId;
+  token_hash: string;
+  token_jti: string;
+  source_run_id: string;
+  params: SalesGoodsServicesParams;
+  report_keys: ReportKey[];
+  status: ExecutiveDashboardRunStatus;
+  report_run_ids: string[];
+  report_results: NotificationReportResult[];
+  safe_error_message: string | null;
+  queued_at: string | null;
+  claimed_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  worker_id: string | null;
+  progress_stage: string | null;
+  progress_percent: number | null;
+  progress_current_report_key: ReportKey | null;
+  progress_done_reports: number | null;
+  progress_total_reports: number | null;
+  progress_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type TenantCancellationResult = {
@@ -224,6 +275,40 @@ export type SystemStore = {
     reason?: "not_found" | "expired";
   }>;
   purgeExpiredViewerTokens(): Promise<void>;
+  upsertDashboardViewerToken(
+    token: DashboardViewerTokenRecord,
+  ): Promise<DashboardViewerTokenRecord>;
+  getDashboardViewerToken(
+    tokenHash: string,
+  ): Promise<DashboardViewerTokenRecord | null>;
+  markDashboardViewerTokenUsed(input: {
+    tokenHash: string;
+    usedAt: string;
+  }): Promise<void>;
+  countRecentExecutiveDashboardRuns(input: {
+    tenantId: TenantId;
+    tokenHash: string;
+    since: string;
+  }): Promise<number>;
+  findActiveExecutiveDashboardRun(input: {
+    tenantId: TenantId;
+    tokenHash?: string;
+    params?: SalesGoodsServicesParams;
+  }): Promise<ExecutiveDashboardRunRecord | null>;
+  listQueuedExecutiveDashboardRuns(
+    limit?: number,
+  ): Promise<ExecutiveDashboardRunRecord[]>;
+  claimExecutiveDashboardRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }): Promise<ExecutiveDashboardRunRecord | null>;
+  getExecutiveDashboardRun(
+    runId: string,
+  ): Promise<ExecutiveDashboardRunRecord | null>;
+  upsertExecutiveDashboardRun(
+    run: ExecutiveDashboardRunRecord,
+  ): Promise<ExecutiveDashboardRunRecord>;
   close(): Promise<void>;
 };
 
@@ -244,6 +329,8 @@ type StoreFile = {
   users: UserRecord[];
   lineChannels: LineChannelRecord[];
   secrets: SecretRecord[];
+  dashboardViewerTokens: DashboardViewerTokenRecord[];
+  executiveDashboardRuns: ExecutiveDashboardRunRecord[];
 };
 
 export function createSystemStore(): SystemStore {
@@ -981,6 +1068,126 @@ class LocalJsonSystemStore implements SystemStore {
     // local-json store: no-op
   }
 
+  async upsertDashboardViewerToken(token: DashboardViewerTokenRecord) {
+    const data = this.requireData();
+    data.dashboardViewerTokens = [
+      token,
+      ...data.dashboardViewerTokens.filter(
+        (existing) => existing.token_hash !== token.token_hash,
+      ),
+    ].slice(0, 1000);
+    await this.persist();
+    return token;
+  }
+
+  async getDashboardViewerToken(tokenHash: string) {
+    return (
+      this.requireData().dashboardViewerTokens.find(
+        (token) => token.token_hash === tokenHash,
+      ) ?? null
+    );
+  }
+
+  async markDashboardViewerTokenUsed(input: {
+    tokenHash: string;
+    usedAt: string;
+  }) {
+    const data = this.requireData();
+    data.dashboardViewerTokens = data.dashboardViewerTokens.map((token) =>
+      token.token_hash === input.tokenHash
+        ? { ...token, last_used_at: input.usedAt }
+        : token,
+    );
+    await this.persist();
+  }
+
+  async countRecentExecutiveDashboardRuns(input: {
+    tenantId: TenantId;
+    tokenHash: string;
+    since: string;
+  }) {
+    return this.requireData().executiveDashboardRuns.filter(
+      (run) =>
+        run.tenant_id === input.tenantId &&
+        run.token_hash === input.tokenHash &&
+        run.created_at >= input.since,
+    ).length;
+  }
+
+  async findActiveExecutiveDashboardRun(input: {
+    tenantId: TenantId;
+    tokenHash?: string;
+    params?: SalesGoodsServicesParams;
+  }) {
+    return (
+      this.requireData().executiveDashboardRuns
+        .filter(
+          (run) =>
+            run.tenant_id === input.tenantId &&
+            (!input.tokenHash || run.token_hash === input.tokenHash) &&
+            (!input.params || sameReportParams(run.params, input.params)) &&
+            (run.status === "queued" || run.status === "running"),
+        )
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
+    );
+  }
+
+  async listQueuedExecutiveDashboardRuns(limit = 10) {
+    return this.requireData().executiveDashboardRuns
+      .filter((run) => run.status === "queued")
+      .sort((a, b) =>
+        (a.queued_at ?? a.created_at).localeCompare(b.queued_at ?? b.created_at),
+      )
+      .slice(0, limit);
+  }
+
+  async claimExecutiveDashboardRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }) {
+    const data = this.requireData();
+    const existing = data.executiveDashboardRuns.find(
+      (run) => run.id === input.runId,
+    );
+    if (!existing || existing.status !== "queued") {
+      return null;
+    }
+    const claimed: ExecutiveDashboardRunRecord = {
+      ...existing,
+      status: "running",
+      started_at: existing.started_at ?? input.claimedAt,
+      claimed_at: input.claimedAt,
+      worker_id: input.workerId,
+      progress_stage: "claimed",
+      progress_percent: 10,
+      progress_current_report_key: null,
+      progress_updated_at: input.claimedAt,
+      updated_at: input.claimedAt,
+    };
+    await this.upsertExecutiveDashboardRun(claimed);
+    return claimed;
+  }
+
+  async getExecutiveDashboardRun(runId: string) {
+    return (
+      this.requireData().executiveDashboardRuns.find((run) => run.id === runId) ??
+      null
+    );
+  }
+
+  async upsertExecutiveDashboardRun(run: ExecutiveDashboardRunRecord) {
+    const data = this.requireData();
+    data.executiveDashboardRuns = [
+      run,
+      ...data.executiveDashboardRuns.filter((existing) => existing.id !== run.id),
+    ]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 500);
+    await this.persist();
+    return run;
+  }
+
   async close() {
     await this.writeQueue;
   }
@@ -1010,6 +1217,12 @@ class LocalJsonSystemStore implements SystemStore {
         users: normalizeUsers(parsed.users),
         lineChannels: normalizeLineChannels(parsed.lineChannels),
         secrets: normalizeSecrets(parsed.secrets),
+        dashboardViewerTokens: normalizeDashboardViewerTokens(
+          parsed.dashboardViewerTokens,
+        ),
+        executiveDashboardRuns: normalizeExecutiveDashboardRuns(
+          parsed.executiveDashboardRuns,
+        ),
       };
     } catch {
       return {
@@ -1029,6 +1242,8 @@ class LocalJsonSystemStore implements SystemStore {
         users: [],
         lineChannels: [],
         secrets: [],
+        dashboardViewerTokens: [],
+        executiveDashboardRuns: [],
       };
     }
   }
@@ -3341,6 +3556,245 @@ returning session_id, session_bound_at
     );
   }
 
+  async upsertDashboardViewerToken(token: DashboardViewerTokenRecord) {
+    const result = await this.pool.query(
+      `
+insert into dashboard_viewer_tokens (
+  token_hash,
+  tenant_id,
+  source_run_id,
+  jti,
+  scope_json,
+  expires_at,
+  revoked_at,
+  last_used_at,
+  created_at
+)
+values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9::timestamptz)
+on conflict (token_hash) do update
+set last_used_at = excluded.last_used_at
+returning *
+`,
+      [
+        token.token_hash,
+        token.tenant_id,
+        token.source_run_id,
+        token.jti,
+        JSON.stringify(token.scope_json),
+        token.expires_at,
+        token.revoked_at,
+        token.last_used_at,
+        token.created_at,
+      ],
+    );
+
+    return mapDashboardViewerTokenRow(result.rows[0]);
+  }
+
+  async getDashboardViewerToken(tokenHash: string) {
+    const result = await this.pool.query(
+      `select * from dashboard_viewer_tokens where token_hash = $1 limit 1`,
+      [tokenHash],
+    );
+    return result.rows[0] ? mapDashboardViewerTokenRow(result.rows[0]) : null;
+  }
+
+  async markDashboardViewerTokenUsed(input: {
+    tokenHash: string;
+    usedAt: string;
+  }) {
+    await this.pool.query(
+      `
+update dashboard_viewer_tokens
+set last_used_at = $2::timestamptz
+where token_hash = $1
+`,
+      [input.tokenHash, input.usedAt],
+    );
+  }
+
+  async countRecentExecutiveDashboardRuns(input: {
+    tenantId: TenantId;
+    tokenHash: string;
+    since: string;
+  }) {
+    const result = await this.pool.query(
+      `
+select count(*)::int as count
+from executive_dashboard_runs
+where tenant_id = $1
+  and token_hash = $2
+  and created_at >= $3::timestamptz
+`,
+      [input.tenantId, input.tokenHash, input.since],
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async findActiveExecutiveDashboardRun(input: {
+    tenantId: TenantId;
+    tokenHash?: string;
+    params?: SalesGoodsServicesParams;
+  }) {
+    const result = await this.pool.query(
+      `
+select *
+from executive_dashboard_runs
+where tenant_id = $1
+  and ($2::text is null or token_hash = $2)
+  and (
+    $3::text is null
+    or (
+      params_json->>'date_from' = $3
+      and params_json->>'date_to' = $4
+      and coalesce(params_json->>'time_from', '') = $5
+      and coalesce(params_json->>'time_to', '') = $6
+    )
+  )
+  and status in ('queued', 'running')
+order by created_at desc
+limit 1
+`,
+      [
+        input.tenantId,
+        input.tokenHash ?? null,
+        input.params?.date_from ?? null,
+        input.params?.date_to ?? null,
+        input.params?.time_from ?? "",
+        input.params?.time_to ?? "",
+      ],
+    );
+    return result.rows[0] ? mapExecutiveDashboardRunRow(result.rows[0]) : null;
+  }
+
+  async listQueuedExecutiveDashboardRuns(limit = 10) {
+    const result = await this.pool.query(
+      `
+select *
+from executive_dashboard_runs
+where status = 'queued'
+order by queued_at asc nulls last, created_at asc
+limit $1
+`,
+      [limit],
+    );
+    return result.rows.map(mapExecutiveDashboardRunRow);
+  }
+
+  async claimExecutiveDashboardRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update executive_dashboard_runs
+set status = 'running',
+    started_at = coalesce(started_at, $2::timestamptz),
+    claimed_at = $2::timestamptz,
+    worker_id = $3,
+    progress_stage = 'claimed',
+    progress_percent = 10,
+    progress_current_report_key = null,
+    progress_updated_at = $2::timestamptz,
+    updated_at = $2::timestamptz
+where id = $1
+  and status = 'queued'
+returning *
+`,
+      [input.runId, input.claimedAt, input.workerId],
+    );
+    return result.rows[0] ? mapExecutiveDashboardRunRow(result.rows[0]) : null;
+  }
+
+  async getExecutiveDashboardRun(runId: string) {
+    const result = await this.pool.query(
+      `select * from executive_dashboard_runs where id = $1 limit 1`,
+      [runId],
+    );
+    return result.rows[0] ? mapExecutiveDashboardRunRow(result.rows[0]) : null;
+  }
+
+  async upsertExecutiveDashboardRun(run: ExecutiveDashboardRunRecord) {
+    const result = await this.pool.query(
+      `
+insert into executive_dashboard_runs (
+  id,
+  tenant_id,
+  token_hash,
+  token_jti,
+  source_run_id,
+  params_json,
+  report_keys_json,
+  status,
+  report_run_ids_json,
+  report_results_json,
+  safe_error_message,
+  queued_at,
+  claimed_at,
+  started_at,
+  finished_at,
+  worker_id,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9::jsonb, $10::jsonb, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15::timestamptz, $16, $17, $18, $19, $20, $21, $22::timestamptz, $23::timestamptz, $24::timestamptz)
+on conflict (id) do update
+set status = excluded.status,
+    report_run_ids_json = excluded.report_run_ids_json,
+    report_results_json = excluded.report_results_json,
+    safe_error_message = excluded.safe_error_message,
+    queued_at = excluded.queued_at,
+    claimed_at = excluded.claimed_at,
+    started_at = excluded.started_at,
+    finished_at = excluded.finished_at,
+    worker_id = excluded.worker_id,
+    progress_stage = excluded.progress_stage,
+    progress_percent = excluded.progress_percent,
+    progress_current_report_key = excluded.progress_current_report_key,
+    progress_done_reports = excluded.progress_done_reports,
+    progress_total_reports = excluded.progress_total_reports,
+    progress_updated_at = excluded.progress_updated_at,
+    updated_at = excluded.updated_at
+returning *
+`,
+      [
+        run.id,
+        run.tenant_id,
+        run.token_hash,
+        run.token_jti,
+        run.source_run_id,
+        JSON.stringify(run.params),
+        JSON.stringify(run.report_keys),
+        run.status,
+        JSON.stringify(run.report_run_ids),
+        JSON.stringify(run.report_results),
+        run.safe_error_message,
+        run.queued_at,
+        run.claimed_at,
+        run.started_at,
+        run.finished_at,
+        run.worker_id,
+        run.progress_stage,
+        run.progress_percent,
+        run.progress_current_report_key,
+        run.progress_done_reports,
+        run.progress_total_reports,
+        run.progress_updated_at,
+        run.created_at,
+        run.updated_at,
+      ],
+    );
+
+    return mapExecutiveDashboardRunRow(result.rows[0]);
+  }
+
   async close() {
     await this.pool.end();
   }
@@ -3630,6 +4084,86 @@ function mapNotificationRuleRunRow(
       ? toIsoString(row.updated_at as string | Date)
       : undefined,
   }) as NotificationRuleRunRecord;
+}
+
+function mapDashboardViewerTokenRow(
+  row: Record<string, unknown>,
+): DashboardViewerTokenRecord {
+  return normalizeDashboardViewerToken({
+    token_hash: row.token_hash,
+    tenant_id: row.tenant_id,
+    source_run_id: row.source_run_id,
+    jti: row.jti,
+    scope_json: row.scope_json,
+    expires_at: row.expires_at
+      ? toIsoString(row.expires_at as string | Date)
+      : undefined,
+    revoked_at: row.revoked_at
+      ? toIsoString(row.revoked_at as string | Date)
+      : null,
+    last_used_at: row.last_used_at
+      ? toIsoString(row.last_used_at as string | Date)
+      : null,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+  }) as DashboardViewerTokenRecord;
+}
+
+function mapExecutiveDashboardRunRow(
+  row: Record<string, unknown>,
+): ExecutiveDashboardRunRecord {
+  return normalizeExecutiveDashboardRun({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    token_hash: row.token_hash,
+    token_jti: row.token_jti,
+    source_run_id: row.source_run_id,
+    params: row.params_json,
+    report_keys: row.report_keys_json,
+    status: row.status,
+    report_run_ids: row.report_run_ids_json,
+    report_results: row.report_results_json,
+    safe_error_message: row.safe_error_message,
+    queued_at: row.queued_at
+      ? toIsoString(row.queued_at as string | Date)
+      : null,
+    claimed_at: row.claimed_at
+      ? toIsoString(row.claimed_at as string | Date)
+      : null,
+    started_at: row.started_at
+      ? toIsoString(row.started_at as string | Date)
+      : null,
+    finished_at: row.finished_at
+      ? toIsoString(row.finished_at as string | Date)
+      : null,
+    worker_id: typeof row.worker_id === "string" ? row.worker_id : null,
+    progress_stage:
+      typeof row.progress_stage === "string" ? row.progress_stage : null,
+    progress_percent: normalizeProgressInteger(row.progress_percent, 0, 100),
+    progress_current_report_key: normalizeProgressReportKey(
+      row.progress_current_report_key,
+    ),
+    progress_done_reports: normalizeProgressInteger(
+      row.progress_done_reports,
+      0,
+      1000,
+    ),
+    progress_total_reports: normalizeProgressInteger(
+      row.progress_total_reports,
+      0,
+      1000,
+    ),
+    progress_updated_at: row.progress_updated_at
+      ? toIsoString(row.progress_updated_at as string | Date)
+      : null,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  }) as ExecutiveDashboardRunRecord;
 }
 
 function mapTenantRow(row: Record<string, unknown>): Tenant {
@@ -4089,6 +4623,146 @@ function normalizeNotificationRuleRun(
   };
 }
 
+function normalizeDashboardViewerTokens(
+  value: unknown,
+): DashboardViewerTokenRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((token) => normalizeDashboardViewerToken(token))
+    .filter((token): token is DashboardViewerTokenRecord => Boolean(token));
+}
+
+function normalizeDashboardViewerToken(
+  value: unknown,
+): DashboardViewerTokenRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const token = value as Partial<DashboardViewerTokenRecord>;
+  if (
+    !token.token_hash ||
+    !token.tenant_id ||
+    !token.source_run_id ||
+    !token.jti ||
+    !token.expires_at
+  ) {
+    return null;
+  }
+  const scope = token.scope_json ?? {
+    allowed_report_keys: [],
+    max_date_window_days: 31,
+    lookback_days: 31,
+  };
+  return {
+    token_hash: String(token.token_hash),
+    tenant_id: token.tenant_id as TenantId,
+    source_run_id: String(token.source_run_id),
+    jti: String(token.jti),
+    scope_json: {
+      allowed_report_keys: normalizeReportKeys(scope.allowed_report_keys),
+      max_date_window_days: normalizeBoundedInteger(
+        scope.max_date_window_days,
+        1,
+        366,
+        31,
+      ),
+      lookback_days: normalizeBoundedInteger(scope.lookback_days, 0, 366, 31),
+    },
+    expires_at: String(token.expires_at),
+    revoked_at: typeof token.revoked_at === "string" ? token.revoked_at : null,
+    last_used_at:
+      typeof token.last_used_at === "string" ? token.last_used_at : null,
+    created_at:
+      typeof token.created_at === "string"
+        ? token.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function normalizeExecutiveDashboardRuns(
+  value: unknown,
+): ExecutiveDashboardRunRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((run) => normalizeExecutiveDashboardRun(run))
+    .filter((run): run is ExecutiveDashboardRunRecord => Boolean(run));
+}
+
+function normalizeExecutiveDashboardRun(
+  value: unknown,
+): ExecutiveDashboardRunRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const run = value as Partial<ExecutiveDashboardRunRecord>;
+  if (
+    !run.id ||
+    !run.tenant_id ||
+    !run.token_hash ||
+    !run.token_jti ||
+    !run.source_run_id ||
+    !run.params
+  ) {
+    return null;
+  }
+  const params = normalizeReportParams(run.params);
+  if (!params) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  return {
+    id: String(run.id),
+    tenant_id: run.tenant_id as TenantId,
+    token_hash: String(run.token_hash),
+    token_jti: String(run.token_jti),
+    source_run_id: String(run.source_run_id),
+    params,
+    report_keys: normalizeReportKeys(run.report_keys),
+    status: normalizeExecutiveDashboardRunStatus(run.status),
+    report_run_ids: Array.isArray(run.report_run_ids)
+      ? run.report_run_ids.filter((item): item is string => typeof item === "string")
+      : [],
+    report_results: normalizeNotificationReportResults(run.report_results) ?? [],
+    safe_error_message:
+      typeof run.safe_error_message === "string"
+        ? run.safe_error_message
+        : null,
+    queued_at: typeof run.queued_at === "string" ? run.queued_at : null,
+    claimed_at: typeof run.claimed_at === "string" ? run.claimed_at : null,
+    started_at: typeof run.started_at === "string" ? run.started_at : null,
+    finished_at: typeof run.finished_at === "string" ? run.finished_at : null,
+    worker_id: typeof run.worker_id === "string" ? run.worker_id : null,
+    progress_stage:
+      typeof run.progress_stage === "string" ? run.progress_stage : null,
+    progress_percent: normalizeProgressInteger(run.progress_percent, 0, 100),
+    progress_current_report_key: normalizeProgressReportKey(
+      run.progress_current_report_key,
+    ),
+    progress_done_reports: normalizeProgressInteger(
+      run.progress_done_reports,
+      0,
+      1000,
+    ),
+    progress_total_reports: normalizeProgressInteger(
+      run.progress_total_reports,
+      0,
+      1000,
+    ),
+    progress_updated_at:
+      typeof run.progress_updated_at === "string"
+        ? run.progress_updated_at
+        : null,
+    created_at: typeof run.created_at === "string" ? run.created_at : now,
+    updated_at: typeof run.updated_at === "string" ? run.updated_at : now,
+  };
+}
+
 function normalizeNotificationSchedule(
   value: unknown,
 ): NotificationRuleRecord["schedule"] {
@@ -4280,6 +4954,49 @@ function normalizeProgressInteger(
     return null;
   }
   return Math.max(min, Math.min(Math.round(parsed), max));
+}
+
+function normalizeBoundedInteger(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+) {
+  const normalized = normalizeProgressInteger(value, min, max);
+  return normalized ?? fallback;
+}
+
+function normalizeReportParams(value: unknown): SalesGoodsServicesParams | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const params = value as Partial<SalesGoodsServicesParams>;
+  if (
+    typeof params.date_from !== "string" ||
+    typeof params.date_to !== "string"
+  ) {
+    return null;
+  }
+  return {
+    date_from: params.date_from.slice(0, 10),
+    date_to: params.date_to.slice(0, 10),
+    ...(typeof params.time_from === "string"
+      ? { time_from: params.time_from }
+      : {}),
+    ...(typeof params.time_to === "string" ? { time_to: params.time_to } : {}),
+  };
+}
+
+function normalizeExecutiveDashboardRunStatus(
+  value: unknown,
+): ExecutiveDashboardRunStatus {
+  return value === "queued" ||
+    value === "running" ||
+    value === "success" ||
+    value === "success_with_warnings" ||
+    value === "failed"
+    ? value
+    : "failed";
 }
 
 function normalizeLineSendMode(value: unknown): NotificationRuleRunRecord["mode"] {
@@ -4973,4 +5690,60 @@ on report_viewer_tokens (expires_at);
 alter table report_viewer_tokens
   add column if not exists session_id text,
   add column if not exists session_bound_at timestamptz;
+
+create table if not exists dashboard_viewer_tokens (
+  token_hash text primary key,
+  tenant_id text not null references tenants(id),
+  source_run_id text not null,
+  jti text not null,
+  scope_json jsonb not null,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  last_used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists dashboard_viewer_tokens_tenant_idx
+on dashboard_viewer_tokens (tenant_id, created_at desc);
+
+create index if not exists dashboard_viewer_tokens_expires_idx
+on dashboard_viewer_tokens (expires_at);
+
+create table if not exists executive_dashboard_runs (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  token_hash text not null,
+  token_jti text not null,
+  source_run_id text not null,
+  params_json jsonb not null,
+  report_keys_json jsonb not null default '[]'::jsonb,
+  status text not null,
+  report_run_ids_json jsonb not null default '[]'::jsonb,
+  report_results_json jsonb not null default '[]'::jsonb,
+  safe_error_message text,
+  queued_at timestamptz,
+  claimed_at timestamptz,
+  started_at timestamptz,
+  finished_at timestamptz,
+  worker_id text,
+  progress_stage text,
+  progress_percent integer,
+  progress_current_report_key text,
+  progress_done_reports integer,
+  progress_total_reports integer,
+  progress_updated_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists executive_dashboard_runs_token_recent_idx
+on executive_dashboard_runs (tenant_id, token_hash, created_at desc);
+
+create index if not exists executive_dashboard_runs_queued_idx
+on executive_dashboard_runs (status, queued_at, created_at)
+where status = 'queued';
+
+create index if not exists executive_dashboard_runs_active_tenant_idx
+on executive_dashboard_runs (tenant_id, status, created_at desc)
+where status in ('queued', 'running');
 `;

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { ReportKey, TenantId } from "@ai-bcc/shared";
+import { reportKeyValues, type ReportKey, type TenantId } from "@ai-bcc/shared";
 
 export type ReportViewerTokenPayload = {
   v: 1;
@@ -18,6 +18,22 @@ export type ReportViewerTokenFailureReason =
 
 export type ReportViewerTokenVerifyResult =
   | { ok: true; payload: ReportViewerTokenPayload }
+  | { ok: false; reason: ReportViewerTokenFailureReason };
+
+export type DashboardViewerTokenPayload = {
+  v: 2;
+  typ: "dashboard";
+  tenant_id: TenantId;
+  source_run_id: string;
+  allowed_report_keys: ReportKey[];
+  max_date_window_days: number;
+  lookback_days: number;
+  exp: number;
+  jti: string;
+};
+
+export type DashboardViewerTokenVerifyResult =
+  | { ok: true; payload: DashboardViewerTokenPayload }
   | { ok: false; reason: ReportViewerTokenFailureReason };
 
 export function createReportViewerToken(input: {
@@ -94,6 +110,87 @@ export function verifyReportViewerToken(input: {
   return { ok: true, payload };
 }
 
+export function createDashboardViewerToken(input: {
+  secret: string;
+  tenantId: TenantId;
+  sourceRunId: string;
+  allowedReportKeys: ReportKey[];
+  maxDateWindowDays: number;
+  lookbackDays: number;
+  expiresAt: Date;
+  jti: string;
+}) {
+  assertUsableSecret(input.secret);
+  if (!input.sourceRunId.trim()) {
+    throw new Error("sourceRunId is required for dashboard viewer token.");
+  }
+  if (!input.jti.trim()) {
+    throw new Error("jti is required for dashboard viewer token.");
+  }
+  if (!input.allowedReportKeys.length) {
+    throw new Error("allowedReportKeys is required for dashboard viewer token.");
+  }
+
+  const payload: DashboardViewerTokenPayload = {
+    v: 2,
+    typ: "dashboard",
+    tenant_id: input.tenantId,
+    source_run_id: input.sourceRunId,
+    allowed_report_keys: [...new Set(input.allowedReportKeys)],
+    max_date_window_days: input.maxDateWindowDays,
+    lookback_days: input.lookbackDays,
+    exp: Math.floor(input.expiresAt.getTime() / 1000),
+    jti: input.jti,
+  };
+  const encodedPayload = encodeBase64Url(JSON.stringify(payload));
+  const signature = signPayload(encodedPayload, input.secret);
+  return `v2.${encodedPayload}.${signature}`;
+}
+
+export function verifyDashboardViewerToken(input: {
+  token: string | undefined;
+  secret: string;
+  tenantId: TenantId;
+  now?: Date;
+}): DashboardViewerTokenVerifyResult {
+  if (!input.token?.trim()) {
+    return { ok: false, reason: "missing" };
+  }
+
+  try {
+    assertUsableSecret(input.secret);
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+
+  const parts = input.token.split(".");
+  if (parts.length !== 3 || parts[0] !== "v2") {
+    return { ok: false, reason: "malformed" };
+  }
+
+  const [, encodedPayload, signature] = parts;
+  const expectedSignature = signPayload(encodedPayload, input.secret);
+  if (!safeEqual(signature, expectedSignature)) {
+    return { ok: false, reason: "bad_signature" };
+  }
+
+  const payload = decodeDashboardPayload(encodedPayload);
+  if (!payload) {
+    return { ok: false, reason: "malformed" };
+  }
+
+  if (payload.tenant_id !== input.tenantId) {
+    return { ok: false, reason: "forbidden" };
+  }
+
+  const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
+  if (payload.exp < nowSeconds) {
+    return { ok: false, reason: "expired" };
+  }
+
+  return { ok: true, payload };
+}
+
 export function maskReportViewerToken(token: string | null | undefined) {
   if (!token) {
     return null;
@@ -147,6 +244,46 @@ function decodePayload(encodedPayload: string): ReportViewerTokenPayload | null 
     }
 
     return parsed as ReportViewerTokenPayload;
+  } catch {
+    return null;
+  }
+}
+
+function decodeDashboardPayload(
+  encodedPayload: string,
+): DashboardViewerTokenPayload | null {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Partial<DashboardViewerTokenPayload>;
+    const reportKeys = Array.isArray(parsed.allowed_report_keys)
+      ? parsed.allowed_report_keys
+      : [];
+    const validReportKeys = reportKeys.every((reportKey) =>
+      reportKeyValues.includes(reportKey as ReportKey),
+    );
+
+    if (
+      parsed.v !== 2 ||
+      parsed.typ !== "dashboard" ||
+      typeof parsed.tenant_id !== "string" ||
+      typeof parsed.source_run_id !== "string" ||
+      !validReportKeys ||
+      !reportKeys.length ||
+      typeof parsed.max_date_window_days !== "number" ||
+      !Number.isFinite(parsed.max_date_window_days) ||
+      parsed.max_date_window_days < 1 ||
+      typeof parsed.lookback_days !== "number" ||
+      !Number.isFinite(parsed.lookback_days) ||
+      parsed.lookback_days < 0 ||
+      typeof parsed.exp !== "number" ||
+      typeof parsed.jti !== "string" ||
+      !parsed.jti.trim()
+    ) {
+      return null;
+    }
+
+    return parsed as DashboardViewerTokenPayload;
   } catch {
     return null;
   }

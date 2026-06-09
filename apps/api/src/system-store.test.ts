@@ -263,6 +263,47 @@ describe("local JSON system store", () => {
       updated_at: "2026-05-19T01:00:07.000Z",
     };
     await firstStore.upsertNotificationRuleRun(notificationRun);
+    await firstStore.upsertDashboardViewerToken({
+      token_hash: "dashboard_token_hash",
+      tenant_id: "tenant_demo_remote",
+      source_run_id: run.id,
+      jti: "dash_test_jti",
+      scope_json: {
+        allowed_report_keys: ["sales_goods_services"],
+        max_date_window_days: 31,
+        lookback_days: 31,
+      },
+      expires_at: "2026-05-20T01:00:00.000Z",
+      revoked_at: null,
+      last_used_at: null,
+      created_at: "2026-05-19T01:00:08.000Z",
+    });
+    await firstStore.upsertExecutiveDashboardRun({
+      id: "executive_dashboard_run_persisted",
+      tenant_id: "tenant_demo_remote",
+      token_hash: "dashboard_token_hash",
+      token_jti: "dash_test_jti",
+      source_run_id: run.id,
+      params: { date_from: "2026-05-18", date_to: "2026-05-18" },
+      report_keys: ["sales_goods_services"],
+      status: "queued",
+      report_run_ids: [],
+      report_results: [],
+      safe_error_message: null,
+      queued_at: "2026-05-19T01:00:09.000Z",
+      claimed_at: null,
+      started_at: null,
+      finished_at: null,
+      worker_id: null,
+      progress_stage: "queued",
+      progress_percent: 5,
+      progress_current_report_key: null,
+      progress_done_reports: 0,
+      progress_total_reports: 1,
+      progress_updated_at: "2026-05-19T01:00:09.000Z",
+      created_at: "2026-05-19T01:00:09.000Z",
+      updated_at: "2026-05-19T01:00:09.000Z",
+    });
     await firstStore.upsertSecretRecord({
       id: "secret_datasource_password",
       tenant_id: "tenant_demo_remote",
@@ -377,6 +418,37 @@ describe("local JSON system store", () => {
           freshness: "unavailable",
         }),
       ],
+    });
+    await expect(
+      secondStore.getDashboardViewerToken("dashboard_token_hash"),
+    ).resolves.toMatchObject({
+      tenant_id: "tenant_demo_remote",
+      jti: "dash_test_jti",
+      scope_json: expect.objectContaining({
+        allowed_report_keys: ["sales_goods_services"],
+      }),
+    });
+    await expect(
+      secondStore.findActiveExecutiveDashboardRun({
+        tenantId: "tenant_demo_remote",
+        tokenHash: "dashboard_token_hash",
+        params: { date_from: "2026-05-18", date_to: "2026-05-18" },
+      }),
+    ).resolves.toMatchObject({
+      id: "executive_dashboard_run_persisted",
+      status: "queued",
+      progress_stage: "queued",
+    });
+    const claimedDashboardRun = await secondStore.claimExecutiveDashboardRun({
+      runId: "executive_dashboard_run_persisted",
+      claimedAt: "2026-05-19T01:00:10.000Z",
+      workerId: "worker_dashboard",
+    });
+    expect(claimedDashboardRun).toMatchObject({
+      id: "executive_dashboard_run_persisted",
+      status: "running",
+      worker_id: "worker_dashboard",
+      progress_stage: "claimed",
     });
     await secondStore.close();
   });

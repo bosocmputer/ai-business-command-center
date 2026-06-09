@@ -272,3 +272,59 @@ where status = 'queued';
 create index if not exists notification_rule_runs_active_manual_idx
 on notification_rule_runs (rule_id, scheduled_local_date, scheduled_local_time, mode, source, status, created_at desc)
 where status in ('queued', 'running');
+
+create table if not exists dashboard_viewer_tokens (
+  token_hash text primary key,
+  tenant_id text not null references tenants(id),
+  source_run_id text not null,
+  jti text not null,
+  scope_json jsonb not null,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  last_used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists dashboard_viewer_tokens_tenant_idx
+on dashboard_viewer_tokens (tenant_id, created_at desc);
+
+create index if not exists dashboard_viewer_tokens_expires_idx
+on dashboard_viewer_tokens (expires_at);
+
+create table if not exists executive_dashboard_runs (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  token_hash text not null,
+  token_jti text not null,
+  source_run_id text not null,
+  params_json jsonb not null,
+  report_keys_json jsonb not null default '[]'::jsonb,
+  status text not null,
+  report_run_ids_json jsonb not null default '[]'::jsonb,
+  report_results_json jsonb not null default '[]'::jsonb,
+  safe_error_message text,
+  queued_at timestamptz,
+  claimed_at timestamptz,
+  started_at timestamptz,
+  finished_at timestamptz,
+  worker_id text,
+  progress_stage text,
+  progress_percent integer,
+  progress_current_report_key text,
+  progress_done_reports integer,
+  progress_total_reports integer,
+  progress_updated_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists executive_dashboard_runs_token_recent_idx
+on executive_dashboard_runs (tenant_id, token_hash, created_at desc);
+
+create index if not exists executive_dashboard_runs_queued_idx
+on executive_dashboard_runs (status, queued_at, created_at)
+where status = 'queued';
+
+create index if not exists executive_dashboard_runs_active_tenant_idx
+on executive_dashboard_runs (tenant_id, status, created_at desc)
+where status in ('queued', 'running');
