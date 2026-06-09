@@ -840,43 +840,16 @@ function PremiumReportViewer({
           </aside>
         </div>
 
-        <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
-          <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div>
-              <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
-                เลือกช่วงรายงาน
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <PresetButton label="เมื่อวาน" onClick={() => applyPreset("yesterday")} />
-                <PresetButton label="เดือนนี้" onClick={() => applyPreset("month")} />
-                <PresetButton label="ไตรมาสนี้" onClick={() => applyPreset("quarter")} />
-                <PresetButton label="ปีนี้" onClick={() => applyPreset("year")} />
-              </div>
-            </div>
-            <form
-              className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void runRange();
-              }}
-            >
-              <DateInput label="จากวันที่" value={dateFrom} onChange={setDateFrom} />
-              <DateInput label="ถึงวันที่" value={dateTo} onChange={setDateTo} />
-              <button
-                className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
-                disabled={rangeLoading}
-                type="submit"
-              >
-                {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
-              </button>
-            </form>
-          </div>
-          {rangeError && (
-            <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
-              {rangeError}
-            </p>
-          )}
-        </section>
+        <AdvancedRangeControls
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onApplyPreset={applyPreset}
+          onDateFromChange={setDateFrom}
+          onDateToChange={setDateTo}
+          onRunRange={() => void runRange()}
+          rangeError={rangeError}
+          rangeLoading={rangeLoading}
+        />
 
         <section
           id="documents"
@@ -892,7 +865,7 @@ function PremiumReportViewer({
               </h2>
               <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
                 กดเอกสารเพื่อดูสินค้าและยอดที่ประกอบขึ้นมาในเอกสารนั้น
-                รายการโหลดจาก SML เฉพาะตอนเปิดดู
+                รายละเอียดนี้ผูกกับรอบรายงานและช่วงข้อมูลเดียวกับข้อความ LINE
               </p>
             </div>
             <form
@@ -1047,12 +1020,22 @@ function GrossProfitReportViewer({
                   · อัปเดต {generatedAt}
                 </p>
               </div>
-              <a
-                href="#gross-profit-table"
-                className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] print:hidden"
-              >
-                ดูรายการกำไร
-              </a>
+              <div className="flex flex-wrap gap-2 print:hidden">
+                {negativeRows.length > 0 && (
+                  <a
+                    href="#gross-profit-negative"
+                    className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-4 text-[14px] font-semibold leading-[22px] text-[#B54708] shadow-sm transition hover:bg-[#FEF0C7]"
+                  >
+                    ดูรายการติดลบ
+                  </a>
+                )}
+                <a
+                  href="#gross-profit-table"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                >
+                  ดูรายการกำไร
+                </a>
+              </div>
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -1086,7 +1069,7 @@ function GrossProfitReportViewer({
                     สรุปผู้บริหาร
                   </p>
                   <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
-                    ผู้บริหารควรรู้อะไร
+                    สิ่งที่ควรดู
                   </h2>
                 </div>
                 <span
@@ -1172,43 +1155,16 @@ function GrossProfitReportViewer({
             </section>
           </div>
 
-          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div>
-                <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
-                  เลือกช่วงรายงาน
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <PresetButton label="เมื่อวาน" onClick={() => onApplyPreset("yesterday")} />
-                  <PresetButton label="เดือนนี้" onClick={() => onApplyPreset("month")} />
-                  <PresetButton label="ไตรมาสนี้" onClick={() => onApplyPreset("quarter")} />
-                  <PresetButton label="ปีนี้" onClick={() => onApplyPreset("year")} />
-                </div>
-              </div>
-              <form
-                className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  onRunRange();
-                }}
-              >
-                <DateInput label="จากวันที่" value={dateFrom} onChange={onDateFromChange} />
-                <DateInput label="ถึงวันที่" value={dateTo} onChange={onDateToChange} />
-                <button
-                  className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
-                  disabled={rangeLoading}
-                  type="submit"
-                >
-                  {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
-                </button>
-              </form>
-            </div>
-            {rangeError && (
-              <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
-                {rangeError}
-              </p>
-            )}
-          </section>
+          <AdvancedRangeControls
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onApplyPreset={onApplyPreset}
+            onDateFromChange={onDateFromChange}
+            onDateToChange={onDateToChange}
+            onRunRange={onRunRange}
+            rangeError={rangeError}
+            rangeLoading={rangeLoading}
+          />
 
           <section
             id="gross-profit-table"
@@ -1235,7 +1191,10 @@ function GrossProfitReportViewer({
           </section>
 
           {negativeRows.length > 0 && (
-            <section className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-3 shadow-sm sm:p-4">
+            <section
+              id="gross-profit-negative"
+              className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-3 shadow-sm sm:p-4"
+            >
               <div>
                 <p className="text-[12px] font-medium leading-[18px] text-[#B54708]">
                   รายการที่ควรตรวจ
@@ -1336,6 +1295,14 @@ function StockBalanceReportViewer({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 print:hidden">
+                {negativeRows.length > 0 && (
+                  <a
+                    href="#negative-stock-items"
+                    className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-4 text-[14px] font-semibold leading-[22px] text-[#B54708] shadow-sm transition hover:bg-[#FEF0C7]"
+                  >
+                    ดูสินค้าติดลบ
+                  </a>
+                )}
                 <a
                   href="#stock-items"
                   className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
@@ -1375,7 +1342,7 @@ function StockBalanceReportViewer({
                   สรุปผู้บริหาร
                 </p>
                 <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
-                  วันนี้ควรรู้อะไร
+                  สิ่งที่ควรดู
                 </h2>
               </div>
               <span
@@ -1432,43 +1399,16 @@ function StockBalanceReportViewer({
             )}
           </section>
 
-          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div>
-                <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
-                  เลือกช่วงรายงาน
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <PresetButton label="เมื่อวาน" onClick={() => onApplyPreset("yesterday")} />
-                  <PresetButton label="เดือนนี้" onClick={() => onApplyPreset("month")} />
-                  <PresetButton label="ไตรมาสนี้" onClick={() => onApplyPreset("quarter")} />
-                  <PresetButton label="ปีนี้" onClick={() => onApplyPreset("year")} />
-                </div>
-              </div>
-              <form
-                className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  onRunRange();
-                }}
-              >
-                <DateInput label="จากวันที่" value={dateFrom} onChange={onDateFromChange} />
-                <DateInput label="ถึงวันที่" value={dateTo} onChange={onDateToChange} />
-                <button
-                  className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
-                  disabled={rangeLoading}
-                  type="submit"
-                >
-                  {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
-                </button>
-              </form>
-            </div>
-            {rangeError && (
-              <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
-                {rangeError}
-              </p>
-            )}
-          </section>
+          <AdvancedRangeControls
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onApplyPreset={onApplyPreset}
+            onDateFromChange={onDateFromChange}
+            onDateToChange={onDateToChange}
+            onRunRange={onRunRange}
+            rangeError={rangeError}
+            rangeLoading={rangeLoading}
+          />
 
           <section
             id="stock-items"
@@ -1482,7 +1422,7 @@ function StockBalanceReportViewer({
                 สินค้ามูลค่าสต็อกสูงสุด
               </h2>
               <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
-                แสดงเฉพาะรายการสำคัญจากข้อมูลสรุปล่าสุดของรายงาน ไม่โหลดข้อมูลจาก SML ตอนเปิดหน้านี้
+                แสดงรายการสำคัญจากรอบเดียวกับข้อความ LINE ไม่ดึงข้อมูลใหม่ตอนเปิดหน้านี้
               </p>
             </div>
             <StockBalanceRowsTable
@@ -1494,7 +1434,10 @@ function StockBalanceReportViewer({
           </section>
 
           {negativeRows.length > 0 && (
-            <section className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-3 shadow-sm sm:p-4">
+            <section
+              id="negative-stock-items"
+              className="rounded-xl border border-[#FEDF89] bg-[#FFFAEB] p-3 shadow-sm sm:p-4"
+            >
               <div>
                 <p className="text-[12px] font-medium leading-[18px] text-[#B54708]">
                   รายการที่ควรตรวจ
@@ -1608,7 +1551,7 @@ function StockReorderReportViewer({
                   สรุปผู้บริหาร
                 </p>
                 <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
-                  วันนี้ควรรู้อะไร
+                  สิ่งที่ควรดู
                 </h2>
               </div>
               <span
@@ -1663,7 +1606,7 @@ function StockReorderReportViewer({
                 สินค้าที่ต่ำกว่าจุดสั่งซื้อ
               </h2>
               <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
-                เรียงของหมดก่อน แล้วตามด้วยจำนวนที่ขาดมากไปน้อย หน้านี้อ่านจาก snapshot ที่ส่งมาแล้ว
+                เรียงของหมดก่อน แล้วตามด้วยจำนวนที่ขาดมากไปน้อย โดยใช้ข้อมูลรอบเดียวกับข้อความ LINE
               </p>
             </div>
             <StockReorderRowsTable rows={rows} />
@@ -1734,6 +1677,12 @@ function ArCustomerMovementReportViewer({
                 >
                   ดูลูกหนี้สำคัญ
                 </a>
+                <a
+                  href="#ar-documents"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg border border-[#D0D5DD] bg-white px-4 text-[14px] font-semibold leading-[22px] text-[#344054] shadow-sm transition hover:bg-[#F9FAFB]"
+                >
+                  ดูเอกสารสำคัญ
+                </a>
               </div>
             </div>
 
@@ -1767,7 +1716,7 @@ function ArCustomerMovementReportViewer({
                   สรุปผู้บริหาร
                 </p>
                 <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
-                  วันนี้ควรรู้อะไร
+                  สิ่งที่ควรดู
                 </h2>
               </div>
               <span
@@ -1791,8 +1740,8 @@ function ArCustomerMovementReportViewer({
               />
               <InsightCard
                 index={2}
-                title="ใช้เพื่อดู movement"
-                body="รายงานนี้ไม่ใช่ aging หรือรายงานยอดเปิดบิล และไม่ตัดข้อมูลตามเวลาแจ้งเตือน"
+                title="ใช้ดูการเคลื่อนไหว"
+                body="รายงานนี้ใช้ดูการเคลื่อนไหวสะสมถึงวันที่ ไม่ใช่รายงานอายุหนี้หรือยอดคงค้าง และไม่ตัดตามเวลาแจ้งเตือน"
               />
               <InsightCard
                 index={3}
@@ -1826,13 +1775,16 @@ function ArCustomerMovementReportViewer({
                 ลูกหนี้ที่มียอดเคลื่อนไหวสูงสุด
               </h2>
               <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
-                แสดงเฉพาะรายการสรุปจาก snapshot ที่ส่งมาแล้ว ไม่โหลดข้อมูลจาก SML ตอนเปิดหน้านี้
+                แสดงรายการสรุปจากรอบเดียวกับข้อความ LINE ไม่ดึงข้อมูลใหม่ตอนเปิดหน้านี้
               </p>
             </div>
             <ArCustomerRowsTable rows={topCustomers} />
           </section>
 
-          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
+          <section
+            id="ar-documents"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
             <div>
               <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
                 เอกสารสำคัญ
@@ -1841,7 +1793,7 @@ function ArCustomerMovementReportViewer({
                 เอกสารมูลค่าสูงสุด
               </h2>
               <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
-                ใช้ดูเอกสารที่ควรตรวจต่อก่อนตัดสินใจ ไม่ใช่ตาราง movement ทั้งหมด
+                ใช้ดูเอกสารที่ควรตรวจต่อก่อนตัดสินใจ ไม่ใช่ตารางรายการทั้งหมด
               </p>
             </div>
             <ArCustomerDocumentRowsTable rows={topDocuments} />
@@ -2071,7 +2023,7 @@ function ArDebtReceiptReportViewer({
                   สรุปผู้บริหาร
                 </p>
                 <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
-                  วันนี้ควรรู้อะไร
+                  สิ่งที่ควรดู
                 </h2>
               </div>
               <span
@@ -2134,7 +2086,7 @@ function ArDebtReceiptReportViewer({
                 ลูกหนี้ที่รับชำระสูงสุด
               </h2>
               <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
-                แสดงเฉพาะรายการสรุปจาก snapshot ที่ส่งมาแล้ว ไม่โหลดข้อมูลจาก SML ตอนเปิดหน้านี้
+                แสดงรายการสรุปจากรอบเดียวกับข้อความ LINE ไม่ดึงข้อมูลใหม่ตอนเปิดหน้านี้
               </p>
             </div>
             <ArDebtReceiptCustomerRowsTable rows={topCustomers} />
@@ -2533,7 +2485,7 @@ function ExecutiveInsights({
             สรุปผู้บริหาร
           </p>
           <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
-            ผู้บริหารควรรู้อะไร
+            สิ่งที่ควรดู
           </h2>
         </div>
         <span
@@ -2726,7 +2678,7 @@ function TrustPanel({ snapshot }: { snapshot: ClassicViewerReportSnapshot }) {
         )}
         <details className="rounded-lg border border-[#E4E7EC] bg-[#F9FAFB]">
           <summary className="cursor-pointer px-3 py-2 font-semibold text-[#344054]">
-            รายละเอียดเทคนิค
+            ที่มาของตัวเลข
           </summary>
           <dl className="grid gap-2 border-t border-[#E4E7EC] px-3 py-3 text-[12px] leading-[18px] sm:grid-cols-2">
             <Fact
@@ -3117,6 +3069,75 @@ function ComparisonRow({ title, value }: { title: string; value: string }) {
       <span className="font-medium text-[#475467]">{title}</span>
       <span className="text-right font-semibold text-[#101828]">{value}</span>
     </div>
+  );
+}
+
+function AdvancedRangeControls({
+  dateFrom,
+  dateTo,
+  rangeLoading,
+  rangeError,
+  onDateFromChange,
+  onDateToChange,
+  onRunRange,
+  onApplyPreset,
+}: {
+  dateFrom: string;
+  dateTo: string;
+  rangeLoading: boolean;
+  rangeError: string | null;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onRunRange: () => void;
+  onApplyPreset: (preset: "yesterday" | "month" | "quarter" | "year") => void;
+}) {
+  return (
+    <details className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4 print:hidden">
+      <summary className="cursor-pointer list-none text-[14px] font-semibold leading-[22px] text-[#344054]">
+        ดูช่วงอื่น
+        <span className="ml-2 font-normal text-[#667085]">
+          ค่าเริ่มต้นคือรอบเดียวกับ LINE
+        </span>
+      </summary>
+      <div className="mt-3 rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] px-3 py-2 text-[13px] leading-[20px] text-[#475467]">
+        การเปลี่ยนช่วงนี้ใช้ดูประกอบเท่านั้น ตัวเลขแรกของหน้านี้คือข้อมูลจากรอบที่ส่งใน LINE
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div>
+          <p className="text-[12px] font-medium leading-[18px] text-[#667085]">
+            เลือกช่วงรายงาน
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <PresetButton label="เมื่อวาน" onClick={() => onApplyPreset("yesterday")} />
+            <PresetButton label="เดือนนี้" onClick={() => onApplyPreset("month")} />
+            <PresetButton label="ไตรมาสนี้" onClick={() => onApplyPreset("quarter")} />
+            <PresetButton label="ปีนี้" onClick={() => onApplyPreset("year")} />
+          </div>
+        </div>
+        <form
+          className="grid gap-2 sm:grid-cols-[140px_140px_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onRunRange();
+          }}
+        >
+          <DateInput label="จากวันที่" value={dateFrom} onChange={onDateFromChange} />
+          <DateInput label="ถึงวันที่" value={dateTo} onChange={onDateToChange} />
+          <button
+            className="h-10 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60 sm:self-end"
+            disabled={rangeLoading}
+            type="submit"
+          >
+            {rangeLoading ? "กำลังโหลด" : "ดูรายงาน"}
+          </button>
+        </form>
+      </div>
+      {rangeError && (
+        <p className="mt-3 rounded-lg border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2 text-[14px] leading-[22px] text-[#B42318]">
+          {rangeError}
+        </p>
+      )}
+    </details>
   );
 }
 
