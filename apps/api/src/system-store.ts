@@ -29,6 +29,7 @@ import {
   businessSignalStatusSchema,
   businessSignalThresholdsSchema,
   notificationDigestModeSchema,
+  notificationRunProgressStageSchema,
   notificationPeriodStrategySchema,
   reportKeySchema,
   tenantFeatureFlagsSchema,
@@ -707,6 +708,10 @@ class LocalJsonSystemStore implements SystemStore {
       started_at: existing.started_at ?? input.claimedAt,
       claimed_at: input.claimedAt,
       worker_id: input.workerId,
+      progress_stage: "claimed",
+      progress_percent: 10,
+      progress_current_report_key: null,
+      progress_updated_at: input.claimedAt,
       updated_at: input.claimedAt,
     };
     await this.upsertNotificationRuleRun(claimed);
@@ -735,6 +740,10 @@ class LocalJsonSystemStore implements SystemStore {
         safe_error_message: run.safe_error_message ?? input.safeErrorMessage,
         finished_at: input.failedAt,
         next_retry_at: null,
+        progress_stage: "failed",
+        progress_percent: 100,
+        progress_current_report_key: null,
+        progress_updated_at: input.failedAt,
         updated_at: input.failedAt,
       };
       staleRuns.push(failed);
@@ -2143,6 +2152,12 @@ select
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 from notification_rule_runs
@@ -2188,6 +2203,12 @@ select
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 from notification_rule_runs
@@ -2231,6 +2252,12 @@ select
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 from notification_rule_runs
@@ -2281,6 +2308,12 @@ select
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 from notification_rule_runs
@@ -2337,6 +2370,12 @@ select
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 from notification_rule_runs
@@ -2362,6 +2401,10 @@ set status = 'running',
     started_at = coalesce(started_at, $2::timestamptz),
     claimed_at = $2::timestamptz,
     worker_id = $3,
+    progress_stage = 'claimed',
+    progress_percent = 10,
+    progress_current_report_key = null,
+    progress_updated_at = $2::timestamptz,
     updated_at = $2::timestamptz
 where id = $1
   and status = 'queued'
@@ -2393,6 +2436,12 @@ returning
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 `,
@@ -2414,6 +2463,10 @@ set status = 'failed',
     safe_error_message = coalesce(safe_error_message, $2),
     finished_at = $3::timestamptz,
     next_retry_at = null,
+    progress_stage = 'failed',
+    progress_percent = 100,
+    progress_current_report_key = null,
+    progress_updated_at = $3::timestamptz,
     updated_at = $3::timestamptz
 where status in ('queued', 'running')
   and coalesce(claimed_at, started_at, queued_at, created_at) < $1::timestamptz
@@ -2445,6 +2498,12 @@ returning
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 `,
@@ -2485,10 +2544,16 @@ insert into notification_rule_runs (
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20, $21::timestamptz, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25, $26, $27::timestamptz, $28::timestamptz, $29::timestamptz)
+values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20, $21::timestamptz, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25, $26, $27::timestamptz, $28, $29, $30, $31, $32, $33::timestamptz, $34::timestamptz, $35::timestamptz)
 on conflict (id) do update
 set status = excluded.status,
     mode = excluded.mode,
@@ -2508,6 +2573,12 @@ set status = excluded.status,
     worker_id = excluded.worker_id,
     client_request_id = excluded.client_request_id,
     next_retry_at = excluded.next_retry_at,
+    progress_stage = excluded.progress_stage,
+    progress_percent = excluded.progress_percent,
+    progress_current_report_key = excluded.progress_current_report_key,
+    progress_done_reports = excluded.progress_done_reports,
+    progress_total_reports = excluded.progress_total_reports,
+    progress_updated_at = excluded.progress_updated_at,
     updated_at = excluded.updated_at
 returning
   id,
@@ -2537,6 +2608,12 @@ returning
   worker_id,
   client_request_id,
   next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
   created_at,
   updated_at
 `,
@@ -2568,6 +2645,12 @@ returning
         run.worker_id,
         run.client_request_id,
         run.next_retry_at,
+        run.progress_stage,
+        run.progress_percent,
+        run.progress_current_report_key,
+        run.progress_done_reports,
+        run.progress_total_reports,
+        run.progress_updated_at,
         run.created_at,
         run.updated_at,
       ],
@@ -3440,6 +3523,24 @@ function mapNotificationRuleRunRow(
     next_retry_at: row.next_retry_at
       ? toIsoString(row.next_retry_at as string | Date)
       : null,
+    progress_stage: normalizeNotificationRunProgressStage(row.progress_stage),
+    progress_percent: normalizeProgressInteger(row.progress_percent, 0, 100),
+    progress_current_report_key: normalizeProgressReportKey(
+      row.progress_current_report_key,
+    ),
+    progress_done_reports: normalizeProgressInteger(
+      row.progress_done_reports,
+      0,
+      1000,
+    ),
+    progress_total_reports: normalizeProgressInteger(
+      row.progress_total_reports,
+      0,
+      1000,
+    ),
+    progress_updated_at: row.progress_updated_at
+      ? toIsoString(row.progress_updated_at as string | Date)
+      : null,
     created_at: row.created_at
       ? toIsoString(row.created_at as string | Date)
       : undefined,
@@ -3881,6 +3982,25 @@ function normalizeNotificationRuleRun(
       typeof run.client_request_id === "string" ? run.client_request_id : null,
     next_retry_at:
       typeof run.next_retry_at === "string" ? run.next_retry_at : null,
+    progress_stage: normalizeNotificationRunProgressStage(run.progress_stage),
+    progress_percent: normalizeProgressInteger(run.progress_percent, 0, 100),
+    progress_current_report_key: normalizeProgressReportKey(
+      run.progress_current_report_key,
+    ),
+    progress_done_reports: normalizeProgressInteger(
+      run.progress_done_reports,
+      0,
+      1000,
+    ),
+    progress_total_reports: normalizeProgressInteger(
+      run.progress_total_reports,
+      0,
+      1000,
+    ),
+    progress_updated_at:
+      typeof run.progress_updated_at === "string"
+        ? run.progress_updated_at
+        : null,
     created_at: run.created_at ?? now,
     updated_at: run.updated_at ?? now,
   };
@@ -3990,6 +4110,33 @@ function normalizeNotificationRunStatus<T extends NotificationRuleRecord["last_r
   }
 
   return fallback;
+}
+
+function normalizeNotificationRunProgressStage(value: unknown) {
+  const parsed = notificationRunProgressStageSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function normalizeProgressReportKey(value: unknown) {
+  const parsed = reportKeySchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function normalizeProgressInteger(
+  value: unknown,
+  min: number,
+  max: number,
+) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : null;
+  if (parsed === null || !Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.max(min, Math.min(Math.round(parsed), max));
 }
 
 function normalizeLineSendMode(value: unknown): NotificationRuleRunRecord["mode"] {
@@ -4506,6 +4653,12 @@ create table if not exists notification_rule_runs (
   worker_id text,
   client_request_id text,
   next_retry_at timestamptz,
+  progress_stage text,
+  progress_percent integer,
+  progress_current_report_key text,
+  progress_done_reports integer,
+  progress_total_reports integer,
+  progress_updated_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -4520,7 +4673,13 @@ alter table notification_rule_runs
   add column if not exists queued_at timestamptz,
   add column if not exists claimed_at timestamptz,
   add column if not exists worker_id text,
-  add column if not exists client_request_id text;
+  add column if not exists client_request_id text,
+  add column if not exists progress_stage text,
+  add column if not exists progress_percent integer,
+  add column if not exists progress_current_report_key text,
+  add column if not exists progress_done_reports integer,
+  add column if not exists progress_total_reports integer,
+  add column if not exists progress_updated_at timestamptz;
 
 create index if not exists notification_rule_runs_rule_idx
 on notification_rule_runs (rule_id, created_at desc);

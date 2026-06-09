@@ -224,6 +224,12 @@ describe("local JSON system store", () => {
       worker_id: null,
       client_request_id: null,
       next_retry_at: "2026-05-19T01:03:07.000Z",
+      progress_stage: "failed",
+      progress_percent: 100,
+      progress_current_report_key: null,
+      progress_done_reports: 0,
+      progress_total_reports: 1,
+      progress_updated_at: "2026-05-19T01:00:07.000Z",
       created_at: "2026-05-19T01:00:06.000Z",
       updated_at: "2026-05-19T01:00:07.000Z",
     };
@@ -557,6 +563,12 @@ describe("local JSON system store", () => {
       worker_id: null,
       client_request_id: "client-1",
       next_retry_at: null,
+      progress_stage: "queued",
+      progress_percent: 5,
+      progress_current_report_key: null,
+      progress_done_reports: 0,
+      progress_total_reports: 1,
+      progress_updated_at: "2026-06-09T00:55:00.000Z",
       created_at: "2026-06-09T00:55:00.000Z",
       updated_at: "2026-06-09T00:55:00.000Z",
     };
@@ -571,7 +583,13 @@ describe("local JSON system store", () => {
         source: "manual_run_now",
         clientRequestId: "client-1",
       }),
-    ).resolves.toMatchObject({ id: queuedRun.id, status: "queued" });
+    ).resolves.toMatchObject({
+      id: queuedRun.id,
+      status: "queued",
+      progress_stage: "queued",
+      progress_percent: 5,
+      progress_total_reports: 1,
+    });
     await expect(store.listQueuedNotificationRuleRuns(1)).resolves.toEqual([
       expect.objectContaining({ id: queuedRun.id }),
     ]);
@@ -585,6 +603,8 @@ describe("local JSON system store", () => {
       id: queuedRun.id,
       status: "running",
       worker_id: "worker-test",
+      progress_stage: "claimed",
+      progress_percent: 10,
     });
     await expect(
       store.claimQueuedNotificationRuleRun({
@@ -604,6 +624,8 @@ describe("local JSON system store", () => {
         id: queuedRun.id,
         status: "failed",
         safe_error_message: "stale",
+        progress_stage: "failed",
+        progress_percent: 100,
       }),
     ]);
 

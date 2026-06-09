@@ -235,6 +235,12 @@ create table if not exists notification_rule_runs (
   worker_id text,
   client_request_id text,
   next_retry_at timestamptz,
+  progress_stage text,
+  progress_percent integer,
+  progress_current_report_key text,
+  progress_done_reports integer,
+  progress_total_reports integer,
+  progress_updated_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -249,7 +255,13 @@ alter table notification_rule_runs
   add column if not exists queued_at timestamptz,
   add column if not exists claimed_at timestamptz,
   add column if not exists worker_id text,
-  add column if not exists client_request_id text;
+  add column if not exists client_request_id text,
+  add column if not exists progress_stage text,
+  add column if not exists progress_percent integer,
+  add column if not exists progress_current_report_key text,
+  add column if not exists progress_done_reports integer,
+  add column if not exists progress_total_reports integer,
+  add column if not exists progress_updated_at timestamptz;
 
 create index if not exists notification_rule_runs_queued_idx
 on notification_rule_runs (status, queued_at, created_at)

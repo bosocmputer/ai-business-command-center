@@ -39,6 +39,7 @@ import {
   reportKeySchema,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
+  type NotificationRunProgressStage,
   type PurchaseGoodsPayablesSnapshot,
   type ReportKey,
   type ReportLinePreview,
@@ -5939,6 +5940,12 @@ async function enqueueManualNotificationRuleRun(input: {
     worker_id: null,
     client_request_id: clientRequestId,
     next_retry_at: null,
+    progress_stage: "queued",
+    progress_percent: 5,
+    progress_current_report_key: null,
+    progress_done_reports: 0,
+    progress_total_reports: input.rule.report_keys.length,
+    progress_updated_at: nowIso,
     created_at: nowIso,
     updated_at: nowIso,
   });
@@ -6161,6 +6168,7 @@ async function executeNotificationRule(input: {
       ? `${baseIdempotencyKey}:manual:${Date.now()}`
       : baseIdempotencyKey);
   const nowIso = new Date().toISOString();
+  const totalReports = input.rule.report_keys.length;
   let run: NotificationRuleRunRecord = input.run
     ? {
         ...input.run,
@@ -6172,6 +6180,14 @@ async function executeNotificationRule(input: {
         worker_id: input.workerId ?? input.run.worker_id,
         client_request_id:
           input.clientRequestId ?? input.run.client_request_id ?? null,
+        progress_stage: input.run.progress_stage ?? "claimed",
+        progress_percent: input.run.progress_percent ?? 10,
+        progress_current_report_key:
+          input.run.progress_current_report_key ?? null,
+        progress_done_reports: input.run.progress_done_reports ?? 0,
+        progress_total_reports:
+          input.run.progress_total_reports ?? totalReports,
+        progress_updated_at: input.run.progress_updated_at ?? nowIso,
         updated_at: nowIso,
       }
     : {
@@ -6202,6 +6218,12 @@ async function executeNotificationRule(input: {
         worker_id: input.workerId ?? null,
         client_request_id: input.clientRequestId ?? null,
         next_retry_at: null,
+        progress_stage: "claimed",
+        progress_percent: 10,
+        progress_current_report_key: null,
+        progress_done_reports: 0,
+        progress_total_reports: totalReports,
+        progress_updated_at: nowIso,
         created_at: nowIso,
         updated_at: nowIso,
       };
@@ -6221,6 +6243,28 @@ async function executeNotificationRule(input: {
   }
 
   run = input.run ? run : await systemStore.upsertNotificationRuleRun(run);
+  const updateRunProgress = async (progress: {
+    stage: NotificationRunProgressStage;
+    percent: number;
+    currentReportKey?: ReportKey | null;
+    doneReports?: number | null;
+    totalReports?: number | null;
+  }) => {
+    const progressUpdatedAt = new Date().toISOString();
+    run = await systemStore.upsertNotificationRuleRun({
+      ...run,
+      progress_stage: progress.stage,
+      progress_percent: clampProgressPercent(progress.percent),
+      progress_current_report_key: progress.currentReportKey ?? null,
+      progress_done_reports:
+        progress.doneReports ?? run.progress_done_reports ?? null,
+      progress_total_reports:
+        progress.totalReports ?? run.progress_total_reports ?? totalReports,
+      progress_updated_at: progressUpdatedAt,
+      updated_at: progressUpdatedAt,
+    });
+    return run;
+  };
   const degradedReports: DegradedNotificationReport[] = [];
   const getDegradedAuditMetadata = () => {
     if (!degradedReports.length) {
@@ -6253,6 +6297,8 @@ async function executeNotificationRule(input: {
     nextRetryAt?: string | null;
   }) => {
     const finishedAt = new Date().toISOString();
+    const finishedProgressStage =
+      update.status === "failed" ? "failed" : "completed";
     run = await systemStore.upsertNotificationRuleRun({
       ...run,
       status: update.status,
@@ -6261,6 +6307,15 @@ async function executeNotificationRule(input: {
       delivery_ids: update.deliveryIds ?? run.delivery_ids,
       finished_at: finishedAt,
       next_retry_at: update.nextRetryAt ?? null,
+      progress_stage: finishedProgressStage,
+      progress_percent: 100,
+      progress_current_report_key: null,
+      progress_done_reports:
+        update.status === "failed"
+          ? (run.progress_done_reports ?? 0)
+          : totalReports,
+      progress_total_reports: totalReports,
+      progress_updated_at: finishedAt,
       updated_at: finishedAt,
     });
     await systemStore.upsertNotificationRule({
@@ -6353,7 +6408,24 @@ async function executeNotificationRule(input: {
   const snapshots: ReportSnapshot[] = [];
   const businessSignalsEnabled = isBusinessSignalsEnabled(tenant);
   const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
-  for (const reportKey of input.rule.report_keys) {
+  for (const [reportIndex, reportKey] of input.rule.report_keys.entries()) {
+    await updateRunProgress({
+      stage: "running_report",
+      percent: calculateReportProgressPercent(reportIndex, totalReports),
+      currentReportKey: reportKey,
+      doneReports: reportIndex,
+      totalReports,
+    });
+    const markReportProgressDone = async () => {
+      await updateRunProgress({
+        stage: "running_report",
+        percent: calculateReportProgressPercent(reportIndex + 1, totalReports),
+        currentReportKey: reportKey,
+        doneReports: reportIndex + 1,
+        totalReports,
+      });
+    };
+
     if (reportKey === "stock_balance" && heavyReportFallbackEnabled) {
       const recentTimeoutRun = findRecentStockBalanceTimeoutRun({
         runs: await systemStore.listRuns(input.rule.tenant_id, "stock_balance"),
@@ -6385,6 +6457,7 @@ async function executeNotificationRule(input: {
           cooldownUsed: true,
           preview,
         });
+        await markReportProgressDone();
         continue;
       }
     }
@@ -6443,6 +6516,7 @@ async function executeNotificationRule(input: {
           cooldownUsed: false,
           preview,
         });
+        await markReportProgressDone();
         continue;
       }
       if (businessSignalsEnabled) {
@@ -6466,6 +6540,7 @@ async function executeNotificationRule(input: {
       return failRun(result.error, result.statusCode, reportRunIds);
     }
     snapshots.push(result.snapshot);
+    await markReportProgressDone();
   }
   run = {
     ...run,
@@ -6488,6 +6563,14 @@ async function executeNotificationRule(input: {
       )
     : [];
   const lineActionDigestV2Enabled = isLineActionDigestV2Enabled(tenant);
+
+  await updateRunProgress({
+    stage: "preparing_line",
+    percent: 88,
+    currentReportKey: null,
+    doneReports: totalReports,
+    totalReports,
+  });
 
   const deliveries: LineDeliveryRecord[] = [];
   const deliveryTargetHashes = new Set<string>();
@@ -6640,6 +6723,14 @@ async function executeNotificationRule(input: {
         continue;
       }
     }
+
+    await updateRunProgress({
+      stage: "sending_line",
+      percent: 94,
+      currentReportKey: null,
+      doneReports: totalReports,
+      totalReports,
+    });
 
     const delivery = await sendLineBrief({
       tenantId: input.rule.tenant_id,
@@ -6805,6 +6896,20 @@ async function executeNotificationRule(input: {
     report_run_ids: reportRunIds,
     mode: input.mode,
   };
+}
+
+function calculateReportProgressPercent(doneReports: number, totalReports: number) {
+  if (totalReports <= 0) {
+    return 85;
+  }
+  return clampProgressPercent(10 + Math.round((doneReports / totalReports) * 75));
+}
+
+function clampProgressPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function validateManualNotificationSchedule(input: {

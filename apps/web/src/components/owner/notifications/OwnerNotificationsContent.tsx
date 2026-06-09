@@ -1205,10 +1205,7 @@ function ManualRunPanel({
           </p>
         ) : null}
         {activeManualRun ? (
-          <div className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-100">
-            รับงานแล้ว · {formatNotificationRunStatus(activeManualRun.status)} ·{" "}
-            ใช้เวลา {formatNotificationRunElapsed(activeManualRun)}
-          </div>
+          <NotificationRunProgressCard run={activeManualRun} />
         ) : null}
       </div>
 
@@ -1306,6 +1303,11 @@ function RunHistoryPanel({
                   {run.safe_error_message}
                 </p>
               ) : null}
+              {isNotificationRunActive(run) ? (
+                <div className="lg:col-span-4">
+                  <NotificationRunProgressCard compact run={run} />
+                </div>
+              ) : null}
             </div>
           ))
         ) : (
@@ -1315,6 +1317,53 @@ function RunHistoryPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function NotificationRunProgressCard({
+  compact = false,
+  run,
+}: {
+  compact?: boolean;
+  run: NotificationRuleRunRecord;
+}) {
+  const progressPercent = getNotificationRunProgressPercent(run);
+  const progressLabel = formatNotificationRunProgressLabel(run);
+
+  if (progressPercent === null || !progressLabel) {
+    return (
+      <div className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-800 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-100">
+        รับงานแล้ว · {formatNotificationRunStatus(run.status)} · ใช้เวลา{" "}
+        {formatNotificationRunElapsed(run)}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`rounded-lg border border-brand-200 bg-brand-50 text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100 ${
+        compact ? "px-3 py-2" : "mt-3 px-3 py-3"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3 text-xs font-medium">
+        <span className="min-w-0 truncate">{progressLabel}</span>
+        <span className="shrink-0 tabular-nums">{progressPercent}%</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/70 dark:bg-white/10">
+        <div
+          aria-label={progressLabel}
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={progressPercent}
+          className="h-full rounded-full bg-brand-500 transition-[width] duration-200"
+          role="progressbar"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+      <p className="mt-2 text-xs leading-5 text-brand-800/80 dark:text-brand-100/80">
+        ใช้เวลา {formatNotificationRunElapsed(run)}
+      </p>
+    </div>
   );
 }
 
@@ -1680,6 +1729,10 @@ function notificationRunTone(status: NotificationRuleRunRecord["status"]) {
   return "light" as const;
 }
 
+function isNotificationRunActive(run: NotificationRuleRunRecord) {
+  return run.status === "queued" || run.status === "running";
+}
+
 function formatNotificationRunStatus(
   status: NotificationRuleRunRecord["status"],
 ) {
@@ -1699,6 +1752,49 @@ function formatNotificationRunStatus(
     return "กำลังรัน";
   }
   return "ข้าม";
+}
+
+function getNotificationRunProgressPercent(run: NotificationRuleRunRecord) {
+  if (typeof run.progress_percent !== "number") {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round(run.progress_percent)));
+}
+
+function formatNotificationRunProgressLabel(run: NotificationRuleRunRecord) {
+  if (!run.progress_stage) {
+    return null;
+  }
+
+  if (run.progress_stage === "queued") {
+    return "รอคิว";
+  }
+  if (run.progress_stage === "claimed") {
+    return "เริ่มงานแล้ว";
+  }
+  if (run.progress_stage === "preparing_line") {
+    return "กำลังเตรียมข้อความ LINE";
+  }
+  if (run.progress_stage === "sending_line") {
+    return "กำลังส่ง LINE";
+  }
+  if (run.progress_stage === "completed") {
+    return "เสร็จแล้ว";
+  }
+  if (run.progress_stage === "failed") {
+    return "ไม่สำเร็จ";
+  }
+
+  const totalReports = run.progress_total_reports ?? 0;
+  const doneReports = run.progress_done_reports ?? 0;
+  const currentReportNumber =
+    totalReports > 0 ? Math.min(doneReports + 1, totalReports) : null;
+  const reportLabel = run.progress_current_report_key
+    ? getReportCatalogEntry(run.progress_current_report_key).shortLabel
+    : "รายงาน";
+  return currentReportNumber
+    ? `กำลังสร้างรายงาน: ${reportLabel} (${currentReportNumber}/${totalReports})`
+    : `กำลังสร้างรายงาน: ${reportLabel}`;
 }
 
 function formatNotificationRunElapsed(run: NotificationRuleRunRecord) {

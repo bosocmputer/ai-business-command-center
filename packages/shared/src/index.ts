@@ -1415,6 +1415,16 @@ export const notificationRuleRunSourceSchema = z.enum([
   "manual_run_now",
 ]);
 
+export const notificationRunProgressStageSchema = z.enum([
+  "queued",
+  "claimed",
+  "running_report",
+  "preparing_line",
+  "sending_line",
+  "completed",
+  "failed",
+]);
+
 export const notificationDigestModeSchema = z.enum([
   "action_only",
   "all_reports",
@@ -1452,6 +1462,9 @@ export type NotificationRuleRunStatus = z.infer<
 >;
 export type NotificationRuleRunSource = z.infer<
   typeof notificationRuleRunSourceSchema
+>;
+export type NotificationRunProgressStage = z.infer<
+  typeof notificationRunProgressStageSchema
 >;
 export type NotificationDigestMode = z.infer<
   typeof notificationDigestModeSchema
@@ -1509,6 +1522,12 @@ export type NotificationRuleRunRecord = {
   worker_id: string | null;
   client_request_id: string | null;
   next_retry_at: string | null;
+  progress_stage: NotificationRunProgressStage | null;
+  progress_percent: number | null;
+  progress_current_report_key: ReportKey | null;
+  progress_done_reports: number | null;
+  progress_total_reports: number | null;
+  progress_updated_at: string | null;
   created_at: string;
   updated_at: string;
 };
