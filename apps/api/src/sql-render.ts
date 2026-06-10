@@ -33,7 +33,17 @@ function toPostgresLiteral(value: unknown): string {
   }
 
   if (typeof value === "string") {
-    return `'${value.replace(/'/g, "''")}'`;
+    return toPostgresStringLiteral(value);
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.every((item) => typeof item === "string")) {
+      throw new Error("SQL render rejected because array parameters must be strings.");
+    }
+    if (!value.length) {
+      return "array[]::text[]";
+    }
+    return `array[${value.map(toPostgresStringLiteral).join(", ")}]::text[]`;
   }
 
   if (typeof value === "number") {
@@ -48,8 +58,12 @@ function toPostgresLiteral(value: unknown): string {
   }
 
   if (value instanceof Date) {
-    return `'${value.toISOString().replace(/'/g, "''")}'`;
+    return toPostgresStringLiteral(value.toISOString());
   }
 
   throw new Error("SQL render rejected because a parameter type is unsupported.");
+}
+
+function toPostgresStringLiteral(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
 }

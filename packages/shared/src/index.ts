@@ -34,6 +34,7 @@ export const tenantFeatureFlagsSchema = z.object({
   business_signals_enabled: z.boolean().default(true),
   line_action_digest_v2_enabled: z.boolean().default(false),
   line_heavy_report_fallback_enabled: z.boolean().default(true),
+  sml_chunked_heavy_reports_enabled: z.boolean().default(false),
   demo_mode_enabled: z.boolean().default(false),
 });
 
@@ -428,7 +429,20 @@ export type UserRecord = {
   updated_at: string;
 };
 
-export type ReportRunStatus = "success" | "failed" | "running";
+export type ReportRunStatus = "queued" | "success" | "failed" | "running";
+
+export type ReportExecutionStrategy = "direct" | "chunked";
+
+export type ReportRunProgressStage =
+  | "queued"
+  | "claimed"
+  | "preflight"
+  | "running_chunk"
+  | "summarizing"
+  | "completed"
+  | "failed";
+
+export type ReportRunChunkStatus = "queued" | "running" | "success" | "failed";
 
 export type SalesHeaderRow = {
   rownum: number;
@@ -1751,4 +1765,35 @@ export type ReportRunRecord = {
   finished_at: string | null;
   row_count: number;
   safe_error_message: string | null;
+  queued_at?: string | null;
+  claimed_at?: string | null;
+  worker_id?: string | null;
+  execution_strategy?: ReportExecutionStrategy | null;
+  progress_stage?: ReportRunProgressStage | null;
+  progress_percent?: number | null;
+  progress_updated_at?: string | null;
+};
+
+export type ReportRunChunkRecord = {
+  id: string;
+  tenant_id: TenantId;
+  report_run_id: string;
+  report_key: ReportKey;
+  chunk_no: number;
+  chunk_key: string;
+  status: ReportRunChunkStatus;
+  attempt: number;
+  unit_start_index: number;
+  unit_count: number;
+  total_units: number;
+  row_count: number;
+  cursor_from: string | null;
+  cursor_to: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  safe_error_message: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 };

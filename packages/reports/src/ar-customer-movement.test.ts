@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildArCustomerMovementCustomerCodePageQuery,
   buildArCustomerMovementQuery,
   renderArCustomerMovementLinePreview,
   summarizeArCustomerMovement,
@@ -33,6 +34,35 @@ describe("AR customer movement report", () => {
     expect(query.text).not.toContain("2026-06-08");
     expect(query.text).not.toContain("$2");
     expect(query.values).toEqual(["2026-06-08"]);
+  });
+
+  it("builds keyset customer-code pages for chunked runs without OFFSET", () => {
+    const query = buildArCustomerMovementCustomerCodePageQuery(
+      {
+        date_from: "2026-06-01",
+        date_to: "2026-06-08",
+      },
+      { afterCustomerCode: "C0500", limit: 300 },
+    );
+
+    expect(query.text).toContain("cust_code > $2");
+    expect(query.text).toContain("order by cust_code asc");
+    expect(query.text.toLowerCase()).not.toContain(" offset ");
+    expect(query.values).toEqual(["2026-06-08", "C0500", null, 300]);
+  });
+
+  it("pushes chunk cursor range into each AR source branch", () => {
+    const query = buildArCustomerMovementQuery(
+      {
+        date_from: "2026-06-01",
+        date_to: "2026-06-08",
+      },
+      { customerCodeAfter: "C0500", customerCodeTo: "C0800" },
+    );
+
+    expect(query.text.match(/coalesce\(t\.cust_code, ''\) > \$2/g)).toHaveLength(4);
+    expect(query.text.match(/coalesce\(t\.cust_code, ''\) <= \$3/g)).toHaveLength(4);
+    expect(query.values).toEqual(["2026-06-08", "C0500", "C0800"]);
   });
 
   it("summarizes movement types and net movement from SML doc_sort", () => {

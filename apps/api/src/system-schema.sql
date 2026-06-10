@@ -6,7 +6,7 @@ create table if not exists tenants (
   database_name text not null default '',
   description text not null default '',
   datasource_configured boolean not null default false,
-  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"demo_mode_enabled":false}'::jsonb,
+  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
   business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
@@ -16,7 +16,7 @@ alter table tenants
   add column if not exists database_name text not null default '',
   add column if not exists description text not null default '',
   add column if not exists datasource_configured boolean not null default false,
-  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"demo_mode_enabled":false}'::jsonb,
+  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
   add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
   add column if not exists current_period_end timestamptz;
@@ -44,11 +44,27 @@ create table if not exists report_runs (
   report_key text not null references report_definitions(report_key),
   params_json jsonb not null,
   status text not null,
+  queued_at timestamptz,
+  claimed_at timestamptz,
+  worker_id text,
+  execution_strategy text,
+  progress_stage text,
+  progress_percent integer,
+  progress_updated_at timestamptz,
   started_at timestamptz not null,
   finished_at timestamptz,
   row_count integer not null default 0,
   safe_error_message text
 );
+
+alter table report_runs
+  add column if not exists queued_at timestamptz,
+  add column if not exists claimed_at timestamptz,
+  add column if not exists worker_id text,
+  add column if not exists execution_strategy text,
+  add column if not exists progress_stage text,
+  add column if not exists progress_percent integer,
+  add column if not exists progress_updated_at timestamptz;
 
 create table if not exists report_snapshots (
   id text primary key,
@@ -61,6 +77,41 @@ create table if not exists report_snapshots (
 
 create index if not exists report_runs_latest_idx
 on report_runs (tenant_id, report_key, started_at desc);
+
+create index if not exists report_runs_async_idx
+on report_runs (tenant_id, report_key, status, execution_strategy, queued_at desc);
+
+create table if not exists report_run_chunks (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  report_run_id text not null references report_runs(id) on delete cascade,
+  report_key text not null references report_definitions(report_key),
+  chunk_no integer not null,
+  chunk_key text not null,
+  status text not null,
+  attempt integer not null default 0,
+  unit_start_index integer not null default 0,
+  unit_count integer not null default 0,
+  total_units integer not null default 0,
+  row_count integer not null default 0,
+  cursor_from text,
+  cursor_to text,
+  started_at timestamptz,
+  finished_at timestamptz,
+  duration_ms integer,
+  safe_error_message text,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (report_run_id, chunk_no)
+);
+
+create index if not exists report_run_chunks_run_idx
+on report_run_chunks (report_run_id, chunk_no);
+
+create index if not exists report_run_chunks_status_idx
+on report_run_chunks (tenant_id, report_key, status, updated_at)
+where status in ('queued', 'running');
 
 create index if not exists report_snapshots_latest_idx
 on report_snapshots (tenant_id, report_key, created_at desc);

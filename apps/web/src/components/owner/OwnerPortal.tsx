@@ -124,6 +124,24 @@ type TenantPatchInput = {
   suspended_reason: string | null;
 };
 
+type ChunkedReportProgress = {
+  run: ReportRunRecord;
+  progress_stage: string;
+  progress_percent: number;
+  chunk_summary: {
+    total: number;
+    done: number;
+    failed: number;
+    running: number;
+    queued: number;
+    rows_processed: number;
+    total_units: number;
+  };
+  elapsed_ms: number;
+  can_close_page: boolean;
+  next_action_message: string;
+};
+
 type TenantDeleteImpact = {
   tenant_id: string;
   tenant_name: string;
@@ -513,6 +531,10 @@ export default function OwnerPortal({
     useState<ReportRunRecord | null>(null);
   const [lastManualSnapshot, setLastManualSnapshot] =
     useState<SalesGoodsServicesSnapshot | null>(null);
+  const [heavyReportProgress, setHeavyReportProgress] =
+    useState<ChunkedReportProgress | null>(null);
+  const [pendingHeavyReportRunId, setPendingHeavyReportRunId] =
+    useState<string | null>(null);
   const [validationReferenceTotal, setValidationReferenceTotal] = useState("");
   const [validationSignedBy, setValidationSignedBy] = useState("");
   const [validationNote, setValidationNote] = useState("");
@@ -872,6 +894,51 @@ export default function OwnerPortal({
     setJavaWsAuthSecret("");
   }, []);
 
+  const refreshHeavyReportProgress = useCallback(
+    async (tenantId: string, runId: string) => {
+      const response = await fetch(
+        `${API_BASE_URL}/api/reports/${tenantId}/runs/${runId}/progress`,
+        {
+          headers: buildRememberedAdminJsonHeaders(),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: ChunkedReportProgress;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
+        if (response.status === 404) {
+          window.localStorage.removeItem(
+            getHeavyReportProgressStorageKey(tenantId),
+          );
+          setPendingHeavyReportRunId(null);
+        }
+        return;
+      }
+
+      setHeavyReportProgress(payload.data);
+      setLastManualRun(payload.data.run);
+      if (isTerminalReportRunStatus(payload.data.run.status)) {
+        window.localStorage.removeItem(getHeavyReportProgressStorageKey(tenantId));
+        setPendingHeavyReportRunId(null);
+        setResult({
+          tone: payload.data.run.status === "success" ? "success" : "warning",
+          message:
+            payload.data.run.status === "success"
+              ? `${formatOwnerReportLabel(payload.data.run.report_key)} เสร็จแล้ว`
+              : payload.data.next_action_message,
+        });
+        if (payload.data.run.status === "success") {
+          await loadOwnerData({ promptForToken: false });
+        }
+      }
+    },
+    [loadOwnerData],
+  );
+
   useEffect(() => {
     void loadOwnerData({ promptForToken: false });
   }, [loadOwnerData]);
@@ -930,6 +997,34 @@ export default function OwnerPortal({
     pendingNotificationRunId,
     refreshNotificationRuleRuns,
   ]);
+
+  useEffect(() => {
+    if (!selectedTenantId) {
+      return;
+    }
+    const storedRunId = window.localStorage.getItem(
+      getHeavyReportProgressStorageKey(selectedTenantId),
+    );
+    if (storedRunId) {
+      setPendingHeavyReportRunId(storedRunId);
+      return;
+    }
+    setHeavyReportProgress((current) =>
+      current?.run.tenant_id === selectedTenantId ? current : null,
+    );
+  }, [selectedTenantId]);
+
+  useEffect(() => {
+    if (!pendingHeavyReportRunId || !selectedTenantId) {
+      return;
+    }
+
+    void refreshHeavyReportProgress(selectedTenantId, pendingHeavyReportRunId);
+    const intervalId = window.setInterval(() => {
+      void refreshHeavyReportProgress(selectedTenantId, pendingHeavyReportRunId);
+    }, 2000);
+    return () => window.clearInterval(intervalId);
+  }, [pendingHeavyReportRunId, refreshHeavyReportProgress, selectedTenantId]);
 
   useEffect(() => {
     selectedTenantIdRef.current = selectedTenantId;
@@ -2359,6 +2454,113 @@ export default function OwnerPortal({
     });
   }
 
+  async function runHeavyReportAsync(
+    reportKey: "stock_balance" | "ar_customer_movement",
+  ) {
+    const tenant = selectedTenantSummary?.tenant;
+    if (!tenant) {
+      setResult({ tone: "warning", message: "กรุณาเลือกร้านค้าก่อนรันรายงาน" });
+      return;
+    }
+    if (!reportDateFrom || !reportDateTo || reportDateFrom > reportDateTo) {
+      setResult({
+        tone: "warning",
+        message: "กรุณาเลือกช่วงวันที่ให้ถูกต้อง",
+      });
+      return;
+    }
+    if (!tenant.featureFlags?.sml_chunked_heavy_reports_enabled) {
+      setResult({
+        tone: "warning",
+        message:
+          "ร้านนี้ยังไม่ได้เปิด feature flag chunked heavy reports ระบบจึงยังไม่เริ่ม async run",
+      });
+      return;
+    }
+
+    const reportLabel = formatOwnerReportLabel(reportKey);
+    await runOwnerAction(`heavy-report-run-${reportKey}-${tenant.id}`, async () => {
+      const confirmed = await requestAdminConfirmation({
+        title: `ยืนยันรัน${reportLabel}`,
+        message:
+          "รายงานนี้เป็นรายงานหนัก ระบบจะคิวงานแบบ chunked แล้วอัปเดต progress ให้ดูต่อได้",
+        confirmLabel: "เริ่มรัน",
+        details: [
+          { label: "ร้านค้า", value: tenant.name },
+          { label: "รายงาน", value: reportLabel },
+          {
+            label: "ช่วงวันที่",
+            value: formatReportPeriod(reportDateFrom, reportDateTo),
+          },
+          { label: "หมายเหตุ", value: "ปิดหน้าได้ ระบบยังรันต่อ" },
+        ],
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: `เริ่มรัน${reportLabel}`,
+        description:
+          "ระบบจะคิว heavy report แบบ chunked เพื่อลด timeout และแสดง progress",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนรันรายงาน");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/reports/${tenant.id}/${reportKey}/run-async`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            date_from: reportDateFrom,
+            date_to: reportDateTo,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: ReportRunRecord;
+        duplicate?: boolean;
+        progress?: ChunkedReportProgress;
+        run?: ReportRunRecord;
+        active_run?: ReportRunRecord;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.data) {
+        if (response.status === 401 || response.status === 403) {
+          forgetAdminToken();
+        }
+        if (payload.run ?? payload.active_run) {
+          setLastManualRun(payload.run ?? payload.active_run ?? null);
+        }
+        throw new Error(payload.error || `เริ่มรัน${reportLabel}ไม่สำเร็จ`);
+      }
+
+      setLastManualSnapshot(null);
+      setLastManualRun(payload.data);
+      setValidationSignoffResult(null);
+      if (payload.progress) {
+        setHeavyReportProgress(payload.progress);
+      }
+      if (!isTerminalReportRunStatus(payload.data.status)) {
+        window.localStorage.setItem(
+          getHeavyReportProgressStorageKey(tenant.id),
+          payload.data.id,
+        );
+        setPendingHeavyReportRunId(payload.data.id);
+      }
+      setResult({
+        tone: "success",
+        message: payload.duplicate
+          ? `${reportLabel}: พบ run เดิมที่กำลังทำงาน จะแสดง progress ต่อจาก run นั้น`
+          : `${reportLabel}: เริ่มรันแล้ว ปิดหน้าได้ ระบบยังรันต่อ`,
+      });
+      await loadOwnerData({ promptForToken: false });
+    });
+  }
+
   async function saveValidationSignoff() {
     const tenant = selectedTenantSummary?.tenant;
     if (!tenant || !lastManualSnapshot) {
@@ -2964,6 +3166,7 @@ export default function OwnerPortal({
           javaWsDatabase={javaWsDatabase}
           javaWsEndpoint={javaWsEndpoint}
           javaWsWebappPath={javaWsWebappPath}
+          heavyReportProgress={heavyReportProgress}
           lastManualRun={lastManualRun}
           lastManualSnapshot={lastManualSnapshot}
           lineAccessTokenInput={lineAccessTokenInput}
@@ -3113,6 +3316,7 @@ export default function OwnerPortal({
           onRunSalesReport={runSalesReport}
           onRunPurchaseReport={runPurchaseReport}
           onRunGrossProfitReport={runGrossProfitReport}
+          onRunHeavyReport={runHeavyReportAsync}
         />
       ) : null}
 
@@ -3171,6 +3375,7 @@ type OwnerSectionContentProps = {
   javaWsEndpoint: string;
   javaWsWebappPath: string;
   justCreatedTenantId: string | null;
+  heavyReportProgress: ChunkedReportProgress | null;
   lastManualRun: ReportRunRecord | null;
   lastManualSnapshot: SalesGoodsServicesSnapshot | null;
   lineAccessTokenInput: string;
@@ -3224,6 +3429,9 @@ type OwnerSectionContentProps = {
   ) => Promise<void>;
   onRunGrossProfitReport: (
     reportKey: "gross_profit_by_product" | "gross_profit_by_ar_customer",
+  ) => Promise<void>;
+  onRunHeavyReport: (
+    reportKey: "stock_balance" | "ar_customer_movement",
   ) => Promise<void>;
   onRunPurchaseReport: () => Promise<void>;
   onRunSalesReport: () => Promise<void>;
@@ -4667,8 +4875,10 @@ function OwnerReportPermissionsContent({
 
 function OwnerReportsContent({
   busy,
+  heavyReportProgress,
   lastManualRun,
   lastManualSnapshot,
+  onRunHeavyReport,
   onRunPurchaseReport,
   onRunSalesReport,
   onRunGrossProfitReport,
@@ -4712,11 +4922,13 @@ function OwnerReportsContent({
         busy={busy}
         dateFrom={reportDateFrom}
         dateTo={reportDateTo}
+        heavyReportProgress={heavyReportProgress}
         lastRun={lastManualRun}
         lastSnapshot={lastManualSnapshot}
         onDateFromChange={setReportDateFrom}
         onDateToChange={setReportDateTo}
         onRun={onRunSalesReport}
+        onRunHeavyReport={onRunHeavyReport}
         onRunGrossProfit={onRunGrossProfitReport}
         onRunPurchase={onRunPurchaseReport}
         onSaveValidationSignoff={onSaveValidationSignoff}
@@ -5292,11 +5504,13 @@ function OwnerReportRunnerPanel({
   busy,
   dateFrom,
   dateTo,
+  heavyReportProgress,
   lastRun,
   lastSnapshot,
   onDateFromChange,
   onDateToChange,
   onRun,
+  onRunHeavyReport,
   onRunGrossProfit,
   onRunPurchase,
   onSaveValidationSignoff,
@@ -5315,11 +5529,15 @@ function OwnerReportRunnerPanel({
   busy: string | null;
   dateFrom: string;
   dateTo: string;
+  heavyReportProgress: ChunkedReportProgress | null;
   lastRun: ReportRunRecord | null;
   lastSnapshot: SalesGoodsServicesSnapshot | null;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
   onRun: () => Promise<void>;
+  onRunHeavyReport: (
+    reportKey: "stock_balance" | "ar_customer_movement",
+  ) => Promise<void>;
   onRunGrossProfit: (
     reportKey: "gross_profit_by_product" | "gross_profit_by_ar_customer",
   ) => Promise<void>;
@@ -5343,8 +5561,25 @@ function OwnerReportRunnerPanel({
     busy === `gross-profit-report-run-gross_profit_by_product-${selectedTenantId}`;
   const isGrossArRunning =
     busy === `gross-profit-report-run-gross_profit_by_ar_customer-${selectedTenantId}`;
+  const isStockHeavyStarting =
+    busy === `heavy-report-run-stock_balance-${selectedTenantId}`;
+  const isArMovementHeavyStarting =
+    busy === `heavy-report-run-ar_customer_movement-${selectedTenantId}`;
+  const activeHeavyProgress =
+    heavyReportProgress?.run.tenant_id === selectedTenantId &&
+    !isTerminalReportRunStatus(heavyReportProgress.run.status)
+      ? heavyReportProgress
+      : null;
+  const chunkedHeavyEnabled = Boolean(
+    selectedTenant?.tenant.featureFlags?.sml_chunked_heavy_reports_enabled,
+  );
   const anyReportRunning =
-    isRunning || isPurchaseRunning || isGrossProductRunning || isGrossArRunning;
+    isRunning ||
+    isPurchaseRunning ||
+    isGrossProductRunning ||
+    isGrossArRunning ||
+    isStockHeavyStarting ||
+    isArMovementHeavyStarting;
   const selectedSnapshotMatches =
     lastSnapshot?.tenant_id === selectedTenantId &&
     lastSnapshot.params.date_from === dateFrom &&
@@ -5446,11 +5681,50 @@ function OwnerReportRunnerPanel({
               ? "กำลังรันกำไรลูกหนี้..."
               : "รันกำไรขั้นต้นลูกหนี้"}
           </Button>
+          <Button
+            className="w-full"
+            disabled={
+              anyReportRunning ||
+              !selectedTenantId ||
+              !chunkedHeavyEnabled ||
+              Boolean(activeHeavyProgress)
+            }
+            onClick={() => void onRunHeavyReport("stock_balance")}
+            size="sm"
+            variant="outline"
+          >
+            {isStockHeavyStarting
+              ? "กำลังเริ่มสต็อก..."
+              : "รันสต็อกคงเหลือ async"}
+          </Button>
+          <Button
+            className="w-full"
+            disabled={
+              anyReportRunning ||
+              !selectedTenantId ||
+              !chunkedHeavyEnabled ||
+              Boolean(activeHeavyProgress)
+            }
+            onClick={() => void onRunHeavyReport("ar_customer_movement")}
+            size="sm"
+            variant="outline"
+          >
+            {isArMovementHeavyStarting
+              ? "กำลังเริ่มลูกหนี้..."
+              : "รันเคลื่อนไหวลูกหนี้ async"}
+          </Button>
         </div>
 
         <p className="rounded-xl border border-warning-100 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-300">
           รายงานกำไรขั้นต้นมีข้อมูลต้นทุนและ margin ควรเปิดสิทธิ์เฉพาะ role ผู้บริหารในเมนูสิทธิ์รายงาน
+          {chunkedHeavyEnabled
+            ? " · รายงานหนักแบบ async ปิดหน้าได้ ระบบยังรันต่อ"
+            : " · รายงานหนักแบบ async ต้องเปิด feature flag ก่อนใช้งาน"}
         </p>
+
+        {heavyReportProgress?.run.tenant_id === selectedTenantId ? (
+          <ChunkedReportProgressCard progress={heavyReportProgress} />
+        ) : null}
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
           <p className="text-xs font-semibold uppercase text-gray-400">
@@ -5530,6 +5804,69 @@ function OwnerReportRunnerPanel({
         />
       </div>
     </section>
+  );
+}
+
+function ChunkedReportProgressCard({
+  progress,
+}: {
+  progress: ChunkedReportProgress;
+}) {
+  const percent = Math.max(0, Math.min(100, progress.progress_percent ?? 0));
+  const isDone = isTerminalReportRunStatus(progress.run.status);
+  const toneClass =
+    progress.run.status === "failed"
+      ? "border-error-100 bg-error-50 text-error-700 dark:border-error-500/20 dark:bg-error-500/10 dark:text-error-300"
+      : progress.run.status === "success"
+        ? "border-success-100 bg-success-50 text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-300"
+        : "border-brand-100 bg-brand-50 text-brand-700 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-300";
+
+  return (
+    <div className={`rounded-xl border p-3 text-sm ${toneClass}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold">
+            {formatOwnerReportLabel(progress.run.report_key)}
+          </p>
+          <p className="mt-1 text-xs leading-5">
+            {formatRunStatus(progress.run.status)} ·{" "}
+            {formatChunkedProgressStage(progress.progress_stage)} ·{" "}
+            {formatReportPeriod(
+              progress.run.params.date_from,
+              progress.run.params.date_to,
+            )}
+          </p>
+        </div>
+        <Badge color={isDone ? (progress.run.status === "success" ? "success" : "warning") : "info"}>
+          {percent}%
+        </Badge>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/70 dark:bg-gray-900/50">
+        <div
+          className="h-full rounded-full bg-brand-500 transition-all"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <HealthFact
+          label="Chunks"
+          value={`${progress.chunk_summary.done}/${progress.chunk_summary.total}`}
+        />
+        <HealthFact
+          label="Rows"
+          value={progress.chunk_summary.rows_processed.toLocaleString("th-TH")}
+        />
+        <HealthFact
+          label="Elapsed"
+          value={formatElapsedMs(progress.elapsed_ms)}
+        />
+        <HealthFact
+          label="Run ID"
+          value={progress.run.id}
+        />
+      </div>
+      <p className="mt-3 text-xs leading-5">{progress.next_action_message}</p>
+    </div>
   );
 }
 
@@ -6024,6 +6361,49 @@ function formatRunStatus(status: string | null) {
     return "กำลังรัน";
   }
   return "ยังไม่มี";
+}
+
+function isTerminalReportRunStatus(status: string | null) {
+  return status === "success" || status === "failed";
+}
+
+function formatChunkedProgressStage(stage: string | null) {
+  if (stage === "queued") {
+    return "รอคิว";
+  }
+  if (stage === "claimed") {
+    return "รับงานแล้ว";
+  }
+  if (stage === "preflight") {
+    return "เตรียม chunks";
+  }
+  if (stage === "running_chunk") {
+    return "กำลังประมวลผล chunks";
+  }
+  if (stage === "summarizing") {
+    return "กำลังสรุปผล";
+  }
+  if (stage === "completed") {
+    return "เสร็จแล้ว";
+  }
+  if (stage === "failed") {
+    return "ล้มเหลว";
+  }
+  return "กำลังทำงาน";
+}
+
+function formatElapsedMs(value: number) {
+  const totalSeconds = Math.max(0, Math.floor(value / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) {
+    return `${seconds} วินาที`;
+  }
+  return `${minutes} นาที ${seconds.toString().padStart(2, "0")} วินาที`;
+}
+
+function getHeavyReportProgressStorageKey(tenantId: string) {
+  return `ai-bcc:owner:chunked-heavy-report:${tenantId}`;
 }
 
 function formatWorkerStatus(status: string) {
@@ -7203,6 +7583,10 @@ function TenantDetailPanel({
     editLineHeavyReportFallbackEnabled,
     setEditLineHeavyReportFallbackEnabled,
   ] = useState(true);
+  const [
+    editSmlChunkedHeavyReportsEnabled,
+    setEditSmlChunkedHeavyReportsEnabled,
+  ] = useState(false);
   const [editDemoModeEnabled, setEditDemoModeEnabled] = useState(false);
   const [editLowGrossMarginPercent, setEditLowGrossMarginPercent] =
     useState("5");
@@ -7239,6 +7623,9 @@ function TenantDetailPanel({
     setEditLineActionDigestV2Enabled(featureFlags.line_action_digest_v2_enabled);
     setEditLineHeavyReportFallbackEnabled(
       featureFlags.line_heavy_report_fallback_enabled,
+    );
+    setEditSmlChunkedHeavyReportsEnabled(
+      featureFlags.sml_chunked_heavy_reports_enabled,
     );
     setEditDemoModeEnabled(featureFlags.demo_mode_enabled);
     const thresholds = getTenantBusinessSignalThresholds(tenant);
@@ -7328,6 +7715,8 @@ function TenantDetailPanel({
         line_action_digest_v2_enabled: editLineActionDigestV2Enabled,
         line_heavy_report_fallback_enabled:
           editLineHeavyReportFallbackEnabled,
+        sml_chunked_heavy_reports_enabled:
+          editSmlChunkedHeavyReportsEnabled,
         demo_mode_enabled: editDemoModeEnabled,
       },
       business_signal_thresholds: {
@@ -7470,7 +7859,7 @@ function TenantDetailPanel({
           </label>
         </div>
 
-        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-4">
+        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-5">
           <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
               checked={editBusinessSignalsEnabled}
@@ -7545,6 +7934,25 @@ function TenantDetailPanel({
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
                 ถ้าสต็อกคงเหลือช้าเกินไป จะส่งรายงานอื่นต่อพร้อมการ์ดแจ้งสถานะ
+              </span>
+            </span>
+          </label>
+
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={editSmlChunkedHeavyReportsEnabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) =>
+                setEditSmlChunkedHeavyReportsEnabled(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                SML chunked heavy reports
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                เปิดเฉพาะ tenant demo ก่อนเพื่อรันสต็อกและลูกหนี้แบบ async
               </span>
             </span>
           </label>
@@ -8589,6 +8997,8 @@ function getTenantUiFeatureFlags(tenant: Tenant) {
       tenant.featureFlags?.line_action_digest_v2_enabled ?? false,
     line_heavy_report_fallback_enabled:
       tenant.featureFlags?.line_heavy_report_fallback_enabled ?? true,
+    sml_chunked_heavy_reports_enabled:
+      tenant.featureFlags?.sml_chunked_heavy_reports_enabled ?? false,
     demo_mode_enabled: tenant.featureFlags?.demo_mode_enabled ?? false,
   };
 }

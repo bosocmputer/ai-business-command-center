@@ -1,5 +1,6 @@
 import {
   callNotificationRulesTick,
+  callReportRunsTick,
   callWorkerHeartbeat,
   readNotificationRulesWorkerConfig,
 } from "./scheduler.js";
@@ -12,6 +13,7 @@ console.log(
     enabled: config.enabled,
     apiBaseUrl: config.apiBaseUrl,
     mode: config.mode,
+    reportRunLimit: config.reportRunLimit,
     workerId: config.workerId,
     heartbeatConfigured: Boolean(config.heartbeatToken),
   }),
@@ -21,7 +23,7 @@ function workerMetadata() {
   return {
     enabled: config.enabled,
     mode: config.mode,
-    scheduler: "db_notification_rules",
+    scheduler: "db_notification_rules_and_report_runs",
   };
 }
 
@@ -66,11 +68,46 @@ async function tick(now = new Date()) {
           checkedAt: now.toISOString(),
         }),
       );
+    } else {
+      console.log(
+        JSON.stringify({
+          event: "notification_rule_tick_completed",
+          checkedAt: now.toISOString(),
+          processed:
+            (result.data as { processed?: unknown[] } | undefined)?.processed
+              ?.length ?? 0,
+          skipped:
+            (result.data as { skipped?: unknown[] } | undefined)?.skipped
+              ?.length ?? 0,
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "notification_rule_tick_failed",
+        checkedAt: now.toISOString(),
+        safeError:
+          error instanceof Error ? error.message : "Unknown worker error",
+      }),
+    );
+  }
+
+  try {
+    const result = await callReportRunsTick({ config });
+    if ("skipped" in result) {
+      console.warn(
+        JSON.stringify({
+          event: "report_run_tick_skipped",
+          reason: result.reason,
+          checkedAt: now.toISOString(),
+        }),
+      );
       return;
     }
     console.log(
       JSON.stringify({
-        event: "notification_rule_tick_completed",
+        event: "report_run_tick_completed",
         checkedAt: now.toISOString(),
         processed:
           (result.data as { processed?: unknown[] } | undefined)?.processed
@@ -83,7 +120,7 @@ async function tick(now = new Date()) {
   } catch (error) {
     console.error(
       JSON.stringify({
-        event: "notification_rule_tick_failed",
+        event: "report_run_tick_failed",
         checkedAt: now.toISOString(),
         safeError:
           error instanceof Error ? error.message : "Unknown worker error",

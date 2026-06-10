@@ -38,6 +38,8 @@ if [[ ! -f graphify-out/graph.json ]]; then
   exit 1
 fi
 
+node -e 'const fs = require("fs"); const p = "graphify-out/graph.json"; fs.writeFileSync(p, JSON.stringify(JSON.parse(fs.readFileSync(p, "utf8"))));'
+
 END_SECONDS="$(date +%s)"
 printf "Graphify update completed in %ss\n" "$((END_SECONDS - START_SECONDS))"
 

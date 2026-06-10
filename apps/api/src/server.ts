@@ -46,6 +46,7 @@ import {
   type ReportKey,
   type ReportLinePreview,
   type ReportSnapshot,
+  type ReportRunChunkRecord,
   type ReportRunRecord,
   type SalesGoodsServicesSnapshot,
   type SalesGoodsServicesParams,
@@ -97,6 +98,8 @@ import {
   testDatasourceConnection,
   toSafeDatasourceErrorMessage,
   toSafeErrorMessage,
+  withDatasourceClient,
+  type SmlDatasourceClient,
 } from "./report-runner.js";
 import {
   REPORT_PDF_LAYOUT_VERSION,
@@ -112,10 +115,16 @@ import {
   buildBusinessSignalDigestPreview,
   buildBusinessSignalsForSnapshots,
   buildReportFailureBusinessSignal,
+  buildArCustomerMovementCustomerCodePageQuery,
+  buildArCustomerMovementQuery,
+  buildStockBalanceItemCodePageQuery,
+  buildStockBalanceQuery,
   selectBusinessSignalDigestIssues,
   renderGrossProfitLinePreview,
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
+  summarizeArCustomerMovement,
+  summarizeStockBalance,
 } from "@ai-bcc/reports";
 import {
   createSystemStore,
@@ -247,7 +256,17 @@ const notificationHeavyReportCoalescer =
 const dashboardRunProcessorState = {
   running: false,
 };
+const chunkedReportRunProcessorState = {
+  running: false,
+};
 const EXECUTIVE_DASHBOARD_QUEUE_BACKGROUND_LIMIT = 1;
+const CHUNKED_HEAVY_REPORT_GLOBAL_CONCURRENCY = 2;
+const CHUNKED_HEAVY_REPORT_STALE_MS = 15 * 60 * 1000;
+const CHUNKED_HEAVY_REPORT_MAX_DURATION_MS = 10 * 60 * 1000;
+const CHUNKED_HEAVY_STOCK_CHUNK_SIZE = 500;
+const CHUNKED_HEAVY_AR_CHUNK_SIZE = 300;
+const CHUNKED_HEAVY_MIN_SPLIT_UNITS = 50;
+const CHUNKED_HEAVY_MAX_CHUNK_ATTEMPTS = 2;
 const DASHBOARD_TOKEN_TTL_HOURS = 24;
 const DASHBOARD_TOKEN_LOOKBACK_DAYS = 31;
 const DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS = 31;
@@ -2968,6 +2987,35 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
   };
 });
 
+app.post("/api/worker/report-runs/tick", async (request, reply) => {
+  const workerAuth = await requireWorkerToken(request);
+  if (!workerAuth.ok) {
+    return reply.status(workerAuth.statusCode).send({ error: workerAuth.error });
+  }
+
+  const body = reportRunWorkerTickSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid report run worker tick",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const now = body.data.now ? new Date(body.data.now) : new Date();
+  const result = await processQueuedChunkedReportRuns({
+    limit: body.data.limit ?? CHUNKED_HEAVY_REPORT_GLOBAL_CONCURRENCY,
+    workerId: body.data.worker_id ?? "worker_report_runs",
+    now,
+  });
+
+  return {
+    data: {
+      ...result,
+      checked_at: now.toISOString(),
+    },
+  };
+});
+
 app.post("/api/line/webhook", async (request, reply) => {
   const rawBody = (request as FastifyRequestWithRawBody).rawBody ?? "";
   const signature = request.headers["x-line-signature"];
@@ -4783,6 +4831,102 @@ app.post(
 );
 
 app.post(
+  "/api/reports/:tenantId/:reportKey/run-async",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = signedViewerParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid report params" });
+    }
+    const reportKey = routeParams.data.reportKey;
+    if (!isChunkedHeavyReportKey(reportKey)) {
+      return reply.status(400).send({
+        error: "รายงานนี้ยังไม่รองรับ async chunked run",
+      });
+    }
+
+    const body = asyncReportRunBodySchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid report params",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found" });
+    }
+    if (!isSmlChunkedHeavyReportsEnabled(tenant)) {
+      return reply.status(409).send({
+        error:
+          "ยังไม่ได้เปิดใช้ chunked heavy reports สำหรับร้านนี้ ระบบยังใช้ runner เดิมอยู่",
+      });
+    }
+
+    const params = salesGoodsServicesParamsSchema.parse({
+      date_from: body.data.date_from,
+      date_to: body.data.date_to,
+      time_from: body.data.time_from,
+      time_to: body.data.time_to,
+    });
+    const enqueueResult = await enqueueChunkedHeavyReportRun({
+      tenantId: routeParams.data.tenantId,
+      reportKey,
+      params,
+      force: body.data.force ?? false,
+      requestAction: "chunked_report_run_requested",
+    });
+
+    if (!enqueueResult.ok) {
+      return reply.status(enqueueResult.statusCode).send({
+        error: enqueueResult.error,
+        run: enqueueResult.runRecord,
+        active_run: enqueueResult.activeRun,
+      });
+    }
+
+    if (!enqueueResult.duplicate) {
+      kickChunkedReportRunProcessor(enqueueResult.runRecord.id);
+    }
+
+    return reply.status(enqueueResult.duplicate ? 200 : 202).send({
+      data: enqueueResult.runRecord,
+      duplicate: enqueueResult.duplicate,
+      progress: await buildChunkedRunProgress(enqueueResult.runRecord),
+    });
+  },
+);
+
+app.get(
+  "/api/reports/:tenantId/runs/:runId/progress",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = reportRunProgressParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid report run params" });
+    }
+
+    const run = await systemStore.getRun(routeParams.data.runId);
+    if (!run || run.tenant_id !== routeParams.data.tenantId) {
+      return reply.status(404).send({ error: "Report run not found" });
+    }
+
+    return {
+      data: await buildChunkedRunProgress(run),
+    };
+  },
+);
+
+app.post(
   "/api/reports/:tenantId/:reportKey/run",
   async (request, reply) => {
     const adminAuth = requireAdminMutation(request);
@@ -6300,6 +6444,16 @@ function isHeavyReportFallbackEnabled(tenant: Tenant) {
   return getTenantFeatureFlags(tenant).line_heavy_report_fallback_enabled;
 }
 
+function isSmlChunkedHeavyReportsEnabled(tenant: Tenant) {
+  return getTenantFeatureFlags(tenant).sml_chunked_heavy_reports_enabled;
+}
+
+function isChunkedHeavyReportKey(
+  reportKey: ReportKey,
+): reportKey is "stock_balance" | "ar_customer_movement" {
+  return reportKey === "stock_balance" || reportKey === "ar_customer_movement";
+}
+
 function formatDegradedReportNames(reportKeys: ReportKey[]) {
   const uniqueKeys = [...new Set(reportKeys)];
   return uniqueKeys
@@ -6346,6 +6500,869 @@ type NotificationRuleExecutionResult =
 const NOTIFICATION_QUEUE_STALE_MS = 20 * 60 * 1000;
 const NOTIFICATION_QUEUE_BACKGROUND_LIMIT = 1;
 let notificationQueueProcessorActive = false;
+
+type ChunkedHeavyReportKey = "stock_balance" | "ar_customer_movement";
+
+async function enqueueChunkedHeavyReportRun(input: {
+  tenantId: TenantId;
+  reportKey: ChunkedHeavyReportKey;
+  params: SalesGoodsServicesParams;
+  force: boolean;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      duplicate: boolean;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 409 | 424;
+      error: string;
+      runRecord?: ReportRunRecord;
+      activeRun?: ReportRunRecord;
+    }
+> {
+  if (!input.force) {
+    const duplicateRun = await systemStore.findActiveReportRun({
+      tenantId: input.tenantId,
+      reportKey: input.reportKey,
+      params: input.params,
+    });
+    if (duplicateRun) {
+      return { ok: true, duplicate: true, runRecord: duplicateRun };
+    }
+
+    const activeRun = await findActiveTenantChunkedHeavyRun(input.tenantId);
+    if (activeRun) {
+      return {
+        ok: false,
+        statusCode: 409,
+        error:
+          "มีรายงานหนักกำลังรันอยู่แล้ว กรุณารอให้รอบปัจจุบันเสร็จก่อนเริ่มรอบใหม่",
+        activeRun,
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, `${input.reportKey}_chunked`),
+    tenant_id: input.tenantId,
+    report_key: input.reportKey,
+    params: input.params,
+    status: "queued",
+    queued_at: now,
+    claimed_at: null,
+    worker_id: null,
+    execution_strategy: "chunked",
+    progress_stage: "queued",
+    progress_percent: 0,
+    progress_updated_at: now,
+    started_at: now,
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  if (!datasource) {
+    const failedRun: ReportRunRecord = {
+      ...runRecord,
+      status: "failed",
+      progress_stage: "failed",
+      progress_updated_at: now,
+      finished_at: now,
+      safe_error_message:
+        "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน",
+    };
+    await systemStore.upsertRun(failedRun);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "chunked_report_run_failed",
+      target_type: "report_run",
+      target_id: failedRun.id,
+      metadata_json: {
+        report_key: input.reportKey,
+        safe_error_message: failedRun.safe_error_message,
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 424,
+      error: failedRun.safe_error_message ?? "SML JavaWS is not configured",
+      runRecord: failedRun,
+    };
+  }
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: input.reportKey,
+      execution_strategy: "chunked",
+      force: input.force,
+      params: input.params,
+    },
+  });
+
+  return { ok: true, duplicate: false, runRecord };
+}
+
+async function findActiveTenantChunkedHeavyRun(tenantId: TenantId) {
+  const runs = await systemStore.listRuns(tenantId);
+  return (
+    runs.find(
+      (run) =>
+        isChunkedHeavyReportKey(run.report_key) &&
+        run.execution_strategy === "chunked" &&
+        (run.status === "queued" || run.status === "running"),
+    ) ?? null
+  );
+}
+
+async function buildChunkedRunProgress(run: ReportRunRecord) {
+  const chunks =
+    run.execution_strategy === "chunked"
+      ? await systemStore.listRunChunks(run.id)
+      : [];
+  const doneChunks = chunks.filter((chunk) => chunk.status === "success");
+  const failedChunks = chunks.filter((chunk) => chunk.status === "failed");
+  const runningChunks = chunks.filter((chunk) => chunk.status === "running");
+  const queuedChunks = chunks.filter((chunk) => chunk.status === "queued");
+  const startedAtMs = Date.parse(run.queued_at ?? run.started_at);
+  const endedAtMs = Date.parse(run.finished_at ?? new Date().toISOString());
+  const elapsedMs =
+    Number.isFinite(startedAtMs) && Number.isFinite(endedAtMs)
+      ? Math.max(0, endedAtMs - startedAtMs)
+      : 0;
+
+  return {
+    run,
+    progress_stage: run.progress_stage ?? run.status,
+    progress_percent:
+      run.status === "success"
+        ? 100
+        : run.progress_percent ?? estimateChunkedProgressPercent(chunks),
+    chunk_summary: {
+      total: chunks.length,
+      done: doneChunks.length,
+      failed: failedChunks.length,
+      running: runningChunks.length,
+      queued: queuedChunks.length,
+      rows_processed: doneChunks.reduce(
+        (total, chunk) => total + chunk.row_count,
+        0,
+      ),
+      total_units: chunks.reduce(
+        (max, chunk) => Math.max(max, chunk.total_units),
+        0,
+      ),
+    },
+    elapsed_ms: elapsedMs,
+    can_close_page: run.status === "queued" || run.status === "running",
+    next_action_message: getChunkedRunNextActionMessage(run),
+  };
+}
+
+function estimateChunkedProgressPercent(chunks: ReportRunChunkRecord[]) {
+  if (!chunks.length) {
+    return 0;
+  }
+  const done = chunks.filter((chunk) => chunk.status === "success").length;
+  return Math.min(95, 10 + Math.floor((done / chunks.length) * 80));
+}
+
+function getChunkedRunNextActionMessage(run: ReportRunRecord) {
+  if (run.status === "success") {
+    return "รายงานเสร็จแล้ว สามารถใช้ snapshot ล่าสุดได้";
+  }
+  if (run.status === "failed") {
+    return "ลองลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี";
+  }
+  return "ปิดหน้าได้ ระบบยังรันต่อและจะอัปเดตสถานะให้อัตโนมัติ";
+}
+
+function kickChunkedReportRunProcessor(runId: string) {
+  setTimeout(() => {
+    void processQueuedChunkedReportRuns({
+      limit: CHUNKED_HEAVY_REPORT_GLOBAL_CONCURRENCY,
+      workerId: "api_report_background",
+    }).catch((error) => {
+      app.log.error({ error, runId }, "Chunked report run processor failed");
+    });
+  }, 0);
+}
+
+async function processQueuedChunkedReportRuns(input: {
+  limit?: number;
+  workerId: string;
+  now?: Date;
+}) {
+  if (chunkedReportRunProcessorState.running) {
+    return {
+      processed: [] as ReportRunRecord[],
+      skipped: [{ reason: "processor_busy" }],
+      stale_requeued: {
+        runs: [] as ReportRunRecord[],
+        chunks: [] as ReportRunChunkRecord[],
+      },
+    };
+  }
+
+  chunkedReportRunProcessorState.running = true;
+  try {
+    const now = input.now ?? new Date();
+    const staleBefore = new Date(
+      now.getTime() - CHUNKED_HEAVY_REPORT_STALE_MS,
+    ).toISOString();
+    const [staleRuns, staleChunks] = await Promise.all([
+      systemStore.requeueStaleReportRuns({
+        staleBefore,
+        updatedAt: now.toISOString(),
+      }),
+      systemStore.requeueStaleReportRunChunks({
+        staleBefore,
+        updatedAt: now.toISOString(),
+      }),
+    ]);
+    const maxClaims = Math.min(
+      input.limit ?? CHUNKED_HEAVY_REPORT_GLOBAL_CONCURRENCY,
+      CHUNKED_HEAVY_REPORT_GLOBAL_CONCURRENCY,
+    );
+    const queuedRuns = await systemStore.listQueuedReportRuns(maxClaims * 4);
+    const claimedRuns: ReportRunRecord[] = [];
+    const skipped: Array<Record<string, unknown>> = [];
+
+    for (const queuedRun of queuedRuns) {
+      if (claimedRuns.length >= maxClaims) {
+        break;
+      }
+      if (!isChunkedHeavyReportKey(queuedRun.report_key)) {
+        skipped.push({ run_id: queuedRun.id, reason: "unsupported_report_key" });
+        continue;
+      }
+      const claimedRun = await systemStore.claimReportRun({
+        runId: queuedRun.id,
+        claimedAt: new Date().toISOString(),
+        workerId: input.workerId,
+      });
+      if (!claimedRun) {
+        skipped.push({ run_id: queuedRun.id, reason: "already_claimed_or_tenant_busy" });
+        continue;
+      }
+      claimedRuns.push(claimedRun);
+    }
+
+    const processed = await Promise.all(
+      claimedRuns.map((run) => executeChunkedHeavyReportRun(run)),
+    );
+    return {
+      processed,
+      skipped,
+      stale_requeued: {
+        runs: staleRuns,
+        chunks: staleChunks,
+      },
+    };
+  } finally {
+    chunkedReportRunProcessorState.running = false;
+  }
+}
+
+async function executeChunkedHeavyReportRun(initialRun: ReportRunRecord) {
+  let run = await updateChunkedReportRun(initialRun, {
+    status: "running",
+    progress_stage: "preflight",
+    progress_percent: Math.max(initialRun.progress_percent ?? 0, 5),
+    progress_updated_at: new Date().toISOString(),
+  });
+  const startedAtMs = Date.now();
+  const tenant = await getTenantOrNull(run.tenant_id);
+  if (!tenant) {
+    return failChunkedReportRun(
+      run,
+      "ไม่พบร้านค้าที่คิวรายงานนี้อ้างอิง",
+    );
+  }
+  const datasource = await resolveTenantDatasourceConfig(run.tenant_id);
+  if (!datasource) {
+    return failChunkedReportRun(
+      run,
+      "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน",
+    );
+  }
+  if (!isChunkedHeavyReportKey(run.report_key)) {
+    return failChunkedReportRun(
+      run,
+      "รายงานนี้ยังไม่รองรับ chunked runner",
+    );
+  }
+
+  try {
+    return await withDatasourceClient(
+      datasource,
+      {
+        connectionTimeoutMs: 5000,
+        idleTimeoutMs: 1000,
+        statementTimeoutMs: 45000,
+        queryTimeoutMs: 50000,
+      },
+      async (client) => {
+        await ensureChunkedReportChunks({ run, client, startedAtMs });
+        await requeueRunningChunksForClaimedRun(run);
+        run = await updateRunProgressFromChunks(run, "running_chunk");
+
+        const rowsByChunk = new Map<number, Record<string, unknown>[]>();
+        while (true) {
+          assertChunkedRunDuration(startedAtMs);
+          const chunks = await systemStore.listRunChunks(run.id);
+          const failedChunk = chunks.find((chunk) => chunk.status === "failed");
+          if (failedChunk) {
+            throw new Error(
+              failedChunk.safe_error_message ??
+                "ประมวลผลบาง chunk ไม่สำเร็จ",
+            );
+          }
+          if (chunks.every((chunk) => chunk.status === "success")) {
+            break;
+          }
+          const nextChunk = chunks.find((chunk) => chunk.status === "queued");
+          if (!nextChunk) {
+            throw new Error("มี chunk ที่ยังไม่พร้อมประมวลผล");
+          }
+          const result = await executeChunkedReportChunk({
+            run,
+            chunk: nextChunk,
+            client,
+            startedAtMs,
+          });
+          if (result.status === "success") {
+            rowsByChunk.set(nextChunk.chunk_no, result.rows);
+          }
+          run = await updateRunProgressFromChunks(run, "running_chunk");
+        }
+
+        run = await updateChunkedReportRun(run, {
+          progress_stage: "summarizing",
+          progress_percent: 95,
+          progress_updated_at: new Date().toISOString(),
+        });
+        const allRows = await collectChunkedReportRowsForSummary({
+          run,
+          client,
+          rowsByChunk,
+          startedAtMs,
+        });
+        const generatedAt = new Date().toISOString();
+        const snapshot =
+          run.report_key === "stock_balance"
+            ? summarizeStockBalance({
+                tenant_id: run.tenant_id,
+                run_id: run.id,
+                params: run.params,
+                generated_at: generatedAt,
+                source: client.source,
+                rows: allRows,
+              })
+            : summarizeArCustomerMovement({
+                tenant_id: run.tenant_id,
+                run_id: run.id,
+                params: run.params,
+                generated_at: generatedAt,
+                source: client.source,
+                rows: allRows,
+              });
+
+        const completedRun = await updateChunkedReportRun(run, {
+          status: "success",
+          progress_stage: "completed",
+          progress_percent: 100,
+          progress_updated_at: generatedAt,
+          finished_at: generatedAt,
+          row_count: getSnapshotRowCount(snapshot),
+          safe_error_message: null,
+        });
+        await systemStore.saveSnapshot(snapshot);
+        await systemStore.appendAuditLog({
+          tenant_id: completedRun.tenant_id,
+          actor_id: null,
+          action: "chunked_report_run_succeeded",
+          target_type: "report_run",
+          target_id: completedRun.id,
+          metadata_json: {
+            report_key: completedRun.report_key,
+            row_count: completedRun.row_count,
+            quality_status: snapshot.quality_status,
+            execution_strategy: "chunked",
+          },
+        });
+        return completedRun;
+      },
+    );
+  } catch (error) {
+    return failChunkedReportRun(run, toSafeChunkedReportErrorMessage(run.report_key, error));
+  }
+}
+
+async function ensureChunkedReportChunks(input: {
+  run: ReportRunRecord;
+  client: SmlDatasourceClient;
+  startedAtMs: number;
+}) {
+  const existingChunks = await systemStore.listRunChunks(input.run.id);
+  if (existingChunks.length) {
+    return existingChunks;
+  }
+
+  const chunks: ReportRunChunkRecord[] = [];
+  let cursor: string | null = null;
+  let unitStartIndex = 0;
+  let chunkNo = 1;
+  const chunkSize =
+    input.run.report_key === "stock_balance"
+      ? CHUNKED_HEAVY_STOCK_CHUNK_SIZE
+      : CHUNKED_HEAVY_AR_CHUNK_SIZE;
+  while (true) {
+    assertChunkedRunDuration(input.startedAtMs);
+    const units = await fetchChunkUnitPage({
+      run: input.run,
+      client: input.client,
+      after: cursor,
+      to: null,
+      limit: chunkSize,
+    });
+    if (!units.length) {
+      break;
+    }
+    const cursorTo = units[units.length - 1] ?? null;
+    chunks.push(
+      createReportRunChunk({
+        run: input.run,
+        chunkNo,
+        unitStartIndex,
+        unitCount: units.length,
+        totalUnits: 0,
+        cursorFrom: cursor,
+        cursorTo,
+        metadata: { preflight_units: units.length },
+      }),
+    );
+    unitStartIndex += units.length;
+    chunkNo += 1;
+    const previousCursor = cursor;
+    cursor = cursorTo;
+    if (cursorTo === previousCursor || units.length < chunkSize) {
+      break;
+    }
+  }
+
+  const totalUnits = unitStartIndex;
+  const chunksWithTotals = chunks.map((chunk) => ({
+    ...chunk,
+    total_units: totalUnits,
+  }));
+  if (chunksWithTotals.length) {
+    await systemStore.upsertRunChunks(chunksWithTotals);
+  }
+  await updateRunProgressFromChunks(input.run, "running_chunk");
+  return chunksWithTotals;
+}
+
+async function requeueRunningChunksForClaimedRun(run: ReportRunRecord) {
+  const chunks = await systemStore.listRunChunks(run.id);
+  const runningChunks = chunks.filter((chunk) => chunk.status === "running");
+  if (!runningChunks.length) {
+    return;
+  }
+  const now = new Date().toISOString();
+  await systemStore.upsertRunChunks(
+    runningChunks.map((chunk) => ({
+      ...chunk,
+      status: "queued",
+      started_at: null,
+      finished_at: null,
+      duration_ms: null,
+      safe_error_message: null,
+      updated_at: now,
+    })),
+  );
+}
+
+async function executeChunkedReportChunk(input: {
+  run: ReportRunRecord;
+  chunk: ReportRunChunkRecord;
+  client: SmlDatasourceClient;
+  startedAtMs: number;
+}): Promise<
+  | { status: "success"; rows: Record<string, unknown>[] }
+  | { status: "retry" | "split" }
+> {
+  assertChunkedRunDuration(input.startedAtMs);
+  const startedAt = new Date().toISOString();
+  const attempt = input.chunk.attempt + 1;
+  const runningChunk = await systemStore.upsertRunChunk({
+    ...input.chunk,
+    status: "running",
+    attempt,
+    started_at: startedAt,
+    finished_at: null,
+    duration_ms: null,
+    safe_error_message: null,
+    updated_at: startedAt,
+  });
+
+  try {
+    const rows = await fetchRowsForChunk({
+      run: input.run,
+      chunk: runningChunk,
+      client: input.client,
+    });
+    const finishedAt = new Date().toISOString();
+    await systemStore.upsertRunChunk({
+      ...runningChunk,
+      status: "success",
+      row_count: rows.length,
+      finished_at: finishedAt,
+      duration_ms: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+      safe_error_message: null,
+      updated_at: finishedAt,
+    });
+    return { status: "success", rows };
+  } catch (error) {
+    const safeErrorMessage = toSafeChunkedReportErrorMessage(
+      input.run.report_key,
+      error,
+    );
+    if (
+      isTimeoutError(error) &&
+      runningChunk.unit_count > CHUNKED_HEAVY_MIN_SPLIT_UNITS &&
+      (await splitTimedOutChunk({
+        run: input.run,
+        chunk: runningChunk,
+        client: input.client,
+      }))
+    ) {
+      return { status: "split" };
+    }
+
+    const failedAt = new Date().toISOString();
+    if (attempt < CHUNKED_HEAVY_MAX_CHUNK_ATTEMPTS) {
+      await systemStore.upsertRunChunk({
+        ...runningChunk,
+        status: "queued",
+        started_at: null,
+        finished_at: null,
+        duration_ms: null,
+        safe_error_message: safeErrorMessage,
+        updated_at: failedAt,
+      });
+      return { status: "retry" };
+    }
+
+    await systemStore.upsertRunChunk({
+      ...runningChunk,
+      status: "failed",
+      finished_at: failedAt,
+      duration_ms: Math.max(0, Date.parse(failedAt) - Date.parse(startedAt)),
+      safe_error_message: safeErrorMessage,
+      updated_at: failedAt,
+    });
+    throw new Error(safeErrorMessage);
+  }
+}
+
+async function splitTimedOutChunk(input: {
+  run: ReportRunRecord;
+  chunk: ReportRunChunkRecord;
+  client: SmlDatasourceClient;
+}) {
+  const splitLimit = Math.max(
+    1,
+    Math.floor(input.chunk.unit_count / 2),
+  );
+  const leftUnits = await fetchChunkUnitPage({
+    run: input.run,
+    client: input.client,
+    after: input.chunk.cursor_from,
+    to: input.chunk.cursor_to,
+    limit: splitLimit,
+  });
+  const midpoint = leftUnits[leftUnits.length - 1] ?? null;
+  if (midpoint === null || midpoint === input.chunk.cursor_to) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const existingChunks = await systemStore.listRunChunks(input.run.id);
+  const nextChunkNo =
+    Math.max(0, ...existingChunks.map((chunk) => chunk.chunk_no)) + 1;
+  const leftChunk: ReportRunChunkRecord = {
+    ...input.chunk,
+    chunk_key: buildReportRunChunkKey({
+      runId: input.run.id,
+      chunkNo: input.chunk.chunk_no,
+      cursorFrom: input.chunk.cursor_from,
+      cursorTo: midpoint,
+    }),
+    status: "queued",
+    attempt: 0,
+    unit_count: leftUnits.length,
+    cursor_to: midpoint,
+    started_at: null,
+    finished_at: null,
+    duration_ms: null,
+    safe_error_message: null,
+    metadata_json: {
+      ...input.chunk.metadata_json,
+      split_after_timeout: true,
+    },
+    updated_at: now,
+  };
+  const rightChunk = createReportRunChunk({
+    run: input.run,
+    chunkNo: nextChunkNo,
+    unitStartIndex: input.chunk.unit_start_index + leftUnits.length,
+    unitCount: Math.max(0, input.chunk.unit_count - leftUnits.length),
+    totalUnits: input.chunk.total_units,
+    cursorFrom: midpoint,
+    cursorTo: input.chunk.cursor_to,
+    metadata: {
+      split_from_chunk_no: input.chunk.chunk_no,
+      split_after_timeout: true,
+    },
+    now,
+  });
+  await systemStore.upsertRunChunks([leftChunk, rightChunk]);
+  return true;
+}
+
+async function collectChunkedReportRowsForSummary(input: {
+  run: ReportRunRecord;
+  client: SmlDatasourceClient;
+  rowsByChunk: Map<number, Record<string, unknown>[]>;
+  startedAtMs: number;
+}) {
+  const chunks = await systemStore.listRunChunks(input.run.id);
+  const failedChunk = chunks.find((chunk) => chunk.status === "failed");
+  if (failedChunk) {
+    throw new Error(
+      failedChunk.safe_error_message ?? "ประมวลผลบาง chunk ไม่สำเร็จ",
+    );
+  }
+
+  const allRows: Record<string, unknown>[] = [];
+  for (const chunk of chunks.filter((item) => item.status === "success")) {
+    assertChunkedRunDuration(input.startedAtMs);
+    const rows =
+      input.rowsByChunk.get(chunk.chunk_no) ??
+      (await fetchRowsForChunk({
+        run: input.run,
+        chunk,
+        client: input.client,
+      }));
+    allRows.push(...rows);
+  }
+  return allRows;
+}
+
+async function fetchChunkUnitPage(input: {
+  run: ReportRunRecord;
+  client: SmlDatasourceClient;
+  after: string | null;
+  to: string | null;
+  limit: number;
+}) {
+  const query =
+    input.run.report_key === "stock_balance"
+      ? buildStockBalanceItemCodePageQuery({
+          afterItemCode: input.after,
+          toItemCode: input.to,
+          limit: input.limit,
+        })
+      : buildArCustomerMovementCustomerCodePageQuery(input.run.params, {
+          afterCustomerCode: input.after,
+          toCustomerCode: input.to,
+          limit: input.limit,
+        });
+  const result = await input.client.query<{ unit_code: unknown }>(
+    query.text,
+    query.values,
+  );
+  return result.rows.map((row) => String(row.unit_code ?? ""));
+}
+
+async function fetchRowsForChunk(input: {
+  run: ReportRunRecord;
+  chunk: ReportRunChunkRecord;
+  client: SmlDatasourceClient;
+}) {
+  const query =
+    input.run.report_key === "stock_balance"
+      ? buildStockBalanceQuery(input.run.params, {
+          itemCodeAfter: input.chunk.cursor_from,
+          itemCodeTo: input.chunk.cursor_to,
+        })
+      : buildArCustomerMovementQuery(input.run.params, {
+          customerCodeAfter: input.chunk.cursor_from,
+          customerCodeTo: input.chunk.cursor_to,
+        });
+  const result = await input.client.query<Record<string, unknown>>(
+    query.text,
+    query.values,
+  );
+  return result.rows;
+}
+
+function createReportRunChunk(input: {
+  run: ReportRunRecord;
+  chunkNo: number;
+  unitStartIndex: number;
+  unitCount: number;
+  totalUnits: number;
+  cursorFrom: string | null;
+  cursorTo: string | null;
+  metadata?: Record<string, unknown>;
+  now?: string;
+}): ReportRunChunkRecord {
+  const now = input.now ?? new Date().toISOString();
+  return {
+    id: `report_run_chunk_${randomUUID()}`,
+    tenant_id: input.run.tenant_id,
+    report_run_id: input.run.id,
+    report_key: input.run.report_key,
+    chunk_no: input.chunkNo,
+    chunk_key: buildReportRunChunkKey({
+      runId: input.run.id,
+      chunkNo: input.chunkNo,
+      cursorFrom: input.cursorFrom,
+      cursorTo: input.cursorTo,
+    }),
+    status: "queued",
+    attempt: 0,
+    unit_start_index: input.unitStartIndex,
+    unit_count: input.unitCount,
+    total_units: input.totalUnits,
+    row_count: 0,
+    cursor_from: input.cursorFrom,
+    cursor_to: input.cursorTo,
+    started_at: null,
+    finished_at: null,
+    duration_ms: null,
+    safe_error_message: null,
+    metadata_json: input.metadata ?? {},
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function buildReportRunChunkKey(input: {
+  runId: string;
+  chunkNo: number;
+  cursorFrom: string | null;
+  cursorTo: string | null;
+}) {
+  const digest = createHash("sha256")
+    .update(
+      [
+        input.runId,
+        input.chunkNo,
+        input.cursorFrom ?? "",
+        input.cursorTo ?? "",
+      ].join("|"),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  return `chunk_${input.chunkNo}_${digest}`;
+}
+
+async function updateRunProgressFromChunks(
+  run: ReportRunRecord,
+  stage: NonNullable<ReportRunRecord["progress_stage"]>,
+) {
+  const chunks = await systemStore.listRunChunks(run.id);
+  return updateChunkedReportRun(run, {
+    progress_stage: chunks.length ? stage : "summarizing",
+    progress_percent: chunks.length ? estimateChunkedProgressPercent(chunks) : 90,
+    progress_updated_at: new Date().toISOString(),
+  });
+}
+
+async function updateChunkedReportRun(
+  run: ReportRunRecord,
+  patch: Partial<ReportRunRecord>,
+) {
+  const updated: ReportRunRecord = {
+    ...run,
+    ...patch,
+  };
+  await systemStore.upsertRun(updated);
+  return updated;
+}
+
+async function failChunkedReportRun(
+  run: ReportRunRecord,
+  safeErrorMessage: string,
+) {
+  const failedAt = new Date().toISOString();
+  const failedRun = await updateChunkedReportRun(run, {
+    status: "failed",
+    progress_stage: "failed",
+    progress_updated_at: failedAt,
+    finished_at: failedAt,
+    safe_error_message: safeErrorMessage,
+  });
+  await systemStore.appendAuditLog({
+    tenant_id: run.tenant_id,
+    actor_id: null,
+    action: "chunked_report_run_failed",
+    target_type: "report_run",
+    target_id: run.id,
+    metadata_json: {
+      report_key: run.report_key,
+      safe_error_message: safeErrorMessage,
+      execution_strategy: "chunked",
+    },
+  });
+  return failedRun;
+}
+
+function assertChunkedRunDuration(startedAtMs: number) {
+  if (Date.now() - startedAtMs > CHUNKED_HEAVY_REPORT_MAX_DURATION_MS) {
+    throw new Error("chunked heavy report max duration exceeded");
+  }
+}
+
+function toSafeChunkedReportErrorMessage(
+  reportKey: ReportKey,
+  error: unknown,
+) {
+  if (
+    error instanceof Error &&
+    /chunked heavy report max duration exceeded/i.test(error.message)
+  ) {
+    return "รายงานใช้เวลานานเกินกำหนด กรุณาลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี";
+  }
+  if (reportKey === "stock_balance") {
+    return toSafeStockBalanceErrorMessage(error);
+  }
+  if (reportKey === "ar_customer_movement") {
+    return toSafeArCustomerMovementErrorMessage(error);
+  }
+  return toSafeErrorMessage(error);
+}
+
+function isTimeoutError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /timeout|timed out|canceling statement|query timeout/i.test(error.message)
+  );
+}
 
 function getBusinessSignalThresholdsForTenant(tenant: Tenant) {
   const thresholds = businessSignalThresholdsSchema.parse(
@@ -10460,6 +11477,33 @@ const signedViewerParamsSchema = z.object({
   reportKey: reportKeySchema,
 });
 
+const reportRunProgressParamsSchema = z.object({
+  tenantId: tenantIdSchema,
+  runId: z.string().min(1).max(220),
+});
+
+const asyncReportRunBodySchema = z
+  .object({
+    date_from: isoDateSchema,
+    date_to: isoDateSchema,
+    time_from: localTimeSchema.optional(),
+    time_to: localTimeSchema.optional(),
+    force: z.coerce.boolean().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const parsed = salesGoodsServicesParamsSchema.safeParse({
+      date_from: value.date_from,
+      date_to: value.date_to,
+      time_from: value.time_from,
+      time_to: value.time_to,
+    });
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue(issue);
+      }
+    }
+  });
+
 const signedViewerAuthSchema = z.object({
   token: z.string().min(1).max(4096),
   run_id: z.string().min(1).max(180),
@@ -10479,6 +11523,12 @@ const executiveDashboardRunCreateSchema = z.object({
 
 const executiveDashboardRunQuerySchema = z.object({
   dashboard_token: z.string().min(1).max(4096),
+});
+
+const reportRunWorkerTickSchema = z.object({
+  worker_id: z.string().trim().min(1).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+  now: z.string().datetime().optional(),
 });
 
 const viewerRunBodySchema = signedViewerAuthSchema

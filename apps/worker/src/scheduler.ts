@@ -7,6 +7,7 @@ export type NotificationRulesWorkerConfig = {
   enabled: boolean;
   apiBaseUrl: string;
   catchUpMinutes: number;
+  reportRunLimit: number;
   mode: LineSendMode;
   workerId: string;
   heartbeatToken: string | null;
@@ -25,6 +26,10 @@ export function readNotificationRulesWorkerConfig(
     catchUpMinutes: readNumber(env.WORKER_NOTIFICATION_CATCH_UP_MINUTES, 15, {
       min: 0,
       max: 60,
+    }),
+    reportRunLimit: readNumber(env.WORKER_REPORT_RUN_LIMIT, 2, {
+      min: 1,
+      max: 20,
     }),
     mode: env.WORKER_NOTIFICATION_MODE === "dry_run" ? "dry_run" : "send",
     workerId: env.WORKER_ID || "worker_notification_rules_1",
@@ -93,6 +98,44 @@ export async function callNotificationRulesTick(input: {
   if (!response.ok) {
     throw new Error(
       `Notification rule tick API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
+    );
+  }
+
+  return payload;
+}
+
+export async function callReportRunsTick(input: {
+  config: NotificationRulesWorkerConfig;
+}) {
+  if (!input.config.heartbeatToken) {
+    return {
+      skipped: true as const,
+      reason: "worker_token_missing",
+    };
+  }
+
+  const response = await fetch(
+    `${input.config.apiBaseUrl}/api/worker/report-runs/tick`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-ai-bcc-worker-token": input.config.heartbeatToken,
+      },
+      body: JSON.stringify({
+        limit: input.config.reportRunLimit,
+        worker_id: input.config.workerId,
+      }),
+    },
+  );
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+
+  if (!response.ok) {
+    throw new Error(
+      `Report run tick API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
     );
   }
 

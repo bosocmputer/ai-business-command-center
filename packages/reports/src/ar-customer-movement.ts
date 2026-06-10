@@ -38,8 +38,36 @@ export function validateArCustomerMovementParams(
   return salesGoodsServicesParamsSchema.parse(input);
 }
 
-export function buildArCustomerMovementQuery(params: SalesGoodsServicesParams) {
+export type ArCustomerMovementQueryOptions = {
+  customerCodeAfter?: string | null;
+  customerCodeTo?: string | null;
+};
+
+export type ArCustomerMovementCustomerCodePageOptions = {
+  afterCustomerCode?: string | null;
+  toCustomerCode?: string | null;
+  limit: number;
+};
+
+export function buildArCustomerMovementQuery(
+  params: SalesGoodsServicesParams,
+  options: ArCustomerMovementQueryOptions = {},
+) {
   validateArCustomerMovementParams(params);
+
+  const values: unknown[] = [params.date_to];
+  const customerFilters: string[] = [];
+  if (typeof options.customerCodeAfter === "string") {
+    values.push(options.customerCodeAfter);
+    customerFilters.push(`and coalesce(t.cust_code, '') > $${values.length}`);
+  }
+  if (typeof options.customerCodeTo === "string") {
+    values.push(options.customerCodeTo);
+    customerFilters.push(`and coalesce(t.cust_code, '') <= $${values.length}`);
+  }
+  const customerFilterSql = customerFilters.length
+    ? `\n    ${customerFilters.join("\n    ")}`
+    : "";
 
   return {
     text: `
@@ -60,6 +88,7 @@ with ar_docs as (
   left join ar_customer c on c.code = t.cust_code
   where t.last_status = 0
     and t.doc_date <= $1::date
+    ${customerFilterSql}
     and (
       (t.trans_flag in (44, 250) and t.inquiry_type in (0, 2))
       or t.trans_flag in (46)
@@ -84,6 +113,7 @@ with ar_docs as (
   left join ar_customer c on c.code = t.cust_code
   where t.last_status = 0
     and t.doc_date <= $1::date
+    ${customerFilterSql}
     and (
       (t.trans_flag = 48 and t.inquiry_type in (0, 2, 4))
       or t.trans_flag in (97, 103)
@@ -108,6 +138,7 @@ with ar_docs as (
   left join ar_customer c on c.code = t.cust_code
   where t.last_status = 0
     and t.doc_date <= $1::date
+    ${customerFilterSql}
     and t.trans_flag = 239
 
   union all
@@ -128,6 +159,7 @@ with ar_docs as (
   left join ar_customer c on c.code = t.cust_code
   where t.last_status = 0
     and t.doc_date <= $1::date
+    ${customerFilterSql}
     and t.trans_flag = 1802
 )
 select
@@ -145,7 +177,61 @@ select
 from ar_docs
 order by cust_code, doc_date, doc_sort, doc_no
 `,
-    values: [params.date_to] as unknown[],
+    values,
+  };
+}
+
+export function buildArCustomerMovementCustomerCodePageQuery(
+  params: SalesGoodsServicesParams,
+  options: ArCustomerMovementCustomerCodePageOptions,
+) {
+  validateArCustomerMovementParams(params);
+  const limit = normalizeChunkPageLimit(options.limit);
+  return {
+    text: `
+with customer_scope as (
+  select coalesce(t.cust_code, '') as cust_code
+  from ic_trans t
+  where t.last_status = 0
+    and t.doc_date <= $1::date
+    and (
+      (t.trans_flag in (44, 250) and t.inquiry_type in (0, 2))
+      or t.trans_flag in (46)
+      or t.trans_flag in (93, 99, 95, 101, 254, 418)
+      or (t.trans_flag = 48 and t.inquiry_type in (0, 2, 4))
+      or t.trans_flag in (97, 103)
+      or (t.trans_flag = 262 and t.inquiry_type not in (1, 3))
+    )
+
+  union
+
+  select coalesce(t.cust_code, '') as cust_code
+  from ap_ar_trans t
+  where t.last_status = 0
+    and t.doc_date <= $1::date
+    and t.trans_flag = 239
+
+  union
+
+  select coalesce(t.cust_code, '') as cust_code
+  from as_trans t
+  where t.last_status = 0
+    and t.doc_date <= $1::date
+    and t.trans_flag = 1802
+)
+select cust_code as unit_code
+from customer_scope
+where ($2::text is null or cust_code > $2)
+  and ($3::text is null or cust_code <= $3)
+order by cust_code asc
+limit $4::int
+`,
+    values: [
+      params.date_to,
+      options.afterCustomerCode ?? null,
+      options.toCustomerCode ?? null,
+      limit,
+    ],
   };
 }
 
@@ -495,6 +581,13 @@ function formatInteger(value: number): string {
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function normalizeChunkPageLimit(value: number) {
+  if (!Number.isFinite(value)) {
+    return 300;
+  }
+  return Math.max(1, Math.min(Math.floor(value), 5000));
 }
 
 function toNumber(value: unknown): number {

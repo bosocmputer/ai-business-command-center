@@ -28,4 +28,29 @@ describe("renderParameterizedSqlForJavaWs", () => {
       }),
     ).toThrow("unsupported");
   });
+
+  it("renders string arrays as typed PostgreSQL text arrays", () => {
+    expect(
+      renderParameterizedSqlForJavaWs({
+        text: "select * from ar_customer where code = any($1::text[])",
+        values: [["C001", "C'002"]],
+      }),
+    ).toBe(
+      "select * from ar_customer where code = any(array['C001', 'C''002']::text[]::text[])",
+    );
+
+    expect(
+      renderParameterizedSqlForJavaWs({
+        text: "select cardinality($1::text[])",
+        values: [[]],
+      }),
+    ).toBe("select cardinality(array[]::text[]::text[])");
+
+    expect(() =>
+      renderParameterizedSqlForJavaWs({
+        text: "select $1",
+        values: [[1, 2, 3]],
+      }),
+    ).toThrow("array parameters must be strings");
+  });
 });

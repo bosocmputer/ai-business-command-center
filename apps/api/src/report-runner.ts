@@ -91,7 +91,7 @@ export type ReportPdfPreflightCount = {
   detailRowCount: number;
 };
 
-type SmlDatasourceClient = {
+export type SmlDatasourceClient = {
   source: "sml_javaws";
   query<T extends Record<string, unknown> = Record<string, unknown>>(
     query: string | QueryConfigLike,
@@ -100,7 +100,7 @@ type SmlDatasourceClient = {
   close(): Promise<void>;
 };
 
-async function withDatasourceClient<T>(
+export async function withDatasourceClient<T>(
   datasource: JavaWsDatasourceConfig,
   options: {
     connectionTimeoutMs: number;

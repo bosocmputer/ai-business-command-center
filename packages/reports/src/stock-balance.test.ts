@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildStockBalanceItemCodePageQuery,
   buildStockBalanceQuery,
   renderStockBalanceLinePreview,
   summarizeStockBalance,
@@ -49,6 +50,37 @@ describe("stock balance report", () => {
       "2026-06-08",
       "8852437100080",
       "%ปูนเสือ%",
+    ]);
+  });
+
+  it("builds keyset item-code pages for chunked runs without OFFSET", () => {
+    const query = buildStockBalanceItemCodePageQuery({
+      afterItemCode: "SKU-0500",
+      limit: 500,
+    });
+
+    expect(query.text).toContain("i.code > $1");
+    expect(query.text).toContain("order by i.code asc");
+    expect(query.text.toLowerCase()).not.toContain(" offset ");
+    expect(query.values).toEqual(["SKU-0500", null, 500]);
+  });
+
+  it("pushes chunk cursor range into inventory scope before stock detail scan", () => {
+    const query = buildStockBalanceQuery(
+      {
+        date_from: "2026-06-01",
+        date_to: "2026-06-08",
+      },
+      { itemCodeAfter: "SKU-0500", itemCodeTo: "SKU-1000" },
+    );
+
+    expect(query.text).toContain("and i.code > $3");
+    expect(query.text).toContain("and i.code <= $4");
+    expect(query.values).toEqual([
+      "2026-06-01",
+      "2026-06-08",
+      "SKU-0500",
+      "SKU-1000",
     ]);
   });
 

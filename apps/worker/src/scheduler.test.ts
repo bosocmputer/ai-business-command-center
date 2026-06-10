@@ -27,6 +27,7 @@ describe("notification rule worker scheduler", () => {
       enabled: true,
       apiBaseUrl: "http://api:4000",
       catchUpMinutes: 15,
+      reportRunLimit: 2,
       mode: "send",
       workerId: "worker_notification_rules_1",
       heartbeatToken: null,
@@ -44,5 +45,18 @@ describe("notification rule worker scheduler", () => {
         WORKER_NOTIFICATION_CATCH_UP_MINUTES: "-3",
       }).catchUpMinutes,
     ).toBe(0);
+  });
+
+  it("bounds chunked report run worker limit from env", () => {
+    expect(
+      readNotificationRulesWorkerConfig({
+        WORKER_REPORT_RUN_LIMIT: "99",
+      }).reportRunLimit,
+    ).toBe(20);
+    expect(
+      readNotificationRulesWorkerConfig({
+        WORKER_REPORT_RUN_LIMIT: "0",
+      }).reportRunLimit,
+    ).toBe(1);
   });
 });

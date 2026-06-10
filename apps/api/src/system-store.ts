@@ -14,6 +14,7 @@ import {
   type NotificationRuleRunRecord,
   type PlanCode,
   type ReportKey,
+  type ReportRunChunkRecord,
   type ReportRunRecord,
   type ReportSnapshot,
   type SalesGoodsServicesParams,
@@ -187,7 +188,32 @@ export type SystemStore = {
     updatedAt: string;
   }): Promise<BusinessSignalRecord | null>;
   listRuns(tenantId: TenantId, reportKey?: ReportKey): Promise<ReportRunRecord[]>;
+  getRun(runId: string): Promise<ReportRunRecord | null>;
+  findActiveReportRun(input: {
+    tenantId: TenantId;
+    reportKey: ReportKey;
+    params: SalesGoodsServicesParams;
+  }): Promise<ReportRunRecord | null>;
+  listQueuedReportRuns(limit?: number): Promise<ReportRunRecord[]>;
+  claimReportRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }): Promise<ReportRunRecord | null>;
+  requeueStaleReportRuns(input: {
+    staleBefore: string;
+    updatedAt: string;
+  }): Promise<ReportRunRecord[]>;
   upsertRun(run: ReportRunRecord): Promise<void>;
+  listRunChunks(reportRunId: string): Promise<ReportRunChunkRecord[]>;
+  upsertRunChunk(chunk: ReportRunChunkRecord): Promise<ReportRunChunkRecord>;
+  upsertRunChunks(
+    chunks: ReportRunChunkRecord[],
+  ): Promise<ReportRunChunkRecord[]>;
+  requeueStaleReportRunChunks(input: {
+    staleBefore: string;
+    updatedAt: string;
+  }): Promise<ReportRunChunkRecord[]>;
   saveLineDelivery(delivery: LineDeliveryRecord): Promise<void>;
   findSuccessfulLineDeliveryByKey(input: {
     tenantId: TenantId;
@@ -316,6 +342,7 @@ type StoreFile = {
   tenants: Tenant[];
   reportDefinitions: ReportDefinitionSeed[];
   runs: ReportRunRecord[];
+  reportRunChunks: ReportRunChunkRecord[];
   snapshots: ReportSnapshot[];
   businessSignals: BusinessSignalRecord[];
   lineDeliveries: LineDeliveryRecord[];
@@ -666,17 +693,190 @@ class LocalJsonSystemStore implements SystemStore {
       .filter(
         (run) => run.tenant_id === tenantId && (!reportKey || run.report_key === reportKey),
       )
-      .sort((a, b) => b.started_at.localeCompare(a.started_at))
+      .sort(compareReportRuns)
       .slice(0, 50);
+  }
+
+  async getRun(runId: string) {
+    return this.requireData().runs.find((run) => run.id === runId) ?? null;
+  }
+
+  async findActiveReportRun(input: {
+    tenantId: TenantId;
+    reportKey: ReportKey;
+    params: SalesGoodsServicesParams;
+  }) {
+    return (
+      this.requireData().runs
+        .filter(
+          (run) =>
+            run.tenant_id === input.tenantId &&
+            run.report_key === input.reportKey &&
+            isActiveReportRunStatus(run.status) &&
+            sameReportParams(run.params, input.params),
+        )
+        .sort(compareReportRuns)[0] ?? null
+    );
+  }
+
+  async listQueuedReportRuns(limit = 20) {
+    return this.requireData().runs
+      .filter(
+        (run) =>
+          run.status === "queued" && run.execution_strategy === "chunked",
+      )
+      .sort(compareReportRunsAsc)
+      .slice(0, limit);
+  }
+
+  async claimReportRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }) {
+    const data = this.requireData();
+    const run = data.runs.find((item) => item.id === input.runId);
+    if (!run || run.status !== "queued") {
+      return null;
+    }
+    if (
+      data.runs.some(
+        (item) =>
+          item.id !== run.id &&
+          item.tenant_id === run.tenant_id &&
+          item.status === "running" &&
+          item.execution_strategy === "chunked",
+      )
+    ) {
+      return null;
+    }
+    const updated: ReportRunRecord = normalizeReportRun({
+      ...run,
+      status: "running",
+      claimed_at: input.claimedAt,
+      worker_id: input.workerId,
+      progress_stage: "claimed",
+      progress_updated_at: input.claimedAt,
+    })!;
+    data.runs = data.runs.map((item) => (item.id === updated.id ? updated : item));
+    await this.persist();
+    return updated;
+  }
+
+  async requeueStaleReportRuns(input: {
+    staleBefore: string;
+    updatedAt: string;
+  }) {
+    const data = this.requireData();
+    const staleRuns: ReportRunRecord[] = [];
+    data.runs = data.runs.map((run) => {
+      if (
+        run.status !== "running" ||
+        run.execution_strategy !== "chunked" ||
+        reportRunProgressTimestamp(run) >= input.staleBefore
+      ) {
+        return run;
+      }
+      const updated: ReportRunRecord = normalizeReportRun({
+        ...run,
+        status: "queued",
+        claimed_at: null,
+        worker_id: null,
+        progress_stage: "queued",
+        progress_updated_at: input.updatedAt,
+      })!;
+      staleRuns.push(updated);
+      return updated;
+    });
+    if (staleRuns.length) {
+      await this.persist();
+    }
+    return staleRuns;
   }
 
   async upsertRun(run: ReportRunRecord) {
     const data = this.requireData();
+    const normalizedRun = normalizeReportRun(run);
+    if (!normalizedRun) {
+      throw new Error("Invalid report run record.");
+    }
     data.runs = [
-      run,
-      ...data.runs.filter((existing) => existing.id !== run.id),
+      normalizedRun,
+      ...data.runs.filter((existing) => existing.id !== normalizedRun.id),
     ].slice(0, 500);
     await this.persist();
+  }
+
+  async listRunChunks(reportRunId: string) {
+    return this.requireData().reportRunChunks
+      .filter((chunk) => chunk.report_run_id === reportRunId)
+      .sort((a, b) => a.chunk_no - b.chunk_no);
+  }
+
+  async upsertRunChunk(chunk: ReportRunChunkRecord) {
+    const saved = await this.upsertRunChunks([chunk]);
+    return saved[0]!;
+  }
+
+  async upsertRunChunks(chunks: ReportRunChunkRecord[]) {
+    if (!chunks.length) {
+      return [];
+    }
+    const data = this.requireData();
+    const normalizedChunks = chunks
+      .map((chunk) => normalizeReportRunChunk(chunk))
+      .filter((chunk): chunk is ReportRunChunkRecord => Boolean(chunk));
+    if (normalizedChunks.length !== chunks.length) {
+      throw new Error("Invalid report run chunk record.");
+    }
+    const replacementKeys = new Set(
+      normalizedChunks.map(
+        (chunk) => `${chunk.report_run_id}:${chunk.chunk_no}`,
+      ),
+    );
+    data.reportRunChunks = [
+      ...normalizedChunks,
+      ...data.reportRunChunks.filter(
+        (existing) =>
+          !replacementKeys.has(`${existing.report_run_id}:${existing.chunk_no}`),
+      ),
+    ].sort((a, b) =>
+      a.report_run_id === b.report_run_id
+        ? a.chunk_no - b.chunk_no
+        : b.created_at.localeCompare(a.created_at),
+    );
+    await this.persist();
+    return normalizedChunks;
+  }
+
+  async requeueStaleReportRunChunks(input: {
+    staleBefore: string;
+    updatedAt: string;
+  }) {
+    const data = this.requireData();
+    const requeuedChunks: ReportRunChunkRecord[] = [];
+    data.reportRunChunks = data.reportRunChunks.map((chunk) => {
+      if (
+        chunk.status !== "running" ||
+        (chunk.started_at ?? chunk.updated_at) >= input.staleBefore
+      ) {
+        return chunk;
+      }
+      const updated: ReportRunChunkRecord = normalizeReportRunChunk({
+        ...chunk,
+        status: "queued",
+        started_at: null,
+        duration_ms: null,
+        safe_error_message: null,
+        updated_at: input.updatedAt,
+      })!;
+      requeuedChunks.push(updated);
+      return updated;
+    });
+    if (requeuedChunks.length) {
+      await this.persist();
+    }
+    return requeuedChunks;
   }
 
   async saveLineDelivery(delivery: LineDeliveryRecord) {
@@ -1199,7 +1399,8 @@ class LocalJsonSystemStore implements SystemStore {
       return {
         tenants: normalizeTenants(parsed.tenants),
         reportDefinitions: parsed.reportDefinitions ?? [],
-        runs: parsed.runs ?? [],
+        runs: normalizeReportRuns(parsed.runs),
+        reportRunChunks: normalizeReportRunChunks(parsed.reportRunChunks),
         snapshots: parsed.snapshots ?? [],
         businessSignals: normalizeBusinessSignals(parsed.businessSignals),
         lineDeliveries: parsed.lineDeliveries ?? [],
@@ -1229,6 +1430,7 @@ class LocalJsonSystemStore implements SystemStore {
         tenants: [],
         reportDefinitions: [],
         runs: [],
+        reportRunChunks: [],
         snapshots: [],
         businessSignals: [],
         lineDeliveries: [],
@@ -2060,6 +2262,13 @@ select
   report_key,
   params_json as params,
   status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
   started_at,
   finished_at,
   row_count,
@@ -2073,17 +2282,192 @@ limit 50
       [tenantId, reportKey ?? null],
     );
 
-    return result.rows.map((row) => ({
-      id: row.id,
-      tenant_id: row.tenant_id,
-      report_key: row.report_key,
-      params: row.params,
-      status: row.status,
-      started_at: toIsoString(row.started_at),
-      finished_at: row.finished_at ? toIsoString(row.finished_at) : null,
-      row_count: Number(row.row_count ?? 0),
-      safe_error_message: row.safe_error_message,
-    })) as ReportRunRecord[];
+    return result.rows.map(mapReportRunRow);
+  }
+
+  async getRun(runId: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_key,
+  params_json as params,
+  status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
+  started_at,
+  finished_at,
+  row_count,
+  safe_error_message
+from report_runs
+where id = $1
+`,
+      [runId],
+    );
+
+    return result.rows[0] ? mapReportRunRow(result.rows[0]) : null;
+  }
+
+  async findActiveReportRun(input: {
+    tenantId: TenantId;
+    reportKey: ReportKey;
+    params: SalesGoodsServicesParams;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_key,
+  params_json as params,
+  status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
+  started_at,
+  finished_at,
+  row_count,
+  safe_error_message
+from report_runs
+where tenant_id = $1
+  and report_key = $2
+  and params_json = $3::jsonb
+  and status in ('queued', 'running')
+order by coalesce(queued_at, started_at) desc, started_at desc
+limit 1
+`,
+      [input.tenantId, input.reportKey, JSON.stringify(input.params)],
+    );
+
+    return result.rows[0] ? mapReportRunRow(result.rows[0]) : null;
+  }
+
+  async listQueuedReportRuns(limit = 20) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_key,
+  params_json as params,
+  status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
+  started_at,
+  finished_at,
+  row_count,
+  safe_error_message
+from report_runs
+where status = 'queued'
+  and execution_strategy = 'chunked'
+order by coalesce(queued_at, started_at) asc, started_at asc
+limit $1
+`,
+      [limit],
+    );
+
+    return result.rows.map(mapReportRunRow);
+  }
+
+  async claimReportRun(input: {
+    runId: string;
+    claimedAt: string;
+    workerId: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update report_runs
+set status = 'running',
+    claimed_at = $2::timestamptz,
+    worker_id = $3,
+    progress_stage = 'claimed',
+    progress_updated_at = $2::timestamptz
+where id = $1
+  and status = 'queued'
+  and not exists (
+    select 1
+    from report_runs other
+    where other.tenant_id = report_runs.tenant_id
+      and other.id <> report_runs.id
+      and other.status = 'running'
+      and other.execution_strategy = 'chunked'
+  )
+returning
+  id,
+  tenant_id,
+  report_key,
+  params_json as params,
+  status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
+  started_at,
+  finished_at,
+  row_count,
+  safe_error_message
+`,
+      [input.runId, input.claimedAt, input.workerId],
+    );
+
+    return result.rows[0] ? mapReportRunRow(result.rows[0]) : null;
+  }
+
+  async requeueStaleReportRuns(input: {
+    staleBefore: string;
+    updatedAt: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update report_runs
+set status = 'queued',
+    claimed_at = null,
+    worker_id = null,
+    progress_stage = 'queued',
+    progress_updated_at = $2::timestamptz
+where status = 'running'
+  and execution_strategy = 'chunked'
+  and coalesce(progress_updated_at, claimed_at, started_at) < $1::timestamptz
+returning
+  id,
+  tenant_id,
+  report_key,
+  params_json as params,
+  status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
+  started_at,
+  finished_at,
+  row_count,
+  safe_error_message
+`,
+      [input.staleBefore, input.updatedAt],
+    );
+
+    return result.rows.map(mapReportRunRow);
   }
 
   async upsertRun(run: ReportRunRecord) {
@@ -2095,14 +2479,28 @@ insert into report_runs (
   report_key,
   params_json,
   status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
   started_at,
   finished_at,
   row_count,
   safe_error_message
 )
-values ($1, $2, $3, $4::jsonb, $5, $6::timestamptz, $7::timestamptz, $8, $9)
+values ($1, $2, $3, $4::jsonb, $5, $6::timestamptz, $7::timestamptz, $8, $9, $10, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15, $16)
 on conflict (id) do update
 set status = excluded.status,
+    queued_at = excluded.queued_at,
+    claimed_at = excluded.claimed_at,
+    worker_id = excluded.worker_id,
+    execution_strategy = excluded.execution_strategy,
+    progress_stage = excluded.progress_stage,
+    progress_percent = excluded.progress_percent,
+    progress_updated_at = excluded.progress_updated_at,
     finished_at = excluded.finished_at,
     row_count = excluded.row_count,
     safe_error_message = excluded.safe_error_message
@@ -2113,12 +2511,212 @@ set status = excluded.status,
         run.report_key,
         JSON.stringify(run.params),
         run.status,
+        run.queued_at ?? null,
+        run.claimed_at ?? null,
+        run.worker_id ?? null,
+        run.execution_strategy ?? null,
+        run.progress_stage ?? null,
+        run.progress_percent ?? null,
+        run.progress_updated_at ?? null,
         run.started_at,
         run.finished_at,
         run.row_count,
         run.safe_error_message,
       ],
     );
+  }
+
+  async listRunChunks(reportRunId: string) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_run_id,
+  report_key,
+  chunk_no,
+  chunk_key,
+  status,
+  attempt,
+  unit_start_index,
+  unit_count,
+  total_units,
+  row_count,
+  cursor_from,
+  cursor_to,
+  started_at,
+  finished_at,
+  duration_ms,
+  safe_error_message,
+  metadata_json,
+  created_at,
+  updated_at
+from report_run_chunks
+where report_run_id = $1
+order by chunk_no asc
+`,
+      [reportRunId],
+    );
+
+    return result.rows.map(mapReportRunChunkRow);
+  }
+
+  async upsertRunChunk(chunk: ReportRunChunkRecord) {
+    const saved = await this.upsertRunChunks([chunk]);
+    return saved[0]!;
+  }
+
+  async upsertRunChunks(chunks: ReportRunChunkRecord[]) {
+    if (!chunks.length) {
+      return [];
+    }
+    const saved: ReportRunChunkRecord[] = [];
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      for (const chunk of chunks) {
+        const result = await client.query(
+          `
+insert into report_run_chunks (
+  id,
+  tenant_id,
+  report_run_id,
+  report_key,
+  chunk_no,
+  chunk_key,
+  status,
+  attempt,
+  unit_start_index,
+  unit_count,
+  total_units,
+  row_count,
+  cursor_from,
+  cursor_to,
+  started_at,
+  finished_at,
+  duration_ms,
+  safe_error_message,
+  metadata_json,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::timestamptz, $16::timestamptz, $17, $18, $19::jsonb, $20::timestamptz, $21::timestamptz)
+on conflict (report_run_id, chunk_no) do update
+set chunk_key = excluded.chunk_key,
+    status = excluded.status,
+    attempt = excluded.attempt,
+    unit_start_index = excluded.unit_start_index,
+    unit_count = excluded.unit_count,
+    total_units = excluded.total_units,
+    row_count = excluded.row_count,
+    cursor_from = excluded.cursor_from,
+    cursor_to = excluded.cursor_to,
+    started_at = excluded.started_at,
+    finished_at = excluded.finished_at,
+    duration_ms = excluded.duration_ms,
+    safe_error_message = excluded.safe_error_message,
+    metadata_json = excluded.metadata_json,
+    updated_at = excluded.updated_at
+returning
+  id,
+  tenant_id,
+  report_run_id,
+  report_key,
+  chunk_no,
+  chunk_key,
+  status,
+  attempt,
+  unit_start_index,
+  unit_count,
+  total_units,
+  row_count,
+  cursor_from,
+  cursor_to,
+  started_at,
+  finished_at,
+  duration_ms,
+  safe_error_message,
+  metadata_json,
+  created_at,
+  updated_at
+`,
+          [
+            chunk.id,
+            chunk.tenant_id,
+            chunk.report_run_id,
+            chunk.report_key,
+            chunk.chunk_no,
+            chunk.chunk_key,
+            chunk.status,
+            chunk.attempt,
+            chunk.unit_start_index,
+            chunk.unit_count,
+            chunk.total_units,
+            chunk.row_count,
+            chunk.cursor_from,
+            chunk.cursor_to,
+            chunk.started_at,
+            chunk.finished_at,
+            chunk.duration_ms,
+            chunk.safe_error_message,
+            JSON.stringify(chunk.metadata_json ?? {}),
+            chunk.created_at,
+            chunk.updated_at,
+          ],
+        );
+        saved.push(mapReportRunChunkRow(result.rows[0]));
+      }
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    return saved;
+  }
+
+  async requeueStaleReportRunChunks(input: {
+    staleBefore: string;
+    updatedAt: string;
+  }) {
+    const result = await this.pool.query(
+      `
+update report_run_chunks
+set status = 'queued',
+    started_at = null,
+    duration_ms = null,
+    safe_error_message = null,
+    updated_at = $2::timestamptz
+where status = 'running'
+  and coalesce(started_at, updated_at) < $1::timestamptz
+returning
+  id,
+  tenant_id,
+  report_run_id,
+  report_key,
+  chunk_no,
+  chunk_key,
+  status,
+  attempt,
+  unit_start_index,
+  unit_count,
+  total_units,
+  row_count,
+  cursor_from,
+  cursor_to,
+  started_at,
+  finished_at,
+  duration_ms,
+  safe_error_message,
+  metadata_json,
+  created_at,
+  updated_at
+`,
+      [input.staleBefore, input.updatedAt],
+    );
+
+    return result.rows.map(mapReportRunChunkRow);
   }
 
   async saveLineDelivery(delivery: LineDeliveryRecord) {
@@ -3852,6 +4450,93 @@ function toIsoString(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function isActiveReportRunStatus(status: ReportRunRecord["status"]) {
+  return status === "queued" || status === "running";
+}
+
+function reportRunSortTimestamp(run: ReportRunRecord) {
+  return run.queued_at ?? run.started_at;
+}
+
+function reportRunProgressTimestamp(run: ReportRunRecord) {
+  return run.progress_updated_at ?? run.claimed_at ?? run.started_at;
+}
+
+function compareReportRuns(left: ReportRunRecord, right: ReportRunRecord) {
+  return reportRunSortTimestamp(right).localeCompare(reportRunSortTimestamp(left));
+}
+
+function compareReportRunsAsc(left: ReportRunRecord, right: ReportRunRecord) {
+  return reportRunSortTimestamp(left).localeCompare(reportRunSortTimestamp(right));
+}
+
+function mapReportRunRow(row: Record<string, unknown>): ReportRunRecord {
+  return normalizeReportRun({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    report_key: row.report_key,
+    params: row.params,
+    status: row.status,
+    queued_at: row.queued_at
+      ? toIsoString(row.queued_at as string | Date)
+      : null,
+    claimed_at: row.claimed_at
+      ? toIsoString(row.claimed_at as string | Date)
+      : null,
+    worker_id: row.worker_id,
+    execution_strategy: row.execution_strategy,
+    progress_stage: row.progress_stage,
+    progress_percent: row.progress_percent,
+    progress_updated_at: row.progress_updated_at
+      ? toIsoString(row.progress_updated_at as string | Date)
+      : null,
+    started_at: row.started_at
+      ? toIsoString(row.started_at as string | Date)
+      : undefined,
+    finished_at: row.finished_at
+      ? toIsoString(row.finished_at as string | Date)
+      : null,
+    row_count: row.row_count,
+    safe_error_message: row.safe_error_message,
+  })!;
+}
+
+function mapReportRunChunkRow(
+  row: Record<string, unknown>,
+): ReportRunChunkRecord {
+  return normalizeReportRunChunk({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    report_run_id: row.report_run_id,
+    report_key: row.report_key,
+    chunk_no: row.chunk_no,
+    chunk_key: row.chunk_key,
+    status: row.status,
+    attempt: row.attempt,
+    unit_start_index: row.unit_start_index,
+    unit_count: row.unit_count,
+    total_units: row.total_units,
+    row_count: row.row_count,
+    cursor_from: row.cursor_from,
+    cursor_to: row.cursor_to,
+    started_at: row.started_at
+      ? toIsoString(row.started_at as string | Date)
+      : null,
+    finished_at: row.finished_at
+      ? toIsoString(row.finished_at as string | Date)
+      : null,
+    duration_ms: row.duration_ms,
+    safe_error_message: row.safe_error_message,
+    metadata_json: row.metadata_json,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  })!;
+}
+
 function auditLogImportKey(entry: AuditLogEntry) {
   return [
     entry.id ?? "",
@@ -4371,6 +5056,189 @@ function normalizeBusinessSignalThresholds(
 ): BusinessSignalThresholdsConfig {
   const parsed = businessSignalThresholdsSchema.safeParse(value ?? {});
   return parsed.success ? parsed.data : businessSignalThresholdsSchema.parse({});
+}
+
+function normalizeReportRuns(value: unknown): ReportRunRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((run) => normalizeReportRun(run))
+    .filter((run): run is ReportRunRecord => Boolean(run))
+    .sort(compareReportRuns);
+}
+
+function normalizeReportRun(value: unknown): ReportRunRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const run = value as Partial<ReportRunRecord>;
+  const reportKey = reportKeySchema.safeParse(run.report_key);
+  const params = normalizeReportParams(run.params);
+  if (!run.id || !run.tenant_id || !reportKey.success || !params) {
+    return null;
+  }
+  const startedAt =
+    typeof run.started_at === "string" ? run.started_at : new Date().toISOString();
+  return {
+    id: String(run.id),
+    tenant_id: run.tenant_id as TenantId,
+    report_key: reportKey.data,
+    params,
+    status: normalizeReportRunStatus(run.status),
+    started_at: startedAt,
+    finished_at:
+      typeof run.finished_at === "string" ? run.finished_at : null,
+    row_count: normalizeBoundedInteger(run.row_count, 0, 1_000_000_000, 0),
+    safe_error_message:
+      typeof run.safe_error_message === "string"
+        ? run.safe_error_message
+        : null,
+    queued_at: typeof run.queued_at === "string" ? run.queued_at : null,
+    claimed_at: typeof run.claimed_at === "string" ? run.claimed_at : null,
+    worker_id: typeof run.worker_id === "string" ? run.worker_id : null,
+    execution_strategy: normalizeReportExecutionStrategy(run.execution_strategy),
+    progress_stage: normalizeReportRunProgressStage(run.progress_stage),
+    progress_percent: normalizeProgressInteger(run.progress_percent, 0, 100),
+    progress_updated_at:
+      typeof run.progress_updated_at === "string"
+        ? run.progress_updated_at
+        : null,
+  };
+}
+
+function normalizeReportRunStatus(
+  value: unknown,
+): ReportRunRecord["status"] {
+  return value === "queued" ||
+    value === "running" ||
+    value === "success" ||
+    value === "failed"
+    ? value
+    : "failed";
+}
+
+function normalizeReportExecutionStrategy(
+  value: unknown,
+): ReportRunRecord["execution_strategy"] {
+  return value === "direct" || value === "chunked" ? value : null;
+}
+
+function normalizeReportRunProgressStage(
+  value: unknown,
+): ReportRunRecord["progress_stage"] {
+  return value === "queued" ||
+    value === "claimed" ||
+    value === "preflight" ||
+    value === "running_chunk" ||
+    value === "summarizing" ||
+    value === "completed" ||
+    value === "failed"
+    ? value
+    : null;
+}
+
+function normalizeReportRunChunks(value: unknown): ReportRunChunkRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((chunk) => normalizeReportRunChunk(chunk))
+    .filter((chunk): chunk is ReportRunChunkRecord => Boolean(chunk))
+    .sort((a, b) =>
+      a.report_run_id === b.report_run_id
+        ? a.chunk_no - b.chunk_no
+        : b.created_at.localeCompare(a.created_at),
+    );
+}
+
+function normalizeReportRunChunk(
+  value: unknown,
+): ReportRunChunkRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const chunk = value as Partial<ReportRunChunkRecord>;
+  const reportKey = reportKeySchema.safeParse(chunk.report_key);
+  if (!chunk.id || !chunk.tenant_id || !chunk.report_run_id || !reportKey.success) {
+    return null;
+  }
+  const chunkNo = normalizeBoundedInteger(chunk.chunk_no, 0, 1_000_000, 0);
+  const now = new Date().toISOString();
+  return {
+    id: String(chunk.id),
+    tenant_id: chunk.tenant_id as TenantId,
+    report_run_id: String(chunk.report_run_id),
+    report_key: reportKey.data,
+    chunk_no: chunkNo,
+    chunk_key:
+      typeof chunk.chunk_key === "string"
+        ? chunk.chunk_key
+        : `${chunk.report_run_id}:${chunkNo}`,
+    status: normalizeReportRunChunkStatus(chunk.status),
+    attempt: normalizeBoundedInteger(chunk.attempt, 0, 100, 0),
+    unit_start_index: normalizeBoundedInteger(
+      chunk.unit_start_index,
+      0,
+      1_000_000_000,
+      0,
+    ),
+    unit_count: normalizeBoundedInteger(
+      chunk.unit_count,
+      0,
+      1_000_000_000,
+      0,
+    ),
+    total_units: normalizeBoundedInteger(
+      chunk.total_units,
+      0,
+      1_000_000_000,
+      0,
+    ),
+    row_count: normalizeBoundedInteger(chunk.row_count, 0, 1_000_000_000, 0),
+    cursor_from:
+      typeof chunk.cursor_from === "string" ? chunk.cursor_from : null,
+    cursor_to: typeof chunk.cursor_to === "string" ? chunk.cursor_to : null,
+    started_at: typeof chunk.started_at === "string" ? chunk.started_at : null,
+    finished_at:
+      typeof chunk.finished_at === "string" ? chunk.finished_at : null,
+    duration_ms: normalizeOptionalNonNegativeInteger(chunk.duration_ms),
+    safe_error_message:
+      typeof chunk.safe_error_message === "string"
+        ? chunk.safe_error_message
+        : null,
+    metadata_json: normalizeRecordJson(chunk.metadata_json),
+    created_at: typeof chunk.created_at === "string" ? chunk.created_at : now,
+    updated_at: typeof chunk.updated_at === "string" ? chunk.updated_at : now,
+  };
+}
+
+function normalizeReportRunChunkStatus(
+  value: unknown,
+): ReportRunChunkRecord["status"] {
+  return value === "queued" ||
+    value === "running" ||
+    value === "success" ||
+    value === "failed"
+    ? value
+    : "queued";
+}
+
+function normalizeOptionalNonNegativeInteger(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const normalized = normalizeProgressInteger(value, 0, 1_000_000_000);
+  return normalized ?? null;
+}
+
+function normalizeRecordJson(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 }
 
 function normalizeBusinessSignals(value: unknown): BusinessSignalRecord[] {
@@ -5327,7 +6195,7 @@ create table if not exists tenants (
   database_name text not null default '',
   description text not null default '',
   datasource_configured boolean not null default false,
-  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"demo_mode_enabled":false}'::jsonb,
+  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
   business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   suspended_reason text,
   current_period_end timestamptz,
@@ -5339,7 +6207,7 @@ alter table tenants
   add column if not exists database_name text not null default '',
   add column if not exists description text not null default '',
   add column if not exists datasource_configured boolean not null default false,
-  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"demo_mode_enabled":false}'::jsonb,
+  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
   add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
   add column if not exists current_period_end timestamptz;
@@ -5372,11 +6240,27 @@ create table if not exists report_runs (
   report_key text not null references report_definitions(report_key),
   params_json jsonb not null,
   status text not null,
+  queued_at timestamptz,
+  claimed_at timestamptz,
+  worker_id text,
+  execution_strategy text,
+  progress_stage text,
+  progress_percent integer,
+  progress_updated_at timestamptz,
   started_at timestamptz not null,
   finished_at timestamptz,
   row_count integer not null default 0,
   safe_error_message text
 );
+
+alter table report_runs
+  add column if not exists queued_at timestamptz,
+  add column if not exists claimed_at timestamptz,
+  add column if not exists worker_id text,
+  add column if not exists execution_strategy text,
+  add column if not exists progress_stage text,
+  add column if not exists progress_percent integer,
+  add column if not exists progress_updated_at timestamptz;
 
 create table if not exists report_snapshots (
   id text primary key,
@@ -5395,6 +6279,41 @@ on report_snapshots (tenant_id, report_key, report_run_id);
 
 create index if not exists report_runs_latest_idx
 on report_runs (tenant_id, report_key, started_at desc);
+
+create index if not exists report_runs_async_idx
+on report_runs (tenant_id, report_key, status, execution_strategy, queued_at desc);
+
+create table if not exists report_run_chunks (
+  id text primary key,
+  tenant_id text not null references tenants(id),
+  report_run_id text not null references report_runs(id) on delete cascade,
+  report_key text not null references report_definitions(report_key),
+  chunk_no integer not null,
+  chunk_key text not null,
+  status text not null,
+  attempt integer not null default 0,
+  unit_start_index integer not null default 0,
+  unit_count integer not null default 0,
+  total_units integer not null default 0,
+  row_count integer not null default 0,
+  cursor_from text,
+  cursor_to text,
+  started_at timestamptz,
+  finished_at timestamptz,
+  duration_ms integer,
+  safe_error_message text,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (report_run_id, chunk_no)
+);
+
+create index if not exists report_run_chunks_run_idx
+on report_run_chunks (report_run_id, chunk_no);
+
+create index if not exists report_run_chunks_status_idx
+on report_run_chunks (tenant_id, report_key, status, updated_at)
+where status in ('queued', 'running');
 
 create table if not exists business_signals (
   id text primary key,

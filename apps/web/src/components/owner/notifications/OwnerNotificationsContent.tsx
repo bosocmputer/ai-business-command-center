@@ -288,7 +288,7 @@ export function OwnerNotificationsContent({
               (run.source === "manual_test" || run.source === "manual_run_now")),
       ) ?? null,
     [
-      lastNotificationRunResult?.run_id,
+      lastNotificationRunResult,
       notificationManualScheduledDate,
       notificationManualScheduledTime,
       selectedRuns,

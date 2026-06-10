@@ -7,6 +7,7 @@ import type {
   LineDeliveryRecord,
   NotificationRuleRecord,
   NotificationRuleRunRecord,
+  ReportRunChunkRecord,
   ReportRunRecord,
   Tenant,
 } from "@ai-bcc/shared";
@@ -974,6 +975,138 @@ describe("local JSON system store", () => {
       expect.objectContaining({
         id: "business_signal_gp_low_margin",
         status: "resolved",
+      }),
+    ]);
+
+    await store.close();
+  });
+
+  it("tracks chunked report runs and safely requeues stale chunks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+
+    const tenant: Tenant = {
+      id: "tenant_demo_remote",
+      name: "Demo Remote",
+      databaseName: "demo",
+      description: "test",
+      datasourceConfigured: true,
+      status: "active",
+      planCode: "business",
+      suspendedReason: null,
+      currentPeriodEnd: null,
+    };
+    const store = createSystemStore();
+    await store.initialize({
+      tenants: [tenant],
+      reportDefinitions: [
+        {
+          report_key: "stock_balance",
+          name: "Stock Balance",
+          version: "0.1.0",
+          contract_json: {},
+        },
+      ],
+    });
+
+    const queuedRun: ReportRunRecord = {
+      id: "run_chunked_stock_1",
+      tenant_id: tenant.id,
+      report_key: "stock_balance",
+      params: { date_from: "2026-06-01", date_to: "2026-06-10" },
+      status: "queued",
+      queued_at: "2026-06-10T01:00:00.000Z",
+      claimed_at: null,
+      worker_id: null,
+      execution_strategy: "chunked",
+      progress_stage: "queued",
+      progress_percent: 0,
+      progress_updated_at: "2026-06-10T01:00:00.000Z",
+      started_at: "2026-06-10T01:00:00.000Z",
+      finished_at: null,
+      row_count: 0,
+      safe_error_message: null,
+    };
+    await store.upsertRun(queuedRun);
+
+    await expect(
+      store.findActiveReportRun({
+        tenantId: tenant.id,
+        reportKey: "stock_balance",
+        params: queuedRun.params,
+      }),
+    ).resolves.toMatchObject({ id: queuedRun.id, status: "queued" });
+
+    const claimed = await store.claimReportRun({
+      runId: queuedRun.id,
+      claimedAt: "2026-06-10T01:00:01.000Z",
+      workerId: "worker_report_runs",
+    });
+    expect(claimed).toMatchObject({
+      id: queuedRun.id,
+      status: "running",
+      worker_id: "worker_report_runs",
+    });
+
+    await store.upsertRun({
+      ...queuedRun,
+      id: "run_chunked_stock_2",
+      queued_at: "2026-06-10T01:00:02.000Z",
+      started_at: "2026-06-10T01:00:02.000Z",
+    });
+    await expect(
+      store.claimReportRun({
+        runId: "run_chunked_stock_2",
+        claimedAt: "2026-06-10T01:00:03.000Z",
+        workerId: "worker_report_runs",
+      }),
+    ).resolves.toBeNull();
+
+    const chunk: ReportRunChunkRecord = {
+      id: "chunk_1",
+      tenant_id: tenant.id,
+      report_run_id: queuedRun.id,
+      report_key: "stock_balance",
+      chunk_no: 1,
+      chunk_key: "chunk_1_key",
+      status: "running",
+      attempt: 1,
+      unit_start_index: 0,
+      unit_count: 500,
+      total_units: 1000,
+      row_count: 0,
+      cursor_from: null,
+      cursor_to: "SKU-0500",
+      started_at: "2026-06-10T01:00:00.000Z",
+      finished_at: null,
+      duration_ms: null,
+      safe_error_message: null,
+      metadata_json: { preflight_units: 500 },
+      created_at: "2026-06-10T01:00:00.000Z",
+      updated_at: "2026-06-10T01:00:00.000Z",
+    };
+    await store.upsertRunChunk(chunk);
+
+    await expect(
+      store.requeueStaleReportRunChunks({
+        staleBefore: "2026-06-10T01:05:00.000Z",
+        updatedAt: "2026-06-10T01:06:00.000Z",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "chunk_1",
+        status: "queued",
+        started_at: null,
+      }),
+    ]);
+    await expect(store.listRunChunks(queuedRun.id)).resolves.toEqual([
+      expect.objectContaining({
+        chunk_no: 1,
+        status: "queued",
+        cursor_from: null,
+        cursor_to: "SKU-0500",
+        metadata_json: { preflight_units: 500 },
       }),
     ]);
 

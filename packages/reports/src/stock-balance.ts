@@ -35,7 +35,15 @@ export const stockBalanceContract = {
 
 export type StockBalanceQueryOptions = {
   itemCode?: string | null;
+  itemCodeAfter?: string | null;
+  itemCodeTo?: string | null;
   search?: string | null;
+};
+
+export type StockBalanceItemCodePageOptions = {
+  afterItemCode?: string | null;
+  toItemCode?: string | null;
+  limit: number;
 };
 
 export function validateStockBalanceParams(
@@ -58,6 +66,16 @@ export function buildStockBalanceQuery(
   if (itemCode) {
     values.push(itemCode);
     inventoryFilters.push(`and i.code = $${values.length}`);
+  }
+
+  if (typeof options.itemCodeAfter === "string") {
+    values.push(options.itemCodeAfter);
+    inventoryFilters.push(`and i.code > $${values.length}`);
+  }
+
+  if (typeof options.itemCodeTo === "string") {
+    values.push(options.itemCodeTo);
+    inventoryFilters.push(`and i.code <= $${values.length}`);
   }
 
   if (search) {
@@ -235,6 +253,24 @@ where agg.qty_in <> 0
 order by abs(agg.balance_amount) desc, agg.ic_code
 `,
     values,
+  };
+}
+
+export function buildStockBalanceItemCodePageQuery(
+  options: StockBalanceItemCodePageOptions,
+) {
+  const limit = normalizeChunkPageLimit(options.limit);
+  return {
+    text: `
+select i.code as unit_code
+from ic_inventory i
+where coalesce(i.item_type, 0) not in (1, 3)
+  and ($1::text is null or i.code > $1)
+  and ($2::text is null or i.code <= $2)
+order by i.code asc
+limit $3::int
+`,
+    values: [options.afterItemCode ?? null, options.toItemCode ?? null, limit],
   };
 }
 
@@ -561,6 +597,13 @@ function roundMoney(value: number): number {
 
 function roundQty(value: number): number {
   return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
+function normalizeChunkPageLimit(value: number) {
+  if (!Number.isFinite(value)) {
+    return 500;
+  }
+  return Math.max(1, Math.min(Math.floor(value), 5000));
 }
 
 function toNumber(value: unknown): number {
