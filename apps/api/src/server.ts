@@ -267,6 +267,9 @@ const CHUNKED_HEAVY_STOCK_CHUNK_SIZE = 500;
 const CHUNKED_HEAVY_AR_CHUNK_SIZE = 300;
 const CHUNKED_HEAVY_MIN_SPLIT_UNITS = 50;
 const CHUNKED_HEAVY_MAX_CHUNK_ATTEMPTS = 2;
+const CHUNKED_HEAVY_NOTIFICATION_WAIT_MS =
+  CHUNKED_HEAVY_REPORT_MAX_DURATION_MS + 90_000;
+const CHUNKED_HEAVY_NOTIFICATION_POLL_MS = 1_000;
 const DASHBOARD_TOKEN_TTL_HOURS = 24;
 const DASHBOARD_TOKEN_LOOKBACK_DAYS = 31;
 const DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS = 31;
@@ -6454,6 +6457,10 @@ function isChunkedHeavyReportKey(
   return reportKey === "stock_balance" || reportKey === "ar_customer_movement";
 }
 
+function shouldUseChunkedHeavyReport(tenant: Tenant, reportKey: ReportKey) {
+  return isSmlChunkedHeavyReportsEnabled(tenant) && isChunkedHeavyReportKey(reportKey);
+}
+
 function formatDegradedReportNames(reportKeys: ReportKey[]) {
   const uniqueKeys = [...new Set(reportKeys)];
   return uniqueKeys
@@ -6773,6 +6780,199 @@ async function processQueuedChunkedReportRuns(input: {
   } finally {
     chunkedReportRunProcessorState.running = false;
   }
+}
+
+async function runAndPersistChunkedHeavyReportNow(input: {
+  tenantId: TenantId;
+  reportKey: ChunkedHeavyReportKey;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+  workerId: string;
+}): ReturnType<typeof runAndPersistReportByKey> {
+  const deadlineMs = Date.now() + CHUNKED_HEAVY_NOTIFICATION_WAIT_MS;
+  while (Date.now() <= deadlineMs) {
+    const enqueueResult = await enqueueChunkedHeavyReportRun({
+      tenantId: input.tenantId,
+      reportKey: input.reportKey,
+      params: input.params,
+      force: false,
+      requestAction: input.requestAction,
+    });
+
+    if (enqueueResult.ok) {
+      return waitForChunkedHeavyReportSnapshot({
+        runRecord: enqueueResult.runRecord,
+        reportKey: input.reportKey,
+        workerId: input.workerId,
+        deadlineMs,
+      });
+    }
+
+    const activeRun = enqueueResult.activeRun;
+    if (
+      activeRun &&
+      (activeRun.status === "queued" || activeRun.status === "running") &&
+      Date.now() <= deadlineMs
+    ) {
+      await processQueuedChunkedReportRuns({
+        limit: 1,
+        workerId: input.workerId,
+      });
+      await delay(CHUNKED_HEAVY_NOTIFICATION_POLL_MS);
+      continue;
+    }
+
+    const runRecord = enqueueResult.runRecord ?? activeRun;
+    if (runRecord) {
+      return {
+        ok: false,
+        statusCode: 424,
+        error: enqueueResult.error,
+        runRecord,
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 424,
+      error: enqueueResult.error,
+      runRecord: buildMissingChunkedReportRun(input, enqueueResult.error),
+    };
+  }
+
+  return {
+    ok: false,
+    statusCode: 424,
+    error: toSafeChunkedReportErrorMessage(
+      input.reportKey,
+      new Error("chunked heavy report max duration exceeded"),
+    ),
+    runRecord: buildMissingChunkedReportRun(
+      input,
+      toSafeChunkedReportErrorMessage(
+        input.reportKey,
+        new Error("chunked heavy report max duration exceeded"),
+      ),
+    ),
+  };
+}
+
+async function waitForChunkedHeavyReportSnapshot(input: {
+  runRecord: ReportRunRecord;
+  reportKey: ChunkedHeavyReportKey;
+  workerId: string;
+  deadlineMs: number;
+}): ReturnType<typeof runAndPersistReportByKey> {
+  let runRecord = input.runRecord;
+  while (Date.now() <= input.deadlineMs) {
+    const latestRun = await systemStore.getRun(runRecord.id);
+    if (latestRun) {
+      runRecord = latestRun;
+    }
+
+    if (runRecord.status === "success") {
+      const snapshot = await systemStore.getSnapshotByRunId(
+        runRecord.tenant_id,
+        runRecord.id,
+        input.reportKey,
+      );
+      if (snapshot) {
+        return {
+          ok: true,
+          snapshot,
+          runRecord,
+        };
+      }
+      return {
+        ok: false,
+        statusCode: 500,
+        error:
+          "ประมวลผลรายงานสำเร็จแต่ไม่พบ snapshot กรุณาตรวจสอบระบบจัดเก็บรายงาน",
+        runRecord,
+      };
+    }
+
+    if (runRecord.status === "failed") {
+      return {
+        ok: false,
+        statusCode: 424,
+        error:
+          runRecord.safe_error_message ??
+          toSafeChunkedReportErrorMessage(
+            input.reportKey,
+            new Error("chunked report run failed"),
+          ),
+        runRecord,
+      };
+    }
+
+    await processQueuedChunkedReportRuns({
+      limit: 1,
+      workerId: input.workerId,
+    });
+    await delay(CHUNKED_HEAVY_NOTIFICATION_POLL_MS);
+  }
+
+  const latestRun = await systemStore.getRun(runRecord.id);
+  if (latestRun) {
+    runRecord = latestRun;
+  }
+  const safeErrorMessage = toSafeChunkedReportErrorMessage(
+    input.reportKey,
+    new Error("chunked heavy report max duration exceeded"),
+  );
+  await systemStore.appendAuditLog({
+    tenant_id: runRecord.tenant_id,
+    actor_id: null,
+    action: "chunked_report_run_wait_timeout",
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: input.reportKey,
+      execution_strategy: "chunked",
+      safe_error_message: safeErrorMessage,
+    },
+  });
+  return {
+    ok: false,
+    statusCode: 424,
+    error: safeErrorMessage,
+    runRecord,
+  };
+}
+
+function buildMissingChunkedReportRun(
+  input: {
+    tenantId: TenantId;
+    reportKey: ChunkedHeavyReportKey;
+    params: SalesGoodsServicesParams;
+  },
+  safeErrorMessage: string,
+): ReportRunRecord {
+  const now = new Date().toISOString();
+  return {
+    id: createRunId(input.tenantId, `${input.reportKey}_chunked_failed`),
+    tenant_id: input.tenantId,
+    report_key: input.reportKey,
+    params: input.params,
+    status: "failed",
+    queued_at: now,
+    claimed_at: null,
+    worker_id: null,
+    execution_strategy: "chunked",
+    progress_stage: "failed",
+    progress_percent: 100,
+    progress_updated_at: now,
+    started_at: now,
+    finished_at: now,
+    row_count: 0,
+    safe_error_message: safeErrorMessage,
+  };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function executeChunkedHeavyReportRun(initialRun: ReportRunRecord) {
@@ -7346,6 +7546,12 @@ function toSafeChunkedReportErrorMessage(
     error instanceof Error &&
     /chunked heavy report max duration exceeded/i.test(error.message)
   ) {
+    if (reportKey === "stock_balance") {
+      return "รายงานสต็อกคงเหลือใช้เวลานานเกินไป กรุณาลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี";
+    }
+    if (reportKey === "ar_customer_movement") {
+      return "รายงานเคลื่อนไหวลูกหนี้ใช้เวลานานเกินไป กรุณาลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี";
+    }
     return "รายงานใช้เวลานานเกินกำหนด กรุณาลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี";
   }
   if (reportKey === "stock_balance") {
@@ -7882,12 +8088,16 @@ async function executeExecutiveDashboardRun(
     }
 
     const recentTimeoutRun =
-      reportKey === "stock_balance" && heavyReportFallbackEnabled
+      reportKey === "stock_balance" &&
+      heavyReportFallbackEnabled &&
+      !shouldUseChunkedHeavyReport(tenant, reportKey)
         ? findRecentStockBalanceTimeoutRun({
             runs: await systemStore.listRuns(run.tenant_id, "stock_balance"),
             params: run.params,
           })
-        : reportKey === "ar_customer_movement" && heavyReportFallbackEnabled
+        : reportKey === "ar_customer_movement" &&
+            heavyReportFallbackEnabled &&
+            !shouldUseChunkedHeavyReport(tenant, reportKey)
           ? findRecentArCustomerMovementTimeoutRun({
               runs: await systemStore.listRuns(
                 run.tenant_id,
@@ -7940,6 +8150,7 @@ async function executeExecutiveDashboardRun(
 
     const reportStartedAt = Date.now();
     const { result, policy, coalesced } = await runNotificationReportWithPolicy({
+      tenant,
       tenantId: run.tenant_id,
       reportKey,
       params: run.params,
@@ -8457,7 +8668,11 @@ async function executeNotificationRule(input: {
       });
     };
 
-    if (reportKey === "stock_balance" && heavyReportFallbackEnabled) {
+    if (
+      reportKey === "stock_balance" &&
+      heavyReportFallbackEnabled &&
+      !shouldUseChunkedHeavyReport(tenant, reportKey)
+    ) {
       const recentTimeoutRun = findRecentStockBalanceTimeoutRun({
         runs: await systemStore.listRuns(input.rule.tenant_id, "stock_balance"),
         params,
@@ -8506,7 +8721,11 @@ async function executeNotificationRule(input: {
       }
     }
 
-    if (reportKey === "ar_customer_movement" && heavyReportFallbackEnabled) {
+    if (
+      reportKey === "ar_customer_movement" &&
+      heavyReportFallbackEnabled &&
+      !shouldUseChunkedHeavyReport(tenant, reportKey)
+    ) {
       const recentTimeoutRun = findRecentArCustomerMovementTimeoutRun({
         runs: await systemStore.listRuns(
           input.rule.tenant_id,
@@ -8560,6 +8779,7 @@ async function executeNotificationRule(input: {
 
     const reportStartedAt = Date.now();
     const { result, coalesced, policy } = await runNotificationReportWithPolicy({
+      tenant,
       tenantId: input.rule.tenant_id,
       reportKey,
       params,
@@ -9124,6 +9344,7 @@ function validateManualNotificationSchedule(input: {
 }
 
 async function runNotificationReportWithPolicy(input: {
+  tenant: Tenant;
   tenantId: TenantId;
   reportKey: ReportKey;
   params: SalesGoodsServicesParams;
@@ -9131,12 +9352,27 @@ async function runNotificationReportWithPolicy(input: {
   heavyReportFallbackEnabled: boolean;
 }) {
   const policy = getReportExecutionPolicy(input.reportKey);
+  const shouldUseChunked =
+    policy.mode === "fresh_first_with_reference_fallback" &&
+    shouldUseChunkedHeavyReport(input.tenant, input.reportKey);
+  const runner = shouldUseChunked
+    ? () =>
+        runAndPersistChunkedHeavyReportNow({
+          tenantId: input.tenantId,
+          reportKey: input.reportKey as ChunkedHeavyReportKey,
+          params: input.params,
+          requestAction: input.requestAction,
+          workerId: "notification_chunked_report",
+        })
+    : () => runAndPersistReportByKey(input);
+
   if (
-    !input.heavyReportFallbackEnabled ||
-    policy.mode !== "fresh_first_with_reference_fallback"
+    !shouldUseChunked &&
+    (!input.heavyReportFallbackEnabled ||
+      policy.mode !== "fresh_first_with_reference_fallback")
   ) {
     return {
-      result: await runAndPersistReportByKey(input),
+      result: await runner(),
       coalesced: false,
       policy,
     };
@@ -9146,7 +9382,7 @@ async function runNotificationReportWithPolicy(input: {
     tenantId: input.tenantId,
     reportKey: input.reportKey,
     params: input.params,
-    runner: () => runAndPersistReportByKey(input),
+    runner,
   });
 
   return {

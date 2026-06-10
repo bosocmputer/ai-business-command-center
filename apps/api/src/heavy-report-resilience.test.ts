@@ -22,6 +22,11 @@ describe("heavy report resilience", () => {
         "รายงานสต็อกคงเหลือใช้เวลานานเกินไป กรุณาลองช่วงวันที่สั้นลง",
       ),
     ).toBe(true);
+    expect(
+      isStockBalanceTimeoutMessage(
+        "รายงานสต็อกคงเหลือใช้เวลานานเกินไป กรุณาลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี",
+      ),
+    ).toBe(true);
     expect(isStockBalanceTimeoutMessage("stock_balance query timeout")).toBe(true);
     expect(isStockBalanceTimeoutMessage("ส่ง LINE ไม่สำเร็จ")).toBe(false);
   });
@@ -30,6 +35,11 @@ describe("heavy report resilience", () => {
     expect(
       isArCustomerMovementTimeoutMessage(
         "รายงานเคลื่อนไหวลูกหนี้ใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง",
+      ),
+    ).toBe(true);
+    expect(
+      isArCustomerMovementTimeoutMessage(
+        "รายงานเคลื่อนไหวลูกหนี้ใช้เวลานานเกินไป กรุณาลดช่วงข้อมูล ตรวจ SML JavaWS หรือใช้ snapshot ล่าสุดถ้ามี",
       ),
     ).toBe(true);
     expect(
