@@ -114,17 +114,20 @@ import { decryptSecret, encryptSecret } from "./secret-vault.js";
 import {
   buildBusinessSignalDigestPreview,
   buildBusinessSignalsForSnapshots,
+  buildOperationalIncidentLinePreview,
   buildReportFailureBusinessSignal,
   buildArCustomerMovementCustomerCodePageQuery,
   buildArCustomerMovementQuery,
   buildStockBalanceItemCodePageQuery,
   buildStockBalanceQuery,
+  classifyReportFailureKind,
   selectBusinessSignalDigestIssues,
   renderGrossProfitLinePreview,
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
   summarizeArCustomerMovement,
   summarizeStockBalance,
+  type ReportFailureKind,
 } from "@ai-bcc/reports";
 import {
   createSystemStore,
@@ -136,6 +139,7 @@ import {
   buildMorningBriefCarouselPreview,
   buildNotificationDigestPreview,
 } from "./notification-flex-preview.js";
+import { shouldSendReportFailureIncidentNotice } from "./notification-incident.js";
 import {
   normalizeLineWebhookEvents,
   sanitizeLineWebhookEvent,
@@ -6447,6 +6451,10 @@ function isHeavyReportFallbackEnabled(tenant: Tenant) {
   return getTenantFeatureFlags(tenant).line_heavy_report_fallback_enabled;
 }
 
+function isLineReportFailureIncidentEnabled(tenant: Tenant) {
+  return getTenantFeatureFlags(tenant).line_report_failure_incident_enabled;
+}
+
 function isSmlChunkedHeavyReportsEnabled(tenant: Tenant) {
   return getTenantFeatureFlags(tenant).sml_chunked_heavy_reports_enabled;
 }
@@ -8575,7 +8583,15 @@ async function executeNotificationRule(input: {
     statusCode: 403 | 424 | 500,
     reportRunIds: string[] = run.report_run_ids,
     deliveryIds: string[] = run.delivery_ids,
+    options?: {
+      deliveryRecords?: LineDeliveryRecord[];
+      failureKind?: ReportFailureKind | null;
+    },
   ) => {
+    const deliveryRecords = options?.deliveryRecords ?? [];
+    const resolvedDeliveryIds = deliveryRecords.length
+      ? deliveryRecords.map((delivery) => delivery.id)
+      : deliveryIds;
     const nextRetryAt =
       input.mode === "send" && attempt < input.rule.retry_policy.max_attempts
         ? new Date(
@@ -8586,7 +8602,7 @@ async function executeNotificationRule(input: {
       status: "failed",
       safeErrorMessage,
       reportRunIds,
-      deliveryIds,
+      deliveryIds: resolvedDeliveryIds,
       nextRetryAt,
     });
     await systemStore.appendAuditLog({
@@ -8607,7 +8623,12 @@ async function executeNotificationRule(input: {
         period_to_time: params.time_to ?? null,
         unknown_doc_time_count: run.unknown_doc_time_count,
         safe_error_message: safeErrorMessage,
+        failure_kind: options?.failureKind ?? null,
         next_retry_at: nextRetryAt,
+        incident_delivery_ids: deliveryRecords.map((delivery) => delivery.id),
+        incident_delivery_statuses: deliveryRecords.map(
+          (delivery) => delivery.status,
+        ),
         ...getDegradedAuditMetadata(),
       },
     });
@@ -8616,7 +8637,7 @@ async function executeNotificationRule(input: {
       statusCode,
       error: safeErrorMessage,
       run,
-      deliveries: [] as LineDeliveryRecord[],
+      deliveries: deliveryRecords,
       report_run_ids: reportRunIds,
       mode: input.mode,
     };
@@ -8650,6 +8671,186 @@ async function executeNotificationRule(input: {
   const snapshots: ReportSnapshot[] = [];
   const businessSignalsEnabled = isBusinessSignalsEnabled(tenant);
   const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
+  const sendReportFailureIncidentNotice = async (incident: {
+    reportKey: ReportKey;
+    runId: string;
+    safeErrorMessage: string;
+    failureKind: ReportFailureKind;
+  }) => {
+    if (
+      !shouldSendReportFailureIncidentNotice({
+        enabled: isLineReportFailureIncidentEnabled(tenant),
+        mode: input.mode,
+        attempt,
+        maxAttempts: input.rule.retry_policy.max_attempts,
+      })
+    ) {
+      return [] as LineDeliveryRecord[];
+    }
+
+    await updateRunProgress({
+      stage: "sending_line",
+      percent: 94,
+      currentReportKey: null,
+      doneReports: run.progress_done_reports ?? reportResults.length,
+      totalReports,
+    });
+
+    const deliveries: LineDeliveryRecord[] = [];
+    const deliveryTargetHashes = new Set<string>();
+    const preview = buildOperationalIncidentLinePreview({
+      tenantId: input.rule.tenant_id,
+      tenantName: tenant.name,
+      reportKey: incident.reportKey,
+      runId: incident.runId,
+      periodFrom: params.date_from,
+      periodTo: params.date_to,
+      scheduledLocalDate: zoned.date,
+      scheduledLocalTime: zoned.time,
+      safeErrorMessage: incident.safeErrorMessage,
+      failureKind: incident.failureKind,
+    });
+
+    for (const targetId of input.rule.target_ids) {
+      const target = await getEffectiveLineTargetById(targetId);
+      if (!target) {
+        await systemStore.appendAuditLog({
+          tenant_id: input.rule.tenant_id,
+          actor_id: null,
+          action: "notification_rule_incident_target_missing",
+          target_type: "line_target",
+          target_id: targetId,
+          metadata_json: {
+            notification_rule_id: input.rule.id,
+            report_key: incident.reportKey,
+            report_run_id: incident.runId,
+            failure_kind: incident.failureKind,
+            source: input.source,
+            mode: input.mode,
+            attempt,
+          },
+        });
+        continue;
+      }
+
+      if (deliveryTargetHashes.has(target.target_id_hash)) {
+        await systemStore.appendAuditLog({
+          tenant_id: input.rule.tenant_id,
+          actor_id: null,
+          action: "notification_rule_duplicate_target_skipped",
+          target_type: "line_target",
+          target_id: target.id,
+          metadata_json: {
+            notification_rule_id: input.rule.id,
+            incident_notice: true,
+            target_id_hash: target.target_id_hash,
+            target_id_masked: target.target_id_masked,
+            source: input.source,
+            mode: input.mode,
+            attempt,
+          },
+        });
+        continue;
+      }
+      deliveryTargetHashes.add(target.target_id_hash);
+
+      const permission = canAccessLineReport({
+        tenantId: input.rule.tenant_id,
+        target,
+        reportKey: incident.reportKey,
+        action: "receive_morning_brief",
+      });
+      if (!permission.allowed) {
+        await systemStore.appendAuditLog({
+          tenant_id: input.rule.tenant_id,
+          actor_id: null,
+          action: "notification_rule_incident_target_skipped_permission",
+          target_type: "line_target",
+          target_id: target.id,
+          metadata_json: {
+            notification_rule_id: input.rule.id,
+            report_key: incident.reportKey,
+            report_run_id: incident.runId,
+            failure_kind: incident.failureKind,
+            reason: permission.reason,
+            source: input.source,
+            mode: input.mode,
+            attempt,
+            target_id_hash: target.target_id_hash,
+            target_id_masked: target.target_id_masked,
+          },
+        });
+        continue;
+      }
+
+      const deliveryKey = [
+        "notification_rule_incident",
+        input.rule.id,
+        zoned.date,
+        zoned.time,
+        incident.reportKey,
+        target.target_id_hash.slice(0, 16),
+      ].join(":");
+      if (input.mode === "send" && !input.force) {
+        const existingDelivery =
+          await systemStore.findSuccessfulLineDeliveryByKey({
+            tenantId: input.rule.tenant_id,
+            deliveryKey,
+          });
+        if (existingDelivery) {
+          deliveries.push(existingDelivery);
+          continue;
+        }
+      }
+
+      const delivery = await sendLineBrief({
+        tenantId: input.rule.tenant_id,
+        mode: input.mode,
+        preview,
+        config: await buildLineChannelConfigForTarget(target),
+        deliveryKey,
+        deliveryType: "notification_rule",
+        periodFrom: params.date_from,
+        periodTo: params.date_to,
+      });
+      deliveries.push(delivery);
+      await systemStore.saveLineDelivery(delivery);
+      if (delivery.sent_at) {
+        await markLineTargetDelivered(target, delivery.sent_at);
+      }
+      await systemStore.appendAuditLog({
+        tenant_id: input.rule.tenant_id,
+        actor_id: null,
+        action:
+          delivery.status === "success"
+            ? "notification_rule_incident_sent"
+            : delivery.status === "dry_run"
+            ? "notification_rule_incident_dry_run"
+            : delivery.status === "skipped"
+            ? "notification_rule_incident_skipped_unconfigured"
+            : "notification_rule_incident_send_failed",
+        target_type: "line_delivery",
+        target_id: delivery.id,
+        metadata_json: {
+          notification_rule_id: input.rule.id,
+          report_key: incident.reportKey,
+          report_run_id: incident.runId,
+          report_run_ids: reportRunIds,
+          delivery_key: deliveryKey,
+          mode: input.mode,
+          source: input.source,
+          attempt,
+          target_id_masked: delivery.target_id_masked,
+          target_id_hash: target.target_id_hash,
+          safe_error_message: delivery.safe_error_message,
+          original_safe_error_message: incident.safeErrorMessage,
+          failure_kind: incident.failureKind,
+        },
+      });
+    }
+
+    return deliveries;
+  };
   for (const [reportIndex, reportKey] of input.rule.report_keys.entries()) {
     await updateRunProgress({
       stage: "running_report",
@@ -8898,6 +9099,7 @@ async function executeNotificationRule(input: {
           durationMs: reportDurationMs,
         }),
       );
+      const failureKind = classifyReportFailureKind(result.error);
       if (businessSignalsEnabled) {
         await persistBusinessSignals(
           [
@@ -8908,6 +9110,7 @@ async function executeNotificationRule(input: {
               period_from: params.date_from,
               period_to: params.date_to,
               safe_error_message: result.error,
+              failure_kind: failureKind,
             }),
           ],
           {
@@ -8916,7 +9119,22 @@ async function executeNotificationRule(input: {
           },
         );
       }
-      return failRun(result.error, result.statusCode, reportRunIds);
+      const incidentDeliveries = await sendReportFailureIncidentNotice({
+        reportKey,
+        runId: result.runRecord.id,
+        safeErrorMessage: result.error,
+        failureKind,
+      });
+      return failRun(
+        result.error,
+        result.statusCode,
+        reportRunIds,
+        incidentDeliveries.map((delivery) => delivery.id),
+        {
+          deliveryRecords: incidentDeliveries,
+          failureKind,
+        },
+      );
     }
     recordReportResult(
       buildFreshNotificationReportResult({

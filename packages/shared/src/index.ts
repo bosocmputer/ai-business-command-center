@@ -34,6 +34,7 @@ export const tenantFeatureFlagsSchema = z.object({
   business_signals_enabled: z.boolean().default(true),
   line_action_digest_v2_enabled: z.boolean().default(false),
   line_heavy_report_fallback_enabled: z.boolean().default(true),
+  line_report_failure_incident_enabled: z.boolean().default(false),
   sml_chunked_heavy_reports_enabled: z.boolean().default(false),
   demo_mode_enabled: z.boolean().default(false),
 });
@@ -1305,6 +1306,23 @@ export type DegradedReportLinePreview = {
   degraded_reason: string;
 };
 
+export type OperationalIncidentLinePreview = {
+  tenant_id: TenantId;
+  report_key: ReportKey;
+  run_id: string;
+  generated_at: string;
+  source: "operational_incident";
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: null;
+  incident: true;
+  failure_kind: string;
+};
+
 export type ReportLinePreview =
   | SalesGoodsServicesLinePreview
   | PurchaseGoodsPayablesLinePreview
@@ -1313,7 +1331,8 @@ export type ReportLinePreview =
   | StockReorderLinePreview
   | ArCustomerMovementLinePreview
   | ArDebtReceiptLinePreview
-  | DegradedReportLinePreview;
+  | DegradedReportLinePreview
+  | OperationalIncidentLinePreview;
 
 export type LineDeliveryStatus =
   | "dry_run"

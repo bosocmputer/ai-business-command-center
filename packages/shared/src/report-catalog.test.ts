@@ -169,6 +169,7 @@ describe("report catalog", () => {
     );
     expect(tenantFeatureFlagsSchema.parse({})).toMatchObject({
       line_heavy_report_fallback_enabled: true,
+      line_report_failure_incident_enabled: false,
     });
   });
 });

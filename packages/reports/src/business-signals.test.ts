@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildOperationalIncidentLinePreview,
   buildBusinessSignalDigestPreview,
   buildBusinessSignalsForSnapshots,
   buildReportFailureBusinessSignal,
+  classifyReportFailureKind,
   selectBusinessSignalDigestIssues,
 } from "./business-signals.js";
 import {
@@ -97,8 +99,63 @@ describe("business signal engine", () => {
       severity: "critical",
       title: "รายงานรันไม่สำเร็จ",
       source_report_key: "sales_goods_services",
+      evidence_json: expect.objectContaining({
+        failure_kind: "timeout",
+      }),
     });
     expect(JSON.stringify(signal)).not.toContain("secret");
+  });
+
+  it("classifies safe JavaWS report failures", () => {
+    expect(
+      classifyReportFailureKind("JavaWS returned an unreadable response."),
+    ).toBe("unreadable_response");
+    expect(classifyReportFailureKind("JavaWS connection timed out.")).toBe(
+      "timeout",
+    );
+    expect(
+      classifyReportFailureKind("JavaWS Tomcat endpoint is unreachable."),
+    ).toBe("unreachable");
+    expect(
+      classifyReportFailureKind("JavaWS endpoint or WSDL operation is missing."),
+    ).toBe("operation_missing");
+    expect(classifyReportFailureKind("Report run failed.")).toBe("unknown");
+  });
+
+  it("builds a LINE-safe Thai operational incident preview", () => {
+    const preview = buildOperationalIncidentLinePreview({
+      tenantId,
+      tenantName: "กระบี่",
+      reportKey: "sales_goods_services",
+      runId: "run_sales_failed",
+      periodFrom: "2026-06-10",
+      periodTo: "2026-06-10",
+      scheduledLocalDate: "2026-06-11",
+      scheduledLocalTime: "08:00",
+      safeErrorMessage:
+        "JavaWS returned an unreadable response. token=secret http://private",
+      generatedAt,
+    });
+    const serialized = JSON.stringify(preview);
+
+    expect(preview).toMatchObject({
+      source: "operational_incident",
+      line_message_type: "flex",
+      title: "แจ้งเตือนระบบ SML",
+      incident: true,
+      failure_kind: "unreadable_response",
+    });
+    expect(preview.text).toContain(
+      "ไม่สามารถสร้างรายงานผู้บริหารรอบ 08:00 ได้",
+    );
+    expect(preview.text).toContain(
+      "ระบบติดต่อ SML JavaWS ได้ แต่ข้อมูลที่ตอบกลับมาอ่านไม่ได้",
+    );
+    expect(preview.text).toContain(
+      "ระบบจะไม่สรุปยอดธุรกิจจากรอบนี้จนกว่าดึงข้อมูลใหม่สำเร็จ",
+    );
+    expect(serialized).not.toContain("secret");
+    expect(serialized).not.toContain("http://private");
   });
 
   it("does not create stock balance business signals while the catalog capability is disabled", () => {

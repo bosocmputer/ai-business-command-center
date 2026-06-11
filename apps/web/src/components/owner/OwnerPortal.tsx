@@ -7584,6 +7584,10 @@ function TenantDetailPanel({
     setEditLineHeavyReportFallbackEnabled,
   ] = useState(true);
   const [
+    editLineReportFailureIncidentEnabled,
+    setEditLineReportFailureIncidentEnabled,
+  ] = useState(false);
+  const [
     editSmlChunkedHeavyReportsEnabled,
     setEditSmlChunkedHeavyReportsEnabled,
   ] = useState(false);
@@ -7623,6 +7627,9 @@ function TenantDetailPanel({
     setEditLineActionDigestV2Enabled(featureFlags.line_action_digest_v2_enabled);
     setEditLineHeavyReportFallbackEnabled(
       featureFlags.line_heavy_report_fallback_enabled,
+    );
+    setEditLineReportFailureIncidentEnabled(
+      featureFlags.line_report_failure_incident_enabled,
     );
     setEditSmlChunkedHeavyReportsEnabled(
       featureFlags.sml_chunked_heavy_reports_enabled,
@@ -7715,6 +7722,8 @@ function TenantDetailPanel({
         line_action_digest_v2_enabled: editLineActionDigestV2Enabled,
         line_heavy_report_fallback_enabled:
           editLineHeavyReportFallbackEnabled,
+        line_report_failure_incident_enabled:
+          editLineReportFailureIncidentEnabled,
         sml_chunked_heavy_reports_enabled:
           editSmlChunkedHeavyReportsEnabled,
         demo_mode_enabled: editDemoModeEnabled,
@@ -7859,7 +7868,7 @@ function TenantDetailPanel({
           </label>
         </div>
 
-        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-5">
+        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-6">
           <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
               checked={editBusinessSignalsEnabled}
@@ -7934,6 +7943,25 @@ function TenantDetailPanel({
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
                 ถ้าสต็อกคงเหลือช้าเกินไป จะส่งรายงานอื่นต่อพร้อมการ์ดแจ้งสถานะ
+              </span>
+            </span>
+          </label>
+
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={editLineReportFailureIncidentEnabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) =>
+                setEditLineReportFailureIncidentEnabled(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                แจ้ง SML ล้มแทนรายงาน
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ถ้ารอบแจ้งเตือน retry แล้วยังดึง SML ไม่ได้ จะส่ง LINE แจ้งปัญหา server ให้กลุ่มเดิม
               </span>
             </span>
           </label>
@@ -8997,6 +9025,8 @@ function getTenantUiFeatureFlags(tenant: Tenant) {
       tenant.featureFlags?.line_action_digest_v2_enabled ?? false,
     line_heavy_report_fallback_enabled:
       tenant.featureFlags?.line_heavy_report_fallback_enabled ?? true,
+    line_report_failure_incident_enabled:
+      tenant.featureFlags?.line_report_failure_incident_enabled ?? false,
     sml_chunked_heavy_reports_enabled:
       tenant.featureFlags?.sml_chunked_heavy_reports_enabled ?? false,
     demo_mode_enabled: tenant.featureFlags?.demo_mode_enabled ?? false,

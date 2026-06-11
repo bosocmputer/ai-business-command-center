@@ -21,6 +21,13 @@ import {
 
 export const BUSINESS_SIGNAL_RULE_VERSION = "business_signals_v1";
 
+export type ReportFailureKind =
+  | "timeout"
+  | "unreachable"
+  | "operation_missing"
+  | "unreadable_response"
+  | "unknown";
+
 export type BusinessSignalThresholds = {
   lowGrossMarginPercent: number;
   salesDropPercent: number;
@@ -128,9 +135,12 @@ export function buildReportFailureBusinessSignal(input: {
   period_from: string;
   period_to: string;
   safe_error_message: string;
+  failure_kind?: ReportFailureKind;
   now?: string;
 }): BusinessSignalRecord {
   const now = input.now ?? new Date().toISOString();
+  const failureKind =
+    input.failure_kind ?? classifyReportFailureKind(input.safe_error_message);
   return makeSignal({
     tenant_id: input.tenant_id,
     signal_key: `${input.report_key}:run_failed`,
@@ -150,10 +160,108 @@ export function buildReportFailureBusinessSignal(input: {
     dimension_id: input.report_key,
     evidence_json: {
       safe_error_message: input.safe_error_message,
+      failure_kind: failureKind,
       quality_status: "failed",
     },
     now,
   });
+}
+
+export function classifyReportFailureKind(
+  safeErrorMessage: string | null | undefined,
+): ReportFailureKind {
+  const text = String(safeErrorMessage ?? "");
+  if (/unreadable response/i.test(text)) {
+    return "unreadable_response";
+  }
+  if (/endpoint or WSDL operation is missing|operation is missing/i.test(text)) {
+    return "operation_missing";
+  }
+  if (/unreachable|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|fetch failed|network/i.test(text)) {
+    return "unreachable";
+  }
+  if (/timeout|timed out|connection timed out|ใช้เวลานานเกิน|เกินกำหนด/i.test(text)) {
+    return "timeout";
+  }
+  return "unknown";
+}
+
+export function buildOperationalIncidentLinePreview(input: {
+  tenantId: TenantId;
+  tenantName: string;
+  reportKey: ReportKey;
+  runId: string;
+  periodFrom: string;
+  periodTo: string;
+  scheduledLocalDate: string;
+  scheduledLocalTime: string;
+  safeErrorMessage: string;
+  generatedAt?: string;
+  failureKind?: ReportFailureKind;
+}): ReportLinePreview {
+  const generatedAt = input.generatedAt ?? new Date().toISOString();
+  const failureKind =
+    input.failureKind ?? classifyReportFailureKind(input.safeErrorMessage);
+  const failureLabel = formatReportFailureKind(failureKind);
+  const insight = buildOperationalIncidentInsight(failureKind);
+  const action = buildOperationalIncidentAction(failureKind);
+  const title = "แจ้งเตือนระบบ SML";
+  const primary = `ไม่สามารถสร้างรายงานผู้บริหารรอบ ${input.scheduledLocalTime} ได้`;
+  const period = formatDateRange(input.periodFrom, input.periodTo);
+  const reportLabel = formatReportKey(input.reportKey);
+  const lines = [
+    title,
+    "",
+    `ร้าน: ${input.tenantName}`,
+    `รอบแจ้งเตือน: ${input.scheduledLocalDate} ${input.scheduledLocalTime}`,
+    `ช่วงข้อมูล: ${period}`,
+    `รายงานที่ล้ม: ${reportLabel}`,
+    `สถานะ: ${primary}`,
+    `ประเภทปัญหา: ${failureLabel}`,
+    "",
+    `สิ่งที่ควรรู้: ${insight}`,
+    `ควรทำต่อ: ${action}`,
+    "",
+    "ระบบจะไม่สรุปยอดธุรกิจจากรอบนี้จนกว่าดึงข้อมูลใหม่สำเร็จ",
+  ];
+  const flexMessage = buildExecutiveDigestFlexMessage({
+    title,
+    subtitle: input.tenantName,
+    altText: `AI Business: ${title} - ${primary}`,
+    generatedAt: formatThaiDateTime(generatedAt),
+    status: { text: "ควรตรวจทันที", severity: "critical" },
+    primaryAmount: "รายงานไม่พร้อม",
+    primaryAmountColor: "#B42318",
+    metrics: [
+      { label: "รอบแจ้งเตือน", value: input.scheduledLocalTime },
+      { label: "รายงาน", value: reportLabel },
+      { label: "ประเภทปัญหา", value: failureLabel },
+    ],
+    insight,
+    topLine: {
+      label: "ควรทำต่อ",
+      value: action,
+    },
+    note: "ระบบจะไม่สรุปยอดธุรกิจจากรอบนี้จนกว่าดึงข้อมูลใหม่สำเร็จ",
+    noteTone: "warning",
+  });
+
+  return {
+    tenant_id: input.tenantId,
+    report_key: input.reportKey,
+    run_id: input.runId,
+    generated_at: generatedAt,
+    source: "operational_incident",
+    line_message_type: "flex",
+    title,
+    text: lines.join("\n"),
+    lines,
+    flex_message: flexMessage,
+    warnings: [],
+    dashboard_url: null,
+    incident: true,
+    failure_kind: failureKind,
+  } as ReportLinePreview;
 }
 
 export function selectPriorityBusinessSignals(
@@ -965,6 +1073,46 @@ function formatThaiDateTime(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Bangkok",
   }).format(new Date(value));
+}
+
+function formatReportFailureKind(kind: ReportFailureKind) {
+  const labels: Record<ReportFailureKind, string> = {
+    timeout: "SML JavaWS ใช้เวลาตอบนานเกินไป",
+    unreachable: "ติดต่อ SML JavaWS/Tomcat ไม่ได้",
+    operation_missing: "ไม่พบ service หรือ operation ของ JavaWS",
+    unreadable_response: "JavaWS ตอบกลับมาแต่ข้อมูลอ่านไม่ได้",
+    unknown: "ระบบอ่านข้อมูลจาก SML ไม่สำเร็จ",
+  };
+  return labels[kind];
+}
+
+function buildOperationalIncidentInsight(kind: ReportFailureKind) {
+  if (kind === "timeout") {
+    return "ระบบติดต่อ SML JavaWS ได้ แต่รายงานใช้เวลานานเกินกำหนด จึงยังไม่ควรใช้ยอดจากรายงานรอบนี้";
+  }
+  if (kind === "unreachable") {
+    return "ระบบติดต่อ SML JavaWS/Tomcat ไม่ได้ จึงยังไม่สามารถดึงยอดจาก SML ในรอบนี้";
+  }
+  if (kind === "operation_missing") {
+    return "ระบบติดต่อ server ได้ แต่ไม่พบ service หรือ operation ที่ใช้ดึงข้อมูลรายงาน";
+  }
+  if (kind === "unreadable_response") {
+    return "ระบบติดต่อ SML JavaWS ได้ แต่ข้อมูลที่ตอบกลับมาอ่านไม่ได้ จึงยังไม่ควรใช้ยอดจากรายงานรอบนี้";
+  }
+  return "ระบบยังอ่านข้อมูลจาก SML สำหรับรายงานนี้ไม่ได้ จึงไม่ควรสรุปยอดธุรกิจจากรอบนี้";
+}
+
+function buildOperationalIncidentAction(kind: ReportFailureKind) {
+  if (kind === "timeout") {
+    return "ตรวจโหลด SML JavaWS/Tomcat แล้วลองรันรายงานอีกครั้ง หรือปรับช่วงข้อมูลให้เล็กลง";
+  }
+  if (kind === "unreachable") {
+    return "ตรวจว่า SML JavaWS/Tomcat เปิดอยู่และ network จาก AI-BCC ต่อถึง server ได้";
+  }
+  if (kind === "operation_missing") {
+    return "ตรวจ Tomcat path, endpoint DotNetFrameWork และ SMLConfig ที่ผูกกับร้านนี้";
+  }
+  return "ตรวจ SML JavaWS/Tomcat, SMLConfig, database และสิทธิ์การอ่านข้อมูล แล้วรันทดสอบรายงานอีกครั้ง";
 }
 
 function formatSeverity(severity: BusinessSignalSeverity) {
