@@ -1305,14 +1305,21 @@ export default function OwnerPortal({
   }, [lineSecretChannelId, selectedTenantLineChannels]);
 
   function buildDatasourcePayload() {
-    if (!javaWsBaseUrl.trim()) {
-      throw new Error("กรุณากรอก Tomcat host/URL และ port ก่อนบันทึก");
-    }
-    if (!javaWsConfigFileName.trim()) {
-      throw new Error("กรุณากรอกชื่อไฟล์ SMLConfigxxxx.xml");
-    }
-    if (!javaWsDatabase.trim()) {
-      throw new Error("กรุณากรอกชื่อ database ของร้าน");
+    const draftValidation = validateJavaWsDraft({
+      authMode: javaWsAuthMode,
+      authSecret: javaWsAuthSecret,
+      authUsername: javaWsAuthUsername,
+      baseUrl: javaWsBaseUrl,
+      configFileName: javaWsConfigFileName,
+      database: javaWsDatabase,
+      includeDatabase: true,
+    });
+    if (!draftValidation.ok) {
+      throw new Error(
+        `กรุณากรอกข้อมูล SML ให้ครบก่อนบันทึก: ${formatJavaWsMissingList(
+          draftValidation.missing,
+        )}`,
+      );
     }
 
     return {
@@ -1340,6 +1347,23 @@ export default function OwnerPortal({
   }
 
   function buildJavaWsDiscoveryPayload() {
+    const discoveryValidation = validateJavaWsDraft({
+      authMode: javaWsAuthMode,
+      authSecret: javaWsAuthSecret,
+      authUsername: javaWsAuthUsername,
+      baseUrl: javaWsBaseUrl,
+      configFileName: javaWsConfigFileName,
+      database: javaWsDatabase,
+      includeDatabase: false,
+    });
+    if (!discoveryValidation.ok) {
+      throw new Error(
+        `กรุณากรอกข้อมูลก่อนค้นหา database: ${formatJavaWsMissingList(
+          discoveryValidation.missing,
+        )}`,
+      );
+    }
+
     return {
       kind: "sml_javaws" as const,
       baseUrl: javaWsBaseUrl.trim(),
@@ -9647,6 +9671,36 @@ function DatasourceConfigPanel({
     includeDatabase: false,
   });
   const controlsBlocked = busy || actionBusy;
+  const javaWsDraftItems = buildJavaWsDraftReadiness({
+    authMode: javaWsAuthMode,
+    authSecret: javaWsAuthSecret,
+    authUsername: javaWsAuthUsername,
+    baseUrl: javaWsBaseUrl,
+    configFileName: javaWsConfigFileName,
+    database: javaWsDatabase,
+  });
+  const formBlockReason = !config?.encryption_configured
+    ? "Server ยังไม่พร้อมเข้ารหัส secret"
+    : !draftValidation.ok
+      ? `กรอกให้ครบ: ${formatJavaWsMissingList(draftValidation.missing)}`
+      : null;
+  const discoveryBlockReason = !discoveryValidation.ok
+    ? `ค้นหา database ได้หลังกรอก: ${formatJavaWsMissingList(
+        discoveryValidation.missing,
+      )}`
+    : null;
+  const saveButtonLabel = busy
+    ? "กำลังบันทึก..."
+    : actionBusy
+      ? "รอรายการก่อนหน้า..."
+      : formBlockReason
+        ? "กรอกข้อมูลให้ครบก่อน"
+        : "บันทึกการเชื่อม SML";
+  const discoveryButtonLabel = discoveryBusy
+    ? "กำลังค้นหา..."
+    : discoveryBlockReason
+      ? "กรอกข้อมูลก่อนค้นหา"
+      : "ค้นหา database จาก JavaWS";
   const updateTomcatBaseUrl = (
     patch: Partial<{ host: string; port: string; protocol: "http" | "https" }>,
   ) => {
@@ -9692,6 +9746,51 @@ function DatasourceConfigPanel({
 
         <div className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
           SML ของร้านค้าใช้ JavaWS เท่านั้น ระบบจะไม่ขอ user/password ของฐานข้อมูล PostgreSQL
+        </div>
+        <div
+          aria-live="polite"
+          className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                ตรวจความพร้อม SML JavaWS
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                กรอกครบแล้วค่อยค้นหา database, ทดสอบ, และบันทึกให้ worker ใช้งานจริง
+              </p>
+            </div>
+            <p
+              className={`text-xs font-medium ${
+                formBlockReason
+                  ? "text-warning-600 dark:text-warning-400"
+                  : "text-success-600 dark:text-success-400"
+              }`}
+            >
+              {formBlockReason ?? "พร้อมทดสอบและบันทึก"}
+            </p>
+          </div>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 2xl:grid-cols-4">
+            {javaWsDraftItems.map((item) => (
+              <div
+                className="min-h-[58px] border-l border-gray-200 pl-3 dark:border-gray-800"
+                key={item.label}
+              >
+                <span
+                  className={
+                    item.ready
+                      ? "font-semibold text-success-600 dark:text-success-400"
+                      : "font-semibold text-warning-600 dark:text-warning-400"
+                  }
+                >
+                  {item.ready ? "พร้อม" : "ต้องกรอก"} · {item.label}
+                </span>
+                <span className="mt-1 block leading-5 text-gray-500 dark:text-gray-400">
+                  {item.text}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
         {config?.kind && config.kind !== "sml_javaws" ? (
           <div className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
@@ -9759,11 +9858,12 @@ function DatasourceConfigPanel({
             }
             onClick={onDiscoverJavaWsDatabases}
             type="button"
+            title={discoveryBlockReason ?? undefined}
           >
-            {discoveryBusy ? "กำลังค้นหา..." : "ค้นหา database จาก JavaWS"}
+            {discoveryButtonLabel}
           </button>
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            ใช้ `_getDatabaseList`
+            {discoveryBlockReason ?? "ใช้ `_getDatabaseList`"}
           </span>
         </div>
 
@@ -9893,7 +9993,7 @@ function DatasourceConfigPanel({
         </div>
         {!draftValidation.ok ? (
           <p className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
-            ก่อนบันทึกหรือทดสอบ กรุณากรอก: {draftValidation.missing.join(", ")}
+            ก่อนบันทึกหรือทดสอบ กรุณากรอก: {formatJavaWsMissingList(draftValidation.missing)}
           </p>
         ) : null}
 
@@ -9905,11 +10005,7 @@ function DatasourceConfigPanel({
           }
           size="sm"
         >
-          {busy
-            ? "กำลังบันทึก..."
-            : actionBusy
-              ? "รอรายการก่อนหน้า..."
-              : "บันทึกการเชื่อม SML"}
+          {saveButtonLabel}
         </Button>
       </form>
     </details>
@@ -11458,6 +11554,68 @@ function validateJavaWsDraft({
     ok: missing.length === 0,
     missing,
   };
+}
+
+function formatJavaWsMissingList(missing: string[]) {
+  return missing.length ? missing.join(", ") : "ครบแล้ว";
+}
+
+function buildJavaWsDraftReadiness({
+  authMode,
+  authSecret,
+  authUsername,
+  baseUrl,
+  configFileName,
+  database,
+}: {
+  authMode: JavaWsAuthMode;
+  authSecret: string;
+  authUsername: string;
+  baseUrl: string;
+  configFileName: string;
+  database: string;
+}) {
+  const authReady =
+    authMode === "none" ||
+    (authMode === "basic" && Boolean(authUsername.trim()) && Boolean(authSecret.trim())) ||
+    (authMode === "bearer" && Boolean(authSecret.trim()));
+  return [
+    {
+      label: "Tomcat",
+      ready: Boolean(baseUrl.trim()),
+      text: baseUrl.trim()
+        ? "มี host/port สำหรับเรียก JavaWS"
+        : "กรอก host หรือ URL พร้อม port",
+    },
+    {
+      label: "SMLConfig",
+      ready: Boolean(configFileName.trim()),
+      text: configFileName.trim()
+        ? configFileName.trim()
+        : "เช่น SMLConfigDATA.xml",
+    },
+    {
+      label: "database",
+      ready: Boolean(database.trim()),
+      text: database.trim()
+        ? database.trim()
+        : "ค้นหาจาก JavaWS หรือกรอกชื่อฐานข้อมูล",
+    },
+    {
+      label: "auth",
+      ready: authReady,
+      text:
+        authMode === "none"
+          ? "ไม่ใช้ auth หลัง reverse proxy"
+          : authMode === "basic"
+            ? authReady
+              ? "มี username และ password สำหรับทดสอบ"
+              : "ต้องมี username และ password"
+            : authReady
+              ? "มี bearer token สำหรับทดสอบ"
+              : "ต้องมี bearer token",
+    },
+  ];
 }
 
 function getTenantReadiness(
