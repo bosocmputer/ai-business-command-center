@@ -60,6 +60,8 @@ const API_BASE_URL = getCommandCenterApiBaseUrl();
 const defaultReportRange = deriveMorningBriefDateRange();
 const OWNER_NOTIFICATION_PERIOD_STRATEGY: NotificationPeriodStrategy =
   "executive_checkpoints";
+const TENANT_ID_CREATE_PATTERN = /^[a-z0-9][a-z0-9_-]{2,79}$/;
+const SIMPLE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const JAVA_WS_DATASOURCE_PRESETS = [
   {
@@ -1507,26 +1509,21 @@ export default function OwnerPortal({
     ).trim();
     const viewerEmail = newTenantViewerEmail.trim();
     const description = newTenantDescription.trim();
-    const sensitiveNoteHints = findSensitiveTenantNoteHints(description);
-    if (!tenantName || !tenantId) {
-      setResult({ tone: "warning", message: "กรุณากรอกชื่อร้านค้า" });
-      return;
-    }
-    if (sensitiveNoteHints.length) {
-      setResult({
-        tone: "warning",
-        message:
-          "note ภายในดูเหมือนมี token/password/secret กรุณาลบข้อมูลลับออกแล้วให้กรอก secret ในหน้าที่เข้ารหัสเท่านั้น",
-      });
-      return;
-    }
     const duplicateTenant = tenants.find(
       (item) => item.tenant.id.toLowerCase() === tenantId.toLowerCase(),
     );
-    if (duplicateTenant) {
+    const createBlockReason = getTenantCreateBlockReason({
+      description,
+      duplicateTenantName: duplicateTenant?.tenant.name ?? null,
+      sensitiveNoteHints: findSensitiveTenantNoteHints(description),
+      tenantId,
+      tenantName,
+      viewerEmail,
+    });
+    if (createBlockReason) {
       setResult({
         tone: "warning",
-        message: `รหัสร้าน ${tenantId} ถูกใช้กับ ${duplicateTenant.tenant.name} แล้ว`,
+        message: createBlockReason,
       });
       return;
     }
@@ -1554,10 +1551,8 @@ export default function OwnerPortal({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(payload.error || "เพิ่มร้านค้าไม่สำเร็จ");
+        const payload = (await response.json().catch(() => ({}))) as OwnerApiErrorPayload;
+        throw new Error(formatTenantCreateApiError(payload));
       }
 
       setNewTenantName("");
@@ -4198,6 +4193,12 @@ type OwnerPilotProofPackage = {
 
 type OwnerProofCopyStatus = "idle" | "success" | "manual";
 
+type OwnerApiErrorPayload = {
+  error?: string;
+  details?: Record<string, string[] | undefined>;
+  sensitive_hints?: string[];
+};
+
 const TENANT_ONBOARDING_CUSTOMER_ITEMS = [
   "Tomcat host หรือ URL และ port ที่ AI-BCC เข้าถึงได้",
   "ชื่อ SMLConfig เช่น SMLConfigDATA.xml",
@@ -4221,6 +4222,64 @@ function buildTenantOnboardingRequestText(input: {
     "",
     "เพื่อความปลอดภัย กรุณาอย่าส่งรหัสผ่าน, token, channel secret หรือ key ลับในแชตนี้ ถ้าต้องใช้ secret ให้ให้ผู้ดูแลกรอกในหน้า Owner โดยตรง",
   ].join("\n");
+}
+
+function getTenantCreateBlockReason(input: {
+  description: string;
+  duplicateTenantName: string | null;
+  sensitiveNoteHints: string[];
+  tenantId: string;
+  tenantName: string;
+  viewerEmail: string;
+}) {
+  if (!input.tenantName) {
+    return "กรุณากรอกชื่อร้านค้าก่อนสร้างร้าน";
+  }
+  if (input.tenantName.length < 2) {
+    return "ชื่อร้านค้าต้องยาวอย่างน้อย 2 ตัวอักษร";
+  }
+  if (input.tenantName.length > 120) {
+    return "ชื่อร้านค้าต้องไม่เกิน 120 ตัวอักษร";
+  }
+  if (!input.tenantId) {
+    return "กรุณาระบุ tenant_id หรือกรอกชื่อร้านให้ระบบช่วยสร้าง";
+  }
+  if (!TENANT_ID_CREATE_PATTERN.test(input.tenantId)) {
+    return "tenant_id ต้องขึ้นต้นด้วย lowercase/ตัวเลข และใช้ได้เฉพาะ lowercase, ตัวเลข, underscore หรือ hyphen ความยาว 3-80 ตัว";
+  }
+  if (input.duplicateTenantName) {
+    return `รหัสร้าน ${input.tenantId} ถูกใช้กับ ${input.duplicateTenantName} แล้ว`;
+  }
+  if (input.viewerEmail && !SIMPLE_EMAIL_PATTERN.test(input.viewerEmail)) {
+    return "อีเมล viewer เริ่มต้นไม่ถูกต้อง ถ้ายังไม่มีให้เว้นว่างได้";
+  }
+  if (input.description.length > 500) {
+    return "note ภายในต้องไม่เกิน 500 ตัวอักษร";
+  }
+  if (input.sensitiveNoteHints.length) {
+    return "note ภายในดูเหมือนมี token/password/secret กรุณาลบข้อมูลลับออกแล้วให้กรอก secret ในหน้าที่เข้ารหัสเท่านั้น";
+  }
+  return null;
+}
+
+function formatTenantCreateApiError(payload: OwnerApiErrorPayload) {
+  const details = payload.details ?? {};
+  if (details.tenant_id?.length) {
+    return "tenant_id ไม่ถูกต้องหรือยาวเกินไป ใช้ lowercase, ตัวเลข, underscore หรือ hyphen เท่านั้น";
+  }
+  if (details.name?.length) {
+    return "ชื่อร้านค้าไม่ถูกต้อง ต้องยาว 2-120 ตัวอักษร";
+  }
+  if (details.viewer_email?.length) {
+    return "อีเมล viewer เริ่มต้นไม่ถูกต้อง ถ้ายังไม่มีให้เว้นว่างได้";
+  }
+  if (details.description?.length || payload.sensitive_hints?.length) {
+    return "note ภายในไม่ถูกต้องหรือมีข้อมูลลับ กรุณาลบ token/password/secret แล้วลองใหม่";
+  }
+  if (payload.error === "Tenant already exists.") {
+    return "tenant_id นี้ถูกใช้แล้ว กรุณาเปลี่ยนรหัสร้านก่อนสร้าง";
+  }
+  return payload.error || "เพิ่มร้านค้าไม่สำเร็จ";
 }
 
 type OwnerPilotLaunchAction = {
@@ -8775,15 +8834,67 @@ function OwnerSetupPanel({
       )
     : null;
   const sensitiveNoteHints = findSensitiveTenantNoteHints(newTenantDescription);
+  const tenantName = newTenantName.trim();
+  const viewerEmail = newTenantViewerEmail.trim();
+  const description = newTenantDescription.trim();
   const tenantIdLooksValid =
-    !proposedTenantId ||
-    /^[a-z0-9][a-z0-9_-]{2,79}$/.test(proposedTenantId);
-  const canCreate =
-    Boolean(newTenantName.trim()) &&
-    Boolean(proposedTenantId) &&
-    tenantIdLooksValid &&
-    !duplicateTenant &&
-    sensitiveNoteHints.length === 0;
+    !proposedTenantId || TENANT_ID_CREATE_PATTERN.test(proposedTenantId);
+  const viewerEmailLooksValid =
+    !viewerEmail || SIMPLE_EMAIL_PATTERN.test(viewerEmail);
+  const createBlockReason = getTenantCreateBlockReason({
+    description,
+    duplicateTenantName: duplicateTenant?.tenant.name ?? null,
+    sensitiveNoteHints,
+    tenantId: proposedTenantId,
+    tenantName,
+    viewerEmail,
+  });
+  const canCreate = !createBlockReason;
+  const isCreateDisabled = Boolean(busy) || !canCreate;
+  const createButtonLabel =
+    busy === "create"
+      ? "กำลังสร้างร้าน..."
+      : busy
+      ? "รอรายการอื่นเสร็จก่อน"
+      : "สร้างร้านและเริ่ม onboarding";
+  const readinessItems = [
+    {
+      label: "ชื่อร้านค้า",
+      ready: tenantName.length >= 2 && tenantName.length <= 120,
+      text: tenantName
+        ? tenantName.length >= 2 && tenantName.length <= 120
+          ? "พร้อมใช้ใน Owner UI และ LINE"
+          : "ต้องยาว 2-120 ตัวอักษร"
+        : "ยังไม่ได้กรอก",
+    },
+    {
+      label: "tenant_id",
+      ready: Boolean(proposedTenantId) && tenantIdLooksValid && !duplicateTenant,
+      text: duplicateTenant
+        ? `ซ้ำกับ ${duplicateTenant.tenant.name}`
+        : tenantIdLooksValid && proposedTenantId
+        ? "รูปแบบถูกต้องและไม่ซ้ำ"
+        : "ต้องใช้ lowercase, ตัวเลข, _ หรือ -",
+    },
+    {
+      label: "viewer email",
+      ready: viewerEmailLooksValid,
+      text: viewerEmail
+        ? viewerEmailLooksValid
+          ? "พร้อมสร้าง viewer เริ่มต้น"
+          : "รูปแบบอีเมลไม่ถูกต้อง"
+        : "เว้นว่างได้ ระบบสร้าง local viewer ให้",
+    },
+    {
+      label: "note ภายใน",
+      ready: sensitiveNoteHints.length === 0 && description.length <= 500,
+      text: sensitiveNoteHints.length
+        ? "มีคำที่เหมือน secret ต้องลบออก"
+        : description.length > 500
+        ? "ยาวเกิน 500 ตัวอักษร"
+        : "ไม่มีข้อมูลลับที่ตรวจพบ",
+    },
+  ];
   const [customerRequestCopyStatus, setCustomerRequestCopyStatus] =
     useState<OwnerProofCopyStatus>("idle");
   const manualCustomerRequestTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -8907,6 +9018,7 @@ function OwnerSetupPanel({
 
       <form
         className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
+        noValidate
         onSubmit={createTenant}
       >
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
@@ -8915,7 +9027,12 @@ function OwnerSetupPanel({
               ชื่อร้านค้า
             </label>
             <input
+              aria-invalid={
+                Boolean(newTenantName.trim()) && newTenantName.trim().length < 2
+              }
               className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              maxLength={120}
+              minLength={2}
               onChange={(event) => {
                 setNewTenantName(event.target.value);
                 setNewTenantId("");
@@ -8947,12 +9064,16 @@ function OwnerSetupPanel({
               tenant_id
             </label>
             <input
+              aria-invalid={Boolean(proposedTenantId) && !tenantIdLooksValid}
               className={`mt-1 h-11 w-full rounded-lg border bg-transparent px-4 font-mono text-sm text-gray-800 dark:text-white ${
                 duplicateTenant || !tenantIdLooksValid
                   ? "border-warning-300 dark:border-warning-500"
                   : "border-gray-300 dark:border-gray-700"
               }`}
+              maxLength={80}
+              minLength={3}
               onChange={(event) => setNewTenantId(event.target.value)}
+              pattern="[a-z0-9][a-z0-9_-]{2,79}"
               placeholder="tenant_abc_shop"
               value={proposedTenantId}
             />
@@ -8980,12 +9101,22 @@ function OwnerSetupPanel({
               อีเมล viewer เริ่มต้น
             </label>
             <input
-              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              aria-invalid={!viewerEmailLooksValid}
+              className={`mt-1 h-11 w-full rounded-lg border bg-transparent px-4 text-sm text-gray-800 dark:text-white ${
+                viewerEmailLooksValid
+                  ? "border-gray-300 dark:border-gray-700"
+                  : "border-warning-300 dark:border-warning-500"
+              }`}
               onChange={(event) => setNewTenantViewerEmail(event.target.value)}
               placeholder="ถ้ายังไม่มี เว้นว่างได้"
               type="email"
               value={newTenantViewerEmail}
             />
+            {!viewerEmailLooksValid ? (
+              <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
+                รูปแบบอีเมลไม่ถูกต้อง ถ้ายังไม่มีให้เว้นว่างได้
+              </p>
+            ) : null}
           </div>
 
           <div className="lg:col-span-2">
@@ -8994,6 +9125,7 @@ function OwnerSetupPanel({
             </label>
             <textarea
               className="mt-1 min-h-[88px] w-full rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              maxLength={500}
               onChange={(event) => setNewTenantDescription(event.target.value)}
               placeholder="เช่น เจ้าของร้าน, สาขาที่จะเริ่ม, ข้อมูล setup ที่ยังต้องขอเพิ่ม"
               value={newTenantDescription}
@@ -9005,9 +9137,55 @@ function OwnerSetupPanel({
               </p>
             ) : (
               <p className="mt-2 text-xs leading-5 text-gray-400 dark:text-gray-500">
-                ใช้ note สำหรับบริบทงานเท่านั้น ห้ามใส่ token, password, channel secret หรือ key ลับ
+                ใช้ note สำหรับบริบทงานเท่านั้น ห้ามใส่ token, password, channel secret หรือ key ลับ · {description.length}/500
               </p>
             )}
+          </div>
+        </div>
+
+        <div
+          aria-live="polite"
+          className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800"
+        >
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                ตรวจความพร้อมก่อนสร้างร้าน
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ระบบจะยังไม่บันทึก SML/LINE secret ในขั้นนี้ และจะเลือก tenant ใหม่ให้ทันทีหลังสร้างสำเร็จ
+              </p>
+            </div>
+            <p
+              className={`text-xs font-medium ${
+                canCreate
+                  ? "text-success-600 dark:text-success-400"
+                  : "text-warning-600 dark:text-warning-400"
+              }`}
+            >
+              {canCreate ? "พร้อมสร้างร้านใหม่" : createBlockReason}
+            </p>
+          </div>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            {readinessItems.map((item) => (
+              <div
+                className="flex min-h-[56px] flex-col justify-center border-l border-gray-200 pl-3 dark:border-gray-800"
+                key={item.label}
+              >
+                <span
+                  className={
+                    item.ready
+                      ? "font-semibold text-success-600 dark:text-success-400"
+                      : "font-semibold text-warning-600 dark:text-warning-400"
+                  }
+                >
+                  {item.ready ? "พร้อม" : "ต้องแก้"} · {item.label}
+                </span>
+                <span className="mt-1 leading-5 text-gray-500 dark:text-gray-400">
+                  {item.text}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -9015,8 +9193,8 @@ function OwnerSetupPanel({
           <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
             ยังไม่บันทึก SML/LINE secret ในขั้นนี้ เพื่อแยกความเสี่ยงและให้ทดสอบ connection ทีละหน้า
           </p>
-          <Button disabled={busy === "create" || !canCreate} size="sm">
-            {busy === "create" ? "กำลังสร้างร้าน..." : "สร้างร้านและเริ่ม onboarding"}
+          <Button disabled={isCreateDisabled} size="sm">
+            {createButtonLabel}
           </Button>
         </div>
 
