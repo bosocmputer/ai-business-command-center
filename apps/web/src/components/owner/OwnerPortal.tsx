@@ -728,6 +728,18 @@ export default function OwnerPortal({
     setSystemLastBackupAt(config.system_last_backup_at ?? "");
   }, []);
 
+  const resetJavaWsDraft = useCallback(() => {
+    setJavaWsDatabaseDiscovery(null);
+    setJavaWsBaseUrl("");
+    setJavaWsWebappPath("/SMLJavaWebService");
+    setJavaWsEndpoint("DotNetFrameWork");
+    setJavaWsConfigFileName("");
+    setJavaWsDatabase("");
+    setJavaWsAuthMode("none");
+    setJavaWsAuthUsername("");
+    setJavaWsAuthSecret("");
+  }, []);
+
   const loadOwnerData = useCallback(
     async ({ promptForToken = true }: { promptForToken?: boolean } = {}) => {
       setResult(null);
@@ -980,7 +992,7 @@ export default function OwnerPortal({
     }
 
     setDatasourceConfig(null);
-    setJavaWsDatabaseDiscovery(null);
+    resetJavaWsDraft();
 
     const response = await fetch(
       `${API_BASE_URL}/api/owner/tenants/${tenantId}/datasource/config`,
@@ -1003,7 +1015,7 @@ export default function OwnerPortal({
     setJavaWsAuthMode(payload.data.auth_mode ?? "none");
     setJavaWsAuthUsername("");
     setJavaWsAuthSecret("");
-  }, []);
+  }, [resetJavaWsDraft]);
 
   const refreshHeavyReportProgress = useCallback(
     async (tenantId: string, runId: string) => {
@@ -1379,7 +1391,8 @@ export default function OwnerPortal({
       setJavaWsAuthSecret("");
       setResult({
         tone: "success",
-        message: "บันทึกการเชื่อม SML แบบเข้ารหัสแล้ว",
+        message:
+          "บันทึกการเชื่อม SML แบบเข้ารหัสแล้ว ขั้นต่อไปกดทดสอบค่าที่บันทึกเพื่อยืนยันก่อนเปิดแจ้งเตือน",
       });
       await loadOwnerData();
     });
@@ -2506,7 +2519,9 @@ export default function OwnerPortal({
           setResult({
             tone: payload.data.ok ? "success" : "warning",
             message: payload.data.ok
-              ? `เชื่อมต่อ SML ของ ${tenant.name} สำเร็จ`
+              ? source === "saved"
+                ? `ค่าที่บันทึกของ ${tenant.name} เชื่อมต่อ SML ได้แล้ว ขั้นต่อไปตั้ง LINE OA/ผู้รับรายงาน`
+                : `ทดสอบค่าที่กรอกของ ${tenant.name} ผ่านแล้ว กด “บันทึกการเชื่อม SML” เพื่อให้ worker ใช้ค่านี้จริง`
               : toDatasourceBusinessMessage(payload.data.safe_error_message),
           });
           return;
@@ -5319,6 +5334,15 @@ function OwnerSmlConnectionsContent({
   const discoveryBusy = selectedTenantId
     ? busy === `javaws-databases-${selectedTenantId}`
     : false;
+  const javaWsDraftValidation = validateJavaWsDraft({
+    authMode: javaWsAuthMode,
+    authSecret: javaWsAuthSecret,
+    authUsername: javaWsAuthUsername,
+    baseUrl: javaWsBaseUrl,
+    configFileName: javaWsConfigFileName,
+    database: javaWsDatabase,
+    includeDatabase: true,
+  });
 
   return (
     <div className="space-y-4">
@@ -5419,7 +5443,7 @@ function OwnerSmlConnectionsContent({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
-                    disabled={datasourceBusy}
+                    disabled={datasourceBusy || !javaWsDraftValidation.ok}
                     size="sm"
                     variant="outline"
                     onClick={() => void onTestDatasource(selectedTenant.tenant.id)}
@@ -5465,11 +5489,17 @@ function OwnerSmlConnectionsContent({
               </div>
 
               <DatasourceTestSummary result={selectedTest} />
+              {!javaWsDraftValidation.ok ? (
+                <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+                  ทดสอบค่าที่กรอกไม่ได้จนกว่าจะกรอกให้ครบ:{" "}
+                  {javaWsDraftValidation.missing.join(", ")}
+                </p>
+              ) : null}
             </section>
           ) : (
-	            <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
-	              เลือกร้านทางซ้ายเพื่อเริ่มตั้งค่า SML JavaWS
-	            </section>
+            <section className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+              เลือกร้านทางซ้ายเพื่อเริ่มตั้งค่า SML JavaWS
+            </section>
           )}
 
           {selectedTenant ? (
@@ -9172,9 +9202,25 @@ function DatasourceConfigPanel({
         ? "อ่านจาก env server"
         : "ยังไม่ตั้งค่า";
   const modeLabel = "Tomcat JavaWS";
-  const secretRequired = javaWsAuthMode !== "none";
-  const secretValue = javaWsAuthSecret;
   const tomcatUrl = parseTomcatBaseUrl(javaWsBaseUrl);
+  const draftValidation = validateJavaWsDraft({
+    authMode: javaWsAuthMode,
+    authSecret: javaWsAuthSecret,
+    authUsername: javaWsAuthUsername,
+    baseUrl: javaWsBaseUrl,
+    configFileName: javaWsConfigFileName,
+    database: javaWsDatabase,
+    includeDatabase: true,
+  });
+  const discoveryValidation = validateJavaWsDraft({
+    authMode: javaWsAuthMode,
+    authSecret: javaWsAuthSecret,
+    authUsername: javaWsAuthUsername,
+    baseUrl: javaWsBaseUrl,
+    configFileName: javaWsConfigFileName,
+    database: javaWsDatabase,
+    includeDatabase: false,
+  });
   const updateTomcatBaseUrl = (
     patch: Partial<{ host: string; port: string; protocol: "http" | "https" }>,
   ) => {
@@ -9281,8 +9327,7 @@ function DatasourceConfigPanel({
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
                 disabled={
                   discoveryBusy ||
-                  !javaWsBaseUrl.trim() ||
-                  !javaWsConfigFileName.trim()
+                  !discoveryValidation.ok
                 }
                 onClick={onDiscoverJavaWsDatabases}
                 type="button"
@@ -9385,6 +9430,7 @@ function DatasourceConfigPanel({
                 </label>
                 {javaWsAuthMode === "basic" ? (
                   <OwnerTextInput
+                    description="Basic auth ต้องมี username และ password ทุกครั้งที่ทดสอบหรือบันทึกจากฟอร์ม"
                     label="Auth username"
                     onChange={onJavaWsAuthUsernameChange}
                     placeholder="proxy-user"
@@ -9393,11 +9439,12 @@ function DatasourceConfigPanel({
                 ) : null}
                 {javaWsAuthMode !== "none" ? (
                   <OwnerTextInput
+                    description="เพื่อกัน secret หาย ระบบต้องให้กรอก secret ใหม่ทุกครั้งที่เลือก auth แล้วทดสอบหรือบันทึกจากฟอร์ม"
                     label={javaWsAuthMode === "basic" ? "Auth password" : "Bearer token"}
                     onChange={onJavaWsAuthSecretChange}
                     placeholder={
                       config?.auth_configured
-                        ? "ใส่ใหม่เฉพาะเมื่อต้องการเปลี่ยน secret"
+                        ? "กรอก secret อีกครั้งก่อนทดสอบ/บันทึก"
                         : "ใส่ secret สำหรับ reverse proxy"
                     }
                     type="password"
@@ -9416,12 +9463,17 @@ function DatasourceConfigPanel({
             Audit จะเก็บ Tomcat/base URL และ database เท่านั้น ไม่เก็บ token แบบอ่านได้
           </span>
         </div>
+        {!draftValidation.ok ? (
+          <p className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+            ก่อนบันทึกหรือทดสอบ กรุณากรอก: {draftValidation.missing.join(", ")}
+          </p>
+        ) : null}
 
         <Button
           disabled={
             busy ||
             !config?.encryption_configured ||
-            (secretRequired && !secretValue.trim())
+            !draftValidation.ok
           }
           size="sm"
         >
@@ -10884,6 +10936,49 @@ function buildTomcatBaseUrl({
   }
 
   return `${protocol}://${safeHost}${safePort ? `:${safePort}` : ""}`;
+}
+
+function validateJavaWsDraft({
+  authMode,
+  authSecret,
+  authUsername,
+  baseUrl,
+  configFileName,
+  database,
+  includeDatabase,
+}: {
+  authMode: JavaWsAuthMode;
+  authSecret: string;
+  authUsername: string;
+  baseUrl: string;
+  configFileName: string;
+  database: string;
+  includeDatabase: boolean;
+}) {
+  const missing: string[] = [];
+  if (!baseUrl.trim()) {
+    missing.push("Tomcat host / URL");
+  }
+  if (!configFileName.trim()) {
+    missing.push("SMLConfig file");
+  }
+  if (includeDatabase && !database.trim()) {
+    missing.push("ชื่อฐานข้อมูล");
+  }
+  if (authMode === "basic" && !authUsername.trim()) {
+    missing.push("Auth username");
+  }
+  if (authMode === "basic" && !authSecret.trim()) {
+    missing.push("Auth password");
+  }
+  if (authMode === "bearer" && !authSecret.trim()) {
+    missing.push("Bearer token");
+  }
+
+  return {
+    ok: missing.length === 0,
+    missing,
+  };
 }
 
 function getTenantReadiness(
