@@ -3835,7 +3835,10 @@ type OwnerSectionContentProps = {
 };
 
 function OwnerSectionContent(props: OwnerSectionContentProps) {
-  if (props.section === "overview" || props.section === "tenants") {
+  if (props.section === "overview") {
+    return <OwnerOverviewContent {...props} />;
+  }
+  if (props.section === "tenants") {
     return <OwnerTenantsContent {...props} />;
   }
   if (props.section === "sml-connections") {
@@ -3868,10 +3871,10 @@ function getOwnerSectionMeta(section: OwnerPortalSection) {
     { eyebrow: string; title: string; description: string }
   > = {
     overview: {
-      eyebrow: "ตั้งค่าร้าน",
-      title: "ภาพรวมร้านค้าและขั้นตอนเปิดใช้งาน",
+      eyebrow: "Operations Cockpit",
+      title: "สถานะร้านและสิ่งที่ต้องทำต่อ",
       description:
-        "เลือกร้าน ดูสิ่งที่ยังขาด และทำขั้นตอนถัดไปให้พร้อมส่งแผนแจ้งเตือน",
+        "เปิดหน้านี้แล้วต้องรู้ทันทีว่าร้านไหนพร้อม ร้านไหนมีปัญหา และควรทำอะไรต่อ",
     },
     tenants: {
       eyebrow: "จัดการร้าน",
@@ -3970,90 +3973,8 @@ function OwnerPanelHeader({
   );
 }
 
-function TenantOperationsTable({ tenants }: { tenants: TenantSummary[] }) {
-  return (
-    <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
-      {tenants.map((item) => {
-        const readiness = getTenantReadiness(item);
-        return (
-          <div
-            className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1.1fr)_120px_120px_150px_120px] lg:items-center"
-            key={item.tenant.id}
-          >
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-semibold text-gray-900 dark:text-white">
-                  {item.tenant.name}
-                </p>
-                <Badge color={tenantStatusTone(item.tenant.status)}>
-                  {formatTenantStatus(item.tenant.status)}
-                </Badge>
-              </div>
-              <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
-                {item.tenant.id} · ฐาน {item.tenant.databaseName || "ยังไม่ตั้งค่า"}
-              </p>
-            </div>
-            <CompactFact
-              label="ความพร้อม"
-              value={readiness.label}
-            />
-            <CompactFact
-              label="SML"
-              value={item.health.datasource_configured ? "พร้อม" : "ต้องตั้งค่า"}
-            />
-            <CompactFact
-              label="LINE"
-              value={`${item.health.line_channels} OA · ${item.health.line_targets_enabled}/${item.health.line_targets_total} ปลายทาง`}
-            />
-            <div className="flex gap-2 lg:justify-end">
-              <Link
-                className="inline-flex h-9 items-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-                href={item.customer_dashboard_path ?? "/app"}
-                target="_blank"
-              >
-                เปิดรายงาน
-              </Link>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function OwnerFlowCard() {
-  const steps = [
-    "เพิ่มร้าน",
-    "เชื่อม SML",
-    "รันรายงาน",
-    "ตั้ง LINE OA",
-    "อนุมัติผู้รับ",
-    "สร้างแผนแจ้งเตือน",
-    "ส่งทดสอบ",
-  ];
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-      <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-        ขั้นตอนเปิดร้านใหม่
-      </h2>
-      <div className="mt-4 space-y-2">
-        {steps.map((step, index) => (
-          <div className="flex items-center gap-3" key={step}>
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
-              {index + 1}
-            </span>
-            <p className="text-sm text-gray-700 dark:text-gray-300">{step}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function OwnerOverviewContent({
   tenants,
-  lineChannels,
   onUpdateBusinessSignalStatus,
   operationsStatus,
   selectedTenantId,
@@ -4061,416 +3982,495 @@ function OwnerOverviewContent({
   setSelectedTenantId,
   storeSetupDetail,
 }: OwnerSectionContentProps) {
-  const activeTenants = tenants.filter((item) => item.access.enabled);
-  const readyTenants = tenants.filter(
-    (item) => getTenantReadiness(item).readyCount === getTenantReadiness(item).items.length,
+  const visibleTenants = tenants.filter(
+    (item) => item.tenant.status !== "cancelled",
   );
-  const actionItems = buildOwnerActionItems(tenants);
+  const cockpitTenants = visibleTenants.length ? visibleTenants : tenants;
+  const selected =
+    selectedTenantSummary ??
+    cockpitTenants.find((item) => item.tenant.id === selectedTenantId) ??
+    cockpitTenants[0];
+  const nextAction = buildOwnerNextAction(cockpitTenants, operationsStatus);
 
   return (
     <div className="space-y-4">
-      <section className="grid gap-3 md:grid-cols-4">
-        <OwnerStatCard label="ร้านทั้งหมด" value={`${tenants.length}`} />
-        <OwnerStatCard label="เปิดใช้งาน" value={`${activeTenants.length}`} />
-        <OwnerStatCard label="พร้อมใช้งาน" value={`${readyTenants.length}`} />
-        <OwnerStatCard label="LINE OA" value={`${lineChannels.length}`} />
-      </section>
-
-      {operationsStatus?.signal_metrics ? (
-        <section className="grid gap-3 md:grid-cols-4">
-          <OwnerStatCard
-            label="เรื่องที่เปิดอยู่"
-            value={operationsStatus.signal_metrics.open.toLocaleString("th-TH")}
-          />
-          <OwnerStatCard
-            label="ควรตรวจทันที"
-            value={operationsStatus.signal_metrics.critical_open.toLocaleString("th-TH")}
-          />
-          <OwnerStatCard
-            label="Action Digest ส่งล่าสุด"
-            value={operationsStatus.signal_metrics.digest_sent_recent.toLocaleString("th-TH")}
-          />
-          <OwnerStatCard
-            label="อัปเดตสถานะ"
-            value={operationsStatus.signal_metrics.lifecycle_updates_recent.toLocaleString("th-TH")}
-          />
-        </section>
-      ) : null}
-
-      <StoreSetupCockpitCard
-        selectedTenantId={selectedTenantId}
-        selectedTenantSummary={selectedTenantSummary}
-        setSelectedTenantId={setSelectedTenantId}
-        storeSetupDetail={storeSetupDetail}
-        onUpdateBusinessSignalStatus={onUpdateBusinessSignalStatus}
-        tenants={tenants}
-      />
-
-      <OwnerRolloutBoard tenants={tenants} />
-
-      <OwnerProductionReadinessBoard
+      <OwnerCockpitStatusBar
         operationsStatus={operationsStatus}
-        tenants={tenants}
+        tenants={cockpitTenants}
       />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <OwnerPanelHeader
-            title="ร้านค้า"
-            description="มุมมองรวมสำหรับติดตามว่าแต่ละร้านพร้อมให้บริการหรือยัง"
-            actionHref="/owner"
-            actionLabel="จัดการร้านค้า"
-          />
-          <TenantOperationsTable tenants={tenants} />
-        </div>
-
         <div className="space-y-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              สิ่งที่ควรทำต่อ
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              แสดงเฉพาะงานที่กระทบการเปิดร้านหรือการส่งแผนแจ้งเตือน
-            </p>
-            <div className="mt-4 space-y-3">
-              {actionItems.length ? (
-                actionItems.slice(0, 6).map((item) => (
-                  <div
-                    className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
-                    key={`${item.tenantName}-${item.title}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                          {item.title}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                          {item.tenantName} · {item.description}
-                        </p>
-                      </div>
-                      <Badge color={item.tone}>{item.label}</Badge>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="rounded-lg border border-success-100 bg-success-50 p-3 text-sm text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-300">
-                  ร้านหลักพร้อมใช้งานในรอบนี้
-                </p>
-              )}
-            </div>
-          </div>
+          <OwnerNextActionPanel action={nextAction} />
 
-          <OwnerFlowCard />
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+            <OwnerPanelHeader
+              title="Store Health Matrix"
+              description="สรุปความพร้อมของร้าน active, รอบแจ้งเตือนล่าสุด และ incident ที่ต้องเห็นก่อนรอบถัดไป"
+              actionHref="/owner/audit"
+              actionLabel="ดูหลักฐาน"
+            />
+            <StoreHealthMatrix
+              operationsStatus={operationsStatus}
+              selectedTenantId={selected?.tenant.id ?? selectedTenantId}
+              setSelectedTenantId={setSelectedTenantId}
+              tenants={cockpitTenants}
+            />
+          </div>
         </div>
+
+        <SelectedTenantCockpitDetail
+          onUpdateBusinessSignalStatus={onUpdateBusinessSignalStatus}
+          operationsStatus={operationsStatus}
+          selectedTenant={selected}
+          storeSetupDetail={storeSetupDetail}
+        />
       </section>
+
+      <OwnerProofEvidenceStrip
+        operationsStatus={operationsStatus}
+        tenants={cockpitTenants}
+      />
     </div>
   );
 }
 
-function StoreSetupCockpitCard({
-  onUpdateBusinessSignalStatus,
-  selectedTenantId,
-  selectedTenantSummary,
-  setSelectedTenantId,
-  storeSetupDetail,
-  tenants,
-}: {
-  onUpdateBusinessSignalStatus: (
-    signal: BusinessSignalRecord,
-    status: BusinessSignalRecord["status"],
-  ) => Promise<void>;
-  selectedTenantId: string;
-  selectedTenantSummary?: TenantSummary;
-  setSelectedTenantId: (tenantId: string) => void;
-  storeSetupDetail: StoreSetupDetail | null;
-  tenants: TenantSummary[];
-}) {
-  const apiDetail =
-    storeSetupDetail &&
-    (!selectedTenantId || storeSetupDetail.summary.tenant.id === selectedTenantId)
-      ? storeSetupDetail
-      : null;
-  const selected = selectedTenantSummary ?? apiDetail?.summary ?? tenants[0];
-  const readiness = selected
-    ? apiDetail
-      ? buildReadinessFromStoreSetup(apiDetail)
-      : getTenantReadiness(selected)
-    : null;
-  const nextStep =
-    selected && readiness ? getStoreSetupNextStep(selected, readiness.items, apiDetail) : null;
-  const progressPercent =
-    readiness && readiness.items.length
-      ? Math.round((readiness.readyCount / readiness.items.length) * 100)
-      : 0;
+type OwnerBadgeTone = "success" | "warning" | "error" | "info" | "light";
 
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            ภาพรวมตั้งค่าร้าน
-          </h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-            เลือกร้าน แล้วทำขั้นตอนถัดไปให้จบก่อนขยับไปงานต่อไป
-          </p>
-        </div>
-        <select
-          className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-          onChange={(event) => setSelectedTenantId(event.target.value)}
-          value={selectedTenantId || selected?.tenant.id || ""}
-        >
-          {tenants.map((item) => (
-            <option key={item.tenant.id} value={item.tenant.id}>
-              {item.tenant.name}
-            </option>
-          ))}
-        </select>
-      </div>
+type OwnerNextAction = {
+  actionLabel: string;
+  description: string;
+  href: string;
+  tenantName?: string;
+  title: string;
+  tone: OwnerBadgeTone;
+};
 
-      {selected && readiness && nextStep ? (
-        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {selected.tenant.name}
-              </h3>
-              <Badge color={readiness.tone}>{readiness.label}</Badge>
-              <Badge color={tenantStatusTone(selected.tenant.status)}>
-                {formatTenantStatus(selected.tenant.status)}
-              </Badge>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-400">
-              {nextStep.description}
-            </p>
-            {apiDetail?.business_signals?.length ? (
-              <div className="mt-4 rounded-lg border border-warning-200 bg-warning-50 p-3 dark:border-warning-500/30 dark:bg-warning-500/10">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-warning-800 dark:text-warning-100">
-                      เรื่องที่ต้องจัดการวันนี้
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-warning-700 dark:text-warning-200/80">
-                      ระบบจับจาก report snapshot ล่าสุด ไม่ยิง SML เพิ่มตอนเปิดหน้านี้
-                    </p>
-                  </div>
-                  <Badge
-                    color={
-                      apiDetail.summary.health.critical_business_signals > 0
-                        ? "error"
-                        : "warning"
-                    }
-                  >
-                    {apiDetail.summary.health.open_business_signals} เรื่อง
-                  </Badge>
-                </div>
-                <div className="mt-3 grid gap-2">
-                  {apiDetail.business_signals.slice(0, 3).map((signal) => (
-                    <BusinessSignalCompactRow
-                      key={signal.id}
-                      onUpdateStatus={onUpdateBusinessSignalStatus}
-                      signal={signal}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
-              <div
-                className={`h-full rounded-full ${
-                  readiness.tone === "success"
-                    ? "bg-success-500"
-                    : readiness.tone === "warning"
-                      ? "bg-warning-500"
-                      : "bg-error-500"
-                }`}
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {readiness.items.map((check) => (
-                <ReadinessRow item={check} key={check.label} />
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              ขั้นต่อไป
-            </p>
-            <p className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
-              {nextStep.actionLabel}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-400">
-              {nextStep.description}
-            </p>
-            <Link
-              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-semibold text-white hover:bg-brand-600"
-              href={nextStep.href}
-            >
-              {nextStep.actionLabel}
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <p className="mt-4 rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
-          ยังไม่มีร้านค้า ให้เพิ่มร้านใหม่จากหน้า “ร้านค้า”
-        </p>
-      )}
-    </section>
-  );
-}
-
-function OwnerRolloutBoard({ tenants }: { tenants: TenantSummary[] }) {
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <OwnerPanelHeader
-        title="บอร์ดเตรียมร้าน"
-        description="สรุปขั้นตอนที่เหลือของแต่ละร้าน เพื่อให้ผู้ดูแลรู้ทันทีว่าต้องทำอะไรต่อก่อนส่งให้ลูกค้า"
-      />
-      <div className="grid gap-3 border-t border-gray-100 p-4 dark:border-gray-800 lg:grid-cols-2">
-        {tenants.map((item) => {
-          const readiness = getTenantReadiness(item);
-          const nextStep = getTenantNextStep(item, readiness.items);
-          const progressPercent = Math.round(
-            (readiness.readyCount / readiness.items.length) * 100,
-          );
-
-          return (
-            <div
-              className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
-              key={item.tenant.id}
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                      {item.tenant.name}
-                    </h3>
-                    <Badge color={readiness.tone}>{readiness.label}</Badge>
-                    <Badge color={tenantStatusTone(item.tenant.status)}>
-                      {formatTenantStatus(item.tenant.status)}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    {nextStep.description}
-                  </p>
-                </div>
-                <Link
-                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-                  href={nextStep.href}
-                >
-                  {nextStep.actionLabel}
-                </Link>
-              </div>
-
-              <div className="mt-4">
-                <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
-                  <div
-                    className={`h-full rounded-full ${
-                      readiness.tone === "success"
-                        ? "bg-success-500"
-                        : readiness.tone === "warning"
-                          ? "bg-warning-500"
-                          : "bg-error-500"
-                    }`}
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  {readiness.items.slice(0, 6).map((check) => (
-                    <div
-                      className="flex items-start gap-2 text-xs leading-5"
-                      key={check.label}
-                    >
-                      <span
-                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                          check.ok ? "bg-success-500" : "bg-warning-500"
-                        }`}
-                      />
-                      <span className="text-gray-600 dark:text-gray-400">
-                        {check.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function OwnerProductionReadinessBoard({
+function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
 }: {
   operationsStatus: OwnerOperationsStatus | null;
   tenants: TenantSummary[];
 }) {
-  const readiness = buildProductionReadiness(operationsStatus, tenants);
-  const scoreTone =
-    readiness.score >= 90 ? "success" : readiness.score >= 70 ? "warning" : "error";
+  const status = buildOwnerCockpitStatus(tenants, operationsStatus);
+  const latestRound = getLatestNotificationRound(tenants);
+  const telegramStatus = operationsStatus?.operational_alerts?.telegram.status;
+  const telegramReady =
+    Boolean(telegramStatus?.configured && telegramStatus.verified) &&
+    Boolean(telegramStatus?.targets.some((target) => target.enabled));
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <OwnerPanelHeader
-            title="ความพร้อมของระบบ"
-        description="เช็คความพร้อมก่อนเปิดให้ลูกค้าใช้จริง: ระบบ, งานเบื้องหลัง, สำรองข้อมูล, SML JavaWS, LINE และรายงานล่าสุด"
-        actionHref="/owner/audit"
-        actionLabel="ดูสถานะระบบ"
-      />
-      <div className="grid gap-4 border-t border-gray-100 p-4 dark:border-gray-800 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-            คะแนนความพร้อม
-          </p>
-          <div className="mt-2 flex items-end gap-2">
-            <p className="text-4xl font-semibold text-gray-900 dark:text-white">
-              {readiness.score}
-            </p>
-            <p className="pb-1 text-sm font-semibold text-gray-500 dark:text-gray-400">
-              /100
-            </p>
-          </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
-            <div
-              className={`h-full rounded-full ${
-                scoreTone === "success"
-                  ? "bg-success-500"
-                  : scoreTone === "warning"
-                    ? "bg-warning-500"
-                    : "bg-error-500"
-              }`}
-              style={{ width: `${readiness.score}%` }}
-            />
-          </div>
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-400">
-            {readiness.summary}
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] xl:items-center">
+        <div>
+          <Badge color={status.tone}>{status.label}</Badge>
+          <h2 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
+            {status.title}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">
+            {status.description}
           </p>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <HealthFact
+            label="ร้าน active"
+            value={`${tenants.filter((item) => item.access.enabled).length}/${tenants.length}`}
+          />
+          <HealthFact
+            label="รอบล่าสุด"
+            value={
+              latestRound
+                ? `${latestRound.tenantName} · ${formatRunStatus(latestRound.status)}`
+                : "ยังไม่มีรอบ"
+            }
+          />
+          <HealthFact
+            label="Worker"
+            value={formatWorkerStatus(operationsStatus?.worker.status ?? "missing")}
+          />
+          <HealthFact
+            label="Telegram ops"
+            value={telegramReady ? "พร้อมแจ้งเตือน" : "ยังไม่พร้อม"}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          {readiness.items.map((item) => (
-            <div
-              className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
-              key={`${item.title}-${item.description}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                    {item.title}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    {item.description}
-                  </p>
-                </div>
-                <Badge color={item.tone}>{item.label}</Badge>
-              </div>
-            </div>
-          ))}
+function OwnerNextActionPanel({ action }: { action: OwnerNextAction }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge color={action.tone}>สิ่งที่ต้องทำต่อ</Badge>
+            {action.tenantName ? <Badge color="light">{action.tenantName}</Badge> : null}
+          </div>
+          <h2 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">
+            {action.title}
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600 dark:text-gray-400">
+            {action.description}
+          </p>
         </div>
+        <Link
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-semibold text-white hover:bg-brand-600"
+          href={action.href}
+        >
+          {action.actionLabel}
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function StoreHealthMatrix({
+  operationsStatus,
+  selectedTenantId,
+  setSelectedTenantId,
+  tenants,
+}: {
+  operationsStatus: OwnerOperationsStatus | null;
+  selectedTenantId: string;
+  setSelectedTenantId: (tenantId: string) => void;
+  tenants: TenantSummary[];
+}) {
+  if (!tenants.length) {
+    return (
+      <div className="border-t border-gray-100 p-5 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+        ยังไม่มีร้านค้า เพิ่มร้านแรก แล้วเชื่อม SML JavaWS ก่อนตั้งแผนแจ้งเตือน
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-800">
+      <div className="hidden grid-cols-[minmax(180px,1.3fr)_100px_110px_120px_130px_120px_110px_110px] gap-3 px-4 py-3 text-xs font-medium uppercase text-gray-400 lg:grid">
+        <span>ร้าน</span>
+        <span>SML</span>
+        <span>LINE</span>
+        <span>แผน</span>
+        <span>รอบล่าสุด</span>
+        <span>Incident</span>
+        <span>Signals</span>
+        <span>Proof</span>
+      </div>
+      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+        {tenants.map((item) => (
+          <StoreHealthMatrixRow
+            item={item}
+            key={item.tenant.id}
+            latestJavaWsFailure={operationsStatus?.report_health?.latest_javaws_failure ?? null}
+            onSelectTenant={setSelectedTenantId}
+            selected={item.tenant.id === selectedTenantId}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StoreHealthMatrixRow({
+  item,
+  latestJavaWsFailure,
+  onSelectTenant,
+  selected,
+}: {
+  item: TenantSummary;
+  latestJavaWsFailure:
+    | NonNullable<OwnerOperationsStatus["report_health"]>["latest_javaws_failure"]
+    | null;
+  onSelectTenant: (tenantId: string) => void;
+  selected: boolean;
+}) {
+  const health = buildStoreHealthCells(item, latestJavaWsFailure);
+
+  return (
+    <button
+      className={`block w-full text-left transition hover:bg-gray-50 dark:hover:bg-white/[0.03] ${
+        selected ? "bg-brand-50/60 dark:bg-brand-500/10" : ""
+      }`}
+      onClick={() => onSelectTenant(item.tenant.id)}
+      type="button"
+    >
+      <div className="grid gap-3 p-4 lg:grid-cols-[minmax(180px,1.3fr)_100px_110px_120px_130px_120px_110px_110px] lg:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-gray-900 dark:text-white">
+              {item.tenant.name}
+            </p>
+            <Badge color={tenantStatusTone(item.tenant.status)}>
+              {formatTenantStatus(item.tenant.status)}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {health.nextStep.description}
+          </p>
+        </div>
+        <StoreHealthCell label="SML" tone={health.sml.tone} value={health.sml.label} />
+        <StoreHealthCell label="LINE" tone={health.line.tone} value={health.line.label} />
+        <StoreHealthCell
+          label="แผน"
+          tone={health.schedule.tone}
+          value={health.schedule.label}
+        />
+        <StoreHealthCell
+          label="รอบล่าสุด"
+          tone={health.latestRun.tone}
+          value={health.latestRun.label}
+        />
+        <StoreHealthCell
+          label="Incident"
+          tone={health.incident.tone}
+          value={health.incident.label}
+        />
+        <StoreHealthCell
+          label="Signals"
+          tone={health.signals.tone}
+          value={health.signals.label}
+        />
+        <StoreHealthCell label="Proof" tone={health.proof.tone} value={health.proof.label} />
+      </div>
+    </button>
+  );
+}
+
+function StoreHealthCell({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: OwnerBadgeTone;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 lg:block">
+      <span className="text-xs text-gray-500 dark:text-gray-400 lg:hidden">
+        {label}
+      </span>
+      <Badge color={tone}>{value}</Badge>
+    </div>
+  );
+}
+
+function SelectedTenantCockpitDetail({
+  onUpdateBusinessSignalStatus,
+  operationsStatus,
+  selectedTenant,
+  storeSetupDetail,
+}: {
+  onUpdateBusinessSignalStatus: (
+    signal: BusinessSignalRecord,
+    status: BusinessSignalRecord["status"],
+  ) => Promise<void>;
+  operationsStatus: OwnerOperationsStatus | null;
+  selectedTenant?: TenantSummary;
+  storeSetupDetail: StoreSetupDetail | null;
+}) {
+  if (!selectedTenant) {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+        <Badge color="light">ยังไม่มีร้าน</Badge>
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+          เพิ่มร้านแรก แล้วเชื่อม SML JavaWS ก่อนตั้งแผนแจ้งเตือน
+        </p>
+      </section>
+    );
+  }
+
+  const apiDetail =
+    storeSetupDetail?.summary.tenant.id === selectedTenant.tenant.id
+      ? storeSetupDetail
+      : null;
+  const readiness = apiDetail
+    ? buildReadinessFromStoreSetup(apiDetail)
+    : getTenantReadiness(selectedTenant);
+  const nextStep = getStoreSetupNextStep(
+    selectedTenant,
+    readiness.items,
+    apiDetail,
+  );
+  const latestJavaWsFailure =
+    operationsStatus?.report_health?.latest_javaws_failure?.tenant_id ===
+    selectedTenant.tenant.id
+      ? operationsStatus.report_health.latest_javaws_failure
+      : null;
+  const latestHeavyReport = operationsStatus?.report_health?.heavy_report_runs
+    .filter((run) => run.tenant_id === selectedTenant.tenant.id)
+    .sort((a, b) => getTimeMs(b.started_at) - getTimeMs(a.started_at))[0];
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <Badge color={readiness.tone}>{readiness.label}</Badge>
+          <h2 className="mt-3 text-base font-semibold text-gray-900 dark:text-white">
+            {selectedTenant.tenant.name}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {nextStep.description}
+          </p>
+        </div>
+        <Link
+          className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          href={nextStep.href}
+        >
+          {nextStep.actionLabel}
+        </Link>
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        <DetailRow
+          label="แจ้งเตือนล่าสุด"
+          value={
+            selectedTenant.health.latest_notification_run_at
+              ? `${formatRunStatus(selectedTenant.health.latest_notification_run_status)} · ${formatDateTime(selectedTenant.health.latest_notification_run_at)}`
+              : "ยังไม่มีรอบ"
+          }
+        />
+        <DetailRow
+          label="LINE ล่าสุด"
+          value={
+            selectedTenant.health.latest_line_delivery_at
+              ? `${formatLineDeliveryStatus(selectedTenant.health.latest_line_delivery_status)} · ${formatDateTime(selectedTenant.health.latest_line_delivery_at)}`
+              : "ยังไม่มี delivery"
+          }
+        />
+        <DetailRow
+          label="JavaWS ล่าสุด"
+          value={
+            latestJavaWsFailure
+              ? `${formatOwnerReportLabel(latestJavaWsFailure.report_key)} · ${formatJavaWsFailurePhase(latestJavaWsFailure.failure_phase)}`
+              : "ไม่พบ incident ล่าสุด"
+          }
+        />
+        <DetailRow
+          label="Heavy report"
+          value={
+            latestHeavyReport
+              ? `${formatOwnerReportLabel(latestHeavyReport.report_key)} · ${formatRunStatus(latestHeavyReport.status)} · ${
+                  latestHeavyReport.duration_ms
+                    ? formatElapsedMs(latestHeavyReport.duration_ms)
+                    : "ยังไม่ทราบเวลา"
+                }`
+              : "ยังไม่มี heavy run ล่าสุด"
+          }
+        />
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        {readiness.items.slice(0, 4).map((check) => (
+          <ReadinessRow item={check} key={check.label} />
+        ))}
+      </div>
+
+      {apiDetail?.business_signals.length ? (
+        <div className="mt-4 rounded-lg border border-warning-200 bg-warning-50 p-3 dark:border-warning-500/30 dark:bg-warning-500/10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-warning-800 dark:text-warning-100">
+                เรื่องที่เปิดอยู่
+              </p>
+              <p className="mt-1 text-xs leading-5 text-warning-700 dark:text-warning-200/80">
+                จาก snapshot ล่าสุด ไม่ดึง SML เพิ่มตอนเปิดหน้านี้
+              </p>
+            </div>
+            <Badge
+              color={
+                apiDetail.summary.health.critical_business_signals > 0
+                  ? "error"
+                  : "warning"
+              }
+            >
+              {apiDetail.summary.health.open_business_signals} เรื่อง
+            </Badge>
+          </div>
+          <div className="mt-3 grid gap-2">
+            {apiDetail.business_signals.slice(0, 3).map((signal) => (
+              <BusinessSignalCompactRow
+                key={signal.id}
+                onUpdateStatus={onUpdateBusinessSignalStatus}
+                signal={signal}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OwnerProofEvidenceStrip({
+  operationsStatus,
+  tenants,
+}: {
+  operationsStatus: OwnerOperationsStatus | null;
+  tenants: TenantSummary[];
+}) {
+  const activeTenants = tenants.filter((item) => item.access.enabled);
+  const proofReady = activeTenants.filter(
+    (item) =>
+      item.health.latest_notification_run_status === "success" &&
+      item.health.latest_line_delivery_status === "success",
+  ).length;
+  const latestAlert =
+    operationsStatus?.operational_alerts?.telegram.deliveries[0] ?? null;
+  const latestFailure = operationsStatus?.report_health?.latest_javaws_failure ?? null;
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            หลักฐาน production proof ล่าสุด
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้ดูว่ารอบจริงมีรายงาน, LINE delivery, incident และ ops alert ครบหรือไม่
+          </p>
+        </div>
+        <Link
+          className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+          href="/owner/audit"
+        >
+          เปิด audit
+        </Link>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <HealthFact
+          label="ร้านที่มี proof"
+          value={`${proofReady}/${activeTenants.length}`}
+        />
+        <HealthFact
+          label="JavaWS incident"
+          value={
+            latestFailure
+              ? `${formatJavaWsFailurePhase(latestFailure.failure_phase)} · ${
+                  latestFailure.finished_at
+                    ? formatDateTime(latestFailure.finished_at)
+                    : formatOwnerReportLabel(latestFailure.report_key)
+                }`
+              : "ไม่พบล่าสุด"
+          }
+        />
+        <HealthFact
+          label="Telegram alert"
+          value={
+            latestAlert
+              ? `${formatOperationalAlertStatus(latestAlert.status)} · ${latestAlert.alert_type}`
+              : "ยังไม่มี delivery"
+          }
+        />
+        <HealthFact
+          label="Business signals"
+          value={
+            operationsStatus?.signal_metrics
+              ? `${operationsStatus.signal_metrics.open.toLocaleString("th-TH")} เปิดอยู่`
+              : "ยังไม่มีข้อมูล"
+          }
+        />
       </div>
     </section>
   );
@@ -6669,207 +6669,386 @@ function AuditTenantRow({ item }: { item: TenantSummary }) {
   );
 }
 
-function buildOwnerActionItems(tenants: TenantSummary[]) {
-  return tenants.flatMap((item) => {
-    const actions: Array<{
-      description: string;
-      label: "ต้องทำ" | "ตรวจ";
-      tenantName: string;
-      title: string;
-      tone: "warning" | "error";
-    }> = [];
+function buildOwnerCockpitStatus(
+  tenants: TenantSummary[],
+  operationsStatus: OwnerOperationsStatus | null,
+): {
+  description: string;
+  label: string;
+  title: string;
+  tone: OwnerBadgeTone;
+} {
+  const activeTenants = tenants.filter((item) => item.access.enabled);
+  const latestJavaWsFailure = operationsStatus?.report_health?.latest_javaws_failure;
+  if (latestJavaWsFailure) {
+    const tenantName =
+      tenants.find((item) => item.tenant.id === latestJavaWsFailure.tenant_id)
+        ?.tenant.name ?? "บางร้าน";
+    return {
+      description: `${tenantName} มี JavaWS ${formatJavaWsFailurePhase(
+        latestJavaWsFailure.failure_phase,
+      )} จากรายงานล่าสุด ต้องดู audit ก่อนใช้ยอดรอบนั้น`,
+      label: "ต้องแก้ก่อนรอบถัดไป",
+      title: "พบ incident จาก SML JavaWS",
+      tone: "error",
+    };
+  }
 
-    if (!item.access.enabled) {
-      actions.push({
-        description: item.access.message,
-        label: "ต้องทำ",
-        tenantName: item.tenant.name,
-        title: "บัญชีร้านถูกบล็อก",
-        tone: "error",
-      });
-    }
-    if (!item.health.datasource_configured) {
-      actions.push({
-        description: "ยังไม่ได้ตั้งค่า Tomcat URL, port, SMLConfig และ database",
-        label: "ต้องทำ",
-        tenantName: item.tenant.name,
-        title: "เชื่อม SML ผ่าน JavaWS",
-        tone: "warning",
-      });
-    }
-    if (!item.health.latest_snapshot_at) {
-      actions.push({
-        description: "ลูกค้ายังไม่มี snapshot ล่าสุดให้ดู",
-        label: "ต้องทำ",
-        tenantName: item.tenant.name,
-        title: "รันรายงานแรก",
-        tone: "warning",
-      });
-    }
-    if (item.health.line_channels === 0) {
-      actions.push({
-        description: "ยังไม่มี LINE OA metadata สำหรับร้านนี้",
-        label: "ต้องทำ",
-        tenantName: item.tenant.name,
-        title: "เพิ่ม LINE OA",
-        tone: "warning",
-      });
-    }
-    if (item.health.line_channels > 0 && item.health.line_targets_enabled === 0) {
-      actions.push({
-        description: "มี LINE OA แล้ว แต่ยังไม่มีผู้รับที่อนุมัติรับแผนแจ้งเตือน",
-        label: "ตรวจ",
-        tenantName: item.tenant.name,
-        title: "อนุมัติผู้รับ LINE",
-        tone: "warning",
-      });
-    }
+  if (operationsStatus && operationsStatus.worker.status !== "ok") {
+    return {
+      description: `worker ${formatWorkerStatus(
+        operationsStatus.worker.status,
+      )} อาจทำให้รอบแจ้งเตือนไม่ถูกประมวลผลตามเวลา`,
+      label: "ต้องตรวจระบบ",
+      title: "Worker ยังไม่ปกติ",
+      tone: "error",
+    };
+  }
 
-    return actions;
-  });
+  const failedTenant = activeTenants.find(
+    (item) =>
+      item.health.latest_notification_run_status === "failed" ||
+      item.health.latest_report_status === "failed" ||
+      item.health.latest_line_delivery_status === "failed",
+  );
+  if (failedTenant) {
+    return {
+      description: `${failedTenant.tenant.name} มีรายงานหรือ LINE delivery ล่าสุดล้มเหลว ต้องเปิด audit เพื่อดูสาเหตุและสถานะ incident`,
+      label: "ต้องตรวจรอบล่าสุด",
+      title: "รอบแจ้งเตือนยังไม่สมบูรณ์",
+      tone: "error",
+    };
+  }
+
+  const missingPrerequisite = activeTenants.find(
+    (item) =>
+      !item.health.datasource_configured ||
+      item.health.line_targets_enabled === 0 ||
+      item.health.notification_rules_enabled === 0,
+  );
+  if (missingPrerequisite) {
+    return {
+      description: `${missingPrerequisite.tenant.name} ยังมี prerequisite ไม่ครบสำหรับส่งรายงานผู้บริหารอัตโนมัติ`,
+      label: "ต้องตั้งค่าเพิ่ม",
+      title: "ยังมีร้านที่ไม่พร้อมส่งรอบถัดไป",
+      tone: "warning",
+    };
+  }
+
+  return {
+    description: `${activeTenants.length} ร้าน active พร้อมสำหรับรอบแจ้งเตือนถัดไป และยังควรดู audit หลังรอบจริงเสมอ`,
+    label: "พร้อมส่งรอบถัดไป",
+    title: "ระบบหลักพร้อมใช้งาน",
+    tone: "success",
+  };
 }
 
-type ProductionReadinessItem = {
-  description: string;
-  label: "พร้อม" | "ต้องทำ" | "ตรวจ";
-  ok: boolean;
-  title: string;
-  tone: "success" | "warning" | "error" | "light";
-};
-
-function buildProductionReadiness(
-  operationsStatus: OwnerOperationsStatus | null,
+function buildOwnerNextAction(
   tenants: TenantSummary[],
+  operationsStatus: OwnerOperationsStatus | null,
+): OwnerNextAction {
+  const activeTenants = tenants.filter((item) => item.tenant.status !== "cancelled");
+  const latestJavaWsFailure = operationsStatus?.report_health?.latest_javaws_failure;
+  if (latestJavaWsFailure) {
+    const tenant = tenants.find(
+      (item) => item.tenant.id === latestJavaWsFailure.tenant_id,
+    );
+    return {
+      actionLabel: "เปิด audit",
+      description: `รายงาน ${formatOwnerReportLabel(
+        latestJavaWsFailure.report_key,
+      )} ตอบกลับจาก JavaWS แต่แปลงผลไม่สำเร็จใน phase ${formatJavaWsFailurePhase(
+        latestJavaWsFailure.failure_phase,
+      )}`,
+      href: "/owner/audit",
+      tenantName: tenant?.tenant.name,
+      title: "ตรวจ JavaWS incident ล่าสุด",
+      tone: "error",
+    };
+  }
+
+  if (operationsStatus && operationsStatus.worker.status !== "ok") {
+    return {
+      actionLabel: "ดูสถานะระบบ",
+      description: `สถานะ worker คือ ${formatWorkerStatus(
+        operationsStatus.worker.status,
+      )} ถ้าไม่ปกติ รอบแจ้งเตือนอาจไม่เริ่มหรือไม่จบตามเวลา`,
+      href: "/owner/audit",
+      title: "ตรวจ worker ก่อนรอบถัดไป",
+      tone: "error",
+    };
+  }
+
+  const blockedTenant = activeTenants.find((item) => !item.access.enabled);
+  if (blockedTenant) {
+    return {
+      actionLabel: "แก้สถานะร้าน",
+      description: blockedTenant.access.message,
+      href: `/owner?tenant=${encodeURIComponent(blockedTenant.tenant.id)}`,
+      tenantName: blockedTenant.tenant.name,
+      title: "เปิดสิทธิ์ร้านให้พร้อมใช้งาน",
+      tone: "error",
+    };
+  }
+
+  const missingDatasource = activeTenants.find(
+    (item) => !item.health.datasource_configured,
+  );
+  if (missingDatasource) {
+    return {
+      actionLabel: "ตรวจ SML",
+      description:
+        "ยังไม่ได้ตั้งค่า SML JavaWS หรือ datasource ยังไม่พร้อม จึงยังไม่ควรเปิดรอบแจ้งเตือนจริง",
+      href: `/owner/sml-connections?tenant=${encodeURIComponent(
+        missingDatasource.tenant.id,
+      )}`,
+      tenantName: missingDatasource.tenant.name,
+      title: "เชื่อม SML JavaWS ให้ผ่านก่อน",
+      tone: "warning",
+    };
+  }
+
+  const failedRoundTenant = activeTenants.find(
+    (item) =>
+      item.health.latest_notification_run_status === "failed" ||
+      item.health.latest_report_status === "failed",
+  );
+  if (failedRoundTenant) {
+    return {
+      actionLabel: "เปิด audit",
+      description:
+        failedRoundTenant.health.latest_notification_run_error ??
+        "รอบรายงานล่าสุดล้มเหลว ต้องดูรายละเอียดก่อนสรุปยอดให้ผู้บริหาร",
+      href: "/owner/audit",
+      tenantName: failedRoundTenant.tenant.name,
+      title: "ตรวจรอบรายงานที่ล้มเหลว",
+      tone: "error",
+    };
+  }
+
+  const lineProblemTenant = activeTenants.find(
+    (item) =>
+      item.health.line_channels === 0 ||
+      item.health.line_targets_enabled === 0 ||
+      item.health.latest_line_delivery_status === "failed",
+  );
+  if (lineProblemTenant) {
+    return {
+      actionLabel: "ตรวจ LINE",
+      description:
+        lineProblemTenant.health.latest_line_delivery_status === "failed"
+          ? "LINE delivery ล่าสุดส่งไม่สำเร็จ ต้องดูผู้รับ/สิทธิ์/ช่องทางก่อนรอบถัดไป"
+          : "ยังไม่มี LINE OA หรือผู้รับที่เปิดรับรายงานผู้บริหาร",
+      href: `/owner/line?tenant=${encodeURIComponent(lineProblemTenant.tenant.id)}`,
+      tenantName: lineProblemTenant.tenant.name,
+      title: "ทำให้เส้นทางส่ง LINE พร้อม",
+      tone: "warning",
+    };
+  }
+
+  const missingScheduleTenant = activeTenants.find(
+    (item) => item.health.notification_rules_enabled === 0,
+  );
+  if (missingScheduleTenant) {
+    return {
+      actionLabel: "ตั้งแจ้งเตือน",
+      description:
+        "ร้านนี้พร้อมดึงรายงานและมีผู้รับแล้ว แต่ยังไม่มีแผนแจ้งเตือนที่เปิดใช้งาน",
+      href: `/owner/notifications?tenant=${encodeURIComponent(
+        missingScheduleTenant.tenant.id,
+      )}`,
+      tenantName: missingScheduleTenant.tenant.name,
+      title: "สร้างแผนส่งรายงานอัตโนมัติ",
+      tone: "warning",
+    };
+  }
+
+  const criticalSignalTenant = activeTenants.find(
+    (item) => item.health.critical_business_signals > 0,
+  );
+  if (criticalSignalTenant) {
+    return {
+      actionLabel: "เปิดรายละเอียดร้าน",
+      description: `${criticalSignalTenant.health.critical_business_signals} เรื่องควรตรวจทันทีจาก snapshot ล่าสุด`,
+      href: `/owner?tenant=${encodeURIComponent(criticalSignalTenant.tenant.id)}`,
+      tenantName: criticalSignalTenant.tenant.name,
+      title: "จัดการ business signal ที่ยังเปิดอยู่",
+      tone: "error",
+    };
+  }
+
+  const missingProofTenant = activeTenants.find(
+    (item) =>
+      item.health.latest_notification_run_status !== "success" ||
+      item.health.latest_line_delivery_status !== "success",
+  );
+  if (missingProofTenant) {
+    return {
+      actionLabel: "ดู audit",
+      description:
+        "ยังไม่มีหลักฐาน production proof ครบทั้ง notification run และ LINE delivery สำเร็จ",
+      href: "/owner/audit",
+      tenantName: missingProofTenant.tenant.name,
+      title: "ตรวจ proof ของรอบล่าสุด",
+      tone: "info",
+    };
+  }
+
+  return {
+    actionLabel: "ดูรอบล่าสุด",
+    description:
+      "ร้าน active มี prerequisite ครบและมี proof ล่าสุดแล้ว รอตรวจรอบแจ้งเตือนถัดไปหลังส่งจริง",
+    href: "/owner/audit",
+    title: "พร้อมรอบถัดไป",
+    tone: "success",
+  };
+}
+
+function buildStoreHealthCells(
+  item: TenantSummary,
+  latestJavaWsFailure:
+    | NonNullable<OwnerOperationsStatus["report_health"]>["latest_javaws_failure"]
+    | null,
 ) {
-  const activeTenants = tenants.filter((item) => item.access.enabled);
-  const items: ProductionReadinessItem[] = [];
+  const readiness = getTenantReadiness(item);
+  const nextStep = getTenantNextStep(item, readiness.items);
+  const latestRunStatus =
+    item.health.latest_notification_run_status ?? item.health.latest_report_status;
+  const hasIncident =
+    latestJavaWsFailure?.tenant_id === item.tenant.id ||
+    item.health.latest_notification_run_status === "failed" ||
+    item.health.latest_report_status === "failed" ||
+    item.health.latest_line_delivery_status === "failed";
 
-  items.push({
-    description: operationsStatus?.api.ok
-      ? `API online · system store ${
-          operationsStatus.api.system_store === "postgres" ? "PostgreSQL" : "Local JSON"
-        }`
-      : "ยังโหลดสถานะ API/operations ไม่สำเร็จ",
-    label: operationsStatus?.api.ok ? "พร้อม" : "ต้องทำ",
-    ok: Boolean(operationsStatus?.api.ok),
-    title: "API และ system store",
-    tone: operationsStatus?.api.ok ? "success" : "error",
-  });
+  return {
+    nextStep,
+    sml: {
+      label: item.health.datasource_configured ? "พร้อม" : "ต้องตั้ง",
+      tone: item.health.datasource_configured
+        ? ("success" as const)
+        : ("warning" as const),
+    },
+    line: {
+      label:
+        item.health.line_targets_enabled > 0
+          ? `${item.health.line_targets_enabled} ผู้รับ`
+          : item.health.line_channels > 0
+            ? "รอผู้รับ"
+            : "ยังไม่มี",
+      tone:
+        item.health.line_targets_enabled > 0
+          ? ("success" as const)
+          : item.health.line_channels > 0
+            ? ("warning" as const)
+            : ("error" as const),
+    },
+    schedule: {
+      label:
+        item.health.notification_rules_enabled > 0
+          ? `${item.health.notification_rules_enabled} แผน`
+          : "ยังไม่มี",
+      tone:
+        item.health.notification_rules_enabled > 0
+          ? ("success" as const)
+          : ("warning" as const),
+    },
+    latestRun: {
+      label: formatRunStatus(latestRunStatus),
+      tone:
+        latestRunStatus === "success"
+          ? ("success" as const)
+          : latestRunStatus === "failed"
+            ? ("error" as const)
+            : ("light" as const),
+    },
+    incident: {
+      label: hasIncident ? "มี" : "ไม่มี",
+      tone: hasIncident ? ("error" as const) : ("success" as const),
+    },
+    signals: {
+      label:
+        item.health.open_business_signals > 0
+          ? `${item.health.open_business_signals} เปิด`
+          : "ไม่มี",
+      tone:
+        item.health.critical_business_signals > 0
+          ? ("error" as const)
+          : item.health.open_business_signals > 0
+            ? ("warning" as const)
+            : ("success" as const),
+    },
+    proof: {
+      label:
+        item.health.latest_notification_run_status === "success" &&
+        item.health.latest_line_delivery_status === "success"
+          ? "ครบ"
+          : item.health.latest_notification_run_at
+            ? "ต้องตรวจ"
+            : "รอรอบ",
+      tone:
+        item.health.latest_notification_run_status === "success" &&
+        item.health.latest_line_delivery_status === "success"
+          ? ("success" as const)
+          : item.health.latest_notification_run_at
+            ? ("warning" as const)
+            : ("light" as const),
+    },
+  };
+}
 
-  const storeIsPostgres = operationsStatus?.api.system_store === "postgres";
-  items.push({
-    description: storeIsPostgres
-      ? "เก็บ audit, snapshot และ delivery ใน PostgreSQL แล้ว"
-      : "ยังเป็น Local JSON หรือยังไม่รู้สถานะ เสี่ยงเรื่อง backup/restore",
-    label: storeIsPostgres ? "พร้อม" : "ตรวจ",
-    ok: storeIsPostgres,
-    title: "ฐานข้อมูลระบบ",
-    tone: storeIsPostgres ? "success" : "warning",
-  });
+function getLatestNotificationRound(tenants: TenantSummary[]) {
+  return tenants
+    .filter((item) => item.health.latest_notification_run_at)
+    .map((item) => ({
+      at: item.health.latest_notification_run_at ?? "",
+      status: item.health.latest_notification_run_status,
+      tenantName: item.tenant.name,
+    }))
+    .sort((a, b) => getTimeMs(b.at) - getTimeMs(a.at))[0];
+}
 
-  const schedulerEnabled = Boolean(operationsStatus?.scheduler.enabled);
-  items.push({
-    description: schedulerEnabled
-      ? "worker อ่านแผนแจ้งเตือนจาก notification_rules ใน System DB"
-      : "ยังอ่านสถานะแผนแจ้งเตือนจาก DB ไม่สำเร็จ",
-    label: schedulerEnabled ? "พร้อม" : "ต้องทำ",
-    ok: schedulerEnabled,
-    title: "แผนแจ้งเตือนจาก DB",
-    tone: schedulerEnabled ? "success" : "error",
-  });
+function getTimeMs(value: string | null | undefined) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
 
-  const workerOk = operationsStatus?.worker.status === "ok";
-  items.push({
-    description: workerOk
-      ? `สัญญาณล่าสุด ${operationsStatus?.worker.age_seconds ?? "-"} วินาที`
-      : `worker ${formatWorkerStatus(operationsStatus?.worker.status ?? "missing")}`,
-    label: workerOk ? "พร้อม" : "ตรวจ",
-    ok: workerOk,
-    title: "สถานะ worker",
-    tone: workerOk ? "success" : "warning",
-  });
+function formatJavaWsFailurePhase(phase: string | null | undefined) {
+  const labels: Record<string, string> = {
+    timeout: "timeout",
+    unreachable: "ติดต่อไม่ได้",
+    operation_missing: "ไม่พบ operation",
+    http_error: "HTTP error",
+    soap_fault: "SOAP fault",
+    soap_parse_failed: "อ่าน SOAP ไม่ได้",
+    missing_return: "ไม่มีผลลัพธ์กลับมา",
+    non_base64_return: "ผลลัพธ์ไม่ใช่ base64",
+    invalid_zip: "zip เปิดไม่ได้",
+    empty_zip: "zip ว่าง",
+    xml_parse_failed: "อ่าน XML ไม่ได้",
+    missing_resultset: "ไม่พบ resultset",
+    invalid_resultset: "resultset ผิดรูปแบบ",
+    unknown: "ยังไม่ทราบ phase",
+  };
+  return labels[phase ?? "unknown"] ?? "ยังไม่ทราบ phase";
+}
 
-  const backupConfigured = Boolean(operationsStatus?.backup.configured);
-  items.push({
-    description: backupConfigured
-      ? `สำรองข้อมูลล่าสุด ${
-          operationsStatus?.backup.last_backup_at
-            ? formatDateTime(operationsStatus.backup.last_backup_at)
-            : "มี config แล้ว"
-        }`
-      : operationsStatus?.backup.recommendation ??
-        "ควรตั้ง backup ก่อนใช้งานจริงกับลูกค้า",
-    label: backupConfigured ? "พร้อม" : "ตรวจ",
-    ok: backupConfigured,
-    title: "ความพร้อมสำรองข้อมูล",
-    tone: backupConfigured ? "success" : "warning",
-  });
-
-  const datasourceReady = activeTenants.every(
-    (item) => item.health.datasource_configured,
-  );
-  items.push({
-    description: datasourceReady
-      ? "ร้านที่เปิดใช้งานตั้งค่า SML JavaWS ครบ"
-      : "มีร้านที่เปิดใช้งานแล้วยังไม่ได้ตั้งค่า SML JavaWS",
-    label: datasourceReady ? "พร้อม" : "ต้องทำ",
-    ok: datasourceReady,
-    title: "SML JavaWS ต่อร้าน",
-    tone: datasourceReady ? "success" : "error",
-  });
-
-  const reportReady = activeTenants.every((item) =>
-    Boolean(item.health.latest_snapshot_at),
-  );
-  items.push({
-    description: reportReady
-      ? "ร้านที่เปิดใช้งานมี snapshot ล่าสุดให้ลูกค้าดู"
-      : "มีร้านที่ยังไม่มี snapshot ล่าสุด ต้องรันรายงานก่อนส่งลิงก์ให้ลูกค้า",
-    label: reportReady ? "พร้อม" : "ต้องทำ",
-    ok: reportReady,
-    title: "รายงานล่าสุด",
-    tone: reportReady ? "success" : "warning",
-  });
-
-  const lineReady = activeTenants.every(
-    (item) =>
-      item.health.line_channels > 0 && item.health.line_targets_enabled > 0,
-  );
-  items.push({
-    description: lineReady
-      ? "ร้านที่เปิดใช้งานมี LINE OA และผู้รับที่อนุมัติแล้ว"
-      : "มีร้านที่ยังไม่มี LINE OA หรือยังไม่มีผู้รับแผนแจ้งเตือน",
-    label: lineReady ? "พร้อม" : "ตรวจ",
-    ok: lineReady,
-    title: "เส้นทางส่ง LINE",
-    tone: lineReady ? "success" : "warning",
-  });
-
-  const noRecentFailures = activeTenants.every(
-    (item) =>
-      item.health.latest_report_status !== "failed" &&
-      item.health.latest_line_delivery_status !== "failed",
-  );
-  items.push({
-    description: noRecentFailures
-      ? "ไม่พบรายงานหรือการส่ง LINE ล่าสุดที่ล้มเหลว"
-      : "มีรายงานหรือการส่ง LINE ล่าสุดล้มเหลว ต้องเปิดประวัติระบบเพื่อตรวจต่อ",
-    label: noRecentFailures ? "พร้อม" : "ตรวจ",
-    ok: noRecentFailures,
-    title: "ข้อผิดพลาดล่าสุด",
-    tone: noRecentFailures ? "success" : "error",
-  });
-
-  const okCount = items.filter((item) => item.ok).length;
-  const score = Math.round((okCount / items.length) * 100);
-  const summary =
-    score >= 90
-      ? "พร้อมสำหรับลูกค้าใช้งานจริง โดยยังควรติดตามสถานะระบบต่อเนื่อง"
-      : score >= 70
-        ? "พร้อมทดลองใช้งาน แต่ยังมีจุดที่ควรแก้ก่อนเพิ่มหลายร้าน"
-        : "ยังไม่ควรเปิดร้านเพิ่ม จัดการรายการเสี่ยงก่อน";
-
-  return { items, score, summary };
+function formatOperationalAlertStatus(status: OperationalAlertDeliveryRecord["status"]) {
+  if (status === "success") {
+    return "ส่งสำเร็จ";
+  }
+  if (status === "failed") {
+    return "ส่งไม่สำเร็จ";
+  }
+  if (status === "dry_run") {
+    return "dry-run";
+  }
+  if (status === "skipped") {
+    return "ข้าม";
+  }
+  return status;
 }
 
 function formatRunStatus(status: string | null) {

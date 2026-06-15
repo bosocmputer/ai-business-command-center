@@ -7,13 +7,17 @@
 ## อ่านจากไฟล์ไหนก่อน
 
 1. [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) - สถานะล่าสุดหลัง deploy professional pilot
-2. [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) - ภาพรวมสินค้า, ลูกค้าเป้าหมาย, subscription model
-3. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ integration channel ถึง Dashboard และ LINE OA
-4. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report/brief หนึ่งตัว ซึ่งเป็นแกนหลักของแต่ละ channel
-5. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานขายสินค้าและบริการ
-6. [reports/purchase_goods_payables.md](./reports/purchase_goods_payables.md) - contract รายงานซื้อสินค้า/ตั้งหนี้
-7. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
-8. [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) - ลำดับ implementation
+2. [17_PRODUCTIZED_PILOT_PLAN_TH.md](./17_PRODUCTIZED_PILOT_PLAN_TH.md) - แผนพา pilot ไปเป็น product ที่ขายได้จริง
+3. [18_7_DAY_PRODUCTION_PROOF_LOG_TH.md](./18_7_DAY_PRODUCTION_PROOF_LOG_TH.md) - template เก็บ proof รายวันจาก production
+4. [19_PILOT_SALES_DEMO_KIT_TH.md](./19_PILOT_SALES_DEMO_KIT_TH.md) - sales/demo kit สำหรับคุยลูกค้า pilot
+5. [20_OWNER_COCKPIT_SIMPLIFICATION_PLAN_TH.md](./20_OWNER_COCKPIT_SIMPLIFICATION_PLAN_TH.md) - แผนปรับ `/owner` ให้เป็น operations cockpit
+6. [01_PRODUCT_BLUEPRINT_TH.md](./01_PRODUCT_BLUEPRINT_TH.md) - ภาพรวมสินค้า, ลูกค้าเป้าหมาย, subscription model
+7. [03_DATA_FLOW_TH.md](./03_DATA_FLOW_TH.md) - flow ข้อมูลตั้งแต่ integration channel ถึง Dashboard และ LINE OA
+8. [05_REPORT_CONTRACT_TH.md](./05_REPORT_CONTRACT_TH.md) - มาตรฐานของ report/brief หนึ่งตัว ซึ่งเป็นแกนหลักของแต่ละ channel
+9. [reports/sales_goods_services.md](./reports/sales_goods_services.md) - contract รายงานขายสินค้าและบริการ
+10. [reports/purchase_goods_payables.md](./reports/purchase_goods_payables.md) - contract รายงานซื้อสินค้า/ตั้งหนี้
+11. [09_TECH_STACK_AND_DEPLOYMENT_TH.md](./09_TECH_STACK_AND_DEPLOYMENT_TH.md) - stack และ deployment ที่เครื่องทดสอบ
+12. [11_IMPLEMENTATION_ROADMAP_TH.md](./11_IMPLEMENTATION_ROADMAP_TH.md) - ลำดับ implementation
 
 ## เอกสารทั้งหมด
 
@@ -35,6 +39,10 @@
 | [14_SYSTEM_DB_MIGRATION_TH.md](./14_SYSTEM_DB_MIGRATION_TH.md) | ขั้นตอนย้าย persistence จาก local JSON ไป PostgreSQL system DB |
 | [15_UX_UI_AUDIT_TH.md](./15_UX_UI_AUDIT_TH.md) | UX/UI audit และ TailAdmin alignment checklist |
 | [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md) | สถานะล่าสุด, deploy, validation, next steps สำหรับเริ่มงานวันถัดไป |
+| [17_PRODUCTIZED_PILOT_PLAN_TH.md](./17_PRODUCTIZED_PILOT_PLAN_TH.md) | แผน sellable pilot, positioning, 7-day proof gate, packaging และ sprint ถัดไป |
+| [18_7_DAY_PRODUCTION_PROOF_LOG_TH.md](./18_7_DAY_PRODUCTION_PROOF_LOG_TH.md) | template สำหรับเก็บ proof รายวันจาก production DB และสรุป readiness สำหรับขาย |
+| [19_PILOT_SALES_DEMO_KIT_TH.md](./19_PILOT_SALES_DEMO_KIT_TH.md) | sales/demo kit, discovery questions, demo script, one-page copy และ objection handling |
+| [20_OWNER_COCKPIT_SIMPLIFICATION_PLAN_TH.md](./20_OWNER_COCKPIT_SIMPLIFICATION_PLAN_TH.md) | แผนปรับ Owner overview เป็น operations cockpit ที่ตอบ next action ชัด |
 | [admin-runbook-store-setup-th.md](./admin-runbook-store-setup-th.md) | คู่มือ Owner เพิ่มร้าน เชื่อม SML JavaWS ตั้ง LINE และแผนแจ้งเตือน |
 | [adr/0001-db-backed-notification-rule-scheduler.md](./adr/0001-db-backed-notification-rule-scheduler.md) | ADR scheduler จาก DB-backed notification rules |
 | [adr/0002-sml-javaws-only-tenant-datasource.md](./adr/0002-sml-javaws-only-tenant-datasource.md) | ADR SML datasource ของร้านใช้ JavaWS-only |
