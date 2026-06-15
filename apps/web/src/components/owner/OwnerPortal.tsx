@@ -7393,11 +7393,7 @@ function isPilotCoverageTenant(item: TenantSummary) {
   return (
     item.health.datasource_configured ||
     item.health.line_targets_enabled > 0 ||
-    item.health.notification_rules_enabled > 0 ||
-    Boolean(item.health.latest_report_run_at) ||
-    Boolean(item.health.latest_snapshot_at) ||
-    Boolean(item.health.latest_line_delivery_at) ||
-    Boolean(item.health.latest_notification_run_at)
+    item.health.notification_rules_enabled > 0
   );
 }
 
