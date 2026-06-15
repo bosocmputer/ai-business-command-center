@@ -51,12 +51,12 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isSignedIn) {
-    return NextResponse.next();
+    return withOwnerNoStoreHeaders(NextResponse.next());
   }
 
   const redirectUrl = new URL("/signin", request.url);
   redirectUrl.searchParams.set("next", `${pathname}${search}`);
-  return NextResponse.redirect(redirectUrl);
+  return withOwnerNoStoreHeaders(NextResponse.redirect(redirectUrl));
 }
 
 export const config = {
@@ -92,4 +92,14 @@ function safeNextPath(value: string) {
   }
 
   return value;
+}
+
+function withOwnerNoStoreHeaders(response: NextResponse) {
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
 }
