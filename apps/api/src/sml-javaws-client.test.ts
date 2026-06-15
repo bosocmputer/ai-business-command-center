@@ -6,6 +6,7 @@ import {
   compressSqlForJavaWs,
   decompressJavaWsPayload,
   extractSoapBase64Return,
+  extractJavaWsFailureDiagnostics,
   extractSoapReturnText,
   parseJavaWsRows,
 } from "./sml-javaws-client.js";
@@ -88,5 +89,32 @@ describe("SML JavaWS client helpers", () => {
         data_name: "DEMO",
       },
     ]);
+  });
+
+  it("maps unreadable JavaWS phases without exposing raw response content", () => {
+    expect(
+      extractJavaWsFailureDiagnostics(
+        new Error("JavaWS SOAP return payload was not base64."),
+      ),
+    ).toMatchObject({
+      failure_kind: "unreadable_response",
+      failure_phase: "non_base64_return",
+    });
+    expect(
+      extractJavaWsFailureDiagnostics(
+        new Error("JavaWS returned an invalid ZIP payload."),
+      ),
+    ).toMatchObject({
+      failure_kind: "unreadable_response",
+      failure_phase: "invalid_zip",
+    });
+    expect(
+      extractJavaWsFailureDiagnostics(
+        new Error("JavaWS XML response did not include ResultSet."),
+      ),
+    ).toMatchObject({
+      failure_kind: "unreadable_response",
+      failure_phase: "missing_resultset",
+    });
   });
 });

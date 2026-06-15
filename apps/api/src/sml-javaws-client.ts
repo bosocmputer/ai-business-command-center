@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import type { JavaWsFailureKind, JavaWsFailurePhase } from "@ai-bcc/shared";
 import type { JavaWsDatasourceConfig } from "./config.js";
 
 const SOAP_NAMESPACE = "http://SMLWebService/";
@@ -22,6 +23,12 @@ export type JavaWsQueryResult = {
   rows: Record<string, unknown>[];
 };
 
+export type JavaWsFailureDiagnostics = {
+  failure_kind: JavaWsFailureKind;
+  failure_phase: JavaWsFailurePhase;
+  failure_metadata_json: Record<string, unknown>;
+};
+
 export type JavaWsConnectionConfig = Pick<
   JavaWsDatasourceConfig,
   "baseUrl" | "webappPath" | "endpoint" | "configFileName" | "auth"
@@ -33,6 +40,25 @@ export type JavaWsDatabaseRecord = {
   database_name: string;
 };
 
+export class JavaWsSafeError extends Error {
+  readonly failureKind: JavaWsFailureKind;
+  readonly failurePhase: JavaWsFailurePhase;
+  readonly failureMetadata: Record<string, unknown>;
+
+  constructor(input: {
+    message: string;
+    failureKind: JavaWsFailureKind;
+    failurePhase: JavaWsFailurePhase;
+    failureMetadata?: Record<string, unknown>;
+  }) {
+    super(input.message);
+    this.name = "JavaWsSafeError";
+    this.failureKind = input.failureKind;
+    this.failurePhase = input.failurePhase;
+    this.failureMetadata = input.failureMetadata ?? {};
+  }
+}
+
 export class SmlJavaWsClient {
   constructor(
     private readonly config: JavaWsDatasourceConfig,
@@ -40,6 +66,7 @@ export class SmlJavaWsClient {
   ) {}
 
   async query(sql: string): Promise<JavaWsQueryResult> {
+    const startedAt = Date.now();
     const envelope = buildQueryCompressSoapEnvelope({
       guid: "AI_BCC",
       configFileName: this.config.configFileName,
@@ -48,6 +75,9 @@ export class SmlJavaWsClient {
     });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const metadata: Record<string, unknown> = {
+      operation: "_queryCompress",
+    };
 
     try {
       const response = await fetch(buildJavaWsEndpointUrl(this.config), {
@@ -61,19 +91,32 @@ export class SmlJavaWsClient {
         signal: controller.signal,
       });
       const body = await response.text();
+      metadata.status_code = response.status;
+      metadata.response_byte_count = Buffer.byteLength(body, "utf8");
       if (!response.ok) {
-        throw new Error(`JavaWS HTTP ${response.status}`);
+        throw new JavaWsSafeError({
+          message:
+            response.status === 404
+              ? "JavaWS endpoint or WSDL operation is missing. Check Tomcat path and endpoint."
+              : `JavaWS HTTP ${response.status}`,
+          failureKind: response.status === 404 ? "operation_missing" : "unknown",
+          failurePhase: response.status === 404 ? "operation_missing" : "http_error",
+          failureMetadata: metadata,
+        });
       }
 
       const zippedResultBase64 = extractSoapBase64Return(body);
-      const xml = decompressJavaWsPayload(
-        Buffer.from(zippedResultBase64, "base64"),
-      );
+      const decodedPayload = Buffer.from(zippedResultBase64, "base64");
+      metadata.decoded_byte_count = decodedPayload.byteLength;
+      const xml = decompressJavaWsPayload(decodedPayload);
       return {
         rows: parseJavaWsRows(xml),
       };
     } catch (error) {
-      throw toJavaWsSafeError(error);
+      throw toJavaWsSafeError(error, {
+        ...metadata,
+        latency_ms: Date.now() - startedAt,
+      });
     } finally {
       clearTimeout(timeout);
     }
@@ -139,7 +182,12 @@ export function compressSqlForJavaWs(sql: string) {
 }
 
 export function decompressJavaWsPayload(payload: Buffer) {
-  const unzipped = unzipSync(new Uint8Array(payload));
+  let unzipped: Record<string, Uint8Array>;
+  try {
+    unzipped = unzipSync(new Uint8Array(payload));
+  } catch {
+    throw new Error("JavaWS returned an invalid ZIP payload.");
+  }
   const firstEntry = Object.values(unzipped)[0];
   if (!firstEntry) {
     throw new Error("JavaWS returned an empty ZIP payload.");
@@ -165,14 +213,22 @@ export function buildGetDatabaseListSoapEnvelope(input: {
 
 export function extractSoapBase64Return(xml: string) {
   const returnValue = extractSoapReturnText(xml);
-  if (!returnValue || !isBase64Like(returnValue)) {
+  if (!returnValue) {
     throw new Error("JavaWS SOAP response did not include a return payload.");
+  }
+  if (!isBase64Like(returnValue)) {
+    throw new Error("JavaWS SOAP return payload was not base64.");
   }
   return returnValue.trim();
 }
 
 export function extractSoapReturnText(xml: string) {
-  const parsed = soapParser.parse(xml) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = soapParser.parse(xml) as unknown;
+  } catch {
+    throw new Error("JavaWS SOAP response could not be parsed.");
+  }
   const faultText = findSoapFault(parsed);
   if (faultText) {
     throw new Error(`JavaWS SOAP fault: ${faultText}`);
@@ -190,7 +246,12 @@ export function parseJavaWsRows(xml: string): Record<string, unknown>[] {
   if (!xml.trim()) {
     return [];
   }
-  const parsed = resultParser.parse(xml) as Record<string, unknown>;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = resultParser.parse(xml) as Record<string, unknown>;
+  } catch {
+    throw new Error("JavaWS XML response could not be parsed.");
+  }
   const resultSet = findObjectKey(parsed, "ResultSet") ?? parsed.ResultSet;
   if (resultSet == null) {
     throw new Error("JavaWS XML response did not include ResultSet.");
@@ -340,25 +401,122 @@ function escapeXml(value: string) {
     .replace(/'/g, "&apos;");
 }
 
-function toJavaWsSafeError(error: unknown) {
+export function extractJavaWsFailureDiagnostics(
+  error: unknown,
+): JavaWsFailureDiagnostics | null {
+  const safeError = toJavaWsSafeError(error);
+  if (!(safeError instanceof JavaWsSafeError)) {
+    return null;
+  }
+  return {
+    failure_kind: safeError.failureKind,
+    failure_phase: safeError.failurePhase,
+    failure_metadata_json: safeError.failureMetadata,
+  };
+}
+
+function toJavaWsSafeError(
+  error: unknown,
+  metadata: Record<string, unknown> = {},
+) {
+  if (error instanceof JavaWsSafeError) {
+    return new JavaWsSafeError({
+      message: error.message,
+      failureKind: error.failureKind,
+      failurePhase: error.failurePhase,
+      failureMetadata: {
+        ...error.failureMetadata,
+        ...metadata,
+        phase: error.failurePhase,
+      },
+    });
+  }
   if (error instanceof Error) {
     if (error.name === "AbortError" || /timeout|aborted/i.test(error.message)) {
-      return new Error("JavaWS connection timed out.");
+      return new JavaWsSafeError({
+        message: "JavaWS connection timed out.",
+        failureKind: "timeout",
+        failurePhase: "timeout",
+        failureMetadata: { ...metadata, phase: "timeout" },
+      });
     }
     if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|fetch failed|network/i.test(error.message)) {
-      return new Error("JavaWS Tomcat endpoint is unreachable.");
+      return new JavaWsSafeError({
+        message: "JavaWS Tomcat endpoint is unreachable.",
+        failureKind: "unreachable",
+        failurePhase: "unreachable",
+        failureMetadata: { ...metadata, phase: "unreachable" },
+      });
     }
-    if (/HTTP 404|did not include a return|SOAP fault/i.test(error.message)) {
-      return new Error(
-        "JavaWS endpoint or WSDL operation is missing. Check Tomcat path and endpoint.",
-      );
+    if (/HTTP 404|operation is missing/i.test(error.message)) {
+      return new JavaWsSafeError({
+        message:
+          "JavaWS endpoint or WSDL operation is missing. Check Tomcat path and endpoint.",
+        failureKind: "operation_missing",
+        failurePhase: "operation_missing",
+        failureMetadata: { ...metadata, phase: "operation_missing" },
+      });
     }
-    if (/ZIP|compressed|invalid|ResultSet|XML/i.test(error.message)) {
-      return new Error(
-        "JavaWS returned an unreadable response. Check config file name, database name, and SQL permissions.",
-      );
+    if (/HTTP \d{3}/i.test(error.message)) {
+      return new JavaWsSafeError({
+        message: "JavaWS datasource query failed.",
+        failureKind: "unknown",
+        failurePhase: "http_error",
+        failureMetadata: { ...metadata, phase: "http_error" },
+      });
+    }
+    const unreadablePhase = classifyUnreadableJavaWsPhase(error.message);
+    if (unreadablePhase) {
+      return new JavaWsSafeError({
+        message:
+          "JavaWS returned an unreadable response. Check config file name, database name, and SQL permissions.",
+        failureKind: "unreadable_response",
+        failurePhase: unreadablePhase,
+        failureMetadata: { ...metadata, phase: unreadablePhase },
+      });
     }
   }
 
-  return new Error("JavaWS datasource query failed.");
+  return new JavaWsSafeError({
+    message: "JavaWS datasource query failed.",
+    failureKind: "unknown",
+    failurePhase: "unknown",
+    failureMetadata: { ...metadata, phase: "unknown" },
+  });
+}
+
+function classifyUnreadableJavaWsPhase(
+  message: string,
+): JavaWsFailurePhase | null {
+  if (/SOAP fault/i.test(message)) {
+    return "soap_fault";
+  }
+  if (/SOAP response could not be parsed/i.test(message)) {
+    return "soap_parse_failed";
+  }
+  if (/did not include a return/i.test(message)) {
+    return "missing_return";
+  }
+  if (/not base64/i.test(message)) {
+    return "non_base64_return";
+  }
+  if (/invalid ZIP/i.test(message)) {
+    return "invalid_zip";
+  }
+  if (/empty ZIP/i.test(message)) {
+    return "empty_zip";
+  }
+  if (/XML response could not be parsed/i.test(message)) {
+    return "xml_parse_failed";
+  }
+  if (/did not include ResultSet/i.test(message)) {
+    return "missing_resultset";
+  }
+  if (/ResultSet was not structured/i.test(message)) {
+    return "invalid_resultset";
+  }
+  if (/ZIP|compressed|invalid|ResultSet|XML/i.test(message)) {
+    return "unknown";
+  }
+  return null;
 }

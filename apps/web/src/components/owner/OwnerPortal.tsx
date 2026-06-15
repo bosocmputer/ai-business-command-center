@@ -25,6 +25,7 @@ import {
   type NotificationDigestMode,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
+  type OperationalAlertDeliveryRecord,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductSnapshot,
   type PurchaseGoodsPayablesSnapshot,
@@ -324,8 +325,63 @@ type OwnerOperationsStatus = {
     skipped_permission_recent: number;
     lifecycle_updates_recent: number;
   };
+  operational_alerts?: {
+    telegram: {
+      status: TelegramOperationalAlertStatus;
+      deliveries: OperationalAlertDeliveryRecord[];
+    };
+  };
+  report_health?: {
+    latest_javaws_failure: {
+      id: string;
+      tenant_id: string;
+      report_key: ReportKey;
+      status: ReportRunRecord["status"];
+      finished_at: string | null;
+      failure_kind: string | null;
+      failure_phase: string | null;
+      failure_metadata_json: Record<string, unknown>;
+      safe_error_message: string | null;
+    } | null;
+    heavy_report_runs: Array<{
+      id: string;
+      tenant_id: string;
+      report_key: ReportKey;
+      status: ReportRunRecord["status"];
+      started_at: string;
+      finished_at: string | null;
+      duration_ms: number | null;
+      row_count: number;
+      failure_kind: string | null;
+      failure_phase: string | null;
+      safe_error_message: string | null;
+    }>;
+  };
   audit_logs: OwnerAuditLogEntry[];
   system_config?: SystemConfigStatus;
+};
+
+type TelegramOperationalAlertStatus = {
+  configured: boolean;
+  encryption_configured: boolean;
+  verified: boolean;
+  bot_username: string | null;
+  bot_first_name: string | null;
+  updated_at: string | null;
+  targets: Array<{
+    id: string;
+    display_name: string;
+    target_id_masked: string;
+    enabled: boolean;
+    updated_at: string;
+  }>;
+};
+
+type TelegramChatPreview = {
+  chat_id: string;
+  chat_id_masked: string;
+  display_name: string;
+  type: string;
 };
 
 type SystemConfigStatus = {
@@ -513,6 +569,8 @@ export default function OwnerPortal({
     useState("");
   const [systemBackupConfigured, setSystemBackupConfigured] = useState(false);
   const [systemLastBackupAt, setSystemLastBackupAt] = useState("");
+  const [telegramBotTokenInput, setTelegramBotTokenInput] = useState("");
+  const [telegramChats, setTelegramChats] = useState<TelegramChatPreview[]>([]);
   const [dataStatus, setDataStatus] =
     useState<OwnerDataStatus>("checking");
   const [busy, setBusy] = useState<string | null>(null);
@@ -1373,6 +1431,184 @@ export default function OwnerPortal({
       setSelectedTenantId(tenantId);
       setJustCreatedTenantId(tenantId);
       setResult({ tone: "success", message: "เพิ่มร้านค้าใหม่แล้ว" });
+      await loadOwnerData();
+    });
+  }
+
+  async function saveTelegramBotToken(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runOwnerAction("telegram-token-save", async () => {
+      if (!telegramBotTokenInput.trim()) {
+        throw new Error("กรุณากรอก Telegram bot token ก่อนบันทึก");
+      }
+      const confirmed = await requestAdminConfirmation({
+        title: "ยืนยันบันทึก Telegram bot token",
+        message:
+          "ระบบจะตรวจสอบ token กับ Telegram และเข้ารหัสเก็บใน secret store โดยไม่แสดง token กลับใน UI",
+        confirmLabel: "บันทึก token",
+        tone: "primary",
+      });
+      if (!confirmed) {
+        return;
+      }
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "บันทึก Telegram ops alert token",
+        description:
+          "ใช้ส่ง operational alert ให้ owner เท่านั้น token จะถูกเข้ารหัสฝั่ง server",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนบันทึก Telegram token");
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/operational-alerts/telegram/secrets`,
+        {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ bot_token: telegramBotTokenInput.trim() }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "บันทึก Telegram token ไม่สำเร็จ");
+      }
+      setTelegramBotTokenInput("");
+      setResult({
+        tone: "success",
+        message: "ตรวจสอบและบันทึก Telegram bot token แล้ว",
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function loadTelegramChats() {
+    await runOwnerAction("telegram-chats-load", async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "โหลด Telegram chats",
+        description: "อ่าน recent updates หลังจาก owner ส่ง /start ให้ bot",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนโหลด Telegram chats");
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/operational-alerts/telegram/updates`,
+        { headers },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: TelegramChatPreview[];
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.error || "โหลด Telegram chats ไม่สำเร็จ");
+      }
+      setTelegramChats(payload.data);
+      setResult({
+        tone: payload.data.length ? "success" : "warning",
+        message: payload.data.length
+          ? "โหลด Telegram chats ล่าสุดแล้ว"
+          : "ยังไม่พบ chat ให้ส่ง /start ไปที่ bot แล้วกดโหลดอีกครั้ง",
+      });
+    });
+  }
+
+  async function saveTelegramTarget(chat: TelegramChatPreview) {
+    await runOwnerAction(`telegram-target-${chat.chat_id_masked}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "เลือก Telegram alert target",
+        description: "เข้ารหัส chat id และใช้เป็นปลายทาง ops alert",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเลือก Telegram chat");
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/operational-alerts/telegram/targets`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            chat_id: chat.chat_id,
+            display_name: chat.display_name,
+            enabled: true,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "บันทึก Telegram target ไม่สำเร็จ");
+      }
+      setResult({
+        tone: "success",
+        message: `เลือก ${chat.display_name} เป็น Telegram ops target แล้ว`,
+      });
+      await loadOwnerData();
+    });
+  }
+
+  async function sendTelegramTestAlert() {
+    await runOwnerAction("telegram-test-alert", async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "ส่ง Telegram test alert",
+        description: "ส่งข้อความทดสอบไปยัง Telegram ops target ที่เลือกไว้",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนส่ง test alert");
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/operational-alerts/telegram/test`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ message: "Owner UI test" }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "ส่ง Telegram test alert ไม่สำเร็จ");
+      }
+      setResult({ tone: "success", message: "ส่ง Telegram test alert แล้ว" });
+      await loadOwnerData();
+    });
+  }
+
+  async function runOperationalAlertSmokeTest(alertType: string) {
+    await runOwnerAction(`telegram-smoke-${alertType}`, async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "รัน ops alert dry-run",
+        description: "บันทึก dry-run delivery โดยไม่ส่ง provider จริง",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนรัน dry-run");
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/owner/operational-alerts/smoke-test`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            alert_type: alertType,
+            severity: alertType === "notification_summary" ? "info" : "warning",
+            tenant_id: selectedTenantId || undefined,
+            scheduled_time: "08:00",
+            report_key:
+              alertType === "javaws_diagnostic" ? "sales_goods_services" : undefined,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "รัน ops alert dry-run ไม่สำเร็จ");
+      }
+      setResult({
+        tone: "success",
+        message: "บันทึก ops alert dry-run แล้ว โดยไม่ได้ส่ง Telegram จริง",
+      });
       await loadOwnerData();
     });
   }
@@ -3212,6 +3448,11 @@ export default function OwnerPortal({
           onDiscoverJavaWsDatabases={discoverJavaWsDatabases}
           onTestDatasource={testDatasource}
           onTestLineTarget={testLineTarget}
+          onLoadTelegramChats={loadTelegramChats}
+          onRunOperationalAlertSmokeTest={runOperationalAlertSmokeTest}
+          onSaveTelegramBotToken={saveTelegramBotToken}
+          onSaveTelegramTarget={saveTelegramTarget}
+          onSendTelegramTestAlert={sendTelegramTestAlert}
           onExecuteNotificationRule={executeSelectedNotificationRule}
           onSelectNotificationRule={applyNotificationRuleToForm}
           onNewNotificationRule={resetNotificationRuleForm}
@@ -3290,6 +3531,7 @@ export default function OwnerPortal({
           }
           setSystemWorkerHeartbeatToken={setSystemWorkerHeartbeatToken}
           setSystemWorkerId={setSystemWorkerId}
+          setTelegramBotTokenInput={setTelegramBotTokenInput}
           tenants={visibleSectionTenants}
           systemAppBaseUrl={systemAppBaseUrl}
           systemBackupConfigured={systemBackupConfigured}
@@ -3306,6 +3548,8 @@ export default function OwnerPortal({
           systemReportViewerSigningSecret={systemReportViewerSigningSecret}
           systemWorkerHeartbeatToken={systemWorkerHeartbeatToken}
           systemWorkerId={systemWorkerId}
+          telegramBotTokenInput={telegramBotTokenInput}
+          telegramChats={telegramChats}
           validationNote={validationNote}
           validationReferenceTotal={validationReferenceTotal}
           validationSignedBy={validationSignedBy}
@@ -3443,6 +3687,11 @@ type OwnerSectionContentProps = {
   onDiscoverJavaWsDatabases: (tenantId: string) => Promise<void>;
   onTestDatasource: (tenantId: string, source?: "form" | "saved") => Promise<void>;
   onTestLineTarget: (target: LineTargetRecord) => Promise<void>;
+  onLoadTelegramChats: () => Promise<void>;
+  onRunOperationalAlertSmokeTest: (alertType: string) => Promise<void>;
+  onSaveTelegramBotToken: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveTelegramTarget: (chat: TelegramChatPreview) => Promise<void>;
+  onSendTelegramTestAlert: () => Promise<void>;
   onExecuteNotificationRule: (mode: "dry_run" | "send") => Promise<void>;
   onSelectNotificationRule: (rule: OwnerNotificationRule) => void;
   onNewNotificationRule: () => void;
@@ -3532,6 +3781,7 @@ type OwnerSectionContentProps = {
   setSystemReportViewerSigningSecret: (value: string) => void;
   setSystemWorkerHeartbeatToken: (value: string) => void;
   setSystemWorkerId: (value: string) => void;
+  setTelegramBotTokenInput: (value: string) => void;
   systemAppBaseUrl: string;
   systemBackupConfigured: boolean;
   systemConfig: SystemConfigStatus | null;
@@ -3547,6 +3797,8 @@ type OwnerSectionContentProps = {
   systemReportViewerSigningSecret: string;
   systemWorkerHeartbeatToken: string;
   systemWorkerId: string;
+  telegramBotTokenInput: string;
+  telegramChats: TelegramChatPreview[];
   setValidationNote: (value: string) => void;
   setValidationReferenceTotal: (value: string) => void;
   setValidationSignedBy: (value: string) => void;
@@ -3577,12 +3829,7 @@ function OwnerSectionContent(props: OwnerSectionContentProps) {
     return <OwnerLineContent {...props} />;
   }
   if (props.section === "audit") {
-    return (
-      <OwnerAuditContent
-        operationsStatus={props.operationsStatus}
-        tenants={props.tenants}
-      />
-    );
+    return <OwnerAuditContent {...props} />;
   }
   if (props.section === "settings") {
     return <OwnerSettingsContent {...props} />;
@@ -5066,15 +5313,33 @@ function OwnerLineContent({
 }
 
 function OwnerAuditContent({
+  busy,
+  onLoadTelegramChats,
+  onRunOperationalAlertSmokeTest,
+  onSaveTelegramBotToken,
+  onSaveTelegramTarget,
+  onSendTelegramTestAlert,
   operationsStatus,
+  setTelegramBotTokenInput,
+  telegramBotTokenInput,
+  telegramChats,
   tenants,
-}: {
-  operationsStatus: OwnerOperationsStatus | null;
-  tenants: TenantSummary[];
-}) {
+}: OwnerSectionContentProps) {
   return (
     <div className="space-y-4">
       <OperationsStatusPanel operationsStatus={operationsStatus} />
+      <TelegramOpsPanel
+        busy={busy}
+        operationsStatus={operationsStatus}
+        telegramBotTokenInput={telegramBotTokenInput}
+        telegramChats={telegramChats}
+        setTelegramBotTokenInput={setTelegramBotTokenInput}
+        onLoadTelegramChats={onLoadTelegramChats}
+        onRunOperationalAlertSmokeTest={onRunOperationalAlertSmokeTest}
+        onSaveTelegramBotToken={onSaveTelegramBotToken}
+        onSaveTelegramTarget={onSaveTelegramTarget}
+        onSendTelegramTestAlert={onSendTelegramTestAlert}
+      />
 
       <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
         <OwnerPanelHeader
@@ -5444,6 +5709,244 @@ function OperationsStatusPanel({
           {operationsStatus.backup.recommendation}
         </p>
       ) : null}
+      {operationsStatus.report_health?.latest_javaws_failure ? (
+        <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            JavaWS failure ล่าสุด
+          </p>
+          <div className="mt-2 grid gap-2 text-sm text-gray-600 dark:text-gray-300 md:grid-cols-4">
+            <span>{operationsStatus.report_health.latest_javaws_failure.tenant_id}</span>
+            <span>{operationsStatus.report_health.latest_javaws_failure.report_key}</span>
+            <span>
+              {operationsStatus.report_health.latest_javaws_failure.failure_kind ?? "-"}
+            </span>
+            <span>
+              phase:{" "}
+              {operationsStatus.report_health.latest_javaws_failure.failure_phase ?? "-"}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {operationsStatus.report_health.latest_javaws_failure.safe_error_message}
+          </p>
+        </div>
+      ) : null}
+      {operationsStatus.report_health?.heavy_report_runs?.length ? (
+        <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            Heavy report duration ล่าสุด
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {operationsStatus.report_health.heavy_report_runs.slice(0, 4).map((run) => (
+              <div
+                className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-gray-800 dark:bg-white/[0.02]"
+                key={run.id}
+              >
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {run.tenant_id}
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {run.report_key}
+                </p>
+                <p className="mt-2 text-gray-700 dark:text-gray-300">
+                  {run.duration_ms === null
+                    ? "-"
+                    : `${Math.round(run.duration_ms / 1000).toLocaleString("th-TH")}s`}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TelegramOpsPanel({
+  busy,
+  operationsStatus,
+  telegramBotTokenInput,
+  telegramChats,
+  setTelegramBotTokenInput,
+  onLoadTelegramChats,
+  onRunOperationalAlertSmokeTest,
+  onSaveTelegramBotToken,
+  onSaveTelegramTarget,
+  onSendTelegramTestAlert,
+}: {
+  busy: string | null;
+  operationsStatus: OwnerOperationsStatus | null;
+  telegramBotTokenInput: string;
+  telegramChats: TelegramChatPreview[];
+  setTelegramBotTokenInput: (value: string) => void;
+  onLoadTelegramChats: () => Promise<void>;
+  onRunOperationalAlertSmokeTest: (alertType: string) => Promise<void>;
+  onSaveTelegramBotToken: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveTelegramTarget: (chat: TelegramChatPreview) => Promise<void>;
+  onSendTelegramTestAlert: () => Promise<void>;
+}) {
+  const telegram = operationsStatus?.operational_alerts?.telegram ?? null;
+  const status = telegram?.status ?? null;
+  const deliveries = telegram?.deliveries ?? [];
+  const hasTarget = Boolean(status?.targets.some((target) => target.enabled));
+  const savingToken = busy === "telegram-token-save";
+  const loadingChats = busy === "telegram-chats-load";
+  const sendingTest = busy === "telegram-test-alert";
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <OwnerPanelHeader
+        title="Telegram ops alert"
+        description="ตั้งค่าแจ้งเตือน operational ให้ owner ใช้ติดตาม JavaWS, LINE delivery และ worker health"
+      />
+      <div className="grid gap-4 border-t border-gray-100 p-4 dark:border-gray-800 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <HealthFact
+              label="Bot token"
+              value={
+                status?.configured
+                  ? status.bot_username
+                    ? `@${status.bot_username}`
+                    : "ตั้งค่าแล้ว"
+                  : "ยังไม่ตั้ง"
+              }
+            />
+            <HealthFact
+              label="Encryption"
+              value={status?.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"}
+            />
+            <HealthFact
+              label="Targets"
+              value={`${status?.targets.filter((target) => target.enabled).length ?? 0}`}
+            />
+          </div>
+
+          <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onSaveTelegramBotToken}>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                Bot token
+              </span>
+              <input
+                className="mt-1 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 shadow-xs outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                placeholder="วาง token ใหม่หลัง rotate แล้ว"
+                type="password"
+                value={telegramBotTokenInput}
+                onChange={(event) => setTelegramBotTokenInput(event.target.value)}
+              />
+            </label>
+            <div className="flex items-end">
+              <Button disabled={savingToken || !telegramBotTokenInput.trim()} size="sm">
+                {savingToken ? "กำลังบันทึก" : "บันทึก token"}
+              </Button>
+            </div>
+          </form>
+
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  Recent Telegram chats
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  ส่ง /start ให้ bot ก่อน แล้วกดโหลด chats เพื่อเลือกปลายทาง
+                </p>
+              </div>
+              <Button
+                disabled={loadingChats || !status?.configured}
+                size="sm"
+                variant="outline"
+                onClick={() => void onLoadTelegramChats()}
+              >
+                {loadingChats ? "กำลังโหลด" : "โหลด chats"}
+              </Button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {telegramChats.length ? (
+                telegramChats.map((chat) => (
+                  <div
+                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900"
+                    key={chat.chat_id}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                        {chat.display_name}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {chat.type} · {chat.chat_id_masked}
+                      </p>
+                    </div>
+                    <Button
+                      disabled={Boolean(busy)}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void onSaveTelegramTarget(chat)}
+                    >
+                      เลือก
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  ยังไม่มี chat ให้เลือก
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Button
+            disabled={sendingTest || !status?.configured || !hasTarget}
+            size="sm"
+            onClick={() => void onSendTelegramTestAlert()}
+          >
+            {sendingTest ? "กำลังส่ง" : "ส่ง test alert"}
+          </Button>
+          <div className="grid gap-2">
+            {[
+              ["incident_dry_run", "Incident dry-run"],
+              ["javaws_diagnostic", "JavaWS diagnostic"],
+              ["heavy_report_slow", "Slow heavy report"],
+              ["notification_summary", "Summary"],
+            ].map(([alertType, label]) => (
+              <Button
+                disabled={Boolean(busy)}
+                key={alertType}
+                size="sm"
+                variant="outline"
+                onClick={() => void onRunOperationalAlertSmokeTest(alertType)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+            <p className="text-sm font-medium text-gray-900 dark:text-white">
+              Deliveries ล่าสุด
+            </p>
+            <div className="mt-3 space-y-2">
+              {deliveries.slice(0, 5).map((delivery) => (
+                <div className="text-xs text-gray-600 dark:text-gray-300" key={delivery.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate">{delivery.alert_type}</span>
+                    <Badge color={delivery.status === "success" ? "success" : delivery.status === "failed" ? "error" : "warning"}>
+                      {delivery.status}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-gray-400">
+                    {formatDateTime(delivery.created_at)} · {delivery.target_id_masked ?? "-"}
+                  </p>
+                </div>
+              ))}
+              {!deliveries.length ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  ยังไม่มี delivery
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }

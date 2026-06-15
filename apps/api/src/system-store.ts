@@ -12,6 +12,8 @@ import {
   type LineWebhookEventRecord,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
+  type OperationalAlertDeliveryRecord,
+  type OperationalAlertTargetRecord,
   type PlanCode,
   type ReportKey,
   type ReportRunChunkRecord,
@@ -283,6 +285,25 @@ export type SystemStore = {
     heartbeat: Omit<WorkerHeartbeatRecord, "id" | "created_at">,
   ): Promise<WorkerHeartbeatRecord>;
   getLatestWorkerHeartbeat(role?: string): Promise<WorkerHeartbeatRecord | null>;
+  listOperationalAlertTargets(
+    channel?: OperationalAlertTargetRecord["channel"],
+  ): Promise<OperationalAlertTargetRecord[]>;
+  upsertOperationalAlertTarget(
+    target: OperationalAlertTargetRecord,
+  ): Promise<OperationalAlertTargetRecord>;
+  listOperationalAlertDeliveries(input?: {
+    channel?: OperationalAlertDeliveryRecord["channel"];
+    limit?: number;
+  }): Promise<OperationalAlertDeliveryRecord[]>;
+  findSuccessfulOperationalAlertDeliveryByDedupeKey(input: {
+    channel: OperationalAlertDeliveryRecord["channel"];
+    dedupeKey: string;
+  }): Promise<OperationalAlertDeliveryRecord | null>;
+  saveOperationalAlertDelivery(
+    delivery: OperationalAlertDeliveryRecord,
+  ): Promise<OperationalAlertDeliveryRecord>;
+  tryAcquireLock(input: { lockKey: string }): Promise<boolean>;
+  releaseLock(input: { lockKey: string }): Promise<void>;
   appendAuditLog(entry: Omit<AuditLogEntry, "created_at">): Promise<void>;
   importAuditLogs(entries: AuditLogEntry[]): Promise<void>;
   listAuditLogs(limit: number): Promise<AuditLogEntry[]>;
@@ -356,6 +377,8 @@ type StoreFile = {
   users: UserRecord[];
   lineChannels: LineChannelRecord[];
   secrets: SecretRecord[];
+  operationalAlertTargets: OperationalAlertTargetRecord[];
+  operationalAlertDeliveries: OperationalAlertDeliveryRecord[];
   dashboardViewerTokens: DashboardViewerTokenRecord[];
   executiveDashboardRuns: ExecutiveDashboardRunRecord[];
 };
@@ -375,6 +398,7 @@ class LocalJsonSystemStore implements SystemStore {
   readonly kind = "local-json" as const;
   private data: StoreFile | null = null;
   private writeQueue = Promise.resolve();
+  private readonly locks = new Set<string>();
 
   constructor(private readonly filePath: string) {}
 
@@ -1210,6 +1234,76 @@ class LocalJsonSystemStore implements SystemStore {
     );
   }
 
+  async listOperationalAlertTargets(
+    channel?: OperationalAlertTargetRecord["channel"],
+  ) {
+    return this.requireData().operationalAlertTargets
+      .filter((target) => !channel || target.channel === channel)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  async upsertOperationalAlertTarget(target: OperationalAlertTargetRecord) {
+    const data = this.requireData();
+    data.operationalAlertTargets = [
+      target,
+      ...data.operationalAlertTargets.filter(
+        (existing) => existing.id !== target.id,
+      ),
+    ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    await this.persist();
+    return target;
+  }
+
+  async listOperationalAlertDeliveries(input?: {
+    channel?: OperationalAlertDeliveryRecord["channel"];
+    limit?: number;
+  }) {
+    return this.requireData().operationalAlertDeliveries
+      .filter((delivery) => !input?.channel || delivery.channel === input.channel)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, input?.limit ?? 50);
+  }
+
+  async findSuccessfulOperationalAlertDeliveryByDedupeKey(input: {
+    channel: OperationalAlertDeliveryRecord["channel"];
+    dedupeKey: string;
+  }) {
+    return (
+      this.requireData().operationalAlertDeliveries.find(
+        (delivery) =>
+          delivery.channel === input.channel &&
+          delivery.dedupe_key === input.dedupeKey &&
+          delivery.status === "success",
+      ) ?? null
+    );
+  }
+
+  async saveOperationalAlertDelivery(delivery: OperationalAlertDeliveryRecord) {
+    const data = this.requireData();
+    data.operationalAlertDeliveries = [
+      delivery,
+      ...data.operationalAlertDeliveries.filter(
+        (existing) => existing.id !== delivery.id,
+      ),
+    ]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 1000);
+    await this.persist();
+    return delivery;
+  }
+
+  async tryAcquireLock(input: { lockKey: string }) {
+    if (this.locks.has(input.lockKey)) {
+      return false;
+    }
+    this.locks.add(input.lockKey);
+    return true;
+  }
+
+  async releaseLock(input: { lockKey: string }) {
+    this.locks.delete(input.lockKey);
+  }
+
   async appendAuditLog(entry: Omit<AuditLogEntry, "created_at">) {
     const data = this.requireData();
     data.auditLogs.unshift({
@@ -1418,6 +1512,12 @@ class LocalJsonSystemStore implements SystemStore {
         users: normalizeUsers(parsed.users),
         lineChannels: normalizeLineChannels(parsed.lineChannels),
         secrets: normalizeSecrets(parsed.secrets),
+        operationalAlertTargets: normalizeOperationalAlertTargets(
+          parsed.operationalAlertTargets,
+        ),
+        operationalAlertDeliveries: normalizeOperationalAlertDeliveries(
+          parsed.operationalAlertDeliveries,
+        ),
         dashboardViewerTokens: normalizeDashboardViewerTokens(
           parsed.dashboardViewerTokens,
         ),
@@ -1444,6 +1544,8 @@ class LocalJsonSystemStore implements SystemStore {
         users: [],
         lineChannels: [],
         secrets: [],
+        operationalAlertTargets: [],
+        operationalAlertDeliveries: [],
         dashboardViewerTokens: [],
         executiveDashboardRuns: [],
       };
@@ -2270,10 +2372,13 @@ select
   progress_percent,
   progress_updated_at,
   started_at,
-  finished_at,
-  row_count,
-  safe_error_message
-from report_runs
+	  finished_at,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	from report_runs
 where tenant_id = $1
   and ($2::text is null or report_key = $2)
 order by started_at desc
@@ -2302,10 +2407,13 @@ select
   progress_percent,
   progress_updated_at,
   started_at,
-  finished_at,
-  row_count,
-  safe_error_message
-from report_runs
+	  finished_at,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	from report_runs
 where id = $1
 `,
       [runId],
@@ -2335,10 +2443,13 @@ select
   progress_percent,
   progress_updated_at,
   started_at,
-  finished_at,
-  row_count,
-  safe_error_message
-from report_runs
+	  finished_at,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	from report_runs
 where tenant_id = $1
   and report_key = $2
   and params_json = $3::jsonb
@@ -2369,10 +2480,13 @@ select
   progress_percent,
   progress_updated_at,
   started_at,
-  finished_at,
-  row_count,
-  safe_error_message
-from report_runs
+	  finished_at,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	from report_runs
 where status = 'queued'
   and execution_strategy = 'chunked'
 order by coalesce(queued_at, started_at) asc, started_at asc
@@ -2421,10 +2535,13 @@ returning
   progress_percent,
   progress_updated_at,
   started_at,
-  finished_at,
-  row_count,
-  safe_error_message
-`,
+	  finished_at,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	`,
       [input.runId, input.claimedAt, input.workerId],
     );
 
@@ -2460,10 +2577,13 @@ returning
   progress_percent,
   progress_updated_at,
   started_at,
-  finished_at,
-  row_count,
-  safe_error_message
-`,
+	  finished_at,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	`,
       [input.staleBefore, input.updatedAt],
     );
 
@@ -2488,22 +2608,28 @@ insert into report_runs (
   progress_updated_at,
   started_at,
   finished_at,
-  row_count,
-  safe_error_message
-)
-values ($1, $2, $3, $4::jsonb, $5, $6::timestamptz, $7::timestamptz, $8, $9, $10, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15, $16)
-on conflict (id) do update
-set status = excluded.status,
+	  row_count,
+	  safe_error_message,
+	  failure_kind,
+	  failure_phase,
+	  failure_metadata_json
+	)
+	values ($1, $2, $3, $4::jsonb, $5, $6::timestamptz, $7::timestamptz, $8, $9, $10, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz, $15, $16, $17, $18, $19::jsonb)
+	on conflict (id) do update
+	set status = excluded.status,
     queued_at = excluded.queued_at,
     claimed_at = excluded.claimed_at,
     worker_id = excluded.worker_id,
     execution_strategy = excluded.execution_strategy,
     progress_stage = excluded.progress_stage,
     progress_percent = excluded.progress_percent,
-    progress_updated_at = excluded.progress_updated_at,
-    finished_at = excluded.finished_at,
-    row_count = excluded.row_count,
-    safe_error_message = excluded.safe_error_message
+	    progress_updated_at = excluded.progress_updated_at,
+	    finished_at = excluded.finished_at,
+	    row_count = excluded.row_count,
+	    safe_error_message = excluded.safe_error_message,
+	    failure_kind = excluded.failure_kind,
+	    failure_phase = excluded.failure_phase,
+	    failure_metadata_json = excluded.failure_metadata_json
 `,
       [
         run.id,
@@ -2519,10 +2645,13 @@ set status = excluded.status,
         run.progress_percent ?? null,
         run.progress_updated_at ?? null,
         run.started_at,
-        run.finished_at,
-        run.row_count,
-        run.safe_error_message,
-      ],
+	        run.finished_at,
+	        run.row_count,
+	        run.safe_error_message,
+	        run.failure_kind ?? null,
+	        run.failure_phase ?? null,
+	        JSON.stringify(run.failure_metadata_json ?? {}),
+	      ],
     );
   }
 
@@ -3953,6 +4082,217 @@ limit 1
     return result.rows[0] ? mapWorkerHeartbeatRow(result.rows[0]) : null;
   }
 
+  async listOperationalAlertTargets(
+    channel?: OperationalAlertTargetRecord["channel"],
+  ) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  channel,
+  display_name,
+  target_id_encrypted,
+  target_id_masked,
+  target_id_hash,
+  enabled,
+  created_at,
+  updated_at
+from operational_alert_targets
+where ($1::text is null or channel = $1)
+order by updated_at desc
+`,
+      [channel ?? null],
+    );
+
+    return result.rows.map(mapOperationalAlertTargetRow);
+  }
+
+  async upsertOperationalAlertTarget(target: OperationalAlertTargetRecord) {
+    const result = await this.pool.query(
+      `
+insert into operational_alert_targets (
+  id,
+  channel,
+  display_name,
+  target_id_encrypted,
+  target_id_masked,
+  target_id_hash,
+  enabled,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz)
+on conflict (id) do update
+set display_name = excluded.display_name,
+    target_id_encrypted = excluded.target_id_encrypted,
+    target_id_masked = excluded.target_id_masked,
+    target_id_hash = excluded.target_id_hash,
+    enabled = excluded.enabled,
+    updated_at = excluded.updated_at
+returning
+  id,
+  channel,
+  display_name,
+  target_id_encrypted,
+  target_id_masked,
+  target_id_hash,
+  enabled,
+  created_at,
+  updated_at
+`,
+      [
+        target.id,
+        target.channel,
+        target.display_name,
+        target.target_id_encrypted,
+        target.target_id_masked,
+        target.target_id_hash,
+        target.enabled,
+        target.created_at,
+        target.updated_at,
+      ],
+    );
+
+    return mapOperationalAlertTargetRow(result.rows[0]);
+  }
+
+  async listOperationalAlertDeliveries(input?: {
+    channel?: OperationalAlertDeliveryRecord["channel"];
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  channel,
+  target_id_masked,
+  alert_type,
+  severity,
+  status,
+  dedupe_key,
+  message_text,
+  provider_response_json,
+  safe_error_message,
+  created_at,
+  sent_at
+from operational_alert_deliveries
+where ($1::text is null or channel = $1)
+order by created_at desc
+limit $2
+`,
+      [input?.channel ?? null, input?.limit ?? 50],
+    );
+
+    return result.rows.map(mapOperationalAlertDeliveryRow);
+  }
+
+  async findSuccessfulOperationalAlertDeliveryByDedupeKey(input: {
+    channel: OperationalAlertDeliveryRecord["channel"];
+    dedupeKey: string;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  channel,
+  target_id_masked,
+  alert_type,
+  severity,
+  status,
+  dedupe_key,
+  message_text,
+  provider_response_json,
+  safe_error_message,
+  created_at,
+  sent_at
+from operational_alert_deliveries
+where channel = $1
+  and dedupe_key = $2
+  and status = 'success'
+order by created_at desc
+limit 1
+`,
+      [input.channel, input.dedupeKey],
+    );
+
+    return result.rows[0]
+      ? mapOperationalAlertDeliveryRow(result.rows[0])
+      : null;
+  }
+
+  async saveOperationalAlertDelivery(delivery: OperationalAlertDeliveryRecord) {
+    const result = await this.pool.query(
+      `
+insert into operational_alert_deliveries (
+  id,
+  channel,
+  target_id_masked,
+  alert_type,
+  severity,
+  status,
+  dedupe_key,
+  message_text,
+  provider_response_json,
+  safe_error_message,
+  created_at,
+  sent_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::timestamptz, $12::timestamptz)
+on conflict (id) do update
+set status = excluded.status,
+    provider_response_json = excluded.provider_response_json,
+    safe_error_message = excluded.safe_error_message,
+    sent_at = excluded.sent_at
+returning
+  id,
+  channel,
+  target_id_masked,
+  alert_type,
+  severity,
+  status,
+  dedupe_key,
+  message_text,
+  provider_response_json,
+  safe_error_message,
+  created_at,
+  sent_at
+`,
+      [
+        delivery.id,
+        delivery.channel,
+        delivery.target_id_masked,
+        delivery.alert_type,
+        delivery.severity,
+        delivery.status,
+        delivery.dedupe_key,
+        delivery.message_text,
+        delivery.provider_response_json
+          ? JSON.stringify(delivery.provider_response_json)
+          : null,
+        delivery.safe_error_message,
+        delivery.created_at,
+        delivery.sent_at,
+      ],
+    );
+
+    return mapOperationalAlertDeliveryRow(result.rows[0]);
+  }
+
+  async tryAcquireLock(input: { lockKey: string }) {
+    const result = await this.pool.query(
+      "select pg_try_advisory_lock(hashtextextended($1, 0)) as acquired",
+      [input.lockKey],
+    );
+    return result.rows[0]?.acquired === true;
+  }
+
+  async releaseLock(input: { lockKey: string }) {
+    await this.pool.query(
+      "select pg_advisory_unlock(hashtextextended($1, 0))",
+      [input.lockKey],
+    );
+  }
+
   async appendAuditLog(entry: Omit<AuditLogEntry, "created_at">) {
     await this.pool.query(
       `
@@ -4493,13 +4833,16 @@ function mapReportRunRow(row: Record<string, unknown>): ReportRunRecord {
     started_at: row.started_at
       ? toIsoString(row.started_at as string | Date)
       : undefined,
-    finished_at: row.finished_at
-      ? toIsoString(row.finished_at as string | Date)
-      : null,
-    row_count: row.row_count,
-    safe_error_message: row.safe_error_message,
-  })!;
-}
+	    finished_at: row.finished_at
+	      ? toIsoString(row.finished_at as string | Date)
+	      : null,
+	    row_count: row.row_count,
+	    safe_error_message: row.safe_error_message,
+	    failure_kind: row.failure_kind,
+	    failure_phase: row.failure_phase,
+	    failure_metadata_json: row.failure_metadata_json,
+	  })!;
+	}
 
 function mapReportRunChunkRow(
   row: Record<string, unknown>,
@@ -4991,6 +5334,47 @@ function mapWorkerHeartbeatRow(
   };
 }
 
+function mapOperationalAlertTargetRow(
+  row: Record<string, unknown>,
+): OperationalAlertTargetRecord {
+  return normalizeOperationalAlertTarget({
+    id: row.id,
+    channel: row.channel,
+    display_name: row.display_name,
+    target_id_encrypted: row.target_id_encrypted,
+    target_id_masked: row.target_id_masked,
+    target_id_hash: row.target_id_hash,
+    enabled: row.enabled,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  })!;
+}
+
+function mapOperationalAlertDeliveryRow(
+  row: Record<string, unknown>,
+): OperationalAlertDeliveryRecord {
+  return normalizeOperationalAlertDelivery({
+    id: row.id,
+    channel: row.channel,
+    target_id_masked: row.target_id_masked,
+    alert_type: row.alert_type,
+    severity: row.severity,
+    status: row.status,
+    dedupe_key: row.dedupe_key,
+    message_text: row.message_text,
+    provider_response_json: row.provider_response_json,
+    safe_error_message: row.safe_error_message,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    sent_at: row.sent_at ? toIsoString(row.sent_at as string | Date) : null,
+  })!;
+}
+
 function isNoSpaceError(error: unknown) {
   return (
     error instanceof Error &&
@@ -5101,12 +5485,15 @@ function normalizeReportRun(value: unknown): ReportRunRecord | null {
     execution_strategy: normalizeReportExecutionStrategy(run.execution_strategy),
     progress_stage: normalizeReportRunProgressStage(run.progress_stage),
     progress_percent: normalizeProgressInteger(run.progress_percent, 0, 100),
-    progress_updated_at:
-      typeof run.progress_updated_at === "string"
-        ? run.progress_updated_at
-        : null,
-  };
-}
+	    progress_updated_at:
+	      typeof run.progress_updated_at === "string"
+	        ? run.progress_updated_at
+	        : null,
+	    failure_kind: normalizeJavaWsFailureKind(run.failure_kind),
+	    failure_phase: normalizeJavaWsFailurePhase(run.failure_phase),
+	    failure_metadata_json: normalizeRecordJson(run.failure_metadata_json),
+	  };
+	}
 
 function normalizeReportRunStatus(
   value: unknown,
@@ -5239,6 +5626,151 @@ function normalizeRecordJson(value: unknown): Record<string, unknown> {
     return {};
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeJavaWsFailureKind(
+  value: unknown,
+): ReportRunRecord["failure_kind"] {
+  return value === "timeout" ||
+    value === "unreachable" ||
+    value === "operation_missing" ||
+    value === "unreadable_response" ||
+    value === "unknown"
+    ? value
+    : null;
+}
+
+function normalizeJavaWsFailurePhase(
+  value: unknown,
+): ReportRunRecord["failure_phase"] {
+  return value === "timeout" ||
+    value === "unreachable" ||
+    value === "operation_missing" ||
+    value === "http_error" ||
+    value === "soap_fault" ||
+    value === "soap_parse_failed" ||
+    value === "missing_return" ||
+    value === "non_base64_return" ||
+    value === "invalid_zip" ||
+    value === "empty_zip" ||
+    value === "xml_parse_failed" ||
+    value === "missing_resultset" ||
+    value === "invalid_resultset" ||
+    value === "unknown"
+    ? value
+    : null;
+}
+
+function normalizeOperationalAlertTargets(
+  value: unknown,
+): OperationalAlertTargetRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((target) => normalizeOperationalAlertTarget(target))
+    .filter((target): target is OperationalAlertTargetRecord => Boolean(target))
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+function normalizeOperationalAlertTarget(
+  value: unknown,
+): OperationalAlertTargetRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const target = value as Partial<OperationalAlertTargetRecord>;
+  if (
+    !target.id ||
+    !target.display_name ||
+    !target.target_id_encrypted ||
+    !target.target_id_masked ||
+    !target.target_id_hash
+  ) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  return {
+    id: String(target.id),
+    channel: target.channel === "telegram" ? "telegram" : "telegram",
+    display_name: String(target.display_name),
+    target_id_encrypted: String(target.target_id_encrypted),
+    target_id_masked: String(target.target_id_masked),
+    target_id_hash: String(target.target_id_hash),
+    enabled: target.enabled !== false,
+    created_at: typeof target.created_at === "string" ? target.created_at : now,
+    updated_at: typeof target.updated_at === "string" ? target.updated_at : now,
+  };
+}
+
+function normalizeOperationalAlertDeliveries(
+  value: unknown,
+): OperationalAlertDeliveryRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((delivery) => normalizeOperationalAlertDelivery(delivery))
+    .filter((delivery): delivery is OperationalAlertDeliveryRecord =>
+      Boolean(delivery),
+    )
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function normalizeOperationalAlertDelivery(
+  value: unknown,
+): OperationalAlertDeliveryRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const delivery = value as Partial<OperationalAlertDeliveryRecord>;
+  if (!delivery.id || !delivery.alert_type || !delivery.message_text) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  return {
+    id: String(delivery.id),
+    channel: delivery.channel === "telegram" ? "telegram" : "telegram",
+    target_id_masked:
+      typeof delivery.target_id_masked === "string"
+        ? delivery.target_id_masked
+        : null,
+    alert_type: String(delivery.alert_type),
+    severity: normalizeOperationalAlertSeverity(delivery.severity),
+    status: normalizeOperationalAlertDeliveryStatus(delivery.status),
+    dedupe_key:
+      typeof delivery.dedupe_key === "string" ? delivery.dedupe_key : null,
+    message_text: String(delivery.message_text),
+    provider_response_json: delivery.provider_response_json
+      ? normalizeRecordJson(delivery.provider_response_json)
+      : null,
+    safe_error_message:
+      typeof delivery.safe_error_message === "string"
+        ? delivery.safe_error_message
+        : null,
+    created_at:
+      typeof delivery.created_at === "string" ? delivery.created_at : now,
+    sent_at: typeof delivery.sent_at === "string" ? delivery.sent_at : null,
+  };
+}
+
+function normalizeOperationalAlertSeverity(
+  value: unknown,
+): OperationalAlertDeliveryRecord["severity"] {
+  return value === "warning" || value === "critical" ? value : "info";
+}
+
+function normalizeOperationalAlertDeliveryStatus(
+  value: unknown,
+): OperationalAlertDeliveryRecord["status"] {
+  return value === "success" ||
+    value === "failed" ||
+    value === "skipped" ||
+    value === "dry_run"
+    ? value
+    : "failed";
 }
 
 function normalizeBusinessSignals(value: unknown): BusinessSignalRecord[] {
@@ -6195,7 +6727,7 @@ create table if not exists tenants (
   database_name text not null default '',
   description text not null default '',
   datasource_configured boolean not null default false,
-  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
   business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   suspended_reason text,
   current_period_end timestamptz,
@@ -6207,7 +6739,7 @@ alter table tenants
   add column if not exists database_name text not null default '',
   add column if not exists description text not null default '',
   add column if not exists datasource_configured boolean not null default false,
-  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
   add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
   add column if not exists current_period_end timestamptz;
@@ -6250,7 +6782,10 @@ create table if not exists report_runs (
   started_at timestamptz not null,
   finished_at timestamptz,
   row_count integer not null default 0,
-  safe_error_message text
+  safe_error_message text,
+  failure_kind text,
+  failure_phase text,
+  failure_metadata_json jsonb not null default '{}'::jsonb
 );
 
 alter table report_runs
@@ -6260,7 +6795,10 @@ alter table report_runs
   add column if not exists execution_strategy text,
   add column if not exists progress_stage text,
   add column if not exists progress_percent integer,
-  add column if not exists progress_updated_at timestamptz;
+  add column if not exists progress_updated_at timestamptz,
+  add column if not exists failure_kind text,
+  add column if not exists failure_phase text,
+  add column if not exists failure_metadata_json jsonb not null default '{}'::jsonb;
 
 create table if not exists report_snapshots (
   id text primary key,
@@ -6593,6 +7131,44 @@ create table if not exists worker_heartbeats (
 
 create index if not exists worker_heartbeats_latest_idx
 on worker_heartbeats (role, checked_at desc);
+
+create table if not exists operational_alert_targets (
+  id text primary key,
+  channel text not null,
+  display_name text not null,
+  target_id_encrypted text not null,
+  target_id_masked text not null,
+  target_id_hash text not null,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (channel, target_id_hash)
+);
+
+create index if not exists operational_alert_targets_channel_idx
+on operational_alert_targets (channel, enabled, updated_at desc);
+
+create table if not exists operational_alert_deliveries (
+  id text primary key,
+  channel text not null,
+  target_id_masked text,
+  alert_type text not null,
+  severity text not null,
+  status text not null,
+  dedupe_key text,
+  message_text text not null,
+  provider_response_json jsonb,
+  safe_error_message text,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+create index if not exists operational_alert_deliveries_latest_idx
+on operational_alert_deliveries (channel, created_at desc);
+
+create index if not exists operational_alert_deliveries_dedupe_idx
+on operational_alert_deliveries (channel, dedupe_key, status)
+where dedupe_key is not null;
 
 create table if not exists report_viewer_tokens (
   token_hash   text primary key,

@@ -180,7 +180,10 @@ import {
   readSystemRuntimeConfigStatus,
   saveSystemRuntimeConfig,
 } from "./system-runtime-config.js";
-import { listJavaWsDatabases } from "./sml-javaws-client.js";
+import {
+  extractJavaWsFailureDiagnostics,
+  listJavaWsDatabases,
+} from "./sml-javaws-client.js";
 import {
   createReportRuntimeRegistry,
   getReportRuntimeEntry,
@@ -205,6 +208,15 @@ import { createHeavyReportCoalescer } from "./heavy-report-coalescer.js";
 import {
   getReportExecutionPolicy,
 } from "./report-execution-policy.js";
+import {
+  buildOperationalAlertDedupeKey,
+  buildOperationalAlertMessage,
+  loadTelegramUpdateChats,
+  readTelegramOperationalAlertStatus,
+  saveTelegramOperationalAlertToken,
+  sendOperationalTelegramAlert,
+  upsertTelegramOperationalAlertTarget,
+} from "./operational-alerts.js";
 
 const app = Fastify({
   logger: {
@@ -2697,6 +2709,260 @@ app.get("/api/owner/operations/status", async (request, reply) => {
   };
 });
 
+app.get(
+  "/api/owner/operational-alerts/telegram/status",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    return {
+      data: await readTelegramOperationalAlertStatus(systemStore),
+    };
+  },
+);
+
+app.put(
+  "/api/owner/operational-alerts/telegram/secrets",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+    const body = telegramSecretUpdateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid Telegram secret request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+    if (!readSecretEncryptionSecret()) {
+      return reply.status(503).send({
+        error:
+          "AI_BCC_SECRET_KEY is not configured. Set it on the server before saving Telegram secrets.",
+      });
+    }
+
+    const result = await saveTelegramOperationalAlertToken({
+      store: systemStore,
+      token: body.data.bot_token,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: null,
+      actor_id: null,
+      action: result.ok
+        ? "telegram_operational_alert_secret_verified"
+        : "telegram_operational_alert_secret_rejected",
+      target_type: "operational_alert",
+      target_id: "telegram",
+      metadata_json: {
+        ok: result.ok,
+        provider_status: result.ok ? 200 : result.provider_status,
+        safe_error_message: result.ok ? null : result.safe_error_message,
+      },
+    });
+    if (!result.ok) {
+      return reply.status(400).send({
+        error: result.safe_error_message,
+        provider_status: result.provider_status,
+      });
+    }
+
+    return { data: result.status };
+  },
+);
+
+app.get(
+  "/api/owner/operational-alerts/telegram/updates",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+    const result = await loadTelegramUpdateChats({ store: systemStore });
+    if (!result.ok) {
+      return reply.status(502).send({
+        error: result.safe_error_message,
+        provider_status: result.provider_status,
+      });
+    }
+    return { data: result.chats };
+  },
+);
+
+app.post(
+  "/api/owner/operational-alerts/telegram/targets",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+    const body = telegramTargetCreateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid Telegram target request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+    if (!readSecretEncryptionSecret()) {
+      return reply.status(503).send({
+        error:
+          "AI_BCC_SECRET_KEY is not configured. Set it on the server before saving Telegram targets.",
+      });
+    }
+
+    const target = await upsertTelegramOperationalAlertTarget({
+      store: systemStore,
+      chatId: body.data.chat_id,
+      displayName: body.data.display_name,
+      enabled: body.data.enabled,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: null,
+      actor_id: null,
+      action: "telegram_operational_alert_target_saved",
+      target_type: "operational_alert_target",
+      target_id: target.id,
+      metadata_json: {
+        channel: "telegram",
+        target_id_masked: target.target_id_masked,
+        enabled: target.enabled,
+      },
+    });
+    return {
+      data: {
+        id: target.id,
+        display_name: target.display_name,
+        target_id_masked: target.target_id_masked,
+        enabled: target.enabled,
+        updated_at: target.updated_at,
+      },
+    };
+  },
+);
+
+app.post(
+  "/api/owner/operational-alerts/telegram/test",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+    const body = telegramTestAlertSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid Telegram test request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+    const message = buildOperationalAlertMessage({
+      title: "ทดสอบ Telegram ops alert",
+      severity: "info",
+      status: "test",
+      details: [
+        "ถ้าเห็นข้อความนี้ แปลว่าระบบส่งแจ้งเตือน Telegram ได้แล้ว",
+        body.data.message ? `ข้อความ: ${body.data.message}` : "",
+      ].filter(Boolean),
+      action: "ไม่ต้องดำเนินการ นี่เป็นข้อความทดสอบ",
+    });
+    const deliveries = await sendOperationalTelegramAlert({
+      store: systemStore,
+      alertType: "test",
+      severity: "info",
+      messageText: message,
+      dedupeKey: null,
+      forceEnabled: true,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: null,
+      actor_id: null,
+      action: "telegram_operational_alert_test_sent",
+      target_type: "operational_alert",
+      target_id: "telegram",
+      metadata_json: {
+        delivery_count: deliveries.length,
+        statuses: deliveries.map((delivery) => delivery.status),
+      },
+    });
+    return { data: deliveries };
+  },
+);
+
+app.post(
+  "/api/owner/operational-alerts/smoke-test",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+    const body = operationalAlertSmokeTestSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid operational alert smoke test request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+    const tenant = body.data.tenant_id
+      ? await getTenantOrNull(body.data.tenant_id)
+      : null;
+    const alertType = body.data.alert_type;
+    const title =
+      alertType === "javaws_diagnostic"
+        ? "JavaWS ตอบข้อมูลอ่านไม่ได้"
+        : alertType === "heavy_report_slow"
+          ? "รายงานหนักใช้เวลานานผิดปกติ"
+          : alertType === "notification_summary"
+            ? "สรุปรอบแจ้งเตือนผู้บริหาร"
+            : "จำลอง incident notice";
+    const message = buildOperationalAlertMessage({
+      title,
+      severity: body.data.severity,
+      tenantName: tenant?.name ?? body.data.tenant_id ?? null,
+      scheduledTime: body.data.scheduled_time ?? null,
+      reportKey: body.data.report_key ?? null,
+      status: "dry_run",
+      details: [
+        "โหมด dry-run: ระบบบันทึก delivery preview แต่ไม่ส่งไป Telegram จริง",
+        alertType === "javaws_diagnostic"
+          ? "phase: non_base64_return, kind: unreadable_response"
+          : "",
+      ].filter(Boolean),
+      action:
+        "ใช้ทดสอบ copy, dedupe และหน้าจอ operations ก่อนเปิดแจ้งเตือนจริง",
+    });
+    const deliveries = await sendOperationalTelegramAlert({
+      store: systemStore,
+      tenant,
+      alertType,
+      severity: body.data.severity,
+      messageText: message,
+      dedupeKey: buildOperationalAlertDedupeKey({
+        alertType,
+        tenantId: tenant?.id ?? body.data.tenant_id ?? null,
+        scheduledDate: body.data.scheduled_date ?? new Date().toISOString().slice(0, 10),
+        scheduledTime: body.data.scheduled_time ?? null,
+        reportKey: body.data.report_key ?? null,
+        severity: body.data.severity,
+      }),
+      dryRun: true,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: tenant?.id ?? null,
+      actor_id: null,
+      action: "operational_alert_smoke_test_dry_run",
+      target_type: "operational_alert",
+      target_id: alertType,
+      metadata_json: {
+        alert_type: alertType,
+        severity: body.data.severity,
+        delivery_count: deliveries.length,
+      },
+    });
+    return { data: deliveries };
+  },
+);
+
 app.get("/api/owner/system/config", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
   if (!adminAuth.ok) {
@@ -2787,6 +3053,58 @@ app.post("/api/worker/heartbeat", async (request, reply) => {
     metadata_json: body.data.metadata_json,
     checked_at: body.data.checked_at ?? new Date().toISOString(),
   });
+  const maxConsecutiveFailures = Math.max(
+    toSafeNumber(body.data.metadata_json.consecutive_notification_tick_failures),
+    toSafeNumber(body.data.metadata_json.consecutive_report_run_tick_failures),
+  );
+  if (body.data.status === "error" && maxConsecutiveFailures >= 3) {
+    const enabledTenants = (await systemStore.listTenants()).filter(
+      (tenant) =>
+        tenant.status === "active" &&
+        getTenantFeatureFlags(tenant).telegram_operational_alerts_enabled,
+    );
+    if (enabledTenants.length) {
+      const checkedDate = heartbeat.checked_at.slice(0, 10);
+      const checkedHour = heartbeat.checked_at.slice(11, 13) || "00";
+      await sendOperationalTelegramAlert({
+        store: systemStore,
+        alertType: "worker_tick_failed",
+        severity: "critical",
+        messageText: buildOperationalAlertMessage({
+          title: "Worker tick ล้มเหลวต่อเนื่อง",
+          severity: "critical",
+          status: heartbeat.status,
+          details: [
+            `worker_id: ${heartbeat.worker_id}`,
+            `role: ${heartbeat.role}`,
+            `consecutive_failures: ${maxConsecutiveFailures}`,
+          ],
+          action:
+            "ตรวจ worker process, API base URL, token, network และดู operations status ทันที",
+        }),
+        dedupeKey: buildOperationalAlertDedupeKey({
+          alertType: "worker_tick_failed",
+          tenantId: "system",
+          ruleId: heartbeat.worker_id,
+          scheduledDate: checkedDate,
+          scheduledTime: `${checkedHour}:00`,
+          severity: "critical",
+        }),
+        forceEnabled: true,
+      }).catch(async (error) => {
+        await systemStore.appendAuditLog({
+          tenant_id: null,
+          actor_id: null,
+          action: "telegram_worker_health_alert_failed",
+          target_type: "worker",
+          target_id: heartbeat.worker_id,
+          metadata_json: {
+            safe_error_message: toSafeErrorMessage(error),
+          },
+        });
+      });
+    }
+  }
 
   return { data: heartbeat };
 });
@@ -2808,49 +3126,15 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
   const now = body.data.now ? new Date(body.data.now) : new Date();
   const mode = body.data.mode ?? "send";
   const limit = body.data.limit ?? 20;
-  const processed = [];
-  const skipped = [];
-  const queuedResult = await processQueuedNotificationRuleRuns({
-    limit: Math.min(NOTIFICATION_QUEUE_BACKGROUND_LIMIT, limit),
-    workerId: body.data.worker_id ?? "worker_notification_rules",
-    now,
-  });
-  const dashboardQueuedResult = await processQueuedExecutiveDashboardRuns({
-    limit: EXECUTIVE_DASHBOARD_QUEUE_BACKGROUND_LIMIT,
-    workerId: body.data.worker_id ?? "worker_notification_rules",
-  });
-  processed.push(...queuedResult.processed);
-  processed.push(
-    ...dashboardQueuedResult.processed.map((run) => ({
-      ok: true as const,
-      status: run.status,
-      run,
-      deliveries: [],
-      report_run_ids: run.report_run_ids,
-      mode: "send" as const,
-    })),
-  );
-  skipped.push(...queuedResult.skipped);
-  skipped.push(...dashboardQueuedResult.skipped);
-  if (queuedResult.skipped.some((item) => item.reason === "processor_busy")) {
-    return {
-      data: {
-        processed,
-        skipped,
-        stale_failed: queuedResult.stale_failed,
-        checked_rules: 0,
-        checked_at: now.toISOString(),
-        mode,
-      },
-    };
-  }
+  const queued: Array<Record<string, unknown>> = [];
+  const skipped: Array<Record<string, unknown>> = [];
   const rules = (await systemStore.listNotificationRules())
     .filter((rule) => rule.enabled)
     .slice(0, 500);
   const catchUpMinutes = body.data.catch_up_minutes ?? 15;
 
   ruleLoop: for (const rule of rules) {
-    if (processed.length >= limit) {
+    if (queued.length >= limit) {
       break;
     }
 
@@ -2864,55 +3148,35 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
     }
 
     for (const due of dueTimes) {
-      if (processed.length >= limit) {
+      if (queued.length >= limit) {
         break ruleLoop;
       }
 
-      const idempotencyKey = buildNotificationIdempotencyKey({
-        ruleId: rule.id,
+      const result = await enqueueWorkerNotificationRuleRun({
+        rule,
+        mode,
         scheduledLocalDate: due.date,
         scheduledLocalTime: due.time,
+        source: "worker_due",
       });
-      const existing = await systemStore.getNotificationRuleRunByKey(
-        idempotencyKey,
-      );
-      if (existing) {
+      if (result.reused) {
         skipped.push({
           rule_id: rule.id,
           scheduled_local_date: due.date,
           scheduled_local_time: due.time,
           reason: "duplicate_minute",
-          status: existing.status,
+          status: result.run.status,
+          run_id: result.run.id,
         });
         continue;
       }
-
-      if (notificationQueueProcessorActive) {
-        skipped.push({
-          rule_id: rule.id,
-          scheduled_local_date: due.date,
-          scheduled_local_time: due.time,
-          reason: "processor_busy",
-        });
-        continue;
-      }
-      notificationQueueProcessorActive = true;
-      let result: NotificationRuleExecutionResult;
-      try {
-        result = await executeNotificationRule({
-          rule,
-          mode,
-          force: false,
-          now,
-          scheduledLocalDate: due.date,
-          scheduledLocalTime: due.time,
-          source: "worker_due",
-          workerId: body.data.worker_id ?? "worker_notification_rules",
-        });
-      } finally {
-        notificationQueueProcessorActive = false;
-      }
-      processed.push(result);
+      queued.push({
+        rule_id: rule.id,
+        run_id: result.run.id,
+        scheduled_local_date: due.date,
+        scheduled_local_time: due.time,
+        source: "worker_due",
+      });
     }
   }
 
@@ -2926,7 +3190,7 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
   );
 
   for (const failedRun of failedRuns) {
-    if (processed.length >= limit) {
+    if (queued.length >= limit) {
       break;
     }
 
@@ -2938,58 +3202,45 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
       continue;
     }
 
-    const retryKey = buildNotificationIdempotencyKey({
-      ruleId: rule.id,
+    const result = await enqueueWorkerNotificationRuleRun({
+      rule,
+      mode,
       scheduledLocalDate: failedRun.scheduled_local_date,
       scheduledLocalTime: failedRun.scheduled_local_time,
       attempt: failedRun.attempt + 1,
+      source: "worker_retry",
+      retryFromRun: failedRun,
     });
-    const existingRetry = await systemStore.getNotificationRuleRunByKey(retryKey);
-    if (existingRetry) {
+    if (result.reused) {
       skipped.push({
         rule_id: rule.id,
         reason: "duplicate_retry",
-        status: existingRetry.status,
+        status: result.run.status,
+        run_id: result.run.id,
       });
       continue;
     }
-
-    if (notificationQueueProcessorActive) {
-      skipped.push({
-        rule_id: rule.id,
-        reason: "processor_busy",
-        status: failedRun.status,
-      });
-      continue;
-    }
-    notificationQueueProcessorActive = true;
-    let result: NotificationRuleExecutionResult;
-    try {
-      result = await executeNotificationRule({
-        rule,
-        mode,
-        force: false,
-        now,
-        scheduledLocalDate: failedRun.scheduled_local_date,
-        scheduledLocalTime: failedRun.scheduled_local_time,
-        attempt: failedRun.attempt + 1,
-        source: "worker_retry",
-        workerId: body.data.worker_id ?? "worker_notification_rules",
-      });
-    } finally {
-      notificationQueueProcessorActive = false;
-    }
-    processed.push(result);
+    queued.push({
+      rule_id: rule.id,
+      run_id: result.run.id,
+      scheduled_local_date: failedRun.scheduled_local_date,
+      scheduled_local_time: failedRun.scheduled_local_time,
+      source: "worker_retry",
+      attempt: failedRun.attempt + 1,
+    });
   }
+
+  kickNotificationQueueProcessor("worker_tick");
+  kickExecutiveDashboardRunProcessor("worker_tick");
 
   return {
     data: {
-      processed,
+      queued,
       skipped,
-      stale_failed: queuedResult.stale_failed,
       checked_rules: rules.length,
       checked_at: now.toISOString(),
       mode,
+      processor_kicked: true,
     },
   };
 });
@@ -5073,11 +5324,12 @@ async function runAndPersistSalesGoodsServicesReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5182,11 +5434,12 @@ async function runAndPersistPurchaseGoodsPayablesReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5310,11 +5563,12 @@ async function runAndPersistGrossProfitReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5422,11 +5676,12 @@ async function runAndPersistStockBalanceReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeStockBalanceErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeStockBalanceErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5544,11 +5799,12 @@ async function runAndPersistStockReorderReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeStockReorderErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeStockReorderErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5668,11 +5924,12 @@ async function runAndPersistArCustomerMovementReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeArCustomerMovementErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeArCustomerMovementErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5703,6 +5960,47 @@ function toSafeArCustomerMovementErrorMessage(error: unknown) {
     return "รายงานเคลื่อนไหวลูกหนี้ใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้งหรือตรวจประสิทธิภาพ query";
   }
   return toSafeErrorMessage(error);
+}
+
+function applyJavaWsFailureDiagnostics(
+  runRecord: ReportRunRecord,
+  error: unknown,
+) {
+  const diagnostics = extractJavaWsFailureDiagnostics(error);
+  if (!diagnostics) {
+    return;
+  }
+  runRecord.failure_kind = diagnostics.failure_kind;
+  runRecord.failure_phase = diagnostics.failure_phase;
+  runRecord.failure_metadata_json = sanitizeJavaWsFailureMetadata(
+    diagnostics.failure_metadata_json,
+  );
+}
+
+function sanitizeJavaWsFailureMetadata(value: Record<string, unknown>) {
+  const safeKeys = new Set([
+    "operation",
+    "latency_ms",
+    "status_code",
+    "response_byte_count",
+    "decoded_byte_count",
+    "phase",
+  ]);
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!safeKeys.has(key)) {
+      continue;
+    }
+    if (
+      typeof item === "string" ||
+      typeof item === "number" ||
+      typeof item === "boolean" ||
+      item === null
+    ) {
+      sanitized[key] = item;
+    }
+  }
+  return sanitized;
 }
 
 async function runAndPersistArDebtReceiptReport(input: {
@@ -5794,11 +6092,12 @@ async function runAndPersistArDebtReceiptReport(input: {
     });
 
     return { ok: true, snapshot, runRecord };
-  } catch (error) {
-    runRecord.status = "failed";
-    runRecord.finished_at = new Date().toISOString();
-    runRecord.safe_error_message = toSafeArDebtReceiptErrorMessage(error);
-    await systemStore.upsertRun(runRecord);
+	  } catch (error) {
+	    runRecord.status = "failed";
+	    runRecord.finished_at = new Date().toISOString();
+	    runRecord.safe_error_message = toSafeArDebtReceiptErrorMessage(error);
+	    applyJavaWsFailureDiagnostics(runRecord, error);
+	    await systemStore.upsertRun(runRecord);
     await systemStore.appendAuditLog({
       tenant_id: input.tenantId,
       actor_id: null,
@@ -5996,19 +6295,64 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       };
     }),
   );
-  const tenantOpenSignals = (
-    await Promise.all(
-      tenants.map((tenant) =>
-        systemStore.listBusinessSignals({
+	  const tenantOpenSignals = (
+	    await Promise.all(
+	      tenants.map((tenant) =>
+	        systemStore.listBusinessSignals({
           tenantId: tenant.id,
           status: "open",
           limit: 100,
         }),
-      ),
-    )
-  ).flat();
+	      ),
+	    )
+	  ).flat();
+	  const [telegramStatus, telegramDeliveries, reportRunsByTenant] =
+	    await Promise.all([
+	      readTelegramOperationalAlertStatus(systemStore),
+	      systemStore.listOperationalAlertDeliveries({
+	        channel: "telegram",
+	        limit: 30,
+	      }),
+	      Promise.all(tenants.map((tenant) => systemStore.listRuns(tenant.id))),
+	    ]);
+	  const recentReportRuns = reportRunsByTenant.flat();
+	  const latestJavaWsFailure =
+	    recentReportRuns
+	      .filter((run) => run.failure_kind || run.failure_phase)
+	      .sort((a, b) =>
+	        (b.finished_at ?? b.started_at).localeCompare(
+	          a.finished_at ?? a.started_at,
+	        ),
+	      )[0] ?? null;
+	  const heavyReportRuns = recentReportRuns
+	    .filter(
+	      (run) =>
+	        run.report_key === "stock_balance" ||
+	        run.report_key === "ar_customer_movement",
+	    )
+	    .slice(0, 20)
+	    .map((run) => ({
+	      id: run.id,
+	      tenant_id: run.tenant_id,
+	      report_key: run.report_key,
+	      status: run.status,
+	      started_at: run.started_at,
+	      finished_at: run.finished_at,
+	      duration_ms:
+	        run.finished_at && run.started_at
+	          ? Math.max(
+	              0,
+	              new Date(run.finished_at).getTime() -
+	                new Date(run.started_at).getTime(),
+	            )
+	          : null,
+	      row_count: run.row_count,
+	      failure_kind: run.failure_kind ?? null,
+	      failure_phase: run.failure_phase ?? null,
+	      safe_error_message: run.safe_error_message,
+	    }));
 
-  return {
+	  return {
     api: {
       ok: true,
       service: "ai-business-command-center-api",
@@ -6045,7 +6389,7 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       recommendation:
         "ก่อน production ควรตั้ง cron pg_dump, เก็บไฟล์นอกเครื่อง และทดสอบ restore รายสัปดาห์",
     },
-    signal_metrics: {
+	    signal_metrics: {
       open: tenantOpenSignals.length,
       critical_open: tenantOpenSignals.filter(
         (signal) => signal.severity === "critical",
@@ -6062,10 +6406,33 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       lifecycle_updates_recent: auditLogsForMetrics.filter(
         (log) => log.action === "business_signal_status_updated",
       ).length,
-    },
-    audit_logs: auditLogs,
-    tenants: tenantHealth,
-    system_config: runtimeStatus,
+	    },
+	    operational_alerts: {
+	      telegram: {
+	        status: telegramStatus,
+	        deliveries: telegramDeliveries,
+	      },
+	    },
+	    report_health: {
+	      latest_javaws_failure: latestJavaWsFailure
+	        ? {
+	            id: latestJavaWsFailure.id,
+	            tenant_id: latestJavaWsFailure.tenant_id,
+	            report_key: latestJavaWsFailure.report_key,
+	            status: latestJavaWsFailure.status,
+	            finished_at: latestJavaWsFailure.finished_at,
+	            failure_kind: latestJavaWsFailure.failure_kind ?? null,
+	            failure_phase: latestJavaWsFailure.failure_phase ?? null,
+	            failure_metadata_json:
+	              latestJavaWsFailure.failure_metadata_json ?? {},
+	            safe_error_message: latestJavaWsFailure.safe_error_message,
+	          }
+	        : null,
+	      heavy_report_runs: heavyReportRuns,
+	    },
+	    audit_logs: auditLogs,
+	    tenants: tenantHealth,
+	    system_config: runtimeStatus,
   };
 }
 
@@ -6514,6 +6881,7 @@ type NotificationRuleExecutionResult =
 
 const NOTIFICATION_QUEUE_STALE_MS = 20 * 60 * 1000;
 const NOTIFICATION_QUEUE_BACKGROUND_LIMIT = 1;
+const NOTIFICATION_QUEUE_PROCESSOR_LOCK_KEY = "notification_rule_queue_processor";
 let notificationQueueProcessorActive = false;
 
 type ChunkedHeavyReportKey = "stock_balance" | "ar_customer_movement";
@@ -7114,7 +7482,11 @@ async function executeChunkedHeavyReportRun(initialRun: ReportRunRecord) {
       },
     );
   } catch (error) {
-    return failChunkedReportRun(run, toSafeChunkedReportErrorMessage(run.report_key, error));
+    return failChunkedReportRun(
+      run,
+      toSafeChunkedReportErrorMessage(run.report_key, error),
+      error,
+    );
   }
 }
 
@@ -7516,14 +7888,23 @@ async function updateChunkedReportRun(
 async function failChunkedReportRun(
   run: ReportRunRecord,
   safeErrorMessage: string,
+  error?: unknown,
 ) {
   const failedAt = new Date().toISOString();
+  const failureDiagnostics = error
+    ? extractJavaWsFailureDiagnostics(error)
+    : null;
   const failedRun = await updateChunkedReportRun(run, {
     status: "failed",
     progress_stage: "failed",
     progress_updated_at: failedAt,
     finished_at: failedAt,
     safe_error_message: safeErrorMessage,
+    failure_kind: failureDiagnostics?.failure_kind ?? run.failure_kind ?? null,
+    failure_phase: failureDiagnostics?.failure_phase ?? run.failure_phase ?? null,
+    failure_metadata_json: failureDiagnostics
+      ? sanitizeJavaWsFailureMetadata(failureDiagnostics.failure_metadata_json)
+      : (run.failure_metadata_json ?? {}),
   });
   await systemStore.appendAuditLog({
     tenant_id: run.tenant_id,
@@ -7757,8 +8138,8 @@ async function enqueueManualNotificationRuleRun(input: {
     updated_at: nowIso,
   });
 
-  await systemStore.appendAuditLog({
-    tenant_id: input.rule.tenant_id,
+	  await systemStore.appendAuditLog({
+	    tenant_id: input.rule.tenant_id,
     actor_id: null,
     action: "notification_rule_run_queued",
     target_type: "notification_rule_run",
@@ -7778,6 +8159,120 @@ async function enqueueManualNotificationRuleRun(input: {
   });
 
   return { run, reused: false, clientRequestId };
+}
+
+async function enqueueWorkerNotificationRuleRun(input: {
+  rule: NotificationRuleRecord;
+  mode: LineSendMode;
+  scheduledLocalDate: string;
+  scheduledLocalTime: string;
+  source: "worker_due" | "worker_retry";
+  attempt?: number;
+  retryFromRun?: NotificationRuleRunRecord | null;
+}) {
+  const attempt = input.attempt ?? input.retryFromRun?.attempt ?? 1;
+  const idempotencyKey = buildNotificationIdempotencyKey({
+    ruleId: input.rule.id,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+    attempt,
+  });
+  const existing = await systemStore.getNotificationRuleRunByKey(idempotencyKey);
+  if (existing) {
+    return { run: existing, reused: true };
+  }
+  const activeRun = await systemStore.findActiveNotificationRuleRun({
+    ruleId: input.rule.id,
+    scheduledLocalDate: input.scheduledLocalDate,
+    scheduledLocalTime: input.scheduledLocalTime,
+    mode: input.mode,
+    source: input.source,
+  });
+  if (activeRun) {
+    return { run: activeRun, reused: true };
+  }
+
+  const params = input.retryFromRun
+    ? {
+        date_from: input.retryFromRun.period_from,
+        date_to: input.retryFromRun.period_to,
+        time_from: input.retryFromRun.period_from_time ?? undefined,
+        time_to: input.retryFromRun.period_to_time ?? undefined,
+      }
+    : deriveNotificationPeriodRange({
+        periodPreset: input.rule.period_preset,
+        periodStrategy: input.rule.period_strategy,
+        scheduledLocalDate: input.scheduledLocalDate,
+        scheduledLocalTime: input.scheduledLocalTime,
+        now: new Date(),
+        timeZone: input.rule.timezone,
+      });
+  const digest = createHash("sha256")
+    .update([idempotencyKey, input.source, input.mode].join("|"))
+    .digest("hex")
+    .slice(0, 20);
+  const nowIso = new Date().toISOString();
+  const run = await systemStore.upsertNotificationRuleRun({
+    id: `notification_run_${input.rule.id}_${digest}`,
+    rule_id: input.rule.id,
+    tenant_id: input.rule.tenant_id,
+    scheduled_local_date: input.scheduledLocalDate,
+    scheduled_local_time: input.scheduledLocalTime,
+    timezone: input.rule.timezone || BANGKOK_TIME_ZONE,
+    period_from: params.date_from,
+    period_to: params.date_to,
+    period_from_time: params.time_from ?? null,
+    period_to_time: params.time_to ?? null,
+    period_strategy: input.rule.period_strategy,
+    unknown_doc_time_count: 0,
+    status: "queued",
+    mode: input.mode,
+    source: input.source,
+    attempt,
+    idempotency_key: idempotencyKey,
+    report_run_ids: [],
+    report_results: null,
+    delivery_ids: [],
+    safe_error_message: null,
+    started_at: null,
+    finished_at: null,
+    queued_at: nowIso,
+    claimed_at: null,
+    worker_id: null,
+    client_request_id: null,
+    next_retry_at: null,
+    progress_stage: "queued",
+    progress_percent: 5,
+    progress_current_report_key: null,
+    progress_done_reports: 0,
+    progress_total_reports: input.rule.report_keys.length,
+    progress_updated_at: nowIso,
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: input.rule.tenant_id,
+    actor_id: null,
+    action: "notification_rule_run_queued",
+    target_type: "notification_rule_run",
+    target_id: run.id,
+    metadata_json: {
+      notification_rule_id: input.rule.id,
+      mode: input.mode,
+      source: input.source,
+      scheduled_local_date: input.scheduledLocalDate,
+      scheduled_local_time: input.scheduledLocalTime,
+      attempt,
+      period_from: params.date_from,
+      period_to: params.date_to,
+      period_from_time: params.time_from ?? null,
+      period_to_time: params.time_to ?? null,
+      retry_from_run_id: input.retryFromRun?.id ?? null,
+    },
+  });
+
+  return { run, reused: false };
 }
 
 async function failClaimedNotificationRun(input: {
@@ -7825,6 +8320,21 @@ async function markStaleNotificationQueueRuns(now: Date) {
         updated_at: failedAt,
       });
     }
+    await systemStore.appendAuditLog({
+      tenant_id: run.tenant_id,
+      actor_id: null,
+      action: "notification_rule_run_stale_failed",
+      target_type: "notification_rule_run",
+      target_id: run.id,
+      metadata_json: {
+        rule_id: run.rule_id,
+        source: run.source,
+        attempt: run.attempt,
+        queued_at: run.queued_at,
+        claimed_at: run.claimed_at,
+        worker_id: run.worker_id,
+      },
+    });
   }
   return staleRuns;
 }
@@ -7838,6 +8348,28 @@ async function processQueuedNotificationRuleRuns(input: {
     return {
       processed: [] as NotificationRuleExecutionResult[],
       skipped: [{ reason: "processor_busy" }],
+      stale_failed: [] as NotificationRuleRunRecord[],
+    };
+  }
+
+  const lockAcquired = await systemStore.tryAcquireLock({
+    lockKey: NOTIFICATION_QUEUE_PROCESSOR_LOCK_KEY,
+  });
+  if (!lockAcquired) {
+    await systemStore.appendAuditLog({
+      tenant_id: null,
+      actor_id: null,
+      action: "notification_rule_processor_busy",
+      target_type: "worker",
+      target_id: NOTIFICATION_QUEUE_PROCESSOR_LOCK_KEY,
+      metadata_json: {
+        worker_id: input.workerId,
+        checked_at: new Date().toISOString(),
+      },
+    });
+    return {
+      processed: [] as NotificationRuleExecutionResult[],
+      skipped: [{ reason: "processor_busy", lock: "db" }],
       stale_failed: [] as NotificationRuleRunRecord[],
     };
   }
@@ -7902,6 +8434,9 @@ async function processQueuedNotificationRuleRuns(input: {
     return { processed, skipped, stale_failed: staleFailed };
   } finally {
     notificationQueueProcessorActive = false;
+    await systemStore.releaseLock({
+      lockKey: NOTIFICATION_QUEUE_PROCESSOR_LOCK_KEY,
+    });
   }
 }
 
@@ -8347,6 +8882,7 @@ async function executeNotificationRule(input: {
   workerId?: string | null;
   clientRequestId?: string | null;
 }): Promise<NotificationRuleExecutionResult> {
+  const executionStartedAtMs = Date.now();
   const tenant = await getTenantOrNull(input.rule.tenant_id);
   const zoned =
     input.run
@@ -8671,6 +9207,105 @@ async function executeNotificationRule(input: {
   const snapshots: ReportSnapshot[] = [];
   const businessSignalsEnabled = isBusinessSignalsEnabled(tenant);
   const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
+  const sendOpsAlertSafe = async (alert: {
+    alertType:
+      | "notification_summary"
+      | "notification_run_failed"
+      | "javaws_failure"
+      | "line_delivery_failed"
+      | "heavy_report_slow";
+    severity: "info" | "warning" | "critical";
+    reportKey?: ReportKey | null;
+    messageText: string;
+  }) => {
+    try {
+      const deliveries = await sendOperationalTelegramAlert({
+        store: systemStore,
+        tenant,
+        alertType: alert.alertType,
+        severity: alert.severity,
+        messageText: alert.messageText,
+        dedupeKey: buildOperationalAlertDedupeKey({
+          alertType: alert.alertType,
+          tenantId: input.rule.tenant_id,
+          ruleId: input.rule.id,
+          scheduledDate: zoned.date,
+          scheduledTime: zoned.time,
+          reportKey: alert.reportKey ?? null,
+          severity: alert.severity,
+        }),
+      });
+      if (deliveries.length) {
+        await systemStore.appendAuditLog({
+          tenant_id: input.rule.tenant_id,
+          actor_id: null,
+          action: "telegram_operational_alert_processed",
+          target_type: "operational_alert",
+          target_id: alert.alertType,
+          metadata_json: {
+            alert_type: alert.alertType,
+            severity: alert.severity,
+            report_key: alert.reportKey ?? null,
+            delivery_ids: deliveries.map((delivery) => delivery.id),
+            delivery_statuses: deliveries.map((delivery) => delivery.status),
+          },
+        });
+      }
+    } catch (error) {
+      await systemStore.appendAuditLog({
+        tenant_id: input.rule.tenant_id,
+        actor_id: null,
+        action: "telegram_operational_alert_failed",
+        target_type: "operational_alert",
+        target_id: alert.alertType,
+        metadata_json: {
+          alert_type: alert.alertType,
+          severity: alert.severity,
+          report_key: alert.reportKey ?? null,
+          safe_error_message: toSafeErrorMessage(error),
+        },
+      });
+    }
+  };
+  const sendFinalReportFailureOpsAlert = async (failure: {
+    reportKey: ReportKey;
+    runRecord: ReportRunRecord;
+    safeErrorMessage: string;
+  }) => {
+    if (input.mode !== "send" || attempt < input.rule.retry_policy.max_attempts) {
+      return;
+    }
+    const javaWsFailure = Boolean(
+      failure.runRecord.failure_kind || failure.runRecord.failure_phase,
+    );
+    await sendOpsAlertSafe({
+      alertType: javaWsFailure ? "javaws_failure" : "notification_run_failed",
+      severity: "critical",
+      reportKey: failure.reportKey,
+      messageText: buildOperationalAlertMessage({
+        title: javaWsFailure
+          ? "JavaWS ทำให้สร้างรายงานผู้บริหารไม่สำเร็จ"
+          : "สร้างรายงานผู้บริหารไม่สำเร็จหลัง retry สุดท้าย",
+        severity: "critical",
+        tenantName: tenant.name,
+        scheduledTime: `${zoned.date} ${zoned.time}`,
+        reportKey: failure.reportKey,
+        runId: failure.runRecord.id,
+        status: "failed",
+        details: [
+          `สาเหตุ: ${failure.safeErrorMessage}`,
+          failure.runRecord.failure_kind
+            ? `ชนิดปัญหา: ${failure.runRecord.failure_kind}`
+            : "",
+          failure.runRecord.failure_phase
+            ? `JavaWS phase: ${failure.runRecord.failure_phase}`
+            : "",
+        ].filter(Boolean),
+        action:
+          "ตรวจ SML JavaWS/Tomcat, SMLConfig, database และสิทธิ์อ่านข้อมูล แล้วรันทดสอบรายงานอีกครั้ง",
+      }),
+    });
+  };
   const sendReportFailureIncidentNotice = async (incident: {
     reportKey: ReportKey;
     runId: string;
@@ -8989,8 +9624,8 @@ async function executeNotificationRule(input: {
     });
     const reportDurationMs = Date.now() - reportStartedAt;
     reportRunIds.push(result.runRecord.id);
-    if (reportDurationMs >= 45_000) {
-      await systemStore.appendAuditLog({
+	    if (reportDurationMs >= 45_000) {
+	      await systemStore.appendAuditLog({
         tenant_id: input.rule.tenant_id,
         actor_id: null,
         action: "notification_rule_report_slow",
@@ -9005,10 +9640,38 @@ async function executeNotificationRule(input: {
           scheduled_local_date: zoned.date,
           scheduled_local_time: zoned.time,
           report_execution_policy: policy.mode,
-          coalesced,
-        },
-      });
-    }
+	          coalesced,
+	        },
+	      });
+	      const slowSeverity = await classifyHeavyReportSlowSeverity({
+	        tenantId: input.rule.tenant_id,
+	        reportKey,
+	        durationMs: reportDurationMs,
+	      });
+	      if (slowSeverity === "critical") {
+	        await sendOpsAlertSafe({
+	          alertType: "heavy_report_slow",
+	          severity: slowSeverity,
+	          reportKey,
+	          messageText: buildOperationalAlertMessage({
+	            title: "รายงานหนักใช้เวลานานผิดปกติ",
+	            severity: slowSeverity,
+	            tenantName: tenant.name,
+	            scheduledTime: `${zoned.date} ${zoned.time}`,
+	            reportKey,
+	            runId: result.runRecord.id,
+	            status: "slow",
+	            details: [
+	              `duration_ms: ${reportDurationMs}`,
+	              `row_count: ${result.runRecord.row_count}`,
+	              `execution_policy: ${policy.mode}`,
+	            ],
+	            action:
+	              "ตรวจ JavaWS/Tomcat และ slow chunk audit ถ้ายังช้าซ้ำให้ลดช่วงข้อมูลหรือปรับ chunk size",
+	          }),
+	        });
+	      }
+	    }
     if (!result.ok) {
       if (
         reportKey === "stock_balance" &&
@@ -9119,13 +9782,18 @@ async function executeNotificationRule(input: {
           },
         );
       }
-      const incidentDeliveries = await sendReportFailureIncidentNotice({
-        reportKey,
-        runId: result.runRecord.id,
-        safeErrorMessage: result.error,
-        failureKind,
-      });
-      return failRun(
+	      const incidentDeliveries = await sendReportFailureIncidentNotice({
+	        reportKey,
+	        runId: result.runRecord.id,
+	        safeErrorMessage: result.error,
+	        failureKind,
+	      });
+	      await sendFinalReportFailureOpsAlert({
+	        reportKey,
+	        runRecord: result.runRecord,
+	        safeErrorMessage: result.error,
+	      });
+	      return failRun(
         result.error,
         result.statusCode,
         reportRunIds,
@@ -9424,9 +10092,9 @@ async function executeNotificationRule(input: {
   const failedDelivery = deliveries.find(
     (delivery) => delivery.status === "failed",
   );
-  if (failedDelivery) {
-    await finishRun({
-      status: "failed",
+	  if (failedDelivery) {
+	    await finishRun({
+	      status: "failed",
       safeErrorMessage:
         failedDelivery.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ",
       reportRunIds,
@@ -9437,10 +10105,31 @@ async function executeNotificationRule(input: {
               Date.now() +
                 input.rule.retry_policy.retry_delay_minutes * 60_000,
             ).toISOString()
-          : null,
-    });
-    return {
-      ok: false,
+	          : null,
+	    });
+	    if (input.mode === "send") {
+	      await sendOpsAlertSafe({
+	        alertType: "line_delivery_failed",
+	        severity: "critical",
+	        reportKey: null,
+	        messageText: buildOperationalAlertMessage({
+	          title: "ส่ง LINE executive notification ไม่สำเร็จ",
+	          severity: "critical",
+	          tenantName: tenant.name,
+	          scheduledTime: `${zoned.date} ${zoned.time}`,
+	          status: "failed",
+	          runId: run.id,
+	          details: [
+	            `LINE target: ${failedDelivery.target_id_masked ?? "unknown"}`,
+	            `สาเหตุ: ${failedDelivery.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ"}`,
+	          ],
+	          action:
+	            "ตรวจ LINE OA token, target permission, quota และลองส่ง test alert อีกครั้ง",
+	        }),
+	      });
+	    }
+	    return {
+	      ok: false,
       statusCode: 500,
       error: run.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ",
       run,
@@ -9488,11 +10177,41 @@ async function executeNotificationRule(input: {
       report_run_ids: reportRunIds,
       delivery_ids: deliveries.map((delivery) => delivery.id),
       delivery_statuses: deliveries.map((delivery) => delivery.status),
-      ...getDegradedAuditMetadata(),
-    },
-  });
+	      ...getDegradedAuditMetadata(),
+	    },
+	  });
+	  if (input.mode === "send") {
+	    const warningCount =
+	      degradedReports.length +
+	      deliveries.filter((delivery) => delivery.status !== "success").length;
+	    await sendOpsAlertSafe({
+	      alertType: "notification_summary",
+	      severity: warningCount ? "warning" : "info",
+	      reportKey: null,
+	      messageText: buildOperationalAlertMessage({
+	        title: "สรุปรอบแจ้งเตือนผู้บริหาร",
+	        severity: warningCount ? "warning" : "info",
+	        tenantName: tenant.name,
+	        scheduledTime: `${zoned.date} ${zoned.time}`,
+	        status: run.status,
+	        runId: run.id,
+	        details: [
+	          `reports: ${input.rule.report_keys.length}`,
+	          `LINE deliveries: ${deliveries.length}`,
+	          `success LINE: ${
+	            deliveries.filter((delivery) => delivery.status === "success").length
+	          }`,
+	          `duration_ms: ${Date.now() - executionStartedAtMs}`,
+	          `warning_count: ${warningCount}`,
+	        ],
+	        action: warningCount
+	          ? "ตรวจ operations status และรายงานที่ degraded ก่อนใช้ยอดรอบนี้ตัดสินใจ"
+	          : "ไม่ต้องดำเนินการ ระบบส่งรายงานผู้บริหารสำเร็จ",
+	      }),
+	    });
+	  }
 
-  const successfulDelivery = deliveries.find(
+	  const successfulDelivery = deliveries.find(
     (delivery) => delivery.status === "success",
   );
   return {
@@ -9512,11 +10231,74 @@ function calculateReportProgressPercent(doneReports: number, totalReports: numbe
   return clampProgressPercent(10 + Math.round((doneReports / totalReports) * 75));
 }
 
+async function classifyHeavyReportSlowSeverity(input: {
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  durationMs: number;
+}) {
+  if (
+    input.reportKey !== "stock_balance" &&
+    input.reportKey !== "ar_customer_movement"
+  ) {
+    return null;
+  }
+  const staticWarningMs =
+    input.reportKey === "stock_balance" ? 240_000 : 180_000;
+  const staticCriticalMs =
+    input.reportKey === "stock_balance" ? 300_000 : 240_000;
+  const recentDurations = (await systemStore.listRuns(input.tenantId, input.reportKey))
+    .filter(
+      (run) =>
+        run.status === "success" &&
+        run.started_at &&
+        run.finished_at &&
+        run.finished_at !== run.started_at,
+    )
+    .slice(0, 7)
+    .map((run) =>
+      Math.max(
+        0,
+        new Date(run.finished_at as string).getTime() -
+          new Date(run.started_at).getTime(),
+      ),
+    )
+    .filter((duration) => duration > 0)
+    .sort((a, b) => a - b);
+  const medianMs = recentDurations.length
+    ? recentDurations[Math.floor(recentDurations.length / 2)]
+    : null;
+  const warningThresholdMs = Math.max(
+    staticWarningMs,
+    medianMs ? Math.round(medianMs * 1.5) : 0,
+  );
+  const criticalThresholdMs = Math.max(
+    staticCriticalMs,
+    medianMs ? Math.round(medianMs * 1.5) : 0,
+  );
+  if (input.durationMs >= criticalThresholdMs) {
+    return "critical" as const;
+  }
+  if (input.durationMs >= warningThresholdMs) {
+    return "warning" as const;
+  }
+  return null;
+}
+
 function clampProgressPercent(value: number) {
   if (!Number.isFinite(value)) {
     return 0;
   }
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function toSafeNumber(value: unknown) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function validateManualNotificationSchedule(input: {
@@ -12292,6 +13074,38 @@ const lineChannelSecretsUpdateSchema = z
       });
     }
   });
+
+const telegramSecretUpdateSchema = z.object({
+  bot_token: z.string().trim().min(20).max(4096),
+});
+
+const telegramTargetCreateSchema = z.object({
+  chat_id: z.string().trim().min(1).max(128),
+  display_name: z.string().trim().min(1).max(120).optional(),
+  enabled: z.boolean().optional().default(true),
+});
+
+const telegramTestAlertSchema = z.object({
+  message: z.string().trim().max(500).optional(),
+});
+
+const operationalAlertSeveritySchema = z.enum(["info", "warning", "critical"]);
+
+const operationalAlertSmokeTestSchema = z.object({
+  alert_type: z
+    .enum([
+      "incident_dry_run",
+      "javaws_diagnostic",
+      "heavy_report_slow",
+      "notification_summary",
+    ])
+    .default("incident_dry_run"),
+  severity: operationalAlertSeveritySchema.default("warning"),
+  tenant_id: tenantIdSchema.optional(),
+  scheduled_date: isoDateSchema.optional(),
+  scheduled_time: localTimeSchema.optional(),
+  report_key: reportKeySchema.optional(),
+});
 
 const javaWsAuthSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("none") }),

@@ -36,6 +36,7 @@ export const tenantFeatureFlagsSchema = z.object({
   line_heavy_report_fallback_enabled: z.boolean().default(true),
   line_report_failure_incident_enabled: z.boolean().default(false),
   sml_chunked_heavy_reports_enabled: z.boolean().default(false),
+  telegram_operational_alerts_enabled: z.boolean().default(false),
   demo_mode_enabled: z.boolean().default(false),
 });
 
@@ -1791,6 +1792,69 @@ export type ReportRunRecord = {
   progress_stage?: ReportRunProgressStage | null;
   progress_percent?: number | null;
   progress_updated_at?: string | null;
+  failure_kind?: JavaWsFailureKind | null;
+  failure_phase?: JavaWsFailurePhase | null;
+  failure_metadata_json?: Record<string, unknown>;
+};
+
+export type JavaWsFailureKind =
+  | "timeout"
+  | "unreachable"
+  | "operation_missing"
+  | "unreadable_response"
+  | "unknown";
+
+export type JavaWsFailurePhase =
+  | "timeout"
+  | "unreachable"
+  | "operation_missing"
+  | "http_error"
+  | "soap_fault"
+  | "soap_parse_failed"
+  | "missing_return"
+  | "non_base64_return"
+  | "invalid_zip"
+  | "empty_zip"
+  | "xml_parse_failed"
+  | "missing_resultset"
+  | "invalid_resultset"
+  | "unknown";
+
+export type OperationalAlertChannel = "telegram";
+
+export type OperationalAlertSeverity = "info" | "warning" | "critical";
+
+export type OperationalAlertDeliveryStatus =
+  | "dry_run"
+  | "success"
+  | "failed"
+  | "skipped";
+
+export type OperationalAlertTargetRecord = {
+  id: string;
+  channel: OperationalAlertChannel;
+  display_name: string;
+  target_id_encrypted: string;
+  target_id_masked: string;
+  target_id_hash: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OperationalAlertDeliveryRecord = {
+  id: string;
+  channel: OperationalAlertChannel;
+  target_id_masked: string | null;
+  alert_type: string;
+  severity: OperationalAlertSeverity;
+  status: OperationalAlertDeliveryStatus;
+  dedupe_key: string | null;
+  message_text: string;
+  provider_response_json: Record<string, unknown> | null;
+  safe_error_message: string | null;
+  created_at: string;
+  sent_at: string | null;
 };
 
 export type ReportRunChunkRecord = {

@@ -6,7 +6,7 @@ create table if not exists tenants (
   database_name text not null default '',
   description text not null default '',
   datasource_configured boolean not null default false,
-  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
   business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
@@ -16,7 +16,7 @@ alter table tenants
   add column if not exists database_name text not null default '',
   add column if not exists description text not null default '',
   add column if not exists datasource_configured boolean not null default false,
-  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
   add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
   add column if not exists current_period_end timestamptz;
@@ -54,7 +54,10 @@ create table if not exists report_runs (
   started_at timestamptz not null,
   finished_at timestamptz,
   row_count integer not null default 0,
-  safe_error_message text
+  safe_error_message text,
+  failure_kind text,
+  failure_phase text,
+  failure_metadata_json jsonb not null default '{}'::jsonb
 );
 
 alter table report_runs
@@ -64,7 +67,10 @@ alter table report_runs
   add column if not exists execution_strategy text,
   add column if not exists progress_stage text,
   add column if not exists progress_percent integer,
-  add column if not exists progress_updated_at timestamptz;
+  add column if not exists progress_updated_at timestamptz,
+  add column if not exists failure_kind text,
+  add column if not exists failure_phase text,
+  add column if not exists failure_metadata_json jsonb not null default '{}'::jsonb;
 
 create table if not exists report_snapshots (
   id text primary key,
@@ -379,3 +385,41 @@ where status = 'queued';
 create index if not exists executive_dashboard_runs_active_tenant_idx
 on executive_dashboard_runs (tenant_id, status, created_at desc)
 where status in ('queued', 'running');
+
+create table if not exists operational_alert_targets (
+  id text primary key,
+  channel text not null,
+  display_name text not null,
+  target_id_encrypted text not null,
+  target_id_masked text not null,
+  target_id_hash text not null,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (channel, target_id_hash)
+);
+
+create index if not exists operational_alert_targets_channel_idx
+on operational_alert_targets (channel, enabled, updated_at desc);
+
+create table if not exists operational_alert_deliveries (
+  id text primary key,
+  channel text not null,
+  target_id_masked text,
+  alert_type text not null,
+  severity text not null,
+  status text not null,
+  dedupe_key text,
+  message_text text not null,
+  provider_response_json jsonb,
+  safe_error_message text,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+create index if not exists operational_alert_deliveries_latest_idx
+on operational_alert_deliveries (channel, created_at desc);
+
+create index if not exists operational_alert_deliveries_dedupe_idx
+on operational_alert_deliveries (channel, dedupe_key, status)
+where dedupe_key is not null;

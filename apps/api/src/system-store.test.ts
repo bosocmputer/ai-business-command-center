@@ -1112,4 +1112,67 @@ describe("local JSON system store", () => {
 
     await store.close();
   });
+
+  it("persists operational alert targets, deliveries, and local locks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+
+    await expect(
+      store.upsertOperationalAlertTarget({
+        id: "op_alert_tg_1",
+        channel: "telegram",
+        display_name: "Owner",
+        target_id_encrypted: "encrypted-chat-id",
+        target_id_masked: "12...7890",
+        target_id_hash: "hash",
+        enabled: true,
+        created_at: "2026-06-12T03:00:00.000Z",
+        updated_at: "2026-06-12T03:00:00.000Z",
+      }),
+    ).resolves.toMatchObject({
+      channel: "telegram",
+      target_id_masked: "12...7890",
+    });
+
+    await expect(store.listOperationalAlertTargets("telegram")).resolves.toEqual([
+      expect.objectContaining({ id: "op_alert_tg_1", enabled: true }),
+    ]);
+
+    await expect(
+      store.saveOperationalAlertDelivery({
+        id: "delivery_1",
+        channel: "telegram",
+        target_id_masked: "12...7890",
+        alert_type: "javaws_failure",
+        severity: "critical",
+        status: "success",
+        dedupe_key:
+          "javaws_failure:tenant_demo_remote:rule_1:2026-06-12:08:00:sales_goods_services:critical",
+        message_text: "แจ้งเตือน AI-BCC Ops",
+        provider_response_json: { ok: true, message_id: 1 },
+        safe_error_message: null,
+        created_at: "2026-06-12T03:01:00.000Z",
+        sent_at: "2026-06-12T03:01:01.000Z",
+      }),
+    ).resolves.toMatchObject({ status: "success" });
+
+    await expect(
+      store.findSuccessfulOperationalAlertDeliveryByDedupeKey({
+        channel: "telegram",
+        dedupeKey:
+          "javaws_failure:tenant_demo_remote:rule_1:2026-06-12:08:00:sales_goods_services:critical",
+      }),
+    ).resolves.toMatchObject({ id: "delivery_1" });
+
+    await expect(store.tryAcquireLock({ lockKey: "worker" })).resolves.toBe(true);
+    await expect(store.tryAcquireLock({ lockKey: "worker" })).resolves.toBe(false);
+    await store.releaseLock({ lockKey: "worker" });
+    await expect(store.tryAcquireLock({ lockKey: "worker" })).resolves.toBe(true);
+
+    await store.close();
+  });
 });

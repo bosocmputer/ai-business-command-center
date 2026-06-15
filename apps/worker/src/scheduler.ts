@@ -75,33 +75,17 @@ export async function callNotificationRulesTick(input: {
     };
   }
 
-  const response = await fetch(
-    `${input.config.apiBaseUrl}/api/worker/notification-rules/tick`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-ai-bcc-worker-token": input.config.heartbeatToken,
-      },
-      body: JSON.stringify({
-        catch_up_minutes: input.config.catchUpMinutes,
-        mode: input.config.mode,
-        worker_id: input.config.workerId,
-      }),
+  return fetchJsonWithTimeout({
+    url: `${input.config.apiBaseUrl}/api/worker/notification-rules/tick`,
+    token: input.config.heartbeatToken,
+    timeoutMs: 10_000,
+    body: {
+      catch_up_minutes: input.config.catchUpMinutes,
+      mode: input.config.mode,
+      worker_id: input.config.workerId,
     },
-  );
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-
-  if (!response.ok) {
-    throw new Error(
-      `Notification rule tick API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
-    );
-  }
-
-  return payload;
+    errorPrefix: "Notification rule tick API",
+  });
 }
 
 export async function callReportRunsTick(input: {
@@ -114,32 +98,16 @@ export async function callReportRunsTick(input: {
     };
   }
 
-  const response = await fetch(
-    `${input.config.apiBaseUrl}/api/worker/report-runs/tick`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-ai-bcc-worker-token": input.config.heartbeatToken,
-      },
-      body: JSON.stringify({
-        limit: input.config.reportRunLimit,
-        worker_id: input.config.workerId,
-      }),
+  return fetchJsonWithTimeout({
+    url: `${input.config.apiBaseUrl}/api/worker/report-runs/tick`,
+    token: input.config.heartbeatToken,
+    timeoutMs: 10_000,
+    body: {
+      limit: input.config.reportRunLimit,
+      worker_id: input.config.workerId,
     },
-  );
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-
-  if (!response.ok) {
-    throw new Error(
-      `Report run tick API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
-    );
-  }
-
-  return payload;
+    errorPrefix: "Report run tick API",
+  });
 }
 
 export async function callWorkerHeartbeat(input: {
@@ -154,35 +122,67 @@ export async function callWorkerHeartbeat(input: {
     };
   }
 
-  const response = await fetch(
-    `${input.config.apiBaseUrl}/api/worker/heartbeat`,
-    {
+  return fetchJsonWithTimeout({
+    url: `${input.config.apiBaseUrl}/api/worker/heartbeat`,
+    token: input.config.heartbeatToken,
+    timeoutMs: 10_000,
+    body: {
+      worker_id: input.config.workerId,
+      role: "notification_rule_worker",
+      status: input.status ?? "ok",
+      metadata_json: input.metadata ?? {},
+      checked_at: new Date().toISOString(),
+    },
+    errorPrefix: "Worker heartbeat API",
+  });
+}
+
+async function fetchJsonWithTimeout(input: {
+  url: string;
+  token: string;
+  timeoutMs: number;
+  body: Record<string, unknown>;
+  errorPrefix: string;
+}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
+  try {
+    const response = await fetch(input.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-ai-bcc-worker-token": input.config.heartbeatToken,
+        "x-ai-bcc-worker-token": input.token,
       },
-      body: JSON.stringify({
-        worker_id: input.config.workerId,
-        role: "notification_rule_worker",
-        status: input.status ?? "ok",
-        metadata_json: input.metadata ?? {},
-        checked_at: new Date().toISOString(),
-      }),
-    },
-  );
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
+      body: JSON.stringify(input.body),
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
 
-  if (!response.ok) {
-    throw new Error(
-      `Worker heartbeat API returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
-    );
+    if (!response.ok) {
+      throw new Error(
+        `${input.errorPrefix} returned ${response.status}: ${JSON.stringify(payload).slice(0, 500)}`,
+      );
+    }
+
+    return payload;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`${input.errorPrefix} timed out after ${input.timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  return payload;
+function isAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || /aborted/i.test(error.message))
+  );
 }
 
 function readBoolean(value: string | undefined, fallback: boolean) {
