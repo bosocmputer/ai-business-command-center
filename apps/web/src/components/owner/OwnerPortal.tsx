@@ -283,6 +283,13 @@ type DatasourceTestResult = {
 
 type DatasourceKind = "sml_postgres" | "sml_javaws";
 type JavaWsAuthMode = "none" | "basic" | "bearer";
+type JavaWsDraftComparison = {
+  changedFields: string[];
+  hasChanges: boolean;
+  isSavedJavaWs: boolean;
+  nextAction: string;
+  summary: string;
+};
 
 type DatasourceConfigStatus = {
   source: "encrypted_store" | "env" | "missing";
@@ -9949,6 +9956,16 @@ function DatasourceConfigPanel({
     database: javaWsDatabase,
     includeDatabase: false,
   });
+  const draftComparison = buildJavaWsDraftComparison({
+    authMode: javaWsAuthMode,
+    authSecret: javaWsAuthSecret,
+    baseUrl: javaWsBaseUrl,
+    config,
+    configFileName: javaWsConfigFileName,
+    database: javaWsDatabase,
+    endpoint: javaWsEndpoint,
+    webappPath: javaWsWebappPath,
+  });
   const controlsBlocked = busy || actionBusy;
   const javaWsDraftItems = buildJavaWsDraftReadiness({
     authMode: javaWsAuthMode,
@@ -9962,7 +9979,9 @@ function DatasourceConfigPanel({
     ? "Server ยังไม่พร้อมเข้ารหัส secret"
     : !draftValidation.ok
       ? `กรอกให้ครบ: ${formatJavaWsMissingList(draftValidation.missing)}`
-      : null;
+      : !draftComparison.hasChanges
+        ? "ยังไม่มีการเปลี่ยนแปลงจากค่าที่บันทึกแล้ว"
+        : null;
   const discoveryBlockReason = !discoveryValidation.ok
     ? `ค้นหา database ได้หลังกรอก: ${formatJavaWsMissingList(
         discoveryValidation.missing,
@@ -9972,9 +9991,13 @@ function DatasourceConfigPanel({
     ? "กำลังบันทึก..."
     : actionBusy
       ? "รอรายการก่อนหน้า..."
-      : formBlockReason
-        ? "กรอกข้อมูลให้ครบก่อน"
-        : "บันทึกการเชื่อม SML";
+      : !config?.encryption_configured
+        ? "Server ยังไม่พร้อม"
+        : !draftValidation.ok
+          ? "กรอกข้อมูลให้ครบก่อน"
+          : !draftComparison.hasChanges
+            ? "ยังไม่มีอะไรต้องบันทึก"
+            : "บันทึกการเชื่อม SML";
   const discoveryButtonLabel = discoveryBusy
     ? "กำลังค้นหา..."
     : discoveryBlockReason
@@ -10004,7 +10027,7 @@ function DatasourceConfigPanel({
               กรอก 4 ค่าหลักของร้าน: Tomcat, port, SMLConfig และ database
             </p>
           </div>
-          <Badge color={config?.password_configured ? "success" : "warning"}>
+          <Badge color={draftComparison.isSavedJavaWs ? "success" : "warning"}>
             {sourceLabel}
           </Badge>
         </div>
@@ -10070,6 +10093,34 @@ function DatasourceConfigPanel({
               </div>
             ))}
           </div>
+        </div>
+        <div
+          aria-live="polite"
+          className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+            draftComparison.hasChanges
+              ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+              : "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+          }`}
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="font-semibold text-gray-800 dark:text-white">
+                สถานะ draft
+              </p>
+              <p className="mt-1">{draftComparison.summary}</p>
+            </div>
+            <Badge color={draftComparison.hasChanges ? "warning" : "success"}>
+              {draftComparison.hasChanges ? "มีการแก้ไข" : "ตรงกับที่บันทึก"}
+            </Badge>
+          </div>
+          <p className="mt-2 font-medium">
+            ควรทำต่อ: {draftComparison.nextAction}
+          </p>
+          {draftComparison.changedFields.length ? (
+            <p className="mt-1 text-gray-600 dark:text-gray-300">
+              รายการที่กระทบ: {draftComparison.changedFields.join(", ")}
+            </p>
+          ) : null}
         </div>
         {config?.kind && config.kind !== "sml_javaws" ? (
           <div className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
@@ -10280,7 +10331,8 @@ function DatasourceConfigPanel({
           disabled={
             controlsBlocked ||
             !config?.encryption_configured ||
-            !draftValidation.ok
+            !draftValidation.ok ||
+            !draftComparison.hasChanges
           }
           size="sm"
         >
@@ -11881,6 +11933,110 @@ function buildTomcatBaseUrl({
   }
 
   return `${protocol}://${safeHost}${safePort ? `:${safePort}` : ""}`;
+}
+
+function normalizeJavaWsDraftValue(value: string | null | undefined) {
+  return (value ?? "").trim();
+}
+
+function buildJavaWsDraftComparison({
+  authMode,
+  authSecret,
+  baseUrl,
+  config,
+  configFileName,
+  database,
+  endpoint,
+  webappPath,
+}: {
+  authMode: JavaWsAuthMode;
+  authSecret: string;
+  baseUrl: string;
+  config: DatasourceConfigStatus | null;
+  configFileName: string;
+  database: string;
+  endpoint: string;
+  webappPath: string;
+}): JavaWsDraftComparison {
+  const isSavedJavaWs =
+    config?.source === "encrypted_store" && config.kind === "sml_javaws";
+
+  if (!isSavedJavaWs) {
+    if (config?.source === "env" || (config?.kind && config.kind !== "sml_javaws")) {
+      return {
+        changedFields: ["บันทึก JavaWS ใหม่"],
+        hasChanges: true,
+        isSavedJavaWs: false,
+        nextAction:
+          "บันทึก JavaWS ใหม่ลง encrypted store แล้วทดสอบค่าที่บันทึกก่อนเปิดแจ้งเตือน",
+        summary: "ร้านนี้ยังใช้ค่าเก่าหรือค่ายังไม่อยู่ใน JavaWS flow ใหม่",
+      };
+    }
+
+    return {
+      changedFields: ["JavaWS config ใหม่"],
+      hasChanges: true,
+      isSavedJavaWs: false,
+      nextAction: "กรอกครบ, ทดสอบค่าที่กรอก, แล้วบันทึกให้ worker ใช้งานจริง",
+      summary: "ร้านนี้ยังไม่เคยบันทึกค่า SML JavaWS",
+    };
+  }
+
+  const defaultWebappPath = "/SMLJavaWebService";
+  const fieldComparisons = [
+    {
+      label: "Tomcat",
+      draft: normalizeJavaWsDraftValue(baseUrl),
+      saved: normalizeJavaWsDraftValue(config.base_url),
+    },
+    {
+      label: "Webapp path",
+      draft: normalizeJavaWsDraftValue(webappPath || defaultWebappPath),
+      saved: normalizeJavaWsDraftValue(config.webapp_path || defaultWebappPath),
+    },
+    {
+      label: "Endpoint",
+      draft: normalizeJavaWsDraftValue(endpoint || "DotNetFrameWork"),
+      saved: normalizeJavaWsDraftValue(config.endpoint || "DotNetFrameWork"),
+    },
+    {
+      label: "SMLConfig",
+      draft: normalizeJavaWsDraftValue(configFileName),
+      saved: normalizeJavaWsDraftValue(config.config_file_name),
+    },
+    {
+      label: "Database",
+      draft: normalizeJavaWsDraftValue(database),
+      saved: normalizeJavaWsDraftValue(config.database),
+    },
+    {
+      label: "Auth mode",
+      draft: authMode,
+      saved: config.auth_mode ?? "none",
+    },
+  ];
+  const changedFields = fieldComparisons
+    .filter((item) => item.draft !== item.saved)
+    .map((item) => item.label);
+
+  if (authMode !== "none" && authSecret.trim()) {
+    changedFields.push("Auth secret ใหม่");
+  }
+
+  const hasChanges = changedFields.length > 0;
+  return {
+    changedFields,
+    hasChanges,
+    isSavedJavaWs: true,
+    nextAction: hasChanges
+      ? "ทดสอบค่าที่กรอกก่อนบันทึก เพื่อกันบันทึก config ผิดร้านหรือผิด database"
+      : "ถ้าต้องการยืนยัน production ให้กดทดสอบค่าที่บันทึกด้านบน ไม่ต้องบันทึกซ้ำ",
+    summary: hasChanges
+      ? `กำลังแก้: ${changedFields.slice(0, 5).join(", ")}${
+          changedFields.length > 5 ? ` และอีก ${changedFields.length - 5} รายการ` : ""
+        }`
+      : "ค่าที่กรอกตรงกับค่าที่บันทึกแล้ว",
+  };
 }
 
 function validateJavaWsDraft({
