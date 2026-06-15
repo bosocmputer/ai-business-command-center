@@ -3,6 +3,14 @@
 วันที่บันทึก: 2026-06-15
 สถานะ: implementation plan สำหรับปรับ `/owner` ให้เป็น cockpit ที่ใช้จริงระหว่าง proof และขาย pilot
 
+## Implementation Update 2026-06-15
+
+- Phase 1 เริ่มแล้วใน `apps/web/src/components/owner/OwnerPortal.tsx`
+- `/owner` มี status bar, next action panel, store health matrix และ selected tenant detail แล้ว
+- ลด noise ใน proof section เพิ่มเติม: sales kit, pilot qualification และ launch actions ถูกย่อไว้หลังปุ่ม `เปิดชุดข้อความขาย`
+- ค่า proof หลัก, copy proof, coverage, รอบ 7 วัน, LINE proof, heavy p90, failed report และ ops alert ยังเห็นได้ทันทีโดยไม่ต้องเปิดรายละเอียด
+- ไม่มี API/business logic change ใน update นี้
+
 ## Decision
 
 `/owner` ต้องเป็นหน้า **Operations Cockpit** ไม่ใช่หน้า home ที่รวมทุก widget

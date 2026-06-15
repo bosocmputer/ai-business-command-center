@@ -4529,6 +4529,7 @@ function OwnerProofEvidenceStrip({
   const [copyStatus, setCopyStatus] = useState<OwnerProofCopyStatus>("idle");
   const [salesKitCopyStatus, setSalesKitCopyStatus] =
     useState<OwnerProofCopyStatus>("idle");
+  const [showPilotSalesDetails, setShowPilotSalesDetails] = useState(false);
   const manualCopyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const manualSalesKitTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scheduledProofValue = proof
@@ -4618,12 +4619,23 @@ function OwnerProofEvidenceStrip({
             ใช้ดูว่ารอบจริง 7 วันล่าสุดมีรายงาน, LINE delivery, incident และ ops alert ครบหรือไม่
           </p>
         </div>
-        <Link
-          className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-          href="/owner/audit"
-        >
-          เปิด audit
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            aria-controls="owner-pilot-sales-kit"
+            aria-expanded={showPilotSalesDetails}
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            onClick={() => setShowPilotSalesDetails((value) => !value)}
+            type="button"
+          >
+            {showPilotSalesDetails ? "ซ่อนชุดข้อความขาย" : "เปิดชุดข้อความขาย"}
+          </button>
+          <Link
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            href="/owner/audit"
+          >
+            เปิด audit
+          </Link>
+        </div>
       </div>
       <div
         className={`mt-4 border-l-4 pl-4 ${ownerProofVerdictAccentClass(
@@ -4707,150 +4719,177 @@ function OwnerProofEvidenceStrip({
           </div>
         </div>
       </div>
-      <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Sales kit สำหรับคุยลูกค้า
+      {showPilotSalesDetails ? (
+        <div
+          className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800"
+          id="owner-pilot-sales-kit"
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Sales kit สำหรับคุยลูกค้า
+                </p>
+                <Badge color={pilotSalesKit.tone}>
+                  {pilotSalesKit.tone === "success"
+                    ? "พร้อมส่ง"
+                    : pilotSalesKit.tone === "warning"
+                    ? "ส่งแบบมี caveat"
+                    : "รอ proof"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ข้อความนี้ใช้คุยกับเจ้าของร้านหรือผู้บริหาร โดยยึดจาก proof ล่าสุดและไม่ใส่ข้อมูลลับของลูกค้า
               </p>
-              <Badge color={pilotSalesKit.tone}>
-                {pilotSalesKit.tone === "success"
-                  ? "พร้อมส่ง"
-                  : pilotSalesKit.tone === "warning"
-                  ? "ส่งแบบมี caveat"
-                  : "รอ proof"}
+            </div>
+            <button
+              aria-label="คัดลอก sales kit สำหรับลูกค้า"
+              className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
+                salesKitCopyStatus === "success"
+                  ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+                  : salesKitCopyStatus === "manual"
+                  ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+              }`}
+              onClick={() => void handleCopyPilotSalesKit()}
+              type="button"
+            >
+              <CopyIcon className="size-4" />
+              {salesKitCopyButtonLabel}
+            </button>
+          </div>
+          <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.4fr)_minmax(0,1fr)]">
+            <div>
+              <p className="text-xs font-medium uppercase text-gray-400">
+                Positioning
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
+                {pilotSalesKit.headline}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {pilotSalesKit.offer}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-gray-400">
+                ข้อความส่งลูกค้า
+              </p>
+              <p className="mt-1 whitespace-pre-line text-sm leading-6 text-gray-700 dark:text-gray-300">
+                {pilotSalesKit.message}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-gray-400">
+                พูดตรง ๆ ก่อนปิด pilot
+              </p>
+              <p className="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300">
+                {pilotSalesKit.proofBoundary}
+              </p>
+              <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {pilotSalesKit.objections.map((item) => (
+                  <li key={item}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Pilot qualification
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  ใช้เลือกคนคุยและกันการขายเกิน proof ที่ระบบมีจริงตอนนี้
+                </p>
+              </div>
+              <Badge color={pilotQualification.tone}>
+                {pilotQualification.label}
               </Badge>
             </div>
-            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              ข้อความนี้ใช้คุยกับเจ้าของร้านหรือผู้บริหาร โดยยึดจาก proof ล่าสุดและไม่ใส่ข้อมูลลับของลูกค้า
-            </p>
-          </div>
-          <button
-            aria-label="คัดลอก sales kit สำหรับลูกค้า"
-            className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
-              salesKitCopyStatus === "success"
-                ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
-                : salesKitCopyStatus === "manual"
-                ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
-                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
-            }`}
-            onClick={() => void handleCopyPilotSalesKit()}
-            type="button"
-          >
-            <CopyIcon className="size-4" />
-            {salesKitCopyButtonLabel}
-          </button>
-        </div>
-        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.4fr)_minmax(0,1fr)]">
-          <div>
-            <p className="text-xs font-medium uppercase text-gray-400">
-              Positioning
-            </p>
-            <p className="mt-1 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
-              {pilotSalesKit.headline}
-            </p>
-            <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              {pilotSalesKit.offer}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium uppercase text-gray-400">
-              ข้อความส่งลูกค้า
-            </p>
-            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-gray-700 dark:text-gray-300">
-              {pilotSalesKit.message}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium uppercase text-gray-400">
-              พูดตรง ๆ ก่อนปิด pilot
-            </p>
-            <p className="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300">
-              {pilotSalesKit.proofBoundary}
-            </p>
-            <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              {pilotSalesKit.objections.map((item) => (
-                <li key={item}>• {item}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-        <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Pilot qualification
-              </p>
-              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                ใช้เลือกคนคุยและกันการขายเกิน proof ที่ระบบมีจริงตอนนี้
-              </p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {pilotQualification.title}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {pilotQualification.whoToApproach}
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <HealthFact
+                  label="Minimum pilot"
+                  value={pilotQualification.minimumScope}
+                />
+                <HealthFact
+                  label="Decision signal"
+                  value={pilotQualification.decisionSignal}
+                />
+              </div>
             </div>
-            <Badge color={pilotQualification.tone}>
-              {pilotQualification.label}
-            </Badge>
-          </div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                {pilotQualification.title}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {pilotQualification.whoToApproach}
-              </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-xs font-medium uppercase text-gray-400">
+                  เก็บ proof หลังรอบจริง
+                </p>
+                <ul className="mt-1 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {pilotQualification.evidenceToCapture.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase text-gray-400">
+                  ยังไม่ควรขายกับ
+                </p>
+                <ul className="mt-1 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {pilotQualification.avoid.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <HealthFact
-                label="Minimum pilot"
-                value={pilotQualification.minimumScope}
-              />
-              <HealthFact
-                label="Decision signal"
-                value={pilotQualification.decisionSignal}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            Next step: {pilotSalesKit.nextStep}
+          </p>
+          {salesKitCopyStatus === "manual" ? (
+            <div className="mt-3">
+              <p className="mb-1 text-xs leading-5 text-warning-700 dark:text-warning-300">
+                Browser บล็อกการคัดลอกอัตโนมัติ เลือกข้อความไว้ให้แล้ว กด Ctrl/Cmd+C ได้เลย
+              </p>
+              <textarea
+                ref={manualSalesKitTextareaRef}
+                className="h-36 w-full resize-none rounded-lg border border-warning-200 bg-warning-50 p-2 text-xs leading-5 text-gray-800 outline-none focus:border-warning-400 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-gray-100"
+                onFocus={(event) => event.currentTarget.select()}
+                readOnly
+                value={pilotSalesKitShareText}
               />
             </div>
-          </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          ) : null}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-xs font-medium uppercase text-gray-400">
-                เก็บ proof หลังรอบจริง
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                ชุดข้อความขายถูกย่อไว้เพื่อลดสิ่งรบกวนหน้า cockpit
               </p>
-              <ul className="mt-1 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {pilotQualification.evidenceToCapture.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase text-gray-400">
-                ยังไม่ควรขายกับ
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                เปิดเมื่อจะคัดลอกข้อความขาย, ดู qualification หรือเตรียมคุยลูกค้า pilot
               </p>
-              <ul className="mt-1 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {pilotQualification.avoid.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
             </div>
+            <button
+              aria-controls="owner-pilot-sales-kit"
+              aria-expanded={showPilotSalesDetails}
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+              onClick={() => setShowPilotSalesDetails(true)}
+              type="button"
+            >
+              เปิดรายละเอียด
+            </button>
           </div>
         </div>
-        <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-          Next step: {pilotSalesKit.nextStep}
-        </p>
-        {salesKitCopyStatus === "manual" ? (
-          <div className="mt-3">
-            <p className="mb-1 text-xs leading-5 text-warning-700 dark:text-warning-300">
-              Browser บล็อกการคัดลอกอัตโนมัติ เลือกข้อความไว้ให้แล้ว กด Ctrl/Cmd+C ได้เลย
-            </p>
-            <textarea
-              ref={manualSalesKitTextareaRef}
-              className="h-36 w-full resize-none rounded-lg border border-warning-200 bg-warning-50 p-2 text-xs leading-5 text-gray-800 outline-none focus:border-warning-400 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-gray-100"
-              onFocus={(event) => event.currentTarget.select()}
-              readOnly
-              value={pilotSalesKitShareText}
-            />
-          </div>
-        ) : null}
-      </div>
+      )}
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <HealthFact
           label="Coverage"
@@ -4906,6 +4945,7 @@ function OwnerProofEvidenceStrip({
           {formatProofRate(proof.line_delivery_success_rate)}
         </p>
       ) : null}
+      {showPilotSalesDetails ? (
       <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -4943,6 +4983,7 @@ function OwnerProofEvidenceStrip({
           ))}
         </div>
       </div>
+      ) : null}
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         <HealthFact
           label="Business signals"
