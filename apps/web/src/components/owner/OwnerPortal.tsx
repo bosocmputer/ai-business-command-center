@@ -5192,13 +5192,20 @@ function OwnerTenantsContent({
 }: OwnerSectionContentProps) {
   const [tenantFilter, setTenantFilter] =
     useState<TenantListFilter>("active_flow");
+  const [tenantSearchTerm, setTenantSearchTerm] = useState("");
   const justCreatedTenant = justCreatedTenantId
     ? tenants.find((item) => item.tenant.id === justCreatedTenantId)?.tenant
     : null;
-  const filteredTenants = tenants.filter((item) =>
-    matchesTenantListFilter(item.tenant.status, tenantFilter),
+  const tenantSearchQuery = normalizeOwnerSearchQuery(tenantSearchTerm);
+  const filteredTenants = tenants.filter(
+    (item) =>
+      matchesTenantListFilter(item.tenant.status, tenantFilter) &&
+      matchesTenantSearch(item, tenantSearchQuery),
   );
-  const tenantOptions = filteredTenants.length ? filteredTenants : tenants;
+  const tenantOptions = includeSelectedTenantOption(
+    filteredTenants.length ? filteredTenants : tenants,
+    selectedTenantSummary,
+  );
   const tenantCounts = TENANT_LIST_FILTERS.reduce(
     (acc, item) => ({
       ...acc,
@@ -5311,6 +5318,32 @@ function OwnerTenantsContent({
             ))}
           </div>
 
+          <div className="border-t border-gray-100 px-5 py-3 dark:border-gray-800">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <input
+                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-100 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-brand-500"
+                onChange={(event) => setTenantSearchTerm(event.target.value)}
+                placeholder="ค้นหาร้านด้วยชื่อ, tenant_id หรือ database"
+                value={tenantSearchTerm}
+              />
+              <div className="flex shrink-0 items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <span>
+                  แสดง {filteredTenants.length.toLocaleString("th-TH")} จาก{" "}
+                  {tenants.length.toLocaleString("th-TH")} ร้าน
+                </span>
+                {tenantSearchTerm ? (
+                  <button
+                    className="h-8 rounded-lg border border-gray-200 bg-white px-3 font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                    onClick={() => setTenantSearchTerm("")}
+                    type="button"
+                  >
+                    ล้าง
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
           <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
             {filteredTenants.length ? (
               filteredTenants.map((item) => (
@@ -5326,7 +5359,9 @@ function OwnerTenantsContent({
               ))
             ) : (
               <p className="p-5 text-sm text-gray-500 dark:text-gray-400">
-                ไม่มีร้านใน filter นี้
+                {tenantSearchQuery
+                  ? "ไม่พบร้านที่ตรงกับคำค้นหา ลองล้างคำค้นหรือเปลี่ยน filter"
+                  : "ไม่มีร้านใน filter นี้"}
               </p>
             )}
           </div>
@@ -5399,6 +5434,7 @@ function OwnerSmlConnectionsContent({
   tenants,
 }: OwnerSectionContentProps) {
   const [filter, setFilter] = useState<SmlConnectionFilter>("all");
+  const [connectionSearchTerm, setConnectionSearchTerm] = useState("");
   const connectionRows =
     smlConnections.length > 0
       ? smlConnections
@@ -5415,8 +5451,10 @@ function OwnerSmlConnectionsContent({
   const selectedTest = selectedTenantId
     ? datasourceTests[selectedTenantId] ?? selectedRow?.last_test ?? undefined
     : undefined;
+  const connectionSearchQuery = normalizeOwnerSearchQuery(connectionSearchTerm);
   const filteredRows = connectionRows.filter((item) =>
-    matchesSmlConnectionFilter(item, datasourceTests[item.tenant.id], filter),
+    matchesSmlConnectionFilter(item, datasourceTests[item.tenant.id], filter) &&
+    matchesSmlConnectionSearch(item, connectionSearchQuery),
   );
   const counts = buildSmlConnectionCounts(connectionRows, datasourceTests);
   const datasourceBusy = selectedTenantId
@@ -5496,6 +5534,30 @@ function OwnerSmlConnectionsContent({
                 </button>
               ))}
             </div>
+
+            <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <input
+                className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-100 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-brand-500"
+                onChange={(event) => setConnectionSearchTerm(event.target.value)}
+                placeholder="ค้นหาร้าน, tenant_id, Tomcat, SMLConfig หรือ database"
+                value={connectionSearchTerm}
+              />
+              <div className="flex shrink-0 items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <span>
+                  แสดง {filteredRows.length.toLocaleString("th-TH")} จาก{" "}
+                  {connectionRows.length.toLocaleString("th-TH")} ร้าน
+                </span>
+                {connectionSearchTerm ? (
+                  <button
+                    className="h-8 rounded-lg border border-gray-200 bg-white px-3 font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                    onClick={() => setConnectionSearchTerm("")}
+                    type="button"
+                  >
+                    ล้าง
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </div>
 
           <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
@@ -5511,7 +5573,9 @@ function OwnerSmlConnectionsContent({
               ))
             ) : (
               <p className="p-5 text-sm text-gray-500 dark:text-gray-400">
-                ไม่มีร้านใน filter นี้
+                {connectionSearchQuery
+                  ? "ไม่พบร้านที่ตรงกับคำค้นหา ลองล้างคำค้นหรือเปลี่ยน filter"
+                  : "ไม่มีร้านใน filter นี้"}
               </p>
             )}
           </div>
@@ -7326,7 +7390,7 @@ function LineTenantRow({
           </Badge>
         </div>
         <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
-	          แผนแจ้งเตือน · {item.tenant.id}
+            แผนแจ้งเตือน · {item.tenant.id}
         </p>
       </div>
       <CompactFact
@@ -11068,6 +11132,32 @@ function buildSmlConnectionCounts(
   );
 }
 
+function matchesSmlConnectionSearch(
+  item: SmlConnectionSummary,
+  query: string,
+) {
+  if (!query) {
+    return true;
+  }
+
+  return ownerTextMatchesSearch(
+    [
+      item.tenant.name,
+      item.tenant.id,
+      item.tenant.databaseName,
+      item.datasource.base_url,
+      item.datasource.webapp_path,
+      item.datasource.config_file_name,
+      item.datasource.database,
+      item.datasource.kind,
+      formatTenantStatus(item.tenant.status),
+      formatDatasourceSource(item.datasource),
+      formatDatasourceMode(item.datasource.kind),
+    ],
+    query,
+  );
+}
+
 function datasourceStatusTone(config: DatasourceConfigStatus | null | undefined) {
   if (!config || config.source === "missing") {
     return "warning" as const;
@@ -11519,6 +11609,54 @@ function matchesTenantListFilter(
     return status !== "cancelled";
   }
   return status === filter;
+}
+
+function matchesTenantSearch(item: TenantSummary, query: string) {
+  if (!query) {
+    return true;
+  }
+
+  return ownerTextMatchesSearch(
+    [
+      item.tenant.name,
+      item.tenant.id,
+      item.tenant.databaseName,
+      item.tenant.planCode,
+      formatTenantStatus(item.tenant.status),
+      item.customer_dashboard_path,
+      item.access.message,
+    ],
+    query,
+  );
+}
+
+function includeSelectedTenantOption(
+  items: TenantSummary[],
+  selectedTenant: TenantSummary | undefined,
+) {
+  if (
+    !selectedTenant ||
+    items.some((item) => item.tenant.id === selectedTenant.tenant.id)
+  ) {
+    return items;
+  }
+
+  return [selectedTenant, ...items];
+}
+
+function normalizeOwnerSearchQuery(value: string) {
+  return value.trim().toLocaleLowerCase("th-TH");
+}
+
+function ownerTextMatchesSearch(
+  values: Array<string | number | null | undefined>,
+  query: string,
+) {
+  return values.some((value) =>
+    String(value ?? "")
+      .toLocaleLowerCase("th-TH")
+      .includes(query),
+  );
 }
 
 function tenantStatusTone(status: Tenant["status"]) {
