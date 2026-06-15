@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import OwnerPortal from "@/components/owner/OwnerPortal";
 
 export const metadata: Metadata = {
   title: "ร้านค้า | AI Business Owner",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function OwnerTenantsPage() {
-  redirect("/owner");
+  return <OwnerPortal section="tenants" />;
 }

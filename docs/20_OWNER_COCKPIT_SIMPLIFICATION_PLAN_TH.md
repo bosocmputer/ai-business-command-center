@@ -10,6 +10,7 @@
 - ลด noise ใน proof section เพิ่มเติม: sales kit, pilot qualification และ launch actions ถูกย่อไว้หลังปุ่ม `เปิดชุดข้อความขาย`
 - ค่า proof หลัก, copy proof, coverage, รอบ 7 วัน, LINE proof, heavy p90, failed report และ ops alert ยังเห็นได้ทันทีโดยไม่ต้องเปิดรายละเอียด
 - ไม่มี API/business logic change ใน update นี้
+- `/owner/tenants` เริ่มยกระดับ Add Store CRUD เป็น onboarding panel: สร้างร้านพร้อม tenant id guard, viewer email/note/plan เริ่มต้น, duplicate check ฝั่ง UI และ CTA ไปเชื่อม SML ของร้านที่เพิ่งสร้างทันที
 
 ## Decision
 

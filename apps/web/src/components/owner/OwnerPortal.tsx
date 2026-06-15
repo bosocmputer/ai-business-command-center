@@ -626,6 +626,10 @@ export default function OwnerPortal({
   const [result, setResult] = useState<ActionResult | null>(null);
   const [newTenantName, setNewTenantName] = useState("");
   const [newTenantId, setNewTenantId] = useState("");
+  const [newTenantDescription, setNewTenantDescription] = useState("");
+  const [newTenantViewerEmail, setNewTenantViewerEmail] = useState("");
+  const [newTenantPlanCode, setNewTenantPlanCode] =
+    useState<Tenant["planCode"]>("starter");
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [justCreatedTenantId, setJustCreatedTenantId] = useState<string | null>(null);
   const [reportDateFrom, setReportDateFrom] = useState(
@@ -1444,15 +1448,27 @@ export default function OwnerPortal({
     event.preventDefault();
     const tenantName = newTenantName.trim();
     const tenantId = (newTenantId.trim() || slugifyTenantId(tenantName)).trim();
+    const viewerEmail = newTenantViewerEmail.trim();
+    const description = newTenantDescription.trim();
     if (!tenantName || !tenantId) {
       setResult({ tone: "warning", message: "กรุณากรอกชื่อร้านค้า" });
+      return;
+    }
+    const duplicateTenant = tenants.find(
+      (item) => item.tenant.id.toLowerCase() === tenantId.toLowerCase(),
+    );
+    if (duplicateTenant) {
+      setResult({
+        tone: "warning",
+        message: `รหัสร้าน ${tenantId} ถูกใช้กับ ${duplicateTenant.tenant.name} แล้ว`,
+      });
       return;
     }
 
     await runOwnerAction("create", async () => {
       const headers = await buildAdminJsonHeaders({
         actionLabel: "เพิ่มร้านค้าใหม่",
-        description: "สร้างร้านใหม่ในระบบ SaaS pilot",
+        description: "สร้างร้านใหม่ในระบบ SaaS pilot และเริ่ม onboarding checklist",
       });
       if (!headers) {
         throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนเพิ่มร้านค้า");
@@ -1465,7 +1481,9 @@ export default function OwnerPortal({
           tenant_id: tenantId,
           name: tenantName,
           status: "trial",
-          plan_code: "starter",
+          plan_code: newTenantPlanCode,
+          description: description || undefined,
+          viewer_email: viewerEmail || undefined,
         }),
       });
 
@@ -1478,9 +1496,15 @@ export default function OwnerPortal({
 
       setNewTenantName("");
       setNewTenantId("");
+      setNewTenantDescription("");
+      setNewTenantViewerEmail("");
+      setNewTenantPlanCode("starter");
       setSelectedTenantId(tenantId);
       setJustCreatedTenantId(tenantId);
-      setResult({ tone: "success", message: "เพิ่มร้านค้าใหม่แล้ว" });
+      setResult({
+        tone: "success",
+        message: "เพิ่มร้านค้าใหม่แล้ว ขั้นต่อไปคือเชื่อม SML JavaWS",
+      });
       await loadOwnerData();
     });
   }
@@ -3484,8 +3508,11 @@ export default function OwnerPortal({
           editingNotificationRuleId={editingNotificationRuleId}
           lastNotificationRunResult={lastNotificationRunResult}
           justCreatedTenantId={justCreatedTenantId}
+          newTenantDescription={newTenantDescription}
           newTenantId={newTenantId}
           newTenantName={newTenantName}
+          newTenantPlanCode={newTenantPlanCode}
+          newTenantViewerEmail={newTenantViewerEmail}
           onAssignLineRecipient={assignLineRecipientToTenant}
           onApproveLineTarget={approveLineTarget}
           onSetLineTargetProfile={updateLineTargetProfile}
@@ -3558,8 +3585,11 @@ export default function OwnerPortal({
           setNotificationPeriodPreset={setNotificationPeriodPreset}
           setNotificationPeriodStrategy={setNotificationPeriodStrategy}
           setNotificationTimeInput={setNotificationTimeInput}
+          setNewTenantDescription={setNewTenantDescription}
           setNewTenantId={setNewTenantId}
           setNewTenantName={setNewTenantName}
+          setNewTenantPlanCode={setNewTenantPlanCode}
+          setNewTenantViewerEmail={setNewTenantViewerEmail}
           setReportDateFrom={setReportDateFrom}
           setReportDateTo={setReportDateTo}
           setSelectedTenantId={setSelectedTenantId}
@@ -3700,8 +3730,11 @@ type OwnerSectionContentProps = {
   reportPermissions: ReportPermissionsState | null;
   editingNotificationRuleId: string | null;
   lastNotificationRunResult: NotificationRuleRunResult | null;
+  newTenantDescription: string;
   newTenantId: string;
   newTenantName: string;
+  newTenantPlanCode: Tenant["planCode"];
+  newTenantViewerEmail: string;
   onAssignLineRecipient: (input: {
     recipient: LineRecipientRecord;
     lineChannelId: string;
@@ -3812,8 +3845,11 @@ type OwnerSectionContentProps = {
   setNotificationPeriodPreset: (value: NotificationPeriodPreset) => void;
   setNotificationPeriodStrategy: (value: NotificationPeriodStrategy) => void;
   setNotificationTimeInput: (value: string) => void;
+  setNewTenantDescription: (value: string) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
+  setNewTenantPlanCode: (value: Tenant["planCode"]) => void;
+  setNewTenantViewerEmail: (value: string) => void;
   setReportDateFrom: (value: string) => void;
   setReportDateTo: (value: string) => void;
   setSelectedTenantId: (value: string) => void;
@@ -5043,10 +5079,16 @@ function OwnerTenantsContent({
   onTestDatasource,
   onUpdateTenant,
   onUpdateStatus,
+  newTenantDescription,
   selectedTenantId,
   selectedTenantSummary,
+  newTenantPlanCode,
+  newTenantViewerEmail,
+  setNewTenantDescription,
   setNewTenantId,
   setNewTenantName,
+  setNewTenantPlanCode,
+  setNewTenantViewerEmail,
   setSelectedTenantId,
   tenants,
 }: OwnerSectionContentProps) {
@@ -5074,20 +5116,47 @@ function OwnerTenantsContent({
       <OwnerSetupPanel
         busy={busy}
         createTenant={createTenant}
+        existingTenants={tenants}
+        newTenantDescription={newTenantDescription}
         newTenantId={newTenantId}
         newTenantName={newTenantName}
+        newTenantPlanCode={newTenantPlanCode}
+        newTenantViewerEmail={newTenantViewerEmail}
+        setNewTenantDescription={setNewTenantDescription}
         setNewTenantId={setNewTenantId}
         setNewTenantName={setNewTenantName}
+        setNewTenantPlanCode={setNewTenantPlanCode}
+        setNewTenantViewerEmail={setNewTenantViewerEmail}
       />
 
       {justCreatedTenant ? (
         <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
-          <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
-            เพิ่ม {justCreatedTenant.name} แล้ว, ขั้นต่อไปคือเชื่อม SML ผ่าน JavaWS
-          </p>
-          <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
-            เลือกร้านนี้ด้านล่าง แล้วเปิดหน้า SML Connections เพื่อใส่ Tomcat, config file และ database
-          </p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-brand-700 dark:text-brand-300">
+                เพิ่ม {justCreatedTenant.name} แล้ว
+              </p>
+              <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
+                ขั้นต่อไปคือเชื่อม SML ผ่าน JavaWS แล้วค่อยตั้ง LINE และแผนแจ้งเตือน
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                className="inline-flex h-9 items-center justify-center rounded-lg bg-brand-500 px-3 text-sm font-medium text-white hover:bg-brand-600"
+                href={`/owner/sml-connections?tenant=${encodeURIComponent(
+                  justCreatedTenant.id,
+                )}`}
+              >
+                เชื่อม SML ร้านนี้
+              </Link>
+              <Link
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-brand-200 bg-white px-3 text-sm font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/30 dark:bg-gray-900 dark:text-brand-300"
+                href={`/owner?tenant=${encodeURIComponent(justCreatedTenant.id)}`}
+              >
+                ดู readiness
+              </Link>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -8478,84 +8547,194 @@ function formatAuditMetadata(metadata: Record<string, unknown>) {
 function OwnerSetupPanel({
   busy,
   createTenant,
+  existingTenants,
+  newTenantDescription,
   newTenantId,
   newTenantName,
+  newTenantPlanCode,
+  newTenantViewerEmail,
+  setNewTenantDescription,
   setNewTenantId,
   setNewTenantName,
+  setNewTenantPlanCode,
+  setNewTenantViewerEmail,
 }: {
   busy: string | null;
   createTenant: (event: FormEvent<HTMLFormElement>) => void;
+  existingTenants: TenantSummary[];
+  newTenantDescription: string;
   newTenantId: string;
   newTenantName: string;
+  newTenantPlanCode: Tenant["planCode"];
+  newTenantViewerEmail: string;
+  setNewTenantDescription: (value: string) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
+  setNewTenantPlanCode: (value: Tenant["planCode"]) => void;
+  setNewTenantViewerEmail: (value: string) => void;
 }) {
+  const proposedTenantId = (newTenantId.trim() || slugifyTenantId(newTenantName)).trim();
+  const duplicateTenant = proposedTenantId
+    ? existingTenants.find(
+        (item) =>
+          item.tenant.id.toLowerCase() === proposedTenantId.toLowerCase(),
+      )
+    : null;
+  const tenantIdLooksValid =
+    !proposedTenantId ||
+    /^[a-z0-9][a-z0-9_-]{2,79}$/.test(proposedTenantId);
+  const canCreate =
+    Boolean(newTenantName.trim()) &&
+    Boolean(proposedTenantId) &&
+    tenantIdLooksValid &&
+    !duplicateTenant;
+
   return (
-    <details className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <summary className="cursor-pointer list-none">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <Badge color="primary">เพิ่มร้านค้า</Badge>
-            <h2 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
-              สร้างร้านใหม่
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              เปิดเฉพาะตอน onboard ร้านใหม่ แล้วทำต่อที่ SML, LINE และแผนแจ้งเตือน
-            </p>
-          </div>
-          <Badge color="light">tenant_id แก้ไม่ได้หลังสร้าง</Badge>
+    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <Badge color="primary">เพิ่มร้านใหม่</Badge>
+          <h2 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
+            เริ่ม onboarding ร้านค้า
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            สร้างร้านก่อน แล้วระบบจะพาไปเชื่อม SML, ตั้ง LINE และเปิดแผนแจ้งเตือนทีละขั้น
+          </p>
         </div>
-      </summary>
+        <div className="grid gap-2 text-xs text-gray-500 sm:grid-cols-4 lg:min-w-[520px] dark:text-gray-400">
+          {[
+            ["1", "สร้างร้าน"],
+            ["2", "เชื่อม SML"],
+            ["3", "ตั้ง LINE"],
+            ["4", "เปิดแจ้งเตือน"],
+          ].map(([step, label]) => (
+            <div
+              className="rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-800"
+              key={step}
+            >
+              <span className="font-semibold text-brand-600 dark:text-brand-300">
+                {step}
+              </span>{" "}
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
 
       <form
-        className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800"
+        className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
         onSubmit={createTenant}
       >
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-1">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              ชื่อร้านค้า
+            </label>
             <input
-              className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
               onChange={(event) => {
                 setNewTenantName(event.target.value);
                 setNewTenantId("");
               }}
-              placeholder="ชื่อร้านค้า เช่น ABC Shop"
+              placeholder="เช่น กระบี่, Sea & Hill, ABC Shop"
               value={newTenantName}
             />
-            {newTenantName.trim() ? (
-              <p className="px-1 text-xs text-gray-400 dark:text-gray-500">
-                รหัสร้าน:{" "}
-                <span className="font-mono font-medium text-gray-600 dark:text-gray-300">
-                  {newTenantId.trim() || slugifyTenantId(newTenantName)}
-                </span>
-                {!newTenantId.trim() && (
-                  <button
-                    className="ml-2 text-brand-500 hover:underline"
-                    type="button"
-                    onClick={() =>
-                      setNewTenantId(slugifyTenantId(newTenantName))
-                    }
-                  >
-                    แก้ไขเอง
-                  </button>
-                )}
-              </p>
-            ) : null}
-            {newTenantId.trim() ? (
-              <input
-                className="h-9 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 dark:border-gray-700 dark:text-white"
-	                onChange={(event) => setNewTenantId(event.target.value)}
-	                placeholder="tenant_id"
-                value={newTenantId}
-              />
-            ) : null}
           </div>
-          <Button disabled={busy === "create" || !newTenantName.trim()} size="sm">
-            เพิ่มร้านค้า
+
+          <div>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              แพ็กเกจเริ่มต้น
+            </label>
+            <select
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              onChange={(event) =>
+                setNewTenantPlanCode(event.target.value as Tenant["planCode"])
+              }
+              value={newTenantPlanCode}
+            >
+              <option value="starter">Starter</option>
+              <option value="business">Business</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              tenant_id
+            </label>
+            <input
+              className={`mt-1 h-11 w-full rounded-lg border bg-transparent px-4 font-mono text-sm text-gray-800 dark:text-white ${
+                duplicateTenant || !tenantIdLooksValid
+                  ? "border-warning-300 dark:border-warning-500"
+                  : "border-gray-300 dark:border-gray-700"
+              }`}
+              onChange={(event) => setNewTenantId(event.target.value)}
+              placeholder="tenant_abc_shop"
+              value={proposedTenantId}
+            />
+            {duplicateTenant ? (
+              <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
+                รหัสนี้ถูกใช้กับ {duplicateTenant.tenant.name} แล้ว
+              </p>
+            ) : !tenantIdLooksValid ? (
+              <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
+                ใช้ได้เฉพาะ lowercase, ตัวเลข, underscore หรือ hyphen และต้องยาวอย่างน้อย 3 ตัว
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                แก้ไม่ได้หลังสร้าง ควรเป็น lowercase และอ่านออกว่าเป็นร้านไหน
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              อีเมล viewer เริ่มต้น
+            </label>
+            <input
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              onChange={(event) => setNewTenantViewerEmail(event.target.value)}
+              placeholder="ถ้ายังไม่มี เว้นว่างได้"
+              type="email"
+              value={newTenantViewerEmail}
+            />
+          </div>
+
+          <div className="lg:col-span-2">
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              note ภายใน
+            </label>
+            <textarea
+              className="mt-1 min-h-[88px] w-full rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
+              onChange={(event) => setNewTenantDescription(event.target.value)}
+              placeholder="เช่น เจ้าของร้าน, สาขาที่จะเริ่ม, SML/LINE ที่ต้องขอเพิ่ม"
+              value={newTenantDescription}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+            ยังไม่บันทึก SML/LINE secret ในขั้นนี้ เพื่อแยกความเสี่ยงและให้ทดสอบ connection ทีละหน้า
+          </p>
+          <Button disabled={busy === "create" || !canCreate} size="sm">
+            {busy === "create" ? "กำลังสร้างร้าน..." : "สร้างร้านและเริ่ม onboarding"}
           </Button>
         </div>
+
+        {newTenantName.trim() ? (
+          <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-xs leading-5 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+            หลังสร้างร้าน{" "}
+            <span className="font-semibold text-gray-800 dark:text-white">
+              {newTenantName.trim()}
+            </span>{" "}
+            ระบบจะเลือก tenant{" "}
+            <span className="font-mono font-semibold">{proposedTenantId}</span>{" "}
+            ให้ทันที และแสดงปุ่มไปเชื่อม SML JavaWS ของร้านนี้
+          </div>
+        ) : null}
       </form>
-    </details>
+    </section>
   );
 }
 
