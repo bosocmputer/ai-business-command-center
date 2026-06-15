@@ -233,6 +233,29 @@ AI-BCC ช่วยให้เจ้าของร้านเห็นยอ�
 - จบรอบด้วย proof report ว่าระบบพร้อมขายรายเดือนหรือยัง
 ```
 
+## Owner Proof And Qualification Source
+
+ก่อนคุยลูกค้าหรือทำ proposal ให้เปิด `/owner` และดู section `หลักฐาน production proof ล่าสุด`
+
+ข้อมูลที่ต้องใช้จากหน้านี้:
+
+- `Sales kit สำหรับคุยลูกค้า`: copy ข้อความเปิดบทสนทนาและ caveat ล่าสุด
+- `Pilot qualification`: ใช้เลือกว่าลูกค้าคนไหนควรคุยตอนนี้ และใครยังไม่ควรขาย
+- `Minimum pilot`: scope ต่ำสุดของรอบทดลอง เช่น 1 ร้าน, 1-2 รอบ, 1-2 รายงาน
+- `Decision signal`: เงื่อนไขว่าควรปิดเป็นรายเดือนหรือรอ proof เพิ่ม
+- `Clean target`: วันที่ caveat จาก failed run เก่าจะหลุดจาก rolling proof window ถ้าไม่มี failed ใหม่
+
+สถานะที่ใช้ตีความ:
+
+| Owner status | ใช้ขายอย่างไร | สิ่งที่ต้องพูดตรง ๆ |
+| --- | --- | --- |
+| `รอ proof` | demo แนวทางเท่านั้น | ยังไม่ควรเสนอ paid pilot จนมีรอบจริงอย่างน้อย 1 รอบ |
+| `pilot แบบมี caveat` | คุยกับเจ้าของที่รับ proof แบบโปร่งใสได้ | ยังมี failed ใน window ล่าสุด ต้องรอดู clean rounds หรือถึง Clean target |
+| `เก็บ proof เพิ่ม` | ใช้เปิดบทสนทนาและ demo | รอบถัดไปต้องสำเร็จครบก่อนใช้ claim ว่าพร้อมขาย |
+| `พร้อมเปิด pilot` | เสนอ 7-day proof ได้ | ยังเป็น pilot ต้องติดตาม run/delivery จริงต่อเนื่อง |
+
+ห้ามข้าม qualification นี้แม้ระบบส่ง LINE สำเร็จ เพราะเป้าหมายคือขายแบบที่ proof รองรับ ไม่ใช่ขายเกินสิ่งที่ระบบพิสูจน์แล้ว
+
 ## Packages For Early Sales
 
 ### Starter Brief
@@ -309,6 +332,58 @@ AI-BCC ช่วยให้เจ้าของร้านเห็นยอ�
 AI จะวิเคราะห์ให้หมด
 ต่อได้ทุกระบบทันที
 แทนคนบัญชีหรือผู้จัดการได้
+```
+
+## Pilot Success Scorecard
+
+ใช้ scorecard นี้หลังจบ 7-day proof เพื่อ decide ว่าจะ:
+
+1. เปิดเป็นรายเดือน
+2. ต่อ proof อีก 7 วัน
+3. หยุดและแก้ operational gap ก่อน
+
+### Primary Success Metrics
+
+| Metric | Definition | Target for paid pilot | Source |
+| --- | --- | --- | --- |
+| Executive brief delivery rate | scheduled round ที่ส่ง LINE report หรือ incident notice ถึง target ได้สำเร็จ | >= 98% ใน rolling 7 วัน | `notification_rule_runs`, `line_deliveries` |
+| No silent failure rate | failed report/LINE/worker ที่มี incident/audit/Telegram ตาม policy | 100% | `report_runs`, `business_signals`, `operational_alert_deliveries`, `audit_logs` |
+| Traceable report coverage | report ที่มี run id, status, row count/duration/failure phase ครบ | 100% ของ report ที่ส่งผู้บริหาร | `report_runs`, `report_run_chunks` |
+| Owner comprehension | owner ตอบได้ภายใน 30 วินาทีว่าร้านไหนมีปัญหาและต้องทำอะไรต่อ | ผ่าน demo review | `/owner`, `/owner/audit` |
+| Customer pull signal | ลูกค้ายอมเปิดรอบแจ้งเตือนจริงต่อหรือขอดู report เพิ่ม | อย่างน้อย 1 commitment หลัง demo | discovery notes หรือ follow-up message |
+
+### Driver Metrics
+
+| Driver | Why it matters | Target |
+| --- | --- | --- |
+| Time to onboard one store | ทำให้ขายซ้ำได้ ไม่ติด dev ทุกครั้ง | < 60 นาทีหลังได้ SML/LINE info ครบ |
+| Heavy report duration | กัน worker/tick ค้างและลด JavaWS load | อยู่ต่ำกว่า critical threshold หรือมี slow alert |
+| Incident notice clarity | ถ้า fail ต้องไม่ทำให้ผู้บริหารงง | ข้อความบอกปัญหา + action ถัดไปเป็นภาษาไทย |
+| Proof asset readiness | ทำให้ขายร้านถัดไปเร็วขึ้น | มี screenshot/story ที่ mask ข้อมูลแล้วอย่างน้อย 2 ชิ้น |
+
+### Guardrails
+
+| Guardrail | No-go if |
+| --- | --- |
+| Secret safety | มี token, endpoint เต็ม, raw SQL, customer rows หรือ response body ใน log/docs/screenshot |
+| Trust safety | ระบบสรุปยอดธุรกิจจาก response ที่อ่านไม่ได้ หรือ fail แต่ไม่มี incident |
+| Scope safety | ลูกค้าเข้าใจว่าระบบเป็น BI/chatbot/full accounting automation ตั้งแต่วันแรก |
+| Support load | owner ต้องให้ dev ช่วยทุกครั้งเมื่อเพิ่มร้านหรือดู failed run |
+
+### Decision Rule
+
+```text
+Go paid pilot:
+- delivery rate >= 98%
+- no silent failure 100%
+- Owner UI ตอบ next action ได้
+- ลูกค้ารับ scope 7-day proof ได้
+
+Continue proof:
+- ระบบส่งได้ แต่ยังมี failed เก่าใน rolling window หรือยังขาด proof asset
+
+No-go:
+- silent failure, secret leakage, owner setup ยังพึ่ง dev หนัก, หรือ incident copy ยังทำให้ผู้บริหารเข้าใจผิด
 ```
 
 ## Objection Handling
