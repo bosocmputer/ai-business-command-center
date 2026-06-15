@@ -4294,6 +4294,47 @@ function buildTenantOnboardingRequestText(input: {
   ].join("\n");
 }
 
+function buildCustomerDashboardUrl({
+  dashboardPath,
+  publicOrigin,
+}: {
+  dashboardPath: string | null;
+  publicOrigin: string;
+}) {
+  if (!dashboardPath) {
+    return "";
+  }
+  if (/^https?:\/\//.test(dashboardPath)) {
+    return dashboardPath;
+  }
+  const normalizedPath = dashboardPath.startsWith("/")
+    ? dashboardPath
+    : `/${dashboardPath}`;
+  return publicOrigin ? `${publicOrigin}${normalizedPath}` : normalizedPath;
+}
+
+function buildTenantCustomerHandoffText({
+  dashboardUrl,
+  tenantName,
+}: {
+  dashboardUrl: string;
+  tenantName: string;
+}) {
+  return [
+    `สวัสดีครับ นี่คือลิงก์ AI Business Dashboard ของร้าน ${tenantName}`,
+    dashboardUrl,
+    "",
+    "ข้อมูลบนหน้านี้มาจาก SML ที่ระบบประมวลผลเป็นรายงานล่าสุดแล้ว",
+    "",
+    "สิ่งที่แนะนำให้ดูรอบแรก:",
+    "1. ยอดขายและยอดซื้อภาพรวม",
+    "2. สาขา สินค้า หรือลูกหนี้ที่ควรตรวจต่อ",
+    "3. เวลาล่าสุดที่ระบบดึงข้อมูลสำเร็จ",
+    "",
+    "ถ้าตัวเลขไม่ตรงกับที่คาดไว้ แจ้งช่วงวันที่และตัวอย่างเอกสารมาได้เลย ระบบจะตรวจจาก report run/snapshot ให้",
+  ].join("\n");
+}
+
 function getTenantCreateBlockReason(input: {
   description: string;
   duplicateTenantName: string | null;
@@ -5307,6 +5348,7 @@ function OwnerTenantsContent({
   onUpdateTenant,
   onUpdateStatus,
   newTenantDescription,
+  publicOrigin,
   selectedTenantId,
   selectedTenantSummary,
   newTenantPlanCode,
@@ -5550,6 +5592,7 @@ function OwnerTenantsContent({
           onTestDatasource={onTestDatasource}
           onUpdateTenant={onUpdateTenant}
           onUpdateStatus={onUpdateStatus}
+          publicOrigin={publicOrigin}
         />
       </section>
     </div>
@@ -10629,6 +10672,7 @@ function TenantDetailPanel({
   onTestDatasource,
   onUpdateTenant,
   onUpdateStatus,
+  publicOrigin,
 }: {
   item?: TenantSummary;
   busy: string | null;
@@ -10644,6 +10688,7 @@ function TenantDetailPanel({
   onTestDatasource: (tenantId: string, source?: "form" | "saved") => Promise<void>;
   onUpdateTenant: (tenant: Tenant, input: TenantPatchInput) => Promise<void>;
   onUpdateStatus: (tenant: Tenant, status: Tenant["status"]) => Promise<void>;
+  publicOrigin: string;
 }) {
   const tenant = item?.tenant;
   const [editName, setEditName] = useState("");
@@ -10689,6 +10734,10 @@ function TenantDetailPanel({
     null,
   );
   const [deleteImpactLoading, setDeleteImpactLoading] = useState(false);
+  const [customerHandoffCopyStatus, setCustomerHandoffCopyStatus] =
+    useState<OwnerProofCopyStatus>("idle");
+  const manualCustomerHandoffTextareaRef =
+    useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!tenant) {
@@ -10729,7 +10778,27 @@ function TenantDetailPanel({
     setDeleteReason("");
     setDeleteImpact(null);
     setDeleteImpactError(null);
+    setCustomerHandoffCopyStatus("idle");
   }, [tenant]);
+
+  useEffect(() => {
+    if (customerHandoffCopyStatus !== "success") {
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => setCustomerHandoffCopyStatus("idle"),
+      2200,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [customerHandoffCopyStatus]);
+
+  useEffect(() => {
+    if (customerHandoffCopyStatus !== "manual") {
+      return;
+    }
+    manualCustomerHandoffTextareaRef.current?.focus();
+    manualCustomerHandoffTextareaRef.current?.select();
+  }, [customerHandoffCopyStatus]);
 
   if (!item) {
     return (
@@ -10752,6 +10821,22 @@ function TenantDetailPanel({
     readinessTotal - readiness.readyCount,
   );
   const readinessReady = readinessRemaining === 0;
+  const customerDashboardUrl = buildCustomerDashboardUrl({
+    dashboardPath: item.customer_dashboard_path,
+    publicOrigin,
+  });
+  const customerHandoffText = customerDashboardUrl
+    ? buildTenantCustomerHandoffText({
+        dashboardUrl: customerDashboardUrl,
+        tenantName: tenant.name,
+      })
+    : "";
+  const customerHandoffCopyButtonLabel =
+    customerHandoffCopyStatus === "success"
+      ? "คัดลอกแล้ว"
+      : customerHandoffCopyStatus === "manual"
+      ? "เลือกข้อความเอง"
+      : "คัดลอกข้อความส่งลูกค้า";
   const saveBusy = busy === `${tenant.id}-save`;
   const cancelBusy = busy === `${tenant.id}-cancel`;
   const thresholdValidation = validateTenantThresholdInputs({
@@ -10903,6 +10988,18 @@ function TenantDetailPanel({
     });
   }
 
+  async function handleCopyCustomerHandoff() {
+    if (!customerHandoffText) {
+      return;
+    }
+    try {
+      await copyTextToClipboard(customerHandoffText);
+      setCustomerHandoffCopyStatus("success");
+    } catch {
+      setCustomerHandoffCopyStatus("manual");
+    }
+  }
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -10959,6 +11056,75 @@ function TenantDetailPanel({
             {nextStep.actionLabel}
           </Link>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                ส่งให้ลูกค้าทดสอบ
+              </p>
+              <Badge color={customerDashboardUrl ? "success" : "warning"}>
+                {customerDashboardUrl ? "มี dashboard link" : "ยังไม่มี dashboard"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้หลังรันรายงานทดสอบแล้ว เพื่อให้ลูกค้าเห็นคุณค่าจริงจากข้อมูล SML
+              โดยไม่เห็นรายละเอียดระบบเชื่อมต่อภายใน
+            </p>
+            {customerDashboardUrl ? (
+              <p className="mt-2 break-words rounded-lg border border-gray-100 bg-white px-3 py-2 text-xs leading-5 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+                {customerDashboardUrl}
+              </p>
+            ) : (
+              <p className="mt-2 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+                ร้านนี้ยังไม่มี customer dashboard path ให้ส่งต่อ ตรวจ slug/dashboard ก่อนเปิดให้ลูกค้าทดสอบ
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {customerDashboardUrl ? (
+              <a
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-brand-200 bg-brand-50 px-3 text-sm font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+                href={customerDashboardUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                เปิด dashboard
+              </a>
+            ) : null}
+            <button
+              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                customerHandoffCopyStatus === "success"
+                  ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+                  : customerHandoffCopyStatus === "manual"
+                  ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+              }`}
+              disabled={!customerHandoffText}
+              onClick={() => void handleCopyCustomerHandoff()}
+              type="button"
+            >
+              <CopyIcon className="size-4" />
+              {customerHandoffCopyButtonLabel}
+            </button>
+          </div>
+        </div>
+        {customerHandoffCopyStatus === "manual" ? (
+          <div className="mt-3">
+            <p className="mb-1 text-xs leading-5 text-warning-700 dark:text-warning-300">
+              Browser บล็อกการคัดลอกอัตโนมัติ เลือกข้อความไว้ให้แล้ว กด Ctrl/Cmd+C ได้เลย
+            </p>
+            <textarea
+              ref={manualCustomerHandoffTextareaRef}
+              className="h-40 w-full resize-none rounded-lg border border-warning-200 bg-warning-50 p-2 text-xs leading-5 text-gray-800 outline-none focus:border-warning-400 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-gray-100"
+              onFocus={(event) => event.currentTarget.select()}
+              readOnly
+              value={customerHandoffText}
+            />
+          </div>
+        ) : null}
       </div>
 
       <form
