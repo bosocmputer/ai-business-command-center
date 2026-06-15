@@ -703,6 +703,23 @@ export default function OwnerPortal({
         : [],
     [lineTargets, selectedTenantId],
   );
+  const setSelectedOwnerTenantId = useCallback((tenantId: string) => {
+    setSelectedTenantId(tenantId);
+    if (typeof window === "undefined") {
+      return;
+    }
+    const url = new URL(window.location.href);
+    if (tenantId) {
+      url.searchParams.set("tenant", tenantId);
+    } else {
+      url.searchParams.delete("tenant");
+    }
+    window.history.replaceState(
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, []);
   const sectionMeta = getOwnerSectionMeta(section);
   const selectedTenantIdRef = useRef(selectedTenantId);
 
@@ -3605,7 +3622,7 @@ export default function OwnerPortal({
           setNewTenantViewerEmail={setNewTenantViewerEmail}
           setReportDateFrom={setReportDateFrom}
           setReportDateTo={setReportDateTo}
-          setSelectedTenantId={setSelectedTenantId}
+          setSelectedTenantId={setSelectedOwnerTenantId}
           setSystemAppBaseUrl={setSystemAppBaseUrl}
           setSystemBackupConfigured={setSystemBackupConfigured}
           setSystemLastBackupAt={setSystemLastBackupAt}
