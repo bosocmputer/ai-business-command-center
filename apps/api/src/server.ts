@@ -6275,15 +6275,22 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
     heartbeatAgeSeconds <= 120;
   const tenantHealth = await Promise.all(
     tenants.map(async (tenant) => {
-      const lineChannels = await listEffectiveLineChannels(tenant.id);
-      const lineTargets = await listEffectiveLineTargets(tenant.id);
+      const [lineChannels, lineTargets, datasource] = await Promise.all([
+        listEffectiveLineChannels(tenant.id),
+        listEffectiveLineTargets(tenant.id),
+        readDatasourceConfigStatus({
+          store: systemStore,
+          tenantId: tenant.id,
+          envConfig: readDatasourceConfig(tenant.id),
+        }),
+      ]);
       return {
         id: tenant.id,
         name: tenant.name,
         database_name: tenant.databaseName,
         status: tenant.status,
         plan_code: tenant.planCode,
-        datasource_configured: tenant.datasourceConfigured,
+        datasource_configured: datasource.kind === "sml_javaws",
         line_configured:
           lineChannels.some(
             (channel) =>
