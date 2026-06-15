@@ -139,6 +139,14 @@ function pickDefaultOwnerTenantId(tenants: TenantSummary[]) {
   return preferred?.tenant.id ?? "";
 }
 
+function getOwnerTenantIdFromLocation() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return new URLSearchParams(window.location.search).get("tenant") ?? "";
+}
+
 type TenantPatchInput = {
   name: string;
   description: string;
@@ -772,7 +780,8 @@ export default function OwnerPortal({
           return;
         }
 
-        const currentTenantId = selectedTenantIdRef.current;
+        const currentTenantId =
+          getOwnerTenantIdFromLocation() || selectedTenantIdRef.current;
         const [
           storeSetupResponse,
           smlConnectionsResponse,
@@ -855,6 +864,17 @@ export default function OwnerPortal({
         const systemConfigPayload = systemConfigResponse.ok
           ? ((await systemConfigResponse.json()) as { data: SystemConfigStatus })
           : { data: null };
+        const selectedPayloadTenantId =
+          storeSetupPayload.data.selected_tenant_id ?? "";
+        const resolvedTenantId =
+          selectedPayloadTenantId ||
+          pickDefaultOwnerTenantId(storeSetupPayload.data.tenants);
+        if (resolvedTenantId && resolvedTenantId !== selectedTenantIdRef.current) {
+          setSelectedOwnerTenantId(resolvedTenantId);
+        } else if (resolvedTenantId) {
+          selectedTenantIdRef.current = resolvedTenantId;
+          setSelectedTenantId(resolvedTenantId);
+        }
         setTenants(storeSetupPayload.data.tenants);
         setStoreSetupDetail(storeSetupPayload.data.selected);
         setSmlConnections(smlConnectionsPayload.data);
@@ -877,7 +897,7 @@ export default function OwnerPortal({
         });
       }
     },
-    [applySystemConfigState],
+    [applySystemConfigState, setSelectedOwnerTenantId],
   );
 
   const refreshNotificationRuleRuns = useCallback(async (ruleId: string) => {
@@ -1195,7 +1215,7 @@ export default function OwnerPortal({
       return;
     }
 
-    const tenantId = new URLSearchParams(window.location.search).get("tenant");
+    const tenantId = getOwnerTenantIdFromLocation();
     if (
       tenantId &&
       tenantId !== selectedTenantId &&
