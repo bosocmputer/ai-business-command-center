@@ -31,6 +31,11 @@ const navItems: NavItem[] = [
     path: "/owner/sml-connections",
   },
   {
+    icon: <GridIcon />,
+    name: "รายงาน",
+    path: "/owner/reports",
+  },
+  {
     icon: <TimeIcon />,
     name: "แผนแจ้งเตือน",
     path: "/owner/notifications",
@@ -47,7 +52,7 @@ const navItems: NavItem[] = [
   },
   {
     icon: <TimeIcon />,
-    name: "Logs",
+    name: "Ops / Logs",
     path: "/owner/audit",
   },
   {
@@ -344,19 +349,6 @@ const AppSidebar: React.FC = () => {
             </div>
           </div>
         </nav>
-        {(isExpanded || isHovered || isMobileOpen) && (
-          <div className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-            <p className="text-xs font-medium uppercase text-gray-400">
-              ระยะที่ 1
-            </p>
-            <p className="mt-2 text-sm font-semibold text-gray-800 dark:text-white/90">
-              ร้านค้า SML + แผนแจ้งเตือน
-            </p>
-            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-              เชื่อม SML ผ่าน JavaWS แยกร้าน และส่งรายงานเข้า LINE ตามเวลาที่ตั้ง
-            </p>
-          </div>
-        )}
       </div>
     </aside>
   );

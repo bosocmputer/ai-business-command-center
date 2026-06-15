@@ -114,6 +114,30 @@ type TenantSummary = {
   };
 };
 
+function pickDefaultOwnerTenantId(tenants: TenantSummary[]) {
+  const preferred =
+    tenants.find(
+      (item) =>
+        item.access.enabled &&
+        item.health.datasource_configured &&
+        item.health.line_targets_enabled > 0 &&
+        Boolean(item.health.latest_snapshot_at),
+    ) ??
+    tenants.find(
+      (item) =>
+        item.access.enabled &&
+        item.health.datasource_configured &&
+        Boolean(item.health.latest_snapshot_at),
+    ) ??
+    tenants.find(
+      (item) => item.access.enabled && item.health.datasource_configured,
+    ) ??
+    tenants.find((item) => item.access.enabled) ??
+    tenants[0];
+
+  return preferred?.tenant.id ?? "";
+}
+
 type TenantPatchInput = {
   name: string;
   description: string;
@@ -1094,7 +1118,7 @@ export default function OwnerPortal({
 
   useEffect(() => {
     if (!selectedTenantId && tenants[0]) {
-      setSelectedTenantId(tenants[0].tenant.id);
+      setSelectedTenantId(pickDefaultOwnerTenantId(tenants));
     }
   }, [selectedTenantId, tenants]);
 
@@ -1106,6 +1130,7 @@ export default function OwnerPortal({
         "sml-connections",
         "notifications",
         "report-permissions",
+        "reports",
         "line",
       ].includes(section) ||
       !tenants.length
@@ -4532,7 +4557,7 @@ function OwnerTenantsContent({
         </div>
       ) : null}
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_520px]">
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
           <div className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:justify-between">
             <div>
@@ -7010,22 +7035,24 @@ function OwnerSetupPanel({
   setNewTenantName: (value: string) => void;
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <Badge color="primary">เพิ่มร้านค้า</Badge>
-          <h2 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
-            สร้างร้านใหม่
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            เริ่ม flow เพิ่มร้าน → เชื่อม SML → ตั้ง LINE → สร้างแผนแจ้งเตือน
-          </p>
+    <details className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <Badge color="primary">เพิ่มร้านค้า</Badge>
+            <h2 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
+              สร้างร้านใหม่
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              เปิดเฉพาะตอน onboard ร้านใหม่ แล้วทำต่อที่ SML, LINE และแผนแจ้งเตือน
+            </p>
+          </div>
+          <Badge color="light">tenant_id แก้ไม่ได้หลังสร้าง</Badge>
         </div>
-        <Badge color="light">tenant_id แก้ไม่ได้หลังสร้าง</Badge>
-      </div>
+      </summary>
 
       <form
-        className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800"
+        className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800"
         onSubmit={createTenant}
       >
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -7072,7 +7099,7 @@ function OwnerSetupPanel({
           </Button>
         </div>
       </form>
-    </section>
+    </details>
   );
 }
 
@@ -8371,7 +8398,7 @@ function TenantDetailPanel({
           </label>
         </div>
 
-        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40 lg:grid-cols-6">
+        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
           <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
               checked={editBusinessSignalsEnabled}
@@ -8489,18 +8516,23 @@ function TenantDetailPanel({
           </label>
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                เกณฑ์แจ้งเตือน
-              </p>
-              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                ใช้ตัดสินว่าเรื่องไหนควรเข้า Action Digest ของร้านนี้ ถ้าไม่แน่ใจใช้ค่า default นี้ก่อนได้
-              </p>
+        <details
+          className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40"
+          open={!thresholdValidation.ok || undefined}
+        >
+          <summary className="cursor-pointer list-none">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  เกณฑ์แจ้งเตือนขั้นสูง
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  ใช้ค่า default ได้ก่อน เปิดเมื่ออยากปรับ signal ต่อร้าน
+                </p>
+              </div>
+              <Badge color="light">ต่อร้าน</Badge>
             </div>
-            <Badge color="light">ต่อร้าน</Badge>
-          </div>
+          </summary>
 
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <ThresholdInput
@@ -8570,7 +8602,7 @@ function TenantDetailPanel({
               {thresholdValidation.message}
             </p>
           ) : null}
-        </div>
+        </details>
 
         <div className="flex flex-wrap gap-2">
           <Button
@@ -8664,17 +8696,22 @@ function TenantDetailPanel({
         <DatasourceTestSummary result={datasourceTest} />
       </div>
 
-      <div className="mt-4 rounded-lg border border-error-200 bg-error-50 p-3 dark:border-error-500/30 dark:bg-error-500/10">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-error-700 dark:text-error-300">
-              ยกเลิกร้านแบบปลอดภัย
-            </p>
-            <p className="mt-1 text-xs leading-5 text-error-700/80 dark:text-error-200">
-              ระบบจะตั้งสถานะเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ แต่ไม่ลบ
-              LINE targets, report snapshots, delivery logs หรือ audit logs
-            </p>
+      <details className="mt-4 rounded-lg border border-error-200 bg-error-50 p-3 dark:border-error-500/30 dark:bg-error-500/10">
+        <summary className="cursor-pointer list-none">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-error-700 dark:text-error-300">
+                Danger zone: ยกเลิกร้าน
+              </p>
+              <p className="mt-1 text-xs leading-5 text-error-700/80 dark:text-error-200">
+                เปิดเฉพาะเมื่อต้องการ soft delete ร้าน ระบบไม่ลบ snapshot, LINE targets หรือ audit logs
+              </p>
+            </div>
+            <Badge color="error">ต้องยืนยันชื่อร้าน</Badge>
           </div>
+        </summary>
+
+        <div className="mt-3 flex justify-end">
           <Button
             disabled={deleteImpactLoading}
             size="sm"
@@ -8764,7 +8801,7 @@ function TenantDetailPanel({
                 : "ยกเลิกร้าน"}
           </Button>
         </div>
-      </div>
+      </details>
     </div>
   );
 }
