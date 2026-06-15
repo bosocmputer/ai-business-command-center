@@ -6472,7 +6472,9 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       channel: "telegram",
       limit: 30,
     }),
-    Promise.all(tenants.map((tenant) => systemStore.listRuns(tenant.id))),
+    Promise.all(
+      tenants.map((tenant) => systemStore.listRuns(tenant.id, undefined, 200)),
+    ),
     systemStore.listNotificationRuleRuns({ limit: 200 }),
     Promise.all(tenants.map((tenant) => systemStore.listLineDeliveries(tenant.id))),
   ]);

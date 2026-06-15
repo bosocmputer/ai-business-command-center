@@ -189,7 +189,11 @@ export type SystemStore = {
     status: BusinessSignalStatus;
     updatedAt: string;
   }): Promise<BusinessSignalRecord | null>;
-  listRuns(tenantId: TenantId, reportKey?: ReportKey): Promise<ReportRunRecord[]>;
+  listRuns(
+    tenantId: TenantId,
+    reportKey?: ReportKey,
+    limit?: number,
+  ): Promise<ReportRunRecord[]>;
   getRun(runId: string): Promise<ReportRunRecord | null>;
   findActiveReportRun(input: {
     tenantId: TenantId;
@@ -711,14 +715,14 @@ class LocalJsonSystemStore implements SystemStore {
     return updated;
   }
 
-  async listRuns(tenantId: TenantId, reportKey?: ReportKey) {
+  async listRuns(tenantId: TenantId, reportKey?: ReportKey, limit = 50) {
     const data = this.requireData();
     return data.runs
       .filter(
         (run) => run.tenant_id === tenantId && (!reportKey || run.report_key === reportKey),
       )
       .sort(compareReportRuns)
-      .slice(0, 50);
+      .slice(0, limit);
   }
 
   async getRun(runId: string) {
@@ -2355,7 +2359,7 @@ returning
     return result.rows[0] ? mapBusinessSignalRow(result.rows[0]) : null;
   }
 
-  async listRuns(tenantId: TenantId, reportKey?: ReportKey) {
+  async listRuns(tenantId: TenantId, reportKey?: ReportKey, limit = 50) {
     const result = await this.pool.query(
       `
 select
@@ -2382,9 +2386,9 @@ select
 where tenant_id = $1
   and ($2::text is null or report_key = $2)
 order by started_at desc
-limit 50
+limit $3
 `,
-      [tenantId, reportKey ?? null],
+      [tenantId, reportKey ?? null, limit],
     );
 
     return result.rows.map(mapReportRunRow);
