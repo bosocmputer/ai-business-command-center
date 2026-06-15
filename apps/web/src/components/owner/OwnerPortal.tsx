@@ -355,6 +355,30 @@ type OwnerOperationsStatus = {
       deliveries: OperationalAlertDeliveryRecord[];
     };
   };
+  production_proof?: {
+    window_days: number;
+    window_started_at: string;
+    generated_at: string;
+    active_tenant_count: number;
+    eligible_tenant_count: number;
+    scheduled_run_count: number;
+    scheduled_success_count: number;
+    scheduled_warning_count: number;
+    scheduled_failed_count: number;
+    scheduled_pending_count: number;
+    scheduled_success_rate: number | null;
+    line_delivery_count: number;
+    line_delivery_success_count: number;
+    line_delivery_failed_count: number;
+    line_delivery_success_rate: number | null;
+    javaws_incident_count: number;
+    report_failure_count: number;
+    heavy_report_success_count: number;
+    heavy_report_p50_ms: number | null;
+    heavy_report_p90_ms: number | null;
+    latest_success_at: string | null;
+    latest_problem_at: string | null;
+  };
   report_health?: {
     latest_javaws_failure: {
       id: string;
@@ -4416,9 +4440,23 @@ function OwnerProofEvidenceStrip({
       item.health.latest_notification_run_status === "success" &&
       item.health.latest_line_delivery_status === "success",
   ).length;
+  const lineReady = activeTenants.filter(
+    (item) => item.health.latest_line_delivery_status === "success",
+  ).length;
   const latestAlert =
     operationsStatus?.operational_alerts?.telegram.deliveries[0] ?? null;
   const latestFailure = operationsStatus?.report_health?.latest_javaws_failure ?? null;
+  const proof = operationsStatus?.production_proof ?? null;
+  const scheduledProofValue = proof
+    ? proof.scheduled_run_count > 0
+      ? `${proof.scheduled_success_count.toLocaleString("th-TH")}/${proof.scheduled_run_count.toLocaleString("th-TH")} สำเร็จ`
+      : "ยังไม่มีรอบ"
+    : `${proofReady}/${activeTenants.length}`;
+  const lineProofValue = proof
+    ? proof.line_delivery_count > 0
+      ? `${proof.line_delivery_success_count.toLocaleString("th-TH")}/${proof.line_delivery_count.toLocaleString("th-TH")} ส่งสำเร็จ`
+      : "ยังไม่มี delivery"
+    : `${lineReady}/${activeTenants.length} ส่งสำเร็จ`;
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
@@ -4428,7 +4466,7 @@ function OwnerProofEvidenceStrip({
             หลักฐาน production proof ล่าสุด
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            ใช้ดูว่ารอบจริงมีรายงาน, LINE delivery, incident และ ops alert ครบหรือไม่
+            ใช้ดูว่ารอบจริง 7 วันล่าสุดมีรายงาน, LINE delivery, incident และ ops alert ครบหรือไม่
           </p>
         </div>
         <Link
@@ -4438,15 +4476,37 @@ function OwnerProofEvidenceStrip({
           เปิด audit
         </Link>
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <HealthFact
-          label="ร้านที่มี proof"
-          value={`${proofReady}/${activeTenants.length}`}
+          label="Coverage"
+          value={
+            proof
+              ? `${proof.eligible_tenant_count}/${proof.active_tenant_count} ร้าน`
+              : `${proofReady}/${activeTenants.length}`
+          }
+        />
+        <HealthFact
+          label="รอบ 7 วัน"
+          value={scheduledProofValue}
+        />
+        <HealthFact
+          label="LINE proof"
+          value={lineProofValue}
+        />
+        <HealthFact
+          label="Heavy p90"
+          value={
+            proof?.heavy_report_p90_ms != null
+              ? formatElapsedMs(proof.heavy_report_p90_ms)
+              : "ยังไม่มีข้อมูล"
+          }
         />
         <HealthFact
           label="JavaWS incident"
           value={
-            latestFailure
+            proof
+              ? `${proof.javaws_incident_count.toLocaleString("th-TH")} ครั้ง`
+              : latestFailure
               ? `${formatJavaWsFailurePhase(latestFailure.failure_phase)} · ${
                   latestFailure.finished_at
                     ? formatDateTime(latestFailure.finished_at)
@@ -4456,19 +4516,36 @@ function OwnerProofEvidenceStrip({
           }
         />
         <HealthFact
-          label="Telegram alert"
+          label="Ops alert"
           value={
             latestAlert
               ? `${formatOperationalAlertStatus(latestAlert.status)} · ${latestAlert.alert_type}`
               : "ยังไม่มี delivery"
           }
         />
+      </div>
+      {proof ? (
+        <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
+          อัปเดตล่าสุด {formatDateTime(proof.generated_at)} · success rate รอบแจ้งเตือน{" "}
+          {formatProofRate(proof.scheduled_success_rate)} · LINE{" "}
+          {formatProofRate(proof.line_delivery_success_rate)}
+        </p>
+      ) : null}
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
         <HealthFact
           label="Business signals"
           value={
             operationsStatus?.signal_metrics
               ? `${operationsStatus.signal_metrics.open.toLocaleString("th-TH")} เปิดอยู่`
               : "ยังไม่มีข้อมูล"
+          }
+        />
+        <HealthFact
+          label="Problem ล่าสุด"
+          value={
+            proof?.latest_problem_at
+              ? formatDateTime(proof.latest_problem_at)
+              : "ไม่พบในรอบล่าสุด"
           }
         />
       </div>
@@ -7107,6 +7184,13 @@ function formatElapsedMs(value: number) {
     return `${seconds} วินาที`;
   }
   return `${minutes} นาที ${seconds.toString().padStart(2, "0")} วินาที`;
+}
+
+function formatProofRate(value: number | null) {
+  if (value === null) {
+    return "ยังไม่มีข้อมูล";
+  }
+  return `${Math.round(value * 100).toLocaleString("th-TH")}%`;
 }
 
 function getHeavyReportProgressStorageKey(tenantId: string) {

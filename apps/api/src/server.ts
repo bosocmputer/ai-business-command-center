@@ -6251,6 +6251,153 @@ function buildDashboardUrl(baseUrl: string | null) {
   return `${baseUrl.replace(/\/$/, "")}/command-center`;
 }
 
+function buildProductionProofMetrics(input: {
+  lineDeliveries: LineDeliveryRecord[];
+  notificationRuns: NotificationRuleRunRecord[];
+  now: Date;
+  reportRuns: ReportRunRecord[];
+  tenants: Array<{
+    datasource_configured: boolean;
+    id: string;
+    line_configured: boolean;
+    status: Tenant["status"];
+  }>;
+}) {
+  const windowDays = 7;
+  const nowMs = input.now.getTime();
+  const windowStartMs = nowMs - windowDays * 24 * 60 * 60 * 1000;
+  const activeTenants = input.tenants.filter(
+    (tenant) => tenant.status === "active",
+  );
+  const eligibleTenantIds = new Set(
+    activeTenants
+      .filter(
+        (tenant) => tenant.datasource_configured && tenant.line_configured,
+      )
+      .map((tenant) => tenant.id),
+  );
+  const isInWindow = (value: string | null | undefined) => {
+    if (!value) {
+      return false;
+    }
+    const timestamp = new Date(value).getTime();
+    return (
+      Number.isFinite(timestamp) &&
+      timestamp >= windowStartMs &&
+      timestamp <= nowMs
+    );
+  };
+  const successLikeStatuses = new Set(["success", "success_with_warnings"]);
+  const sendRuns = input.notificationRuns.filter(
+    (run) =>
+      eligibleTenantIds.has(run.tenant_id) &&
+      run.mode === "send" &&
+      isInWindow(run.created_at),
+  );
+  const scheduledRuns = sendRuns.filter(
+    (run) => run.source === "worker_due" || run.source === "worker_retry",
+  );
+  const proofRuns = scheduledRuns.length ? scheduledRuns : sendRuns;
+  const lineDeliveries = input.lineDeliveries.filter(
+    (delivery) =>
+      eligibleTenantIds.has(delivery.tenant_id) &&
+      delivery.delivery_type === "notification_rule" &&
+      isInWindow(delivery.sent_at ?? delivery.created_at),
+  );
+  const recentReportRuns = input.reportRuns.filter(
+    (run) =>
+      eligibleTenantIds.has(run.tenant_id) &&
+      isInWindow(run.finished_at ?? run.started_at ?? run.queued_at),
+  );
+  const heavyDurations = recentReportRuns
+    .filter(
+      (run) =>
+        successLikeStatuses.has(run.status) &&
+        run.started_at &&
+        run.finished_at &&
+        (run.report_key === "stock_balance" ||
+          run.report_key === "ar_customer_movement"),
+    )
+    .map((run) =>
+      Math.max(
+        0,
+        new Date(run.finished_at ?? "").getTime() -
+          new Date(run.started_at ?? "").getTime(),
+      ),
+    )
+    .filter((value) => Number.isFinite(value));
+  const percentile = (values: number[], p: number) => {
+    if (!values.length) {
+      return null;
+    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.min(
+      sorted.length - 1,
+      Math.max(0, Math.ceil(sorted.length * p) - 1),
+    );
+    return sorted[index] ?? null;
+  };
+  const latestSuccessRun = proofRuns
+    .filter((run) => successLikeStatuses.has(run.status))
+    .sort((a, b) =>
+      (b.finished_at ?? b.updated_at ?? b.created_at).localeCompare(
+        a.finished_at ?? a.updated_at ?? a.created_at,
+      ),
+    )[0];
+  const latestProblemRun = proofRuns
+    .filter((run) => run.status === "failed" || run.status === "skipped")
+    .sort((a, b) =>
+      (b.finished_at ?? b.updated_at ?? b.created_at).localeCompare(
+        a.finished_at ?? a.updated_at ?? a.created_at,
+      ),
+    )[0];
+  const scheduledSuccessCount = proofRuns.filter((run) =>
+    successLikeStatuses.has(run.status),
+  ).length;
+  const lineSuccessCount = lineDeliveries.filter(
+    (delivery) => delivery.status === "success",
+  ).length;
+
+  return {
+    window_days: windowDays,
+    window_started_at: new Date(windowStartMs).toISOString(),
+    generated_at: input.now.toISOString(),
+    active_tenant_count: activeTenants.length,
+    eligible_tenant_count: eligibleTenantIds.size,
+    scheduled_run_count: proofRuns.length,
+    scheduled_success_count: scheduledSuccessCount,
+    scheduled_warning_count: proofRuns.filter(
+      (run) => run.status === "success_with_warnings",
+    ).length,
+    scheduled_failed_count: proofRuns.filter((run) => run.status === "failed")
+      .length,
+    scheduled_pending_count: proofRuns.filter(
+      (run) => run.status === "queued" || run.status === "running",
+    ).length,
+    scheduled_success_rate:
+      proofRuns.length > 0 ? scheduledSuccessCount / proofRuns.length : null,
+    line_delivery_count: lineDeliveries.length,
+    line_delivery_success_count: lineSuccessCount,
+    line_delivery_failed_count: lineDeliveries.filter(
+      (delivery) => delivery.status === "failed",
+    ).length,
+    line_delivery_success_rate:
+      lineDeliveries.length > 0 ? lineSuccessCount / lineDeliveries.length : null,
+    javaws_incident_count: recentReportRuns.filter(
+      (run) => run.failure_kind || run.failure_phase,
+    ).length,
+    report_failure_count: recentReportRuns.filter((run) => run.status === "failed")
+      .length,
+    heavy_report_success_count: heavyDurations.length,
+    heavy_report_p50_ms: percentile(heavyDurations, 0.5),
+    heavy_report_p90_ms: percentile(heavyDurations, 0.9),
+    latest_success_at:
+      latestSuccessRun?.finished_at ?? latestSuccessRun?.updated_at ?? null,
+    latest_problem_at:
+      latestProblemRun?.finished_at ?? latestProblemRun?.updated_at ?? null,
+  };
+}
+
 async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
   const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
   const runtimeStatus = await readSystemRuntimeConfigStatus(systemStore);
@@ -6302,62 +6449,76 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       };
     }),
   );
-	  const tenantOpenSignals = (
-	    await Promise.all(
-	      tenants.map((tenant) =>
-	        systemStore.listBusinessSignals({
+  const tenantOpenSignals = (
+    await Promise.all(
+      tenants.map((tenant) =>
+        systemStore.listBusinessSignals({
           tenantId: tenant.id,
           status: "open",
           limit: 100,
         }),
-	      ),
-	    )
-	  ).flat();
-	  const [telegramStatus, telegramDeliveries, reportRunsByTenant] =
-	    await Promise.all([
-	      readTelegramOperationalAlertStatus(systemStore),
-	      systemStore.listOperationalAlertDeliveries({
-	        channel: "telegram",
-	        limit: 30,
-	      }),
-	      Promise.all(tenants.map((tenant) => systemStore.listRuns(tenant.id))),
-	    ]);
-	  const recentReportRuns = reportRunsByTenant.flat();
-	  const latestJavaWsFailure =
-	    recentReportRuns
-	      .filter((run) => run.failure_kind || run.failure_phase)
-	      .sort((a, b) =>
-	        (b.finished_at ?? b.started_at).localeCompare(
-	          a.finished_at ?? a.started_at,
-	        ),
-	      )[0] ?? null;
-	  const heavyReportRuns = recentReportRuns
-	    .filter(
-	      (run) =>
-	        run.report_key === "stock_balance" ||
-	        run.report_key === "ar_customer_movement",
-	    )
-	    .slice(0, 20)
-	    .map((run) => ({
-	      id: run.id,
-	      tenant_id: run.tenant_id,
-	      report_key: run.report_key,
-	      status: run.status,
-	      started_at: run.started_at,
-	      finished_at: run.finished_at,
-	      duration_ms:
-	        run.finished_at && run.started_at
-	          ? Math.max(
-	              0,
-	              new Date(run.finished_at).getTime() -
-	                new Date(run.started_at).getTime(),
-	            )
-	          : null,
-	      row_count: run.row_count,
-	      failure_kind: run.failure_kind ?? null,
-	      failure_phase: run.failure_phase ?? null,
-	      safe_error_message: run.safe_error_message,
-	    }));
+      ),
+    )
+  ).flat();
+  const [
+    telegramStatus,
+    telegramDeliveries,
+    reportRunsByTenant,
+    notificationRuns,
+    lineDeliveriesByTenant,
+  ] = await Promise.all([
+    readTelegramOperationalAlertStatus(systemStore),
+    systemStore.listOperationalAlertDeliveries({
+      channel: "telegram",
+      limit: 30,
+    }),
+    Promise.all(tenants.map((tenant) => systemStore.listRuns(tenant.id))),
+    systemStore.listNotificationRuleRuns({ limit: 200 }),
+    Promise.all(tenants.map((tenant) => systemStore.listLineDeliveries(tenant.id))),
+  ]);
+  const recentReportRuns = reportRunsByTenant.flat();
+  const productionProof = buildProductionProofMetrics({
+    lineDeliveries: lineDeliveriesByTenant.flat(),
+    notificationRuns,
+    now: new Date(),
+    reportRuns: recentReportRuns,
+    tenants: tenantHealth,
+  });
+  const latestJavaWsFailure =
+    recentReportRuns
+      .filter((run) => run.failure_kind || run.failure_phase)
+      .sort((a, b) =>
+        (b.finished_at ?? b.started_at).localeCompare(
+          a.finished_at ?? a.started_at,
+        ),
+      )[0] ?? null;
+  const heavyReportRuns = recentReportRuns
+    .filter(
+      (run) =>
+        run.report_key === "stock_balance" ||
+        run.report_key === "ar_customer_movement",
+    )
+    .slice(0, 20)
+    .map((run) => ({
+      id: run.id,
+      tenant_id: run.tenant_id,
+      report_key: run.report_key,
+      status: run.status,
+      started_at: run.started_at,
+      finished_at: run.finished_at,
+      duration_ms:
+        run.finished_at && run.started_at
+          ? Math.max(
+              0,
+              new Date(run.finished_at).getTime() -
+                new Date(run.started_at).getTime(),
+            )
+          : null,
+      row_count: run.row_count,
+      failure_kind: run.failure_kind ?? null,
+      failure_phase: run.failure_phase ?? null,
+      safe_error_message: run.safe_error_message,
+    }));
 
 	  return {
     api: {
@@ -6396,7 +6557,7 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       recommendation:
         "ก่อน production ควรตั้ง cron pg_dump, เก็บไฟล์นอกเครื่อง และทดสอบ restore รายสัปดาห์",
     },
-	    signal_metrics: {
+    signal_metrics: {
       open: tenantOpenSignals.length,
       critical_open: tenantOpenSignals.filter(
         (signal) => signal.severity === "critical",
@@ -6413,33 +6574,34 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
       lifecycle_updates_recent: auditLogsForMetrics.filter(
         (log) => log.action === "business_signal_status_updated",
       ).length,
-	    },
-	    operational_alerts: {
-	      telegram: {
-	        status: telegramStatus,
-	        deliveries: telegramDeliveries,
-	      },
-	    },
-	    report_health: {
-	      latest_javaws_failure: latestJavaWsFailure
-	        ? {
-	            id: latestJavaWsFailure.id,
-	            tenant_id: latestJavaWsFailure.tenant_id,
-	            report_key: latestJavaWsFailure.report_key,
-	            status: latestJavaWsFailure.status,
-	            finished_at: latestJavaWsFailure.finished_at,
-	            failure_kind: latestJavaWsFailure.failure_kind ?? null,
-	            failure_phase: latestJavaWsFailure.failure_phase ?? null,
-	            failure_metadata_json:
-	              latestJavaWsFailure.failure_metadata_json ?? {},
-	            safe_error_message: latestJavaWsFailure.safe_error_message,
-	          }
-	        : null,
-	      heavy_report_runs: heavyReportRuns,
-	    },
-	    audit_logs: auditLogs,
-	    tenants: tenantHealth,
-	    system_config: runtimeStatus,
+    },
+    operational_alerts: {
+      telegram: {
+        status: telegramStatus,
+        deliveries: telegramDeliveries,
+      },
+    },
+    production_proof: productionProof,
+    report_health: {
+      latest_javaws_failure: latestJavaWsFailure
+        ? {
+            id: latestJavaWsFailure.id,
+            tenant_id: latestJavaWsFailure.tenant_id,
+            report_key: latestJavaWsFailure.report_key,
+            status: latestJavaWsFailure.status,
+            finished_at: latestJavaWsFailure.finished_at,
+            failure_kind: latestJavaWsFailure.failure_kind ?? null,
+            failure_phase: latestJavaWsFailure.failure_phase ?? null,
+            failure_metadata_json:
+              latestJavaWsFailure.failure_metadata_json ?? {},
+            safe_error_message: latestJavaWsFailure.safe_error_message,
+          }
+        : null,
+      heavy_report_runs: heavyReportRuns,
+    },
+    audit_logs: auditLogs,
+    tenants: tenantHealth,
+    system_config: runtimeStatus,
   };
 }
 
