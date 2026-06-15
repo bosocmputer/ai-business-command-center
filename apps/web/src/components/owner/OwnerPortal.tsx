@@ -4488,6 +4488,7 @@ function OwnerProofEvidenceStrip({
   const proof = operationsStatus?.production_proof ?? null;
   const verdict = buildProductionProofVerdict(proof, activeTenants.length);
   const pilotProofPackage = buildPilotProofPackage(proof, verdict);
+  const proofRecoveryLine = buildProofRecoveryLine(proof);
   const pilotProofShareText = buildPilotProofShareText(
     pilotProofPackage,
     verdict,
@@ -4866,7 +4867,7 @@ function OwnerProofEvidenceStrip({
           ))}
         </div>
       </div>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
         <HealthFact
           label="Business signals"
           value={
@@ -4882,6 +4883,10 @@ function OwnerProofEvidenceStrip({
               ? formatDateTime(proof.latest_problem_at)
               : "ไม่พบในรอบล่าสุด"
           }
+        />
+        <HealthFact
+          label="Clean target"
+          value={proofRecoveryLine}
         />
       </div>
     </section>
@@ -7328,6 +7333,7 @@ function buildPilotProofPackage(
   const proofLine = `${proof.window_days.toLocaleString(
     "th-TH",
   )} วันล่าสุด: coverage ${coverage}, รอบแจ้งเตือนสำเร็จ ${scheduledRate}, LINE สำเร็จ ${lineRate}, heavy report p90 ${heavyP90}.`;
+  const recoveryLine = buildProofRecoveryLine(proof);
 
   if (verdict.tone === "success") {
     return {
@@ -7345,7 +7351,7 @@ function buildPilotProofPackage(
         "ใช้ demo ได้ในฐานะระบบรายงานผู้บริหารที่มี audit และแจ้ง incident แทนการปล่อยให้ยอดผิดเงียบ",
       caveat: `ต้องพูดตรง ๆ ว่ายังมี failed ${proof.report_failure_count.toLocaleString(
         "th-TH",
-      )} ครั้งในช่วงนี้ ล่าสุด ${latestProblem}.`,
+      )} ครั้งในช่วงนี้ ล่าสุด ${latestProblem}. ${recoveryLine}`,
       headline: "มี proof สำหรับ demo แต่ยังไม่ควรขายว่าไร้ incident",
       proofLine,
     };
@@ -7416,6 +7422,7 @@ function buildPilotSalesKit({
     "ถ้า SML JavaWS ตอบผิดรูปแบบ ระบบต้องแจ้ง incident แทนการสรุปยอด",
     "เริ่มจาก 1-2 ร้านหรือสาขาที่ datasource และ LINE พร้อมก่อน",
   ];
+  const recoveryLine = buildProofRecoveryLine(proof);
 
   if (!proof || verdict.tone === "error") {
     return {
@@ -7454,13 +7461,48 @@ function buildPilotSalesKit({
     headline,
     message: `สวัสดีครับ ตอนนี้ AI-BCC พร้อมใช้ demo แบบมี caveat สำหรับร้านที่ใช้ SML และอยากให้ผู้บริหารได้รับรายงานอัตโนมัติ\n\nระบบช่วยดึงรายงานตามรอบ ส่ง LINE ให้ผู้บริหาร และมี audit/incident notice เมื่อ SML หรือช่องทางส่งมีปัญหา จุดสำคัญคือไม่ปล่อยให้ยอดที่อ่านไม่ได้ถูกสรุปเป็นยอดธุรกิจ\n\nหลักฐานล่าสุด: ${proofPackage.proofLine}\n\n${readyTenantLine}`,
     nextStep:
-      "ใช้ demo กับ tenant ที่พร้อมก่อน แล้วรอดู clean round ถัดไปก่อนบอกลูกค้าว่าพร้อมขายเต็ม",
+      `ใช้ demo กับ tenant ที่พร้อมก่อน แล้วรอดู clean round ถัดไปก่อนบอกลูกค้าว่าพร้อมขายเต็ม ${recoveryLine}`,
     objections,
     offer:
       "ใช้เปิดบทสนทนาและ demo ได้ แต่ควรขายแบบ pilot ที่ owner ติดตามผลจริง ไม่ใช่คำมั่นว่าไม่มี incident",
-    proofBoundary: proofPackage.caveat,
+    proofBoundary: `${proofPackage.caveat} ${recoveryLine}`,
     tone: "warning",
   };
+}
+
+function buildProofRecoveryLine(
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined,
+) {
+  if (!proof) {
+    return "รอรอบจริง";
+  }
+  if (
+    !proof.latest_problem_at ||
+    (proof.report_failure_count <= 0 && proof.scheduled_failed_count <= 0)
+  ) {
+    return "ไม่มี failed ในหน้าต่าง proof ล่าสุด";
+  }
+
+  const latestProblemAt = new Date(proof.latest_problem_at);
+  const generatedAt = new Date(proof.generated_at);
+  if (
+    Number.isNaN(latestProblemAt.getTime()) ||
+    Number.isNaN(generatedAt.getTime())
+  ) {
+    return "รอดู clean round ถัดไป";
+  }
+
+  const windowMs = proof.window_days * 24 * 60 * 60 * 1000;
+  const clearsAt = new Date(latestProblemAt.getTime() + windowMs);
+  const remainingMs = clearsAt.getTime() - generatedAt.getTime();
+  if (remainingMs <= 0) {
+    return "รอ refresh proof รอบถัดไป";
+  }
+
+  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  return `ถ้าไม่มี failed ใหม่ caveat จะหลุดหลัง ${formatDateTime(
+    clearsAt.toISOString(),
+  )} (${remainingDays.toLocaleString("th-TH")} วัน)`;
 }
 
 function buildPilotSalesKitShareText(salesKit: OwnerPilotSalesKit) {
