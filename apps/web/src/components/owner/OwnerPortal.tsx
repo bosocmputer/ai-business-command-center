@@ -54,7 +54,10 @@ import {
   OwnerLineRecipientLibraryPanel,
   OwnerLineTargetsPanel,
 } from "./OwnerLineTargetsPanel";
-import { OwnerNotificationsContent as OwnerNotificationsContentV2 } from "./notifications/OwnerNotificationsContent";
+import {
+  OwnerNotificationsContent as OwnerNotificationsContentV2,
+  type NotificationPresetDraftInput,
+} from "./notifications/OwnerNotificationsContent";
 
 const API_BASE_URL = getCommandCenterApiBaseUrl();
 const defaultReportRange = deriveMorningBriefDateRange();
@@ -979,6 +982,27 @@ export default function OwnerPortal({
     setLastNotificationRunResult(null);
     setPendingNotificationRunId(null);
   }, [selectedTenantLineTargets]);
+
+  const applyNotificationPresetToDraft = useCallback(
+    (input: NotificationPresetDraftInput) => {
+      setEditingNotificationRuleId(null);
+      setNotificationName(input.name);
+      setNotificationEnabled(input.enabled);
+      setNotificationPeriodPreset("yesterday");
+      setNotificationPeriodStrategy(OWNER_NOTIFICATION_PERIOD_STRATEGY);
+      setNotificationDigestMode(input.digestMode);
+      setNotificationWeekdays(input.weekdays);
+      setNotificationTimes(input.times);
+      setNotificationTimeInput(input.times[0] ?? "08:00");
+      setNotificationManualScheduledDate(toBangkokYmd(new Date()));
+      setNotificationManualScheduledTime(input.times[0] ?? "08:00");
+      setNotificationReportKeys(input.reportKeys);
+      setNotificationTargetIds(input.targetIds);
+      setLastNotificationRunResult(null);
+      setPendingNotificationRunId(null);
+    },
+    [],
+  );
 
   const loadStoreSetupDetail = useCallback(async (tenantId: string) => {
     const headers = buildRememberedAdminJsonHeaders();
@@ -3631,6 +3655,7 @@ export default function OwnerPortal({
           onExecuteNotificationRule={executeSelectedNotificationRule}
           onSelectNotificationRule={applyNotificationRuleToForm}
           onNewNotificationRule={resetNotificationRuleForm}
+          onApplyNotificationPreset={applyNotificationPresetToDraft}
           onSetNotificationReportKeys={setNotificationReportKeys}
           onToggleNotificationReportKey={toggleNotificationReportKey}
           onToggleReportPermission={toggleReportPermission}
@@ -3872,6 +3897,7 @@ type OwnerSectionContentProps = {
   onExecuteNotificationRule: (mode: "dry_run" | "send") => Promise<void>;
   onSelectNotificationRule: (rule: OwnerNotificationRule) => void;
   onNewNotificationRule: () => void;
+  onApplyNotificationPreset: (input: NotificationPresetDraftInput) => void;
   onSetNotificationReportKeys: (reportKeys: ReportKey[]) => void;
   onToggleNotificationReportKey: (reportKey: ReportKey) => void;
   onToggleReportPermission: (

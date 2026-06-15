@@ -19,6 +19,7 @@ import {
   type ReportKey,
   type Tenant,
 } from "@ai-bcc/shared";
+import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { formatLineAccessProfile } from "../OwnerLineTargetsPanel";
@@ -50,6 +51,16 @@ type NotificationRuleRunResult = {
   mode?: "dry_run" | "send";
 };
 
+export type NotificationPresetDraftInput = {
+  digestMode: NotificationDigestMode;
+  enabled: boolean;
+  name: string;
+  reportKeys: ReportKey[];
+  targetIds: string[];
+  times: string[];
+  weekdays: number[];
+};
+
 export type OwnerNotificationsContentProps = {
   busy: string | null;
   editingNotificationRuleId: string | null;
@@ -69,6 +80,7 @@ export type OwnerNotificationsContentProps = {
   notificationTimes: string[];
   notificationWeekdays: number[];
   onAddNotificationTime: () => void;
+  onApplyNotificationPreset: (input: NotificationPresetDraftInput) => void;
   onExecuteNotificationRule: (mode: "dry_run" | "send") => Promise<void>;
   onNewNotificationRule: () => void;
   onRemoveNotificationTime: (time: string) => void;
@@ -174,6 +186,7 @@ export function OwnerNotificationsContent({
   notificationTimes,
   notificationWeekdays,
   onAddNotificationTime,
+  onApplyNotificationPreset,
   onExecuteNotificationRule,
   onNewNotificationRule,
   onRemoveNotificationTime,
@@ -465,6 +478,17 @@ export function OwnerNotificationsContent({
             </div>
 
             <div className="space-y-6 p-5">
+              <NotificationPresetGuide
+                isNewDraft={isNewDraft}
+                notificationEnabled={notificationEnabled}
+                notificationTargetIds={notificationTargetIds}
+                onApplyNotificationPreset={onApplyNotificationPreset}
+                selectedReportPreset={selectedReportPreset}
+                selectedTenantId={selectedTenantId}
+                selectedTenantName={selectedTenantName}
+                sendReadyTargets={sendReadyTargets}
+              />
+
               <PlanBasicsSection
                 notificationDigestMode={notificationDigestMode}
                 notificationEnabled={notificationEnabled}
@@ -678,6 +702,163 @@ function NotificationRuleList({
         )}
       </div>
     </section>
+  );
+}
+
+function NotificationPresetGuide({
+  isNewDraft,
+  notificationEnabled,
+  notificationTargetIds,
+  onApplyNotificationPreset,
+  selectedReportPreset,
+  selectedTenantId,
+  selectedTenantName,
+  sendReadyTargets,
+}: {
+  isNewDraft: boolean;
+  notificationEnabled: boolean;
+  notificationTargetIds: string[];
+  onApplyNotificationPreset: (input: NotificationPresetDraftInput) => void;
+  selectedReportPreset: ReportPresetKey | null;
+  selectedTenantId: string;
+  selectedTenantName: string;
+  sendReadyTargets: LineTargetRecord[];
+}) {
+  const defaultTargetIds = getDefaultNotificationTargetIds(sendReadyTargets);
+  const canOpenPreset = defaultTargetIds.length > 0;
+  const presets: Array<{
+    badge: string;
+    description: string;
+    input: NotificationPresetDraftInput;
+    title: string;
+  }> = [
+    {
+      badge: "แนะนำ",
+      title: "Owner Daily Brief 08:00",
+      description:
+        "เริ่มขาย/พิสูจน์ระบบง่ายที่สุด: ส่งเรื่องสำคัญตอนเช้าให้ผู้บริหารก่อนเปิดร้าน",
+      input: {
+        digestMode: "action_only",
+        enabled: canOpenPreset,
+        name: "Owner Daily Brief 08:00",
+        reportKeys: ["sales_goods_services", "purchase_goods_payables"],
+        targetIds: defaultTargetIds,
+        times: ["08:00"],
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+      },
+    },
+    {
+      badge: "รอบเย็น",
+      title: "Evening Sales Check 18:30",
+      description:
+        "ใช้ดูยอดระหว่างวันหลังปิดรอบงาน เหมาะกับร้านที่เจ้าของอยากเช็คก่อนกลับบ้าน",
+      input: {
+        digestMode: "action_only",
+        enabled: canOpenPreset,
+        name: "Evening Sales Check 18:30",
+        reportKeys: ["sales_goods_services", "purchase_goods_payables"],
+        targetIds: defaultTargetIds,
+        times: ["18:30"],
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+      },
+    },
+    {
+      badge: "Proof",
+      title: "7-Day Proof Full Reports",
+      description:
+        "ใช้เก็บหลักฐาน production proof แบบครบชุด เปิดเป็น draft ก่อน แล้วส่งทดสอบหลังตรวจผู้รับ",
+      input: {
+        digestMode: "all_reports",
+        enabled: false,
+        name: "7-Day Proof Full Reports",
+        reportKeys: [...getReportPresetEntry("executive_full").reportKeys],
+        targetIds: defaultTargetIds,
+        times: ["08:00", "18:30"],
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+      },
+    },
+  ];
+  const selectedTargetsReady = notificationTargetIds.length
+    ? notificationTargetIds.every((targetId) =>
+        sendReadyTargets.some((target) => target.id === targetId),
+      )
+    : false;
+  const nextAction = getNotificationSetupNextAction({
+    canOpenPreset,
+    isNewDraft,
+    notificationEnabled,
+    selectedReportPreset,
+    selectedTargetsReady,
+    selectedTenantId,
+  });
+
+  return (
+    <NotificationEditorSection
+      description="เลือก preset เพื่อกรอก draft ให้ครบก่อน แล้วค่อยบันทึกหรือส่งทดสอบ"
+      title="เริ่มจากแผนแนะนำ"
+    >
+      <div className="rounded-lg border border-brand-100 bg-brand-50 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-brand-900 dark:text-brand-100">
+              ตั้งแผนของ {selectedTenantName} ให้พร้อมส่งจริงเร็วขึ้น
+            </p>
+            <p className="mt-1 text-xs leading-5 text-brand-700 dark:text-brand-200">
+              Preset จะเปลี่ยนค่าใน draft เท่านั้น ยังไม่บันทึก ไม่ส่ง LINE และไม่เปิด worker เอง
+            </p>
+          </div>
+          <Badge color={canOpenPreset ? "success" : "warning"}>
+            {canOpenPreset
+              ? `${defaultTargetIds.length} ผู้รับพร้อมส่ง`
+              : "ยังไม่มีผู้รับพร้อมส่ง"}
+          </Badge>
+        </div>
+
+        <div className="mt-4 grid gap-2 xl:grid-cols-3">
+          {presets.map((preset) => (
+            <button
+              className="min-h-11 rounded-lg border border-brand-100 bg-white p-3 text-left transition hover:bg-brand-50 dark:border-brand-500/20 dark:bg-gray-900/70 dark:hover:bg-brand-500/10"
+              key={preset.title}
+              onClick={() => onApplyNotificationPreset(preset.input)}
+              type="button"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                  {preset.title}
+                </span>
+                <Badge color={preset.badge === "แนะนำ" ? "primary" : "light"}>
+                  {preset.badge}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {preset.description}
+              </p>
+              <p className="mt-2 text-xs font-medium text-brand-700 dark:text-brand-200">
+                ใช้เวลา {preset.input.times.join(", ")} ·{" "}
+                {preset.input.reportKeys.length} รายงาน ·{" "}
+                {preset.input.enabled ? "เปิดหลังบันทึก" : "draft ปิดอยู่ก่อน"}
+              </p>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-brand-100 bg-white/80 p-3 text-sm leading-6 text-brand-800 dark:border-brand-500/20 dark:bg-white/[0.05] dark:text-brand-100 sm:flex-row sm:items-center sm:justify-between">
+          <span>{nextAction.description}</span>
+          {nextAction.href ? (
+            <Link
+              className="inline-flex items-center justify-center rounded-lg border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100"
+              href={nextAction.href}
+            >
+              {nextAction.label}
+            </Link>
+          ) : (
+            <span className="inline-flex items-center justify-center rounded-lg border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
+              {nextAction.label}
+            </span>
+          )}
+        </div>
+      </div>
+    </NotificationEditorSection>
   );
 }
 
@@ -1584,6 +1765,67 @@ function sortReportKeys(reportKeys: ReportKey[]) {
   return [...new Set(reportKeys)].sort(
     (left, right) => (order.get(left) ?? 999) - (order.get(right) ?? 999),
   );
+}
+
+function getDefaultNotificationTargetIds(sendReadyTargets: LineTargetRecord[]) {
+  const executiveUsers = sendReadyTargets.filter(
+    (target) =>
+      target.target_type === "user" && target.access_profile_key === "executive",
+  );
+  const preferredTargets = executiveUsers.length ? executiveUsers : sendReadyTargets;
+  return preferredTargets.map((target) => target.id);
+}
+
+function getNotificationSetupNextAction(input: {
+  canOpenPreset: boolean;
+  isNewDraft: boolean;
+  notificationEnabled: boolean;
+  selectedReportPreset: ReportPresetKey | null;
+  selectedTargetsReady: boolean;
+  selectedTenantId: string;
+}) {
+  const tenantQuery = encodeURIComponent(input.selectedTenantId);
+  if (!input.canOpenPreset) {
+    return {
+      label: "ตั้ง LINE ก่อน",
+      description:
+        "ยังไม่มีผู้รับ LINE ที่พร้อมส่งจริง กลับไปอนุมัติผู้รับหรือตั้ง token ก่อนเปิดแผน",
+      href: `/owner/line?tenant=${tenantQuery}`,
+    };
+  }
+  if (input.isNewDraft) {
+    return {
+      label: "ใช้แผนแนะนำ",
+      description:
+        "เริ่มจาก Owner Daily Brief 08:00 แล้วตรวจชื่อแผน รายงาน เวลา และผู้รับก่อนบันทึก",
+    };
+  }
+  if (!input.notificationEnabled) {
+    return {
+      label: "ตรวจ draft",
+      description:
+        "แผนนี้ยังปิดอยู่ เหมาะกับการเตรียม proof หรือรอส่งทดสอบก่อนเปิดรอบจริง",
+    };
+  }
+  if (!input.selectedTargetsReady) {
+    return {
+      label: "เลือกผู้รับ",
+      description:
+        "แผนเปิดอยู่แต่ยังไม่ได้เลือกผู้รับพร้อมส่งจริง ตรวจปลายทาง LINE ก่อนบันทึก",
+    };
+  }
+  if (input.selectedReportPreset !== "executive_full") {
+    return {
+      label: "บันทึกและส่งทดสอบ",
+      description:
+        "แผนพร้อมสำหรับรอบแรกแล้ว หลังบันทึกให้ส่งจริงตอนนี้ 1 ครั้งเพื่อสร้าง proof",
+    };
+  }
+  return {
+    label: "ส่งทดสอบแบบระวัง",
+    description:
+      "แผนครบทุก report มีรายงานหนัก ควรส่งทดสอบ 1 รอบและดู Run ล่าสุดก่อนเปิดใช้ประจำ",
+  };
 }
 
 function getNotificationActionBlockedReason(input: {
