@@ -516,6 +516,11 @@ function LineTargetCard({
   const lineChannel = findLineChannelForTarget(target, lineChannels);
   const hasSendToken = hasLineSendToken(target, lineChannels);
   const ready = canReceiveMorningBrief(target) && hasSendToken;
+  const readinessIssues = getLineTargetReadinessIssues({
+    hasSendToken,
+    lineChannel,
+    target,
+  });
   const profileKeys: LineAccessProfileKey[] = [
     "executive",
     "sales_manager",
@@ -597,6 +602,17 @@ function LineTargetCard({
             <p className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
               ปลายทางนี้เป็นกลุ่ม/ห้องแชท: ข้อมูลยอดขายหรือยอดซื้อที่ส่งไปทุกคนในปลายทางนี้จะเห็นได้
             </p>
+          ) : null}
+
+          {readinessIssues.length ? (
+            <div className="mt-3 rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+              <p className="font-semibold">ยังส่งรายงานจริงไม่ได้</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {readinessIssues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </div>
           ) : null}
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -723,6 +739,39 @@ function findLineChannelForTarget(
   return target.line_channel_id
     ? lineChannels.find((channel) => channel.id === target.line_channel_id) ?? null
     : null;
+}
+
+function getLineTargetReadinessIssues({
+  hasSendToken,
+  lineChannel,
+  target,
+}: {
+  hasSendToken: boolean;
+  lineChannel: LineChannelRecord | null;
+  target: LineTargetRecord;
+}) {
+  const issues: string[] = [];
+  if (!target.approved) {
+    issues.push("owner ต้องอนุมัติสิทธิ์ของผู้รับก่อน");
+  }
+  if (!target.enabled) {
+    issues.push("ผู้รับถูกปิดรับรายงานอยู่");
+  }
+  if (!lineChannel) {
+    issues.push("ยังไม่ได้ผูก LINE OA ที่ใช้ส่ง");
+  } else if (!lineChannel.enabled) {
+    issues.push("LINE OA ที่ผูกไว้ถูกปิดใช้งาน");
+  }
+  if (!hasSendToken) {
+    issues.push("LINE OA ยังไม่มี Channel access token สำหรับส่งจริง");
+  }
+  if (!target.allowed_actions.includes("receive_morning_brief")) {
+    issues.push("สิทธิ์นี้ยังไม่ได้เปิดรับแผนแจ้งเตือน");
+  }
+  if (!target.allowed_report_keys.length) {
+    issues.push("ยังไม่ได้กำหนดรายงานที่ผู้รับนี้เห็นได้");
+  }
+  return issues;
 }
 
 function isOwnerSharedLineTarget(target: LineTargetRecord) {

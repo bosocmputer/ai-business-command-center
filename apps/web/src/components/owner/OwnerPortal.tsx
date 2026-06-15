@@ -6122,6 +6122,7 @@ function OwnerLineContent({
   selectedTenantId,
   selectedTenantLineChannels,
   selectedTenantLineTargets,
+  selectedTenantSummary,
   setLineAccessTokenInput,
   setLineChannelName,
   setLineChannelShared,
@@ -6153,6 +6154,14 @@ function OwnerLineContent({
             ))}
           </div>
         </section>
+
+        <LineSetupReadinessPanel
+          lineChannels={selectedTenantLineChannels}
+          lineTargets={selectedTenantLineTargets}
+          selectedTenantId={selectedTenantId}
+          tenantName={selectedTenant?.name ?? "ร้านที่เลือก"}
+          tenantSummary={selectedTenantSummary}
+        />
 
         <OwnerLineRecipientLibraryPanel
           busy={busy}
@@ -6205,6 +6214,195 @@ function OwnerLineContent({
         />
       </div>
     </div>
+  );
+}
+
+function LineSetupReadinessPanel({
+  lineChannels,
+  lineTargets,
+  selectedTenantId,
+  tenantName,
+  tenantSummary,
+}: {
+  lineChannels: LineChannelRecord[];
+  lineTargets: LineTargetRecord[];
+  selectedTenantId: string;
+  tenantName: string;
+  tenantSummary?: TenantSummary;
+}) {
+  const sendReadyChannels = lineChannels.filter(
+    (channel) => channel.enabled && channel.channel_access_token_configured,
+  );
+  const webhookReadyChannels = lineChannels.filter(
+    (channel) => channel.enabled && channel.channel_secret_configured,
+  );
+  const approvedTargets = lineTargets.filter(
+    (target) => target.approved && target.enabled,
+  );
+  const readyTargets = lineTargets.filter((target) =>
+    isLineTargetReadyForBrief(target, lineChannels),
+  );
+  const latestDeliveryStatus =
+    tenantSummary?.health.latest_line_delivery_status ?? null;
+  const latestDeliveryAt = tenantSummary?.health.latest_line_delivery_at ?? null;
+  const checks: ReadinessCheck[] = [
+    {
+      ok: Boolean(selectedTenantId),
+      label: "เลือกร้านแล้ว",
+      detail: selectedTenantId
+        ? `กำลังตั้งค่า LINE ให้ ${tenantName}`
+        : "เลือกร้านก่อนเพิ่ม LINE OA หรือผู้รับรายงาน",
+    },
+    {
+      ok: lineChannels.length > 0,
+      label: "มี LINE OA",
+      detail: lineChannels.length
+        ? `${lineChannels.length} ช่องทางในร้านนี้หรือ OA กลาง`
+        : "เพิ่ม LINE OA metadata ก่อน แล้วค่อยบันทึก token/secret",
+    },
+    {
+      ok: sendReadyChannels.length > 0,
+      label: "มี token สำหรับส่งจริง",
+      detail: sendReadyChannels.length
+        ? `${sendReadyChannels.length}/${lineChannels.length} LINE OA มี Channel access token`
+        : "บันทึก Channel access token อย่างน้อย 1 ช่องทางก่อนส่ง test หรือแผนแจ้งเตือน",
+    },
+    {
+      ok: webhookReadyChannels.length > 0,
+      label: "มี secret สำหรับรับ webhook",
+      detail: webhookReadyChannels.length
+        ? `${webhookReadyChannels.length}/${lineChannels.length} LINE OA รับ webhook ได้`
+        : "บันทึก Channel secret เพื่อให้ระบบรับ userId/groupId หลังผู้รับพิมพ์ test",
+    },
+    {
+      ok: readyTargets.length > 0,
+      label: "มีผู้รับพร้อมส่ง",
+      detail: readyTargets.length
+        ? `${readyTargets.length}/${lineTargets.length} ผู้รับอนุมัติแล้ว เปิดรับ และผูกกับ LINE OA ที่มี token`
+        : approvedTargets.length
+          ? "ผู้รับอนุมัติแล้วแต่ยังติด token, สิทธิ์รายงาน หรือสถานะเปิดรับ"
+          : "ให้ผู้รับ add OA แล้วพิมพ์ test จากนั้น owner อนุมัติสิทธิ์",
+    },
+    {
+      ok: latestDeliveryStatus === "success",
+      label: "เคยส่ง LINE สำเร็จ",
+      detail: latestDeliveryAt
+        ? `${formatLineDeliveryStatus(latestDeliveryStatus)} · ${formatDateTime(latestDeliveryAt)}`
+        : "หลังตั้งผู้รับแล้วกดส่งทดสอบ 1 ครั้งเพื่อยืนยันปลายทางจริง",
+    },
+  ];
+  const readyCount = checks.filter((check) => check.ok).length;
+  const nextAction = getLineSetupNextAction(checks, selectedTenantId);
+  const badgeTone =
+    readyCount === checks.length
+      ? ("success" as const)
+      : readyCount >= 3
+        ? ("warning" as const)
+        : ("error" as const);
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            ความพร้อม LINE ของ {tenantName}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้เช็คก่อนเปิดแผนแจ้งเตือนจริง ลดพลาดจากการลืม token, secret หรือยังไม่ได้อนุมัติผู้รับ
+          </p>
+        </div>
+        <Badge color={badgeTone}>
+          {readyCount}/{checks.length} พร้อม
+        </Badge>
+      </div>
+      <div className="grid gap-3 border-t border-gray-100 p-4 dark:border-gray-800 lg:grid-cols-2">
+        {checks.map((item) => (
+          <ReadinessRow item={item} key={item.label} />
+        ))}
+      </div>
+      <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+        <div className="flex flex-col gap-3 rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm leading-6 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 sm:flex-row sm:items-center sm:justify-between">
+          <span>{nextAction.description}</span>
+          <Link
+            className="inline-flex items-center justify-center rounded-lg border border-brand-200 bg-white px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100"
+            href={nextAction.href}
+          >
+            {nextAction.label}
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function getLineSetupNextAction(
+  checks: ReadinessCheck[],
+  selectedTenantId: string,
+) {
+  const lineHref = `/owner/line?tenant=${encodeURIComponent(selectedTenantId)}`;
+  const firstMissing = checks.find((check) => !check.ok);
+  if (!firstMissing) {
+    return {
+      label: "ไปตั้งแผนแจ้งเตือน",
+      description:
+        "LINE พร้อมแล้ว ขั้นต่อไปผูกผู้รับเข้ากับแผนแจ้งเตือนและรอรอบ worker",
+      href: `/owner/notifications?tenant=${encodeURIComponent(selectedTenantId)}`,
+    };
+  }
+  if (firstMissing.label.includes("token")) {
+    return {
+      label: "บันทึก token",
+      description:
+        "ช่องทางยังส่งจริงไม่ได้ ให้เลือก LINE OA แล้วบันทึก Channel access token",
+      href: lineHref,
+    };
+  }
+  if (firstMissing.label.includes("secret")) {
+    return {
+      label: "บันทึก secret",
+      description:
+        "ยังรับ webhook ไม่ครบ ให้บันทึก Channel secret แล้วให้ผู้รับพิมพ์ test",
+      href: lineHref,
+    };
+  }
+  if (firstMissing.label.includes("ผู้รับ")) {
+    return {
+      label: "อนุมัติผู้รับ",
+      description:
+        "ยังไม่มีปลายทางพร้อมส่ง ให้เพิ่มจากคลังหรืออนุมัติรายการรออนุมัติ",
+      href: lineHref,
+    };
+  }
+  if (firstMissing.label.includes("ส่ง LINE")) {
+    return {
+      label: "ส่งทดสอบ",
+      description:
+        "ตั้งค่าพร้อมแล้ว กดส่งทดสอบกับปลายทางจริงก่อนเปิดแผนประจำวัน",
+      href: lineHref,
+    };
+  }
+  return {
+    label: "เพิ่ม LINE OA",
+    description:
+      "เริ่มจากเพิ่ม LINE OA ของร้านหรือเลือก OA กลาง แล้วบันทึก secret ให้ครบ",
+    href: lineHref,
+  };
+}
+
+function isLineTargetReadyForBrief(
+  target: LineTargetRecord,
+  lineChannels: LineChannelRecord[],
+) {
+  const channel = target.line_channel_id
+    ? lineChannels.find((item) => item.id === target.line_channel_id)
+    : null;
+  return Boolean(
+    target.approved &&
+      target.enabled &&
+      target.allowed_actions.includes("receive_morning_brief") &&
+      target.allowed_report_keys.length > 0 &&
+      channel?.enabled &&
+      channel.channel_access_token_configured,
   );
 }
 
