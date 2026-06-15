@@ -2,7 +2,7 @@
 
 ## เป้าหมายของเอกสาร
 
-บันทึกสถานะล่าสุดของ AI Business Command Center หลังจบรอบงานวันที่ `20/05/2026` ถึง `21/05/2026` เพื่อให้วันถัดไปเริ่มทำต่อได้โดยไม่ต้องไล่ reconstruct จาก chat history
+บันทึกสถานะล่าสุดของ AI Business Command Center หลังจบรอบงานวันที่ `20/05/2026` ถึง `21/05/2026` และ operational update ล่าสุดวันที่ `2026-06-15` เพื่อให้วันถัดไปเริ่มทำต่อได้โดยไม่ต้องไล่ reconstruct จาก chat history
 
 เอกสารนี้เป็น operational snapshot ไม่ใช่ replacement ของ blueprint หลัก ถ้ามีข้อมูลขัดกัน ให้ถือไฟล์นี้เป็นสถานะล่าสุด ณ เวลาที่ระบุ
 
@@ -10,22 +10,47 @@
 
 ```text
 วันที่บันทึก: 2026-05-20
-อัปเดตล่าสุด: 2026-05-22
+อัปเดตล่าสุด: 2026-06-15
 Timezone: Asia/Bangkok
-Latest deployed code commit: 050b2a2
+Runtime deployed code commit: e76acde
+Latest docs commit: fe318e9 (docs-only, not runtime deploy)
 SaaS pilot owner/customer portals: ready
 Product positioning: multi-channel brief hub
 GitHub branch: main
 Deploy target: 192.168.2.109
 Compose project: ai-business-command-center
 System store: PostgreSQL
-Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
+Pilot proof tenants: tenant_demo_remote / กระบี่, seaandhill_demo
+Skipped from proof coverage: tenant_office_sml1_2026 / 248 SHOP (datasource not configured)
 Current channel: sml_reports
-Current reports: sales_goods_services, purchase_goods_payables
+Current reports: sales_goods_services, purchase_goods_payables, stock_balance, ar_customer_movement
 Planned channel: flowaccount_finance (foundation only, no SML sync)
 PDF export layout: sml-row-v5
 PDF cache volume: /app/.data/pdf-cache
 ```
+
+## Operational Update 2026-06-15
+
+ตรวจล่าสุด `2026-06-15 17:50 Asia/Bangkok` ผ่าน production endpoint และ system DB:
+
+- Runtime production ยังอยู่ที่ commit `e76acde`; commit `fe318e9` เป็น docs-only และไม่ได้ deploy runtime ใหม่
+- API health ปกติ, system store เป็น PostgreSQL, worker heartbeat ปกติ และไม่มี tick in flight ตอนตรวจ
+- Telegram operational alert ตั้งค่าแล้ว, verify ผ่าน, มี target enabled 1 รายการ และ test alert ล่าสุดสำเร็จ
+- `/owner` มี proof strip, sales kit, pilot qualification, clean proof target และข้าม 248 SHOP ที่ datasource ยังไม่พร้อม
+- Production proof 7 วัน: active tenants 3, eligible tenants 2, scheduled runs 34, success 28, failed 6, pending 0
+- Scheduled success rate `82.35%`; LINE delivery success rate `97.87%` จาก 46 success / 47 deliveries และไม่มี LINE delivery failed ในรอบ window นี้
+- JavaWS incident ล่าสุดเป็น `0` ใน window ปัจจุบัน; report failure count `6` เป็นปัญหาเก่ารอบ `2026-06-11 08:03 Asia/Bangkok`
+- ถ้าไม่มี failure ใหม่ clean proof target คือ `2026-06-18 08:03 Asia/Bangkok`
+- Heavy reports chunked ล่าสุดสำเร็จ:
+  - กระบี่ `stock_balance` 206.8s / 7,903 rows
+  - กระบี่ `ar_customer_movement` 92.1s / 479,870 rows
+  - seaandhill `stock_balance` 39.8s / 7,557 rows
+  - seaandhill `ar_customer_movement` 7.4s / 50,966 rows
+- Heavy report p50 ประมาณ 45.8s และ p90 ประมาณ 179.0s; กระบี่ยังช้าแต่ยังอยู่ในภาพที่ควร monitor ไม่ใช่ hard failure
+- Business signals ยังมี open 110 และ critical open 20 ต้องตามปิดเป็นงาน operations ก่อนขาย production เต็ม
+- Backup/restore automation ยังไม่ configured; ก่อนรับ paid production ต้องมี cron `pg_dump`, เก็บนอกเครื่อง และทดสอบ restore รายสัปดาห์
+
+สรุปสถานะขาย/ทดลอง: ใช้ demo และเปิด pilot แบบมี caveat ได้ โดยยึด tenant กระบี่กับ seaandhill เป็น proof หลัก แต่ยังควรรอ clean proof target หรือปิด 7-day proof log ให้ครบก่อนสื่อสารว่า production-ready เต็ม
 
 ## URL ที่ใช้ตรวจระบบ
 

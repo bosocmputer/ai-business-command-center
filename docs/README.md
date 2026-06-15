@@ -83,7 +83,8 @@
 สถานะล่าสุดอยู่ที่ [16_CURRENT_STATUS_2026-05-20_TH.md](./16_CURRENT_STATUS_2026-05-20_TH.md)
 
 ```text
-Latest deployed code commit: 050b2a2
+Runtime deployed code commit: e76acde
+Latest docs commit: fe318e9 (docs-only, not runtime deploy)
 Web Owner LAN: http://192.168.2.109:3055/owner
 Web Customer DEMO SHOP LAN: http://192.168.2.109:3055/app/demo-shop
 Web Customer 248 SHOP LAN: http://192.168.2.109:3055/app/248-shop
@@ -92,10 +93,13 @@ Public web tunnel: https://relationship-code-others-challenging.trycloudflare.co
 Public API tunnel: https://bibliography-numbers-lite-motion.trycloudflare.com
 System store: PostgreSQL
 PDF export: server-side Chromium, layout sml-row-v5, cache in /app/.data/pdf-cache
-Pilot tenants: DEMO SHOP (`tenant_demo_remote`), 248 SHOP (`tenant_office_sml1_2026`)
+Pilot proof tenants: tenant_demo_remote / กระบี่, seaandhill_demo
+Skipped from proof coverage: tenant_office_sml1_2026 / 248 SHOP until datasource is configured
 Current channel: sml_reports
 Planned channel: flowaccount_finance
 ```
+
+Operational note `2026-06-15`: production API/worker are healthy, Telegram ops alert test passed, and `/owner` now includes proof strip, sales kit, pilot qualification, and clean proof target. The current sales kit in [19_PILOT_SALES_DEMO_KIT_TH.md](./19_PILOT_SALES_DEMO_KIT_TH.md) includes owner proof qualification and a pilot success scorecard.
 
 ห้ามบันทึก signed viewer URL แบบเต็มลงเอกสาร เพราะมี `token=...`
 
