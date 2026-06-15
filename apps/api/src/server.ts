@@ -11481,7 +11481,7 @@ async function buildOwnerTenantSummary(tenantId: TenantId) {
   const access = tenantAccessStatus(tenant);
   const customerDashboardSlug = getTenantSlug(tenant.id);
 
-  return {
+  const summary = {
     tenant,
     customer_dashboard_path: customerDashboardSlug
       ? `/app/${customerDashboardSlug}`
@@ -11511,6 +11511,19 @@ async function buildOwnerTenantSummary(tenantId: TenantId) {
       critical_business_signals: criticalSignals.length,
       latest_business_signal_at: businessSignals[0]?.updated_at ?? null,
     },
+  };
+  const setupReadinessChecks = buildStoreSetupReadinessChecks({
+    summary,
+    datasource,
+    lineChannels,
+    lineTargets: lineTargets.map(toSafeLineTargetRecord),
+    notificationRules,
+    runs,
+  });
+
+  return {
+    ...summary,
+    setup_readiness: summarizeStoreSetupReadiness(setupReadinessChecks),
   };
 }
 
@@ -11557,18 +11570,17 @@ async function buildOwnerStoreSetupDetail(tenantId: TenantId) {
     line_targets: safeTargets,
     notification_rules: notificationRules.map(toOwnerNotificationRule),
     business_signals: businessSignals,
-    readiness: {
-      ready: checks.every((check) => check.ok),
-      completed: checks.filter((check) => check.ok).length,
-      total: checks.length,
-      next_action: checks.find((check) => !check.ok) ?? null,
-      checks,
-    },
+    readiness: summarizeStoreSetupReadiness(checks),
   };
 }
 
 function buildStoreSetupReadinessChecks(input: {
-  summary: NonNullable<Awaited<ReturnType<typeof buildOwnerTenantSummary>>>;
+  summary: {
+    access: ReturnType<typeof tenantAccessStatus>;
+    tenant: {
+      id: TenantId;
+    };
+  };
   datasource: Awaited<ReturnType<typeof readDatasourceConfigStatus>>;
   lineChannels: LineChannelRecord[];
   lineTargets: ReturnType<typeof toSafeLineTargetRecord>[];
@@ -11650,6 +11662,20 @@ function buildStoreSetupReadinessChecks(input: {
       )}`,
     },
   ];
+}
+
+function summarizeStoreSetupReadiness(
+  checks: ReturnType<typeof buildStoreSetupReadinessChecks>,
+) {
+  const completed = checks.filter((check) => check.ok).length;
+
+  return {
+    ready: completed === checks.length,
+    completed,
+    total: checks.length,
+    next_action: checks.find((check) => !check.ok) ?? null,
+    checks,
+  };
 }
 
 const SHARED_LINE_TARGET_ID_PREFIX = "line_target_shared__";

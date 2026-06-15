@@ -113,6 +113,7 @@ type TenantSummary = {
     critical_business_signals: number;
     latest_business_signal_at: string | null;
   };
+  setup_readiness?: StoreSetupReadiness;
 };
 
 function pickDefaultOwnerTenantId(tenants: TenantSummary[]) {
@@ -210,6 +211,14 @@ type StoreSetupReadinessCheck = ReadinessCheck & {
   href: string;
 };
 
+type StoreSetupReadiness = {
+  ready: boolean;
+  completed: number;
+  total: number;
+  next_action: StoreSetupReadinessCheck | null;
+  checks: StoreSetupReadinessCheck[];
+};
+
 type StoreSetupDetail = {
   summary: TenantSummary;
   datasource: DatasourceConfigStatus;
@@ -217,13 +226,7 @@ type StoreSetupDetail = {
   line_targets: LineTargetRecord[];
   notification_rules: OwnerNotificationRule[];
   business_signals: BusinessSignalRecord[];
-  readiness: {
-    ready: boolean;
-    completed: number;
-    total: number;
-    next_action: StoreSetupReadinessCheck | null;
-    checks: StoreSetupReadinessCheck[];
-  };
+  readiness: StoreSetupReadiness;
 };
 
 type OwnerNotificationRule = NotificationRuleRecord & {
@@ -11162,6 +11165,11 @@ function getTenantReadiness(
   item: TenantSummary,
   datasourceTest?: DatasourceTestResult,
 ) {
+  const setupReadiness = buildTenantSetupReadiness(item, datasourceTest);
+  if (setupReadiness) {
+    return setupReadiness;
+  }
+
   const hasLineRoute =
     item.health.line_channels > 0 && item.health.line_targets_enabled > 0;
   const checks: ReadinessCheck[] = [
@@ -11249,16 +11257,55 @@ function getTenantReadiness(
   };
 }
 
+function buildTenantSetupReadiness(
+  item: TenantSummary,
+  datasourceTest?: DatasourceTestResult,
+) {
+  if (!item.setup_readiness) {
+    return null;
+  }
+
+  if (!datasourceTest) {
+    return buildReadinessFromStoreSetupReadiness(item.setup_readiness);
+  }
+
+  const checks = item.setup_readiness.checks.map((check) => {
+    if (check.key !== "sml_javaws") {
+      return check;
+    }
+
+    return {
+      ...check,
+      ok: datasourceTest.ok,
+      detail: datasourceTest.ok
+        ? `ทดสอบผ่าน ${datasourceTest.latency_ms} ms`
+        : toDatasourceBusinessMessage(datasourceTest.safe_error_message),
+    };
+  });
+  const completed = checks.filter((check) => check.ok).length;
+  return buildReadinessFromStoreSetupReadiness({
+    ...item.setup_readiness,
+    checks,
+    completed,
+    ready: completed === checks.length,
+    next_action: checks.find((check) => !check.ok) ?? null,
+  });
+}
+
 function buildReadinessFromStoreSetup(detail: StoreSetupDetail) {
-  const checks = detail.readiness.checks.map((check) => ({
+  return buildReadinessFromStoreSetupReadiness(detail.readiness);
+}
+
+function buildReadinessFromStoreSetupReadiness(readiness: StoreSetupReadiness) {
+  const checks = readiness.checks.map((check) => ({
     ok: check.ok,
     label: check.label,
     detail: check.detail,
   }));
-  const readyCount = detail.readiness.completed;
-  const total = detail.readiness.total || checks.length;
+  const readyCount = readiness.completed;
+  const total = readiness.total || checks.length;
   const tone =
-    detail.readiness.ready
+    readiness.ready
       ? ("success" as const)
       : readyCount >= Math.max(1, Math.ceil(total / 2))
         ? ("warning" as const)
@@ -11268,7 +11315,7 @@ function buildReadinessFromStoreSetup(detail: StoreSetupDetail) {
     items: checks,
     readyCount,
     tone,
-    label: detail.readiness.ready ? "พร้อมใช้งาน" : `${readyCount}/${total} พร้อม`,
+    label: readiness.ready ? "พร้อมใช้งาน" : `${readyCount}/${total} พร้อม`,
   };
 }
 
@@ -11298,7 +11345,10 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
     };
   }
 
-  if (firstMissing.label.includes("Subscription")) {
+  if (
+    firstMissing.label.includes("Subscription") ||
+    firstMissing.label.includes("เปิดใช้งานร้าน")
+  ) {
     return {
       actionLabel: "เปิดร้าน",
       description: "ร้านถูกบล็อกหรือยังไม่เปิดใช้งาน ต้องแก้สถานะก่อน",

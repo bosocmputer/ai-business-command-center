@@ -17,6 +17,8 @@
    - ห้ามใส่ SML/LINE secret, token, password หรือ channel secret ใน note; ถ้าใส่คำที่ดูเหมือน secret ระบบจะไม่ให้สร้างร้านจนกว่าจะลบออก
 4. หลังสร้างร้าน ให้กด CTA “เชื่อม SML ร้านนี้” หรือเข้า `/owner/sml-connections?tenant=<tenant_id>`
 5. ทำตาม handoff หลังสร้างร้าน: เชื่อม SML -> รันรายงานทดสอบ -> ตั้ง LINE และแผนแจ้งเตือน
+   - หน้า `/owner/tenants` ใช้ readiness checklist ชุดเดียวกันทั้งรายการร้าน, panel รายละเอียด และ Store Setup Cockpit
+   - ถ้าตัวเลข readiness ยังไม่ครบ ให้ดู next action จาก checklist ก่อนข้ามไปตั้งค่าอื่น
 6. กด next action “ตรวจ SML” หรือเข้า `/owner/sml-connections`
 7. กรอก 4 ค่า SML JavaWS:
    - Tomcat host/URL
