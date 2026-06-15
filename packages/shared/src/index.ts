@@ -100,6 +100,40 @@ export function findSensitiveTenantNoteHints(value: string) {
   return hints;
 }
 
+export function suggestTenantIdFromName(value: string) {
+  const normalized = value
+    .normalize("NFKD")
+    .toLowerCase()
+    .trim()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (normalized) {
+    const maxBaseLength = 80 - "tenant_".length;
+    const base = normalized.slice(0, maxBaseLength).replace(/_+$/g, "");
+    return base ? `tenant_${base}` : "";
+  }
+
+  const compact = value.trim().replace(/\s+/g, "");
+  if (!compact) {
+    return "";
+  }
+
+  return `tenant_store_${hashTenantName(compact)}`;
+}
+
+function hashTenantName(value: string) {
+  let hash = 0x811c9dc5;
+  for (const char of value) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(6, "0").slice(0, 8);
+}
+
 export const isoDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");

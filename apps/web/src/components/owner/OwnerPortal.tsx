@@ -14,6 +14,7 @@ import {
   deriveMorningBriefDateRange,
   findSensitiveTenantNoteHints,
   getReportCatalogEntry,
+  suggestTenantIdFromName,
   type BusinessSignalThresholdsConfig,
   type BusinessSignalRecord,
   type LineAccessProfileKey,
@@ -635,6 +636,7 @@ export default function OwnerPortal({
   const [dataStatus, setDataStatus] =
     useState<OwnerDataStatus>("checking");
   const [busy, setBusy] = useState<string | null>(null);
+  const busyRef = useRef<string | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [newTenantName, setNewTenantName] = useState("");
   const [newTenantId, setNewTenantId] = useState("");
@@ -1500,7 +1502,9 @@ export default function OwnerPortal({
   async function createTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const tenantName = newTenantName.trim();
-    const tenantId = (newTenantId.trim() || slugifyTenantId(tenantName)).trim();
+    const tenantId = (
+      newTenantId.trim() || suggestTenantIdFromName(tenantName)
+    ).trim();
     const viewerEmail = newTenantViewerEmail.trim();
     const description = newTenantDescription.trim();
     const sensitiveNoteHints = findSensitiveTenantNoteHints(description);
@@ -3450,6 +3454,14 @@ export default function OwnerPortal({
   }
 
   async function runOwnerAction(name: string, action: () => Promise<void>) {
+    if (busyRef.current) {
+      setResult({
+        tone: "warning",
+        message: "มีรายการที่กำลังทำงานอยู่ กรุณารอให้เสร็จก่อนกดซ้ำ",
+      });
+      return;
+    }
+    busyRef.current = name;
     setBusy(name);
     try {
       await action();
@@ -3460,6 +3472,7 @@ export default function OwnerPortal({
           error instanceof Error ? error.message : "ทำรายการไม่สำเร็จ",
       });
     } finally {
+      busyRef.current = null;
       setBusy(null);
     }
   }
@@ -5412,9 +5425,13 @@ function OwnerSmlConnectionsContent({
   const savedDatasourceBusy = selectedTenantId
     ? busy === `datasource-saved-${selectedTenantId}`
     : false;
+  const saveDatasourceBusy = selectedTenantId
+    ? busy === `datasource-save-${selectedTenantId}`
+    : false;
   const discoveryBusy = selectedTenantId
     ? busy === `javaws-databases-${selectedTenantId}`
     : false;
+  const hasActiveOwnerAction = Boolean(busy);
   const javaWsDraftValidation = validateJavaWsDraft({
     authMode: javaWsAuthMode,
     authSecret: javaWsAuthSecret,
@@ -5524,7 +5541,7 @@ function OwnerSmlConnectionsContent({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
-                    disabled={datasourceBusy || !javaWsDraftValidation.ok}
+                    disabled={hasActiveOwnerAction || !javaWsDraftValidation.ok}
                     size="sm"
                     variant="outline"
                     onClick={() => void onTestDatasource(selectedTenant.tenant.id)}
@@ -5533,7 +5550,7 @@ function OwnerSmlConnectionsContent({
                   </Button>
                   <Button
                     disabled={
-                      savedDatasourceBusy ||
+                      hasActiveOwnerAction ||
                       !selectedDatasource ||
                       selectedDatasource.source === "missing" ||
                       selectedDatasource.kind !== "sml_javaws"
@@ -5586,7 +5603,8 @@ function OwnerSmlConnectionsContent({
           {selectedTenant ? (
             <DatasourceConfigPanel
               autoOpen
-              busy={busy === `datasource-save-${selectedTenant.tenant.id}`}
+              actionBusy={hasActiveOwnerAction && !saveDatasourceBusy}
+              busy={saveDatasourceBusy}
               discoveryBusy={discoveryBusy}
               config={selectedDatasource}
               javaWsAuthMode={javaWsAuthMode}
@@ -8676,7 +8694,12 @@ function OwnerSetupPanel({
   setNewTenantPlanCode: (value: Tenant["planCode"]) => void;
   setNewTenantViewerEmail: (value: string) => void;
 }) {
-  const proposedTenantId = (newTenantId.trim() || slugifyTenantId(newTenantName)).trim();
+  const suggestedTenantId = suggestTenantIdFromName(newTenantName);
+  const proposedTenantId = (newTenantId.trim() || suggestedTenantId).trim();
+  const usingFallbackTenantId =
+    Boolean(newTenantName.trim()) &&
+    !newTenantId.trim() &&
+    proposedTenantId.startsWith("tenant_store_");
   const customerRequestText = buildTenantOnboardingRequestText({
     tenantId: proposedTenantId,
     tenantName: newTenantName,
@@ -8876,6 +8899,10 @@ function OwnerSetupPanel({
             ) : !tenantIdLooksValid ? (
               <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
                 ใช้ได้เฉพาะ lowercase, ตัวเลข, underscore หรือ hyphen และต้องยาวอย่างน้อย 3 ตัว
+              </p>
+            ) : usingFallbackTenantId ? (
+              <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
+                ชื่อร้านเป็นภาษาไทย ระบบสร้าง id ที่ใช้ได้ให้ก่อน แก้เป็นรหัสที่อ่านง่ายได้ก่อนสร้าง
               </p>
             ) : (
               <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
@@ -9292,6 +9319,7 @@ function LineChannelEditableCard({
 }
 
 function DatasourceConfigPanel({
+  actionBusy = false,
   autoOpen,
   busy,
   discoveryBusy,
@@ -9316,6 +9344,7 @@ function DatasourceConfigPanel({
   onDiscoverJavaWsDatabases,
   onSubmit,
 }: {
+  actionBusy?: boolean;
   autoOpen?: boolean;
   busy: boolean;
   discoveryBusy: boolean;
@@ -9375,6 +9404,7 @@ function DatasourceConfigPanel({
     database: javaWsDatabase,
     includeDatabase: false,
   });
+  const controlsBlocked = busy || actionBusy;
   const updateTomcatBaseUrl = (
     patch: Partial<{ host: string; port: string; protocol: "http" | "https" }>,
   ) => {
@@ -9428,70 +9458,72 @@ function DatasourceConfigPanel({
         ) : null}
 
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                กรอกเร็ว
-              </p>
-              <div className="mt-2 grid gap-2 2xl:grid-cols-2">
-                {JAVA_WS_DATASOURCE_PRESETS.map((preset) => (
-                  <button
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm transition hover:border-brand-300 hover:text-brand-600 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-500 dark:hover:text-brand-300"
-                    key={preset.id}
-                    onClick={() => onApplyJavaWsPreset(preset)}
-                    type="button"
-                  >
-                    <span className="font-semibold text-gray-900 dark:text-white">
-                      {preset.label}
-                    </span>
-                    <span className="mt-1 block break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
-                      {preset.description}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
-              <OwnerTextInput
-                description="เครื่องที่เปิด Tomcat ของ SML JavaWS จะกรอกเป็น IP, host หรือ URL เต็มก็ได้"
-                label="Tomcat host / URL"
-                onChange={(value) => updateTomcatBaseUrl({ host: value })}
-                placeholder="147.50.69.68 หรือ demserver.3bbddns.com"
-                value={tomcatUrl.host}
-              />
-              <OwnerTextInput
-                description="port ที่ Tomcat เปิดให้เรียก SMLJavaWebService เช่น 80, 8080 หรือ port ที่ SML DEV แจ้ง"
-                label="Port"
-                onChange={(value) => updateTomcatBaseUrl({ port: value })}
-                placeholder="8080"
-                value={tomcatUrl.port}
-              />
-            </div>
-            <p className="break-words rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
-              Base URL: {javaWsBaseUrl || "ยังไม่ได้ระบุ Tomcat URL"}
-            </p>
-            <OwnerTextInput
-              description="ไฟล์ config ที่ JavaWS ใช้เลือก connection ของ SML เช่น SMLConfigDATA.xml"
-              label="SMLConfig file"
-              onChange={onJavaWsConfigFileNameChange}
-              placeholder="SMLConfigDATA.xml"
-              value={javaWsConfigFileName}
-            />
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+            กรอกเร็ว
+          </p>
+          <div className="mt-2 grid gap-2 2xl:grid-cols-2">
+            {JAVA_WS_DATASOURCE_PRESETS.map((preset) => (
               <button
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
-                disabled={
-                  discoveryBusy ||
-                  !discoveryValidation.ok
-                }
-                onClick={onDiscoverJavaWsDatabases}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm transition hover:border-brand-300 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-500 dark:hover:text-brand-300"
+                disabled={controlsBlocked || discoveryBusy}
+                key={preset.id}
+                onClick={() => onApplyJavaWsPreset(preset)}
                 type="button"
               >
-                {discoveryBusy ? "กำลังค้นหา..." : "ค้นหา database จาก JavaWS"}
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {preset.label}
+                </span>
+                <span className="mt-1 block break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {preset.description}
+                </span>
               </button>
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                ใช้ `_getDatabaseList`
-              </span>
-            </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
+          <OwnerTextInput
+            description="เครื่องที่เปิด Tomcat ของ SML JavaWS จะกรอกเป็น IP, host หรือ URL เต็มก็ได้"
+            label="Tomcat host / URL"
+            onChange={(value) => updateTomcatBaseUrl({ host: value })}
+            placeholder="147.50.69.68 หรือ demserver.3bbddns.com"
+            value={tomcatUrl.host}
+          />
+          <OwnerTextInput
+            description="port ที่ Tomcat เปิดให้เรียก SMLJavaWebService เช่น 80, 8080 หรือ port ที่ SML DEV แจ้ง"
+            label="Port"
+            onChange={(value) => updateTomcatBaseUrl({ port: value })}
+            placeholder="8080"
+            value={tomcatUrl.port}
+          />
+        </div>
+        <p className="break-words rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+          Base URL: {javaWsBaseUrl || "ยังไม่ได้ระบุ Tomcat URL"}
+        </p>
+        <OwnerTextInput
+          description="ไฟล์ config ที่ JavaWS ใช้เลือก connection ของ SML เช่น SMLConfigDATA.xml"
+          label="SMLConfig file"
+          onChange={onJavaWsConfigFileNameChange}
+          placeholder="SMLConfigDATA.xml"
+          value={javaWsConfigFileName}
+        />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+            disabled={
+              controlsBlocked ||
+              discoveryBusy ||
+              !discoveryValidation.ok
+            }
+            onClick={onDiscoverJavaWsDatabases}
+            type="button"
+          >
+            {discoveryBusy ? "กำลังค้นหา..." : "ค้นหา database จาก JavaWS"}
+          </button>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            ใช้ `_getDatabaseList`
+          </span>
+        </div>
 
             <JavaWsDatabaseDiscoverySummary
               discovery={javaWsDatabaseDiscovery}
@@ -9625,13 +9657,17 @@ function DatasourceConfigPanel({
 
         <Button
           disabled={
-            busy ||
+            controlsBlocked ||
             !config?.encryption_configured ||
             !draftValidation.ok
           }
           size="sm"
         >
-          {busy ? "กำลังบันทึก..." : "บันทึกการเชื่อม SML"}
+          {busy
+            ? "กำลังบันทึก..."
+            : actionBusy
+              ? "รอรายการก่อนหน้า..."
+              : "บันทึกการเชื่อม SML"}
         </Button>
       </form>
     </details>
@@ -11784,16 +11820,6 @@ function fromDatetimeLocalValue(value: string) {
     return null;
   }
   return date.toISOString();
-}
-
-function slugifyTenantId(value: string) {
-  const normalized = value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-  return normalized ? `tenant_${normalized}` : "";
 }
 
 function toDatasourceBusinessMessage(value: string | null) {
