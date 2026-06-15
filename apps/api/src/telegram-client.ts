@@ -20,6 +20,10 @@ export type TelegramSendResult = {
   safe_error_message: string | null;
 };
 
+type TelegramApiResult = TelegramSendResult & {
+  provider_response_json_raw: Record<string, unknown> | null;
+};
+
 export async function validateTelegramBotToken(input: {
   token: string;
   timeoutMs?: number;
@@ -82,8 +86,8 @@ export async function fetchTelegramUpdates(input: {
     };
   }
 
-  const updates = Array.isArray(result.provider_response_json?.result)
-    ? (result.provider_response_json.result as unknown[])
+  const updates = Array.isArray(result.provider_response_json_raw?.result)
+    ? (result.provider_response_json_raw.result as unknown[])
     : [];
   const byChatId = new Map<string, TelegramChatPreview>();
   for (const update of updates) {
@@ -133,7 +137,7 @@ async function requestTelegramApi(input: {
   method: string;
   timeoutMs?: number;
   body?: Record<string, unknown>;
-}): Promise<TelegramSendResult> {
+}): Promise<TelegramApiResult> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -157,6 +161,7 @@ async function requestTelegramApi(input: {
         ok: false,
         status: response.status,
         provider_response_json: sanitizeTelegramProviderResponse(providerResponse),
+        provider_response_json_raw: null,
         safe_error_message: `Telegram API failed with status ${response.status}.`,
       };
     }
@@ -165,6 +170,7 @@ async function requestTelegramApi(input: {
       ok: true,
       status: response.status,
       provider_response_json: sanitizeTelegramProviderResponse(providerResponse),
+      provider_response_json_raw: providerResponse,
       safe_error_message: null,
     };
   } catch (error) {
@@ -172,6 +178,7 @@ async function requestTelegramApi(input: {
       ok: false,
       status: null,
       provider_response_json: null,
+      provider_response_json_raw: null,
       safe_error_message:
         error instanceof DOMException && error.name === "AbortError"
           ? "Telegram API request timed out."
