@@ -1008,6 +1008,16 @@ app.post(
     if (!manualSchedule.ok) {
       return reply.status(400).send({ error: manualSchedule.error });
     }
+    const mode = body.data.mode ?? "dry_run";
+    if (mode === "send") {
+      const readiness = await validateNotificationRuleSendReadiness(rule);
+      if (!readiness.ok) {
+        return reply.status(422).send({
+          error: readiness.error,
+          details: readiness.details,
+        });
+      }
+    }
     const fallbackZoned = getZonedDateTimeParts({
       now: new Date(),
       timeZone: rule.timezone || BANGKOK_TIME_ZONE,
@@ -1019,7 +1029,7 @@ app.post(
 
     const queued = await enqueueManualNotificationRuleRun({
       rule,
-      mode: body.data.mode ?? "dry_run",
+      mode,
       scheduledLocalDate,
       scheduledLocalTime,
       source: "manual_test",
@@ -1074,6 +1084,16 @@ app.post(
     if (!manualSchedule.ok) {
       return reply.status(400).send({ error: manualSchedule.error });
     }
+    const mode = body.data.mode ?? "send";
+    if (mode === "send") {
+      const readiness = await validateNotificationRuleSendReadiness(rule);
+      if (!readiness.ok) {
+        return reply.status(422).send({
+          error: readiness.error,
+          details: readiness.details,
+        });
+      }
+    }
     const fallbackZoned = getZonedDateTimeParts({
       now: new Date(),
       timeZone: rule.timezone || BANGKOK_TIME_ZONE,
@@ -1085,7 +1105,7 @@ app.post(
 
     const queued = await enqueueManualNotificationRuleRun({
       rule,
-      mode: body.data.mode ?? "send",
+      mode,
       scheduledLocalDate,
       scheduledLocalTime,
       source: "manual_run_now",
@@ -10750,6 +10770,78 @@ async function buildNotificationReportPreview(input: {
   return preview;
 }
 
+type NotificationRuleValidationDetail = {
+  target_id?: string;
+  report_key?: ReportKey;
+  reason: string;
+  message: string;
+};
+
+function isLineChannelSendReady(channel: LineChannelRecord) {
+  return channel.enabled && channel.channel_access_token_configured;
+}
+
+function resolveLineTargetDeliveryReadiness(input: {
+  lineChannels: LineChannelRecord[];
+  target: Pick<StoredLineTargetRecord, "line_channel_id">;
+}):
+  | { ok: true }
+  | { ok: false; reason: string; message: string } {
+  if (input.target.line_channel_id) {
+    const preferredChannel = input.lineChannels.find(
+      (channel) => channel.id === input.target.line_channel_id,
+    );
+    if (!preferredChannel) {
+      return {
+        ok: false,
+        reason: "line_channel_missing",
+        message: "LINE OA ที่ผูกกับผู้รับนี้ไม่อยู่ในร้านหรือถูกลบแล้ว",
+      };
+    }
+    if (!preferredChannel.enabled) {
+      return {
+        ok: false,
+        reason: "line_channel_disabled",
+        message: "LINE OA ที่ผูกกับผู้รับนี้ถูกปิดใช้งาน",
+      };
+    }
+    if (!preferredChannel.channel_access_token_configured) {
+      return {
+        ok: false,
+        reason: "line_channel_token_missing",
+        message:
+          "LINE OA ที่ผูกกับผู้รับนี้ยังไม่มี access token สำหรับส่งจริง",
+      };
+    }
+    return { ok: true };
+  }
+
+  if (!input.lineChannels.some(isLineChannelSendReady)) {
+    return {
+      ok: false,
+      reason: "line_channel_token_missing",
+      message: "ยังไม่มี LINE OA ที่มี access token สำหรับส่งจริง",
+    };
+  }
+  return { ok: true };
+}
+
+async function validateNotificationRuleSendReadiness(
+  rule: NotificationRuleRecord,
+) {
+  return validateNotificationRulePayload({
+    tenant_id: rule.tenant_id,
+    name: rule.name,
+    enabled: true,
+    timezone: rule.timezone,
+    period_preset: rule.period_preset,
+    period_strategy: rule.period_strategy,
+    schedule: rule.schedule,
+    report_keys: rule.report_keys,
+    target_ids: rule.target_ids,
+  });
+}
+
 async function validateNotificationRulePayload(input: {
   tenant_id: TenantId;
   name: string;
@@ -10765,12 +10857,7 @@ async function validateNotificationRulePayload(input: {
   | {
       ok: false;
       error: string;
-      details: Array<{
-        target_id?: string;
-        report_key?: ReportKey;
-        reason: string;
-        message: string;
-      }>;
+      details: NotificationRuleValidationDetail[];
     }
 > {
   const tenant = await getTenantOrNull(input.tenant_id);
@@ -10782,12 +10869,10 @@ async function validateNotificationRulePayload(input: {
     };
   }
 
-  const details: Array<{
-    target_id?: string;
-    report_key?: ReportKey;
-    reason: string;
-    message: string;
-  }> = [];
+  const details: NotificationRuleValidationDetail[] = [];
+  const lineChannels = input.enabled
+    ? await listEffectiveLineChannels(input.tenant_id)
+    : [];
   if (input.enabled) {
     const access = tenantAccessStatus(tenant);
     if (!access.enabled) {
@@ -10818,6 +10903,12 @@ async function validateNotificationRulePayload(input: {
       details.push({
         reason: "line_target_missing",
         message: "กรุณาเลือกผู้รับ LINE อย่างน้อย 1 รายก่อนเปิดใช้งาน",
+      });
+    }
+    if (!lineChannels.some(isLineChannelSendReady)) {
+      details.push({
+        reason: "line_channel_token_missing",
+        message: "ยังไม่มี LINE OA ที่มี access token สำหรับส่งจริง",
       });
     }
 
@@ -10855,6 +10946,19 @@ async function validateNotificationRulePayload(input: {
           report_key: reportKey,
           reason: permission.reason,
           message: permission.message,
+        });
+      }
+    }
+    if (input.enabled) {
+      const deliveryReadiness = resolveLineTargetDeliveryReadiness({
+        lineChannels,
+        target,
+      });
+      if (!deliveryReadiness.ok) {
+        details.push({
+          target_id: targetId,
+          reason: deliveryReadiness.reason,
+          message: deliveryReadiness.message,
         });
       }
     }
@@ -11371,7 +11475,8 @@ async function buildOwnerTenantSummary(tenantId: TenantId) {
     (target) =>
       target.approved &&
       target.enabled &&
-      target.allowed_actions.includes("receive_morning_brief"),
+      target.allowed_actions.includes("receive_morning_brief") &&
+      resolveLineTargetDeliveryReadiness({ lineChannels, target }).ok,
   );
   const access = tenantAccessStatus(tenant);
   const customerDashboardSlug = getTenantSlug(tenant.id);
@@ -11476,8 +11581,13 @@ function buildStoreSetupReadinessChecks(input: {
     (target) =>
       target.approved &&
       target.enabled &&
-      target.allowed_actions.includes("receive_morning_brief"),
+      target.allowed_actions.includes("receive_morning_brief") &&
+      resolveLineTargetDeliveryReadiness({
+        lineChannels: input.lineChannels,
+        target,
+      }).ok,
   );
+  const sendReadyLineChannels = input.lineChannels.filter(isLineChannelSendReady);
 
   return [
     {
@@ -11510,11 +11620,11 @@ function buildStoreSetupReadinessChecks(input: {
     },
     {
       key: "line_channel",
-      ok: input.lineChannels.some((channel) => channel.enabled),
+      ok: sendReadyLineChannels.length > 0,
       label: "มี LINE OA",
       detail: input.lineChannels.length
-        ? `${input.lineChannels.length} LINE OA ใช้งานได้`
-        : "ใช้ LINE OA กลางหรือเพิ่ม LINE OA ของร้าน",
+        ? `${sendReadyLineChannels.length}/${input.lineChannels.length} LINE OA มี token พร้อมส่งจริง`
+        : "ใช้ LINE OA กลางหรือเพิ่ม LINE OA ของร้าน แล้วบันทึก access token",
       href: "/owner/line",
     },
     {

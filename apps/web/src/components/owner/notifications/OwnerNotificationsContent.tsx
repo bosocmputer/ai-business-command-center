@@ -8,6 +8,7 @@ import {
   matchReportPreset,
   reportKeyValues,
   reportPresetKeyValues,
+  type LineChannelRecord,
   type LineTargetRecord,
   type NotificationDigestMode,
   type NotificationPeriodPreset,
@@ -78,6 +79,7 @@ export type OwnerNotificationsContentProps = {
   onToggleNotificationTarget: (targetId: string) => void;
   onToggleNotificationWeekday: (weekday: number) => void;
   selectedTenantId: string;
+  selectedTenantLineChannels: LineChannelRecord[];
   selectedTenantLineTargets: LineTargetRecord[];
   selectedTenantSummary?: TenantSummary;
   setNotificationDigestMode: (value: NotificationDigestMode) => void;
@@ -182,6 +184,7 @@ export function OwnerNotificationsContent({
   onToggleNotificationTarget,
   onToggleNotificationWeekday,
   selectedTenantId,
+  selectedTenantLineChannels,
   selectedTenantLineTargets,
   selectedTenantSummary,
   setNotificationDigestMode,
@@ -297,14 +300,37 @@ export function OwnerNotificationsContent({
   const sendBusy = editingNotificationRuleId
     ? busy === `notification-run-${editingNotificationRuleId}-send`
     : false;
-  const approvedTargets = selectedTenantLineTargets.filter(
-    (target) => target.approved && target.enabled,
+  const lineTargetReadinessById = useMemo(
+    () =>
+      new Map(
+        selectedTenantLineTargets.map((target) => [
+          target.id,
+          getLineTargetDeliveryReadiness({
+            lineChannels: selectedTenantLineChannels,
+            reportKeys: notificationReportKeys,
+            target,
+          }),
+        ]),
+      ),
+    [
+      notificationReportKeys,
+      selectedTenantLineChannels,
+      selectedTenantLineTargets,
+    ],
   );
-  const targetsWithPermission = approvedTargets.filter((target) =>
-    notificationReportKeys.every((reportKey) =>
-      canLineTargetReceiveReport(target, reportKey),
-    ),
+  const sendReadyTargets = selectedTenantLineTargets.filter(
+    (target) => lineTargetReadinessById.get(target.id)?.ok,
   );
+  const selectedTargetBlockedReason = getSelectedLineTargetBlockedReason({
+    readinessById: lineTargetReadinessById,
+    selectedTargetIds: notificationTargetIds,
+    targets: selectedTenantLineTargets,
+  });
+  const saveBlockedReason = getNotificationSaveBlockedReason({
+    enabled: notificationEnabled,
+    selectedTargetBlockedReason,
+    selectedTargetIds: notificationTargetIds,
+  });
   const periodPreviewRows = useMemo(
     () =>
       buildNotificationPeriodPreviewRows({
@@ -355,6 +381,7 @@ export function OwnerNotificationsContent({
     editingNotificationRuleId,
     isDirty,
     manualScheduleValidation,
+    selectedTargetBlockedReason,
   });
   const canExecuteManualRun =
     !actionBlockedReason && !sendBusy && !activeManualRun;
@@ -468,17 +495,21 @@ export function OwnerNotificationsContent({
               />
 
               <LineTargetSection
-                approvedTargets={approvedTargets}
-                notificationReportKeys={notificationReportKeys}
+                lineTargetReadinessById={lineTargetReadinessById}
                 notificationTargetIds={notificationTargetIds}
                 onToggleNotificationTarget={onToggleNotificationTarget}
+                selectedTenantLineChannels={selectedTenantLineChannels}
                 selectedTenantLineTargets={selectedTenantLineTargets}
-                targetsWithPermission={targetsWithPermission}
+                sendReadyTargets={sendReadyTargets}
               />
 
               <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm leading-6 text-gray-600 dark:text-gray-300">
-                  {isDirty ? (
+                  {saveBlockedReason ? (
+                    <span className="text-warning-700 dark:text-warning-300">
+                      {saveBlockedReason}
+                    </span>
+                  ) : isDirty ? (
                     <span>
                       มีการแก้ไขค้างอยู่ ต้องบันทึกก่อนจึงจะทดสอบหรือส่งจริงได้
                     </span>
@@ -489,7 +520,7 @@ export function OwnerNotificationsContent({
                   )}
                 </div>
                 <Button
-                  disabled={saveBusy}
+                  disabled={saveBusy || Boolean(saveBlockedReason)}
                   onClick={() => void onSaveNotificationRule()}
                   size="sm"
                 >
@@ -986,43 +1017,48 @@ function SchedulePeriodSection({
 }
 
 function LineTargetSection({
-  approvedTargets,
-  notificationReportKeys,
+  lineTargetReadinessById,
   notificationTargetIds,
   onToggleNotificationTarget,
+  selectedTenantLineChannels,
   selectedTenantLineTargets,
-  targetsWithPermission,
+  sendReadyTargets,
 }: {
-  approvedTargets: LineTargetRecord[];
-  notificationReportKeys: ReportKey[];
+  lineTargetReadinessById: Map<string, LineTargetDeliveryReadiness>;
   notificationTargetIds: string[];
   onToggleNotificationTarget: (targetId: string) => void;
+  selectedTenantLineChannels: LineChannelRecord[];
   selectedTenantLineTargets: LineTargetRecord[];
-  targetsWithPermission: LineTargetRecord[];
+  sendReadyTargets: LineTargetRecord[];
 }) {
   return (
     <NotificationEditorSection
-      description="เลือกเฉพาะผู้รับที่อนุมัติแล้วและมีสิทธิ์ครบตามรายงานที่เลือก"
+      description="เลือกเฉพาะผู้รับที่อนุมัติแล้ว มีสิทธิ์ครบ และผูกกับ LINE OA ที่มี token ส่งจริง"
       title="ปลายทาง LINE"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-gray-600 dark:text-gray-300">
           ผู้รับที่เลือกจะได้รับรายงานตามแผนนี้เมื่อ worker ถึงรอบเวลา
         </p>
-        <Badge color={targetsWithPermission.length ? "success" : "warning"}>
-          {targetsWithPermission.length}/{approvedTargets.length} พร้อมรับรายงาน
+        <Badge color={sendReadyTargets.length ? "success" : "warning"}>
+          {sendReadyTargets.length}/{selectedTenantLineTargets.length} พร้อมส่งจริง
         </Badge>
       </div>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         {selectedTenantLineTargets.length ? (
           selectedTenantLineTargets.map((target) => {
-            const allowed = notificationReportKeys.every((reportKey) =>
-              canLineTargetReceiveReport(target, reportKey),
-            );
+            const readiness =
+              lineTargetReadinessById.get(target.id) ??
+              ({ ok: false, reason: "target_unknown", message: "ไม่พบสถานะผู้รับ LINE นี้" } as const);
+            const checked = notificationTargetIds.includes(target.id);
+            const lineChannelLabel = getLineTargetChannelLabel({
+              channels: selectedTenantLineChannels,
+              target,
+            });
             return (
               <label
                 className={`rounded-lg border p-3 ${
-                  allowed
+                  readiness.ok
                     ? "border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-white/[0.02]"
                     : "border-warning-200 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10"
                 }`}
@@ -1030,9 +1066,9 @@ function LineTargetSection({
               >
                 <div className="flex items-start gap-3">
                   <input
-                    checked={notificationTargetIds.includes(target.id)}
+                    checked={checked}
                     className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600"
-                    disabled={!allowed}
+                    disabled={!readiness.ok && !checked}
                     onChange={() => onToggleNotificationTarget(target.id)}
                     type="checkbox"
                   />
@@ -1047,10 +1083,15 @@ function LineTargetSection({
                       {isOwnerSharedLineTarget(target) ? (
                         <Badge color="info">Owner LINE OA</Badge>
                       ) : null}
+                      {lineChannelLabel ? (
+                        <Badge color={readiness.ok ? "success" : "warning"}>
+                          {lineChannelLabel}
+                        </Badge>
+                      ) : null}
                     </div>
-                    {!allowed ? (
+                    {!readiness.ok ? (
                       <p className="mt-1 text-xs text-warning-700 dark:text-warning-300">
-                        ยังไม่มีสิทธิ์รับรายงานที่เลือก
+                        {readiness.message}
                       </p>
                     ) : null}
                   </div>
@@ -1549,6 +1590,7 @@ function getNotificationActionBlockedReason(input: {
   editingNotificationRuleId: string | null;
   isDirty: boolean;
   manualScheduleValidation: ManualScheduleValidation;
+  selectedTargetBlockedReason: string | null;
 }) {
   if (!input.editingNotificationRuleId) {
     return "บันทึกแผนก่อนทดสอบหรือส่งจริง";
@@ -1559,19 +1601,142 @@ function getNotificationActionBlockedReason(input: {
   if (!input.manualScheduleValidation.ok) {
     return input.manualScheduleValidation.error;
   }
+  if (input.selectedTargetBlockedReason) {
+    return input.selectedTargetBlockedReason;
+  }
   return null;
 }
 
-function canLineTargetReceiveReport(
-  target: LineTargetRecord,
-  reportKey: ReportKey,
-) {
-  return (
-    target.approved &&
-    target.enabled &&
-    target.allowed_actions.includes("receive_morning_brief") &&
-    target.allowed_report_keys.includes(reportKey)
+function getNotificationSaveBlockedReason(input: {
+  enabled: boolean;
+  selectedTargetBlockedReason: string | null;
+  selectedTargetIds: string[];
+}) {
+  if (input.selectedTargetBlockedReason) {
+    return input.selectedTargetBlockedReason;
+  }
+  if (input.enabled && !input.selectedTargetIds.length) {
+    return "เลือกผู้รับ LINE ที่พร้อมส่งจริงอย่างน้อย 1 รายก่อนเปิดแผน";
+  }
+  return null;
+}
+
+type LineTargetDeliveryReadiness =
+  | { ok: true }
+  | { ok: false; reason: string; message: string };
+
+function getLineTargetDeliveryReadiness(input: {
+  lineChannels: LineChannelRecord[];
+  reportKeys: ReportKey[];
+  target: LineTargetRecord;
+}): LineTargetDeliveryReadiness {
+  if (!input.target.approved) {
+    return {
+      ok: false,
+      reason: "target_not_approved",
+      message: "ยังไม่ได้อนุมัติผู้รับ LINE นี้",
+    };
+  }
+  if (!input.target.enabled) {
+    return {
+      ok: false,
+      reason: "target_disabled",
+      message: "ผู้รับ LINE นี้ถูกปิดใช้งาน",
+    };
+  }
+  if (!input.target.allowed_actions.includes("receive_morning_brief")) {
+    return {
+      ok: false,
+      reason: "action_not_allowed",
+      message: "ผู้รับนี้ยังไม่มีสิทธิ์รับรายงานผู้บริหาร",
+    };
+  }
+  const blockedReport = input.reportKeys.find(
+    (reportKey) => !input.target.allowed_report_keys.includes(reportKey),
   );
+  if (blockedReport) {
+    return {
+      ok: false,
+      reason: "report_not_allowed",
+      message: `${getReportCatalogEntry(blockedReport).shortLabel} ยังไม่ได้เปิดสิทธิ์ให้ผู้รับนี้`,
+    };
+  }
+
+  if (input.target.line_channel_id) {
+    const lineChannel = input.lineChannels.find(
+      (channel) => channel.id === input.target.line_channel_id,
+    );
+    if (!lineChannel) {
+      return {
+        ok: false,
+        reason: "line_channel_missing",
+        message: "LINE OA ที่ผูกกับผู้รับนี้ไม่อยู่ในร้านหรือถูกลบแล้ว",
+      };
+    }
+    if (!lineChannel.enabled) {
+      return {
+        ok: false,
+        reason: "line_channel_disabled",
+        message: "LINE OA ที่ผูกกับผู้รับนี้ถูกปิดใช้งาน",
+      };
+    }
+    if (!lineChannel.channel_access_token_configured) {
+      return {
+        ok: false,
+        reason: "line_channel_token_missing",
+        message: "LINE OA ที่ผูกกับผู้รับนี้ยังไม่มี access token สำหรับส่งจริง",
+      };
+    }
+    return { ok: true };
+  }
+
+  if (
+    !input.lineChannels.some(
+      (channel) => channel.enabled && channel.channel_access_token_configured,
+    )
+  ) {
+    return {
+      ok: false,
+      reason: "line_channel_token_missing",
+      message: "ยังไม่มี LINE OA ที่มี access token สำหรับส่งจริง",
+    };
+  }
+  return { ok: true };
+}
+
+function getSelectedLineTargetBlockedReason(input: {
+  readinessById: Map<string, LineTargetDeliveryReadiness>;
+  selectedTargetIds: string[];
+  targets: LineTargetRecord[];
+}) {
+  const targetIds = new Set(input.targets.map((target) => target.id));
+  for (const targetId of input.selectedTargetIds) {
+    if (!targetIds.has(targetId)) {
+      return "ผู้รับ LINE ที่เลือกไว้ไม่อยู่ในร้านนี้แล้ว กรุณาเลือกผู้รับใหม่";
+    }
+    const readiness = input.readinessById.get(targetId);
+    if (!readiness?.ok) {
+      return readiness?.message ?? "ผู้รับ LINE ที่เลือกยังไม่พร้อมส่งจริง";
+    }
+  }
+  return null;
+}
+
+function getLineTargetChannelLabel(input: {
+  channels: LineChannelRecord[];
+  target: LineTargetRecord;
+}) {
+  const channel = input.target.line_channel_id
+    ? input.channels.find((item) => item.id === input.target.line_channel_id)
+    : input.channels.find(
+        (item) => item.enabled && item.channel_access_token_configured,
+      );
+  if (!channel) {
+    return null;
+  }
+  return channel.channel_access_token_configured
+    ? `${channel.display_name} · token พร้อม`
+    : `${channel.display_name} · ยังไม่มี token`;
 }
 
 function isOwnerSharedLineTarget(target: LineTargetRecord) {
