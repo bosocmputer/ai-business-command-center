@@ -1499,8 +1499,17 @@ export default function OwnerPortal({
     const tenantId = (newTenantId.trim() || slugifyTenantId(tenantName)).trim();
     const viewerEmail = newTenantViewerEmail.trim();
     const description = newTenantDescription.trim();
+    const sensitiveNoteHints = findSensitiveTenantNoteHints(description);
     if (!tenantName || !tenantId) {
       setResult({ tone: "warning", message: "กรุณากรอกชื่อร้านค้า" });
+      return;
+    }
+    if (sensitiveNoteHints.length) {
+      setResult({
+        tone: "warning",
+        message:
+          "note ภายในดูเหมือนมี token/password/secret กรุณาลบข้อมูลลับออกแล้วให้กรอก secret ในหน้าที่เข้ารหัสเท่านั้น",
+      });
       return;
     }
     const duplicateTenant = tenants.find(
@@ -4172,6 +4181,58 @@ type OwnerPilotProofPackage = {
 
 type OwnerProofCopyStatus = "idle" | "success" | "manual";
 
+const TENANT_ONBOARDING_CUSTOMER_ITEMS = [
+  "Tomcat host หรือ URL และ port ที่ AI-BCC เข้าถึงได้",
+  "ชื่อ SMLConfig เช่น SMLConfigDATA.xml",
+  "ชื่อ database ที่ใช้จริง",
+  "LINE OA ที่จะใช้ส่งรายงาน และผู้รับที่ต้องได้รับ brief",
+];
+
+function buildTenantOnboardingRequestText(input: {
+  tenantId: string;
+  tenantName: string;
+}) {
+  const tenantName = input.tenantName.trim() || "ร้านใหม่";
+  const tenantId = input.tenantId.trim() || "tenant_id";
+  return [
+    `สวัสดีครับ ขอข้อมูลสำหรับเริ่มใช้งาน AI Business Brief ของร้าน ${tenantName}`,
+    "",
+    "ข้อมูลที่ต้องใช้ตั้งค่าระบบ:",
+    ...TENANT_ONBOARDING_CUSTOMER_ITEMS.map((item, index) => `${index + 1}. ${item}`),
+    "",
+    `รหัสร้านในระบบ: ${tenantId}`,
+    "",
+    "เพื่อความปลอดภัย กรุณาอย่าส่งรหัสผ่าน, token, channel secret หรือ key ลับในแชตนี้ ถ้าต้องใช้ secret ให้ให้ผู้ดูแลกรอกในหน้า Owner โดยตรง",
+  ].join("\n");
+}
+
+function findSensitiveTenantNoteHints(value: string) {
+  const normalized = value.toLowerCase();
+  const hints: string[] = [];
+  const terms = [
+    ["token", "token"],
+    ["secret", "secret"],
+    ["password", "password"],
+    ["passwd", "password"],
+    ["pwd", "password"],
+    ["bearer", "bearer"],
+    ["access_token", "access token"],
+    ["channel secret", "channel secret"],
+    ["รหัสผ่าน", "รหัสผ่าน"],
+  ];
+
+  for (const [needle, label] of terms) {
+    if (normalized.includes(needle) && !hints.includes(label)) {
+      hints.push(label);
+    }
+  }
+  if (/\b[a-z0-9_-]{32,}\b/i.test(value) && !hints.includes("ค่าลับยาว")) {
+    hints.push("ค่าลับยาว");
+  }
+
+  return hints;
+}
+
 type OwnerPilotLaunchAction = {
   actionLabel: string;
   description: string;
@@ -5186,6 +5247,17 @@ function OwnerTenantsContent({
               <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
                 ขั้นต่อไปคือเชื่อม SML ผ่าน JavaWS แล้วค่อยตั้ง LINE และแผนแจ้งเตือน
               </p>
+              <div className="mt-3 grid gap-2 text-xs leading-5 text-brand-700 sm:grid-cols-3 dark:text-brand-200">
+                <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
+                  1. บันทึกและทดสอบ SML JavaWS
+                </div>
+                <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
+                  2. รันรายงานทดสอบให้มี snapshot แรก
+                </div>
+                <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
+                  3. ตั้ง LINE และเปิดแผนแจ้งเตือน
+                </div>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
@@ -8628,12 +8700,17 @@ function OwnerSetupPanel({
   setNewTenantViewerEmail: (value: string) => void;
 }) {
   const proposedTenantId = (newTenantId.trim() || slugifyTenantId(newTenantName)).trim();
+  const customerRequestText = buildTenantOnboardingRequestText({
+    tenantId: proposedTenantId,
+    tenantName: newTenantName,
+  });
   const duplicateTenant = proposedTenantId
     ? existingTenants.find(
         (item) =>
           item.tenant.id.toLowerCase() === proposedTenantId.toLowerCase(),
       )
     : null;
+  const sensitiveNoteHints = findSensitiveTenantNoteHints(newTenantDescription);
   const tenantIdLooksValid =
     !proposedTenantId ||
     /^[a-z0-9][a-z0-9_-]{2,79}$/.test(proposedTenantId);
@@ -8641,7 +8718,45 @@ function OwnerSetupPanel({
     Boolean(newTenantName.trim()) &&
     Boolean(proposedTenantId) &&
     tenantIdLooksValid &&
-    !duplicateTenant;
+    !duplicateTenant &&
+    sensitiveNoteHints.length === 0;
+  const [customerRequestCopyStatus, setCustomerRequestCopyStatus] =
+    useState<OwnerProofCopyStatus>("idle");
+  const manualCustomerRequestTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const customerRequestCopyButtonLabel =
+    customerRequestCopyStatus === "success"
+      ? "คัดลอกแล้ว"
+      : customerRequestCopyStatus === "manual"
+      ? "เลือกข้อความเอง"
+      : "คัดลอกข้อความขอข้อมูล";
+
+  useEffect(() => {
+    if (customerRequestCopyStatus !== "success") {
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => setCustomerRequestCopyStatus("idle"),
+      2200,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [customerRequestCopyStatus]);
+
+  useEffect(() => {
+    if (customerRequestCopyStatus !== "manual") {
+      return;
+    }
+    manualCustomerRequestTextareaRef.current?.focus();
+    manualCustomerRequestTextareaRef.current?.select();
+  }, [customerRequestCopyStatus]);
+
+  async function handleCopyCustomerRequest() {
+    try {
+      await copyTextToClipboard(customerRequestText);
+      setCustomerRequestCopyStatus("success");
+    } catch {
+      setCustomerRequestCopyStatus("manual");
+    }
+  }
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
@@ -8673,6 +8788,57 @@ function OwnerSetupPanel({
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              ข้อมูลที่ต้องขอจากลูกค้าก่อนตั้งค่า
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ขอเฉพาะข้อมูล setup ที่ไม่ใช่ secret แล้วให้กรอก token/password ในหน้าที่เข้ารหัสเท่านั้น
+            </p>
+          </div>
+          <button
+            className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
+              customerRequestCopyStatus === "success"
+                ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+                : customerRequestCopyStatus === "manual"
+                ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            }`}
+            onClick={() => void handleCopyCustomerRequest()}
+            type="button"
+          >
+            <CopyIcon className="size-4" />
+            {customerRequestCopyButtonLabel}
+          </button>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs leading-5 text-gray-600 sm:grid-cols-2 dark:text-gray-300">
+          {TENANT_ONBOARDING_CUSTOMER_ITEMS.map((item) => (
+            <div
+              className="border-l border-gray-200 pl-3 dark:border-gray-800"
+              key={item}
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+        {customerRequestCopyStatus === "manual" ? (
+          <div className="mt-3">
+            <p className="mb-1 text-xs leading-5 text-warning-700 dark:text-warning-300">
+              Browser บล็อกการคัดลอกอัตโนมัติ เลือกข้อความไว้ให้แล้ว กด Ctrl/Cmd+C ได้เลย
+            </p>
+            <textarea
+              ref={manualCustomerRequestTextareaRef}
+              className="h-32 w-full resize-none rounded-lg border border-warning-200 bg-warning-50 p-2 text-xs leading-5 text-gray-800 outline-none focus:border-warning-400 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-gray-100"
+              onFocus={(event) => event.currentTarget.select()}
+              readOnly
+              value={customerRequestText}
+            />
+          </div>
+        ) : null}
       </div>
 
       <form
@@ -8761,9 +8927,19 @@ function OwnerSetupPanel({
             <textarea
               className="mt-1 min-h-[88px] w-full rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
               onChange={(event) => setNewTenantDescription(event.target.value)}
-              placeholder="เช่น เจ้าของร้าน, สาขาที่จะเริ่ม, SML/LINE ที่ต้องขอเพิ่ม"
+              placeholder="เช่น เจ้าของร้าน, สาขาที่จะเริ่ม, ข้อมูล setup ที่ยังต้องขอเพิ่ม"
               value={newTenantDescription}
             />
+            {sensitiveNoteHints.length ? (
+              <p className="mt-2 text-xs leading-5 text-warning-600 dark:text-warning-400">
+                note นี้มีคำที่ดูเหมือนข้อมูลลับ:{" "}
+                {sensitiveNoteHints.join(", ")} กรุณาลบ token/password/secret ออกก่อนสร้างร้าน
+              </p>
+            ) : (
+              <p className="mt-2 text-xs leading-5 text-gray-400 dark:text-gray-500">
+                ใช้ note สำหรับบริบทงานเท่านั้น ห้ามใส่ token, password, channel secret หรือ key ลับ
+              </p>
+            )}
           </div>
         </div>
 

@@ -9,36 +9,38 @@
 1. เข้า `/owner`
 2. เลือกร้านใน Store Setup Cockpit
 3. ถ้ายังไม่มีร้าน ให้เข้า `/owner/tenants` แล้วใช้แผง “เพิ่มร้านใหม่”
+   - กดคัดลอกข้อความขอข้อมูลจากลูกค้าได้ทันที เพื่อขอ Tomcat URL/port, `SMLConfig`, database, LINE OA และผู้รับรายงาน
    - กรอกชื่อร้าน
    - ตรวจ `tenant_id` ที่ระบบสร้างให้ หรือแก้ก่อนสร้าง
    - เลือกแพ็กเกจเริ่มต้น
    - ใส่อีเมล viewer/note ภายในถ้ามี
-   - ห้ามใส่ SML/LINE secret ใน note
+   - ห้ามใส่ SML/LINE secret, token, password หรือ channel secret ใน note; ถ้าใส่คำที่ดูเหมือน secret ระบบจะไม่ให้สร้างร้านจนกว่าจะลบออก
 4. หลังสร้างร้าน ให้กด CTA “เชื่อม SML ร้านนี้” หรือเข้า `/owner/sml-connections?tenant=<tenant_id>`
-5. กด next action “ตรวจ SML” หรือเข้า `/owner/sml-connections`
-6. กรอก 4 ค่า SML JavaWS:
+5. ทำตาม handoff หลังสร้างร้าน: เชื่อม SML -> รันรายงานทดสอบ -> ตั้ง LINE และแผนแจ้งเตือน
+6. กด next action “ตรวจ SML” หรือเข้า `/owner/sml-connections`
+7. กรอก 4 ค่า SML JavaWS:
    - Tomcat host/URL
    - port
    - `SMLConfigxxxx.xml`
    - database
-7. กด “ทดสอบค่าที่กรอก” ให้ผ่าน เพื่อยืนยันว่า JavaWS ตอบได้จากค่าบนฟอร์ม
-8. กด “บันทึกการเชื่อม SML” เพื่อให้ API/worker ใช้ค่านี้จริง
-9. กด “ทดสอบค่าที่บันทึก” ให้ผ่าน ก่อนเปิดแผนแจ้งเตือน
-10. กด CTA ทดสอบรายงานจาก readiness checklist หรือเข้า `/owner/reports` เฉพาะเมื่อใช้ diagnostic tool
-11. ไป `/owner/line`
-12. เลือกใช้ Owner shared LINE OA หรือเพิ่ม LINE OA ของร้านเอง
-13. ถ้าเพิ่ม LINE OA ใหม่ ให้บันทึก Channel access token และ Channel secret แบบเข้ารหัสก่อน ระบบจึงจะส่งจริงหรือรับ webhook ได้
-14. ให้ผู้รับ add OA แล้วพิมพ์ `test`
-15. อนุมัติผู้รับ, เลือกสิทธิ์รายงาน, เปิดรับ, แล้วส่งทดสอบผู้รับ
-16. ไป `/owner/notifications`
-17. สร้างแผนแจ้งเตือน:
+8. กด “ทดสอบค่าที่กรอก” ให้ผ่าน เพื่อยืนยันว่า JavaWS ตอบได้จากค่าบนฟอร์ม
+9. กด “บันทึกการเชื่อม SML” เพื่อให้ API/worker ใช้ค่านี้จริง
+10. กด “ทดสอบค่าที่บันทึก” ให้ผ่าน ก่อนเปิดแผนแจ้งเตือน
+11. กด CTA ทดสอบรายงานจาก readiness checklist หรือเข้า `/owner/reports` เฉพาะเมื่อใช้ diagnostic tool
+12. ไป `/owner/line`
+13. เลือกใช้ Owner shared LINE OA หรือเพิ่ม LINE OA ของร้านเอง
+14. ถ้าเพิ่ม LINE OA ใหม่ ให้บันทึก Channel access token และ Channel secret แบบเข้ารหัสก่อน ระบบจึงจะส่งจริงหรือรับ webhook ได้
+15. ให้ผู้รับ add OA แล้วพิมพ์ `test`
+16. อนุมัติผู้รับ, เลือกสิทธิ์รายงาน, เปิดรับ, แล้วส่งทดสอบผู้รับ
+17. ไป `/owner/notifications`
+18. สร้างแผนแจ้งเตือน:
     - เลือกรายงาน
     - เลือกผู้รับ LINE
     - เลือกวัน
     - เพิ่มเวลาอย่างน้อย 1 รอบ
     - เลือกช่วงข้อมูล
-18. บันทึกเป็น draft ได้ก่อน
-19. เปิดใช้งานหรือส่งจริงหลัง readiness ผ่านเท่านั้น
+19. บันทึกเป็น draft ได้ก่อน
+20. เปิดใช้งานหรือส่งจริงหลัง readiness ผ่านเท่านั้น
 
 ## Error ที่เจอบ่อย
 
