@@ -4089,6 +4089,15 @@ type OwnerPilotProofPackage = {
 
 type OwnerProofCopyStatus = "idle" | "success" | "manual";
 
+type OwnerPilotLaunchAction = {
+  actionLabel: string;
+  description: string;
+  href: string;
+  label: string;
+  title: string;
+  tone: OwnerBadgeTone;
+};
+
 function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
@@ -4473,6 +4482,12 @@ function OwnerProofEvidenceStrip({
     verdict,
     proof,
   );
+  const pilotLaunchActions = buildPilotLaunchActions({
+    activeTenants,
+    operationsStatus,
+    proof,
+    verdict,
+  });
   const [copyStatus, setCopyStatus] = useState<OwnerProofCopyStatus>("idle");
   const manualCopyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scheduledProofValue = proof
@@ -4518,7 +4533,10 @@ function OwnerProofEvidenceStrip({
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+    <section
+      className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]"
+      id="owner-pilot-proof"
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
@@ -4672,6 +4690,43 @@ function OwnerProofEvidenceStrip({
           {formatProofRate(proof.line_delivery_success_rate)}
         </p>
       ) : null}
+      <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              Next actions สำหรับเปิด pilot
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้ตัดสินใจว่าจะ demo, รอดูรอบจริง หรือแก้ operational gap ก่อนคุยลูกค้า
+            </p>
+          </div>
+          <Badge color={verdict.tone}>{verdict.label}</Badge>
+        </div>
+        <div className="mt-3 divide-y divide-gray-100 dark:divide-gray-800">
+          {pilotLaunchActions.map((action) => (
+            <div
+              className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              key={action.title}
+            >
+              <div className="min-w-0">
+                <Badge color={action.tone}>{action.label}</Badge>
+                <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+                  {action.title}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {action.description}
+                </p>
+              </div>
+              <Link
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                href={action.href}
+              >
+                {action.actionLabel}
+              </Link>
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <HealthFact
           label="Business signals"
@@ -7189,6 +7244,197 @@ function buildPilotProofPackage(
     headline: "มี proof แล้ว แต่ควรเก็บหลักฐานเพิ่ม",
     proofLine,
   };
+}
+
+function buildPilotLaunchActions({
+  activeTenants,
+  operationsStatus,
+  proof,
+  verdict,
+}: {
+  activeTenants: TenantSummary[];
+  operationsStatus: OwnerOperationsStatus | null;
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined;
+  verdict: OwnerProofVerdict;
+}): OwnerPilotLaunchAction[] {
+  const actions: OwnerPilotLaunchAction[] = [];
+  const pilotTenants = activeTenants.filter(isPilotCoverageTenant);
+  const blockedTenant = pilotTenants.find(
+    (item) =>
+      !item.health.datasource_configured ||
+      item.health.line_targets_enabled === 0 ||
+      item.health.notification_rules_enabled === 0,
+  );
+  const readyTenants = pilotTenants.filter(
+    (item) =>
+      item.health.datasource_configured &&
+      item.health.line_targets_enabled > 0 &&
+      item.health.notification_rules_enabled > 0 &&
+      item.health.latest_notification_run_status === "success" &&
+      item.health.latest_line_delivery_status === "success",
+  );
+
+  if (blockedTenant) {
+    actions.push({
+      actionLabel: "เปิดร้านนี้",
+      description: buildBlockedPilotTenantDescription(blockedTenant),
+      href: buildPilotTenantSetupHref(blockedTenant),
+      label: "ลด risk ก่อน",
+      title: `ปิด gap ของ ${blockedTenant.tenant.name}`,
+      tone: "warning",
+    });
+  } else if (readyTenants.length > 0) {
+    actions.push({
+      actionLabel: "ดูหลักฐาน",
+      description: `${formatTenantNameList(
+        readyTenants.map((item) => item.tenant.name),
+      )} มี datasource, LINE target, แผนแจ้งเตือน และรอบล่าสุดสำเร็จ ใช้เป็น demo หลักได้`,
+      href: "/owner/audit",
+      label: "ใช้ demo ได้",
+      title: "เลือก tenant ที่พร้อมเป็นเรื่องเล่าแรก",
+      tone: verdict.tone === "error" ? "warning" : "success",
+    });
+  } else {
+    actions.push({
+      actionLabel: "ตรวจร้านค้า",
+      description:
+        "ยังไม่มี tenant ใน coverage ที่มีรอบแจ้งเตือนและ LINE delivery ล่าสุดสำเร็จครบ ให้เลือก demo tenant หลักแล้วรันรอบจริงก่อน",
+      href: "/owner",
+      label: "ต้องมีตัวอย่างจริง",
+      title: "สร้าง tenant ตัวอย่างที่มีหลักฐานครบ",
+      tone: "warning",
+    });
+  }
+
+  if (!proof || proof.scheduled_run_count <= 0) {
+    actions.push({
+      actionLabel: "เปิดแผนแจ้งเตือน",
+      description:
+        "proof ยังไม่มีรอบจริงในช่วงล่าสุด จึงยังไม่ควรใช้ข้อความขายเรื่อง automation จนกว่าจะมี delivery ที่ตรวจย้อนกลับได้",
+      href: "/owner/notifications",
+      label: "รอข้อมูลจริง",
+      title: "รันรอบแจ้งเตือนจริงก่อนใช้เป็น sales proof",
+      tone: "warning",
+    });
+  } else if (proof.scheduled_pending_count > 0) {
+    actions.push({
+      actionLabel: "ดูสถานะรอบ",
+      description: `มีรอบแจ้งเตือนกำลังทำงาน ${proof.scheduled_pending_count.toLocaleString(
+        "th-TH",
+      )} รอบ รอให้จบก่อนสรุปว่าสำเร็จหรือเป็น incident`,
+      href: "/owner/audit",
+      label: "กำลังรัน",
+      title: "อย่าใช้ตัวเลขระหว่างรอบเป็นข้อสรุป",
+      tone: "info",
+    });
+  } else if (proof.report_failure_count > 0 || proof.scheduled_failed_count > 0) {
+    actions.push({
+      actionLabel: "เปิด audit",
+      description: `ใช้ demo ได้แบบโปร่งใส แต่ยังต้องบอก caveat: ${proof.window_days.toLocaleString(
+        "th-TH",
+      )} วันล่าสุดมี report failed ${proof.report_failure_count.toLocaleString(
+        "th-TH",
+      )} ครั้ง และ notification failed ${proof.scheduled_failed_count.toLocaleString(
+        "th-TH",
+      )} ครั้ง`,
+      href: "/owner/audit",
+      label: "พูด caveat",
+      title: "รอดู clean round ถัดไปก่อนบอกว่าพร้อมขายเต็ม",
+      tone: "warning",
+    });
+  } else {
+    actions.push({
+      actionLabel: "ไปที่ proof",
+      description: `รอบแจ้งเตือน ${formatProofRate(
+        proof.scheduled_success_rate,
+      )} และ LINE ${formatProofRate(
+        proof.line_delivery_success_rate,
+      )} ในช่วง ${proof.window_days.toLocaleString(
+        "th-TH",
+      )} วันล่าสุด ใช้เป็นข้อความเปิด pilot ได้`,
+      href: "/owner#owner-pilot-proof",
+      label: "พร้อมคุย",
+      title: "ใช้ proof package เป็นข้อความคุยลูกค้า",
+      tone: "success",
+    });
+  }
+
+  const telegramStatus = operationsStatus?.operational_alerts?.telegram.status;
+  const telegramReady =
+    Boolean(telegramStatus?.configured) &&
+    Boolean(telegramStatus?.verified) &&
+    telegramStatus?.targets.some((target) => target.enabled) === true;
+  if (telegramReady) {
+    actions.push({
+      actionLabel: "เปิด Ops / Logs",
+      description:
+        "Telegram ops alert พร้อมเป็น safety net ให้ owner เห็น incident, worker stale, LINE fail และ summary รอบแจ้งเตือน",
+      href: "/owner/audit",
+      label: "safety net พร้อม",
+      title: "คง operational alert ไว้คู่กับ LINE ผู้บริหาร",
+      tone: "success",
+    });
+  } else {
+    actions.push({
+      actionLabel: "ตั้งค่า Telegram",
+      description:
+        "ก่อนเปิด pilot ควรมี ops alert ถึง owner เพื่อไม่ให้ incident ของ SML/LINE เงียบอยู่หลังบ้าน",
+      href: "/owner/audit",
+      label: "กันพลาด",
+      title: "เปิด Telegram ops alert ให้ครบ",
+      tone: "warning",
+    });
+  }
+
+  return actions.slice(0, 3);
+}
+
+function isPilotCoverageTenant(item: TenantSummary) {
+  return (
+    item.health.datasource_configured ||
+    item.health.line_targets_enabled > 0 ||
+    item.health.notification_rules_enabled > 0 ||
+    Boolean(item.health.latest_report_run_at) ||
+    Boolean(item.health.latest_snapshot_at) ||
+    Boolean(item.health.latest_line_delivery_at) ||
+    Boolean(item.health.latest_notification_run_at)
+  );
+}
+
+function buildBlockedPilotTenantDescription(item: TenantSummary) {
+  if (!item.health.datasource_configured) {
+    return "ยังไม่พร้อมเพราะ SML datasource ไม่ครบหรือยังไม่ผ่าน health resolver";
+  }
+  if (item.health.line_targets_enabled === 0) {
+    return "ยังไม่มีผู้รับ LINE ที่เปิดใช้งาน จึงยังพิสูจน์ delivery ถึงผู้บริหารไม่ได้";
+  }
+  if (item.health.notification_rules_enabled === 0) {
+    return "ยังไม่มีแผนแจ้งเตือนที่เปิดใช้งาน จึงยังไม่มีรอบจริงให้ตรวจย้อนหลัง";
+  }
+  return "ยังมี prerequisite ของ pilot ไม่ครบ ต้องตรวจร้านนี้ก่อนใช้รวมใน coverage";
+}
+
+function buildPilotTenantSetupHref(item: TenantSummary) {
+  const tenantId = encodeURIComponent(item.tenant.id);
+  if (!item.health.datasource_configured) {
+    return `/owner/sml-connections?tenant=${tenantId}`;
+  }
+  if (item.health.line_targets_enabled === 0) {
+    return `/owner/line?tenant=${tenantId}`;
+  }
+  if (item.health.notification_rules_enabled === 0) {
+    return `/owner/notifications?tenant=${tenantId}`;
+  }
+  return `/owner?tenant=${tenantId}`;
+}
+
+function formatTenantNameList(names: string[]) {
+  if (names.length <= 2) {
+    return names.join(" และ ");
+  }
+  return `${names.slice(0, 2).join(" และ ")} +อีก ${(names.length - 2).toLocaleString(
+    "th-TH",
+  )} ร้าน`;
 }
 
 function buildPilotProofShareText(
