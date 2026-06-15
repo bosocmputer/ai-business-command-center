@@ -10745,6 +10745,13 @@ function TenantDetailPanel({
 
   const savedDatasourceBusy = busy === `datasource-saved-${tenant.id}`;
   const readiness = getTenantReadiness(item, datasourceTest);
+  const nextStep = getTenantNextStep(item, readiness.items);
+  const readinessTotal = readiness.items.length;
+  const readinessRemaining = Math.max(
+    0,
+    readinessTotal - readiness.readyCount,
+  );
+  const readinessReady = readinessRemaining === 0;
   const saveBusy = busy === `${tenant.id}-save`;
   const cancelBusy = busy === `${tenant.id}-cancel`;
   const thresholdValidation = validateTenantThresholdInputs({
@@ -10913,6 +10920,45 @@ function TenantDetailPanel({
         <Badge color={tenantStatusTone(tenant.status)}>
           {formatTenantStatus(tenant.status)}
         </Badge>
+      </div>
+
+      <div
+        aria-live="polite"
+        className={`mt-4 rounded-lg border px-3 py-3 ${
+          readinessReady
+            ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+            : readiness.tone === "warning"
+              ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+              : "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300"
+        }`}
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                สิ่งที่ควรทำต่อ
+              </p>
+              <Badge color={readiness.tone}>{readiness.label}</Badge>
+            </div>
+            <p className="mt-1 text-sm font-semibold">
+              {nextStep.actionLabel}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-gray-300">
+              {nextStep.description}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {readinessReady
+                ? "ร้านนี้ผ่าน checklist แล้ว เหมาะสำหรับเปิดให้ลูกค้าดู dashboard หรือส่ง brief ทดสอบ"
+                : `เหลือ ${readinessRemaining}/${readinessTotal} จุดก่อนขายหรือ rollout ให้ลูกค้า`}
+            </p>
+          </div>
+          <Link
+            className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-brand-200 bg-white px-3 text-sm font-semibold text-brand-700 hover:bg-brand-50 dark:border-brand-500/30 dark:bg-gray-900 dark:text-brand-300 dark:hover:bg-white/[0.03]"
+            href={nextStep.href}
+          >
+            {nextStep.actionLabel}
+          </Link>
+        </div>
       </div>
 
       <form
@@ -11299,7 +11345,10 @@ function TenantDetailPanel({
         />
       </dl>
 
-      <details className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <details
+        className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+        open={!readinessReady || undefined}
+      >
         <summary className="cursor-pointer list-none">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -11307,7 +11356,7 @@ function TenantDetailPanel({
                 เช็กลิสต์ความพร้อม
               </p>
               <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                เปิดดูเฉพาะตอนเตรียม rollout ร้านนี้
+                ใช้ดูว่าร้านนี้ยังติดขั้นตอนไหนก่อนขายหรือ rollout ให้ลูกค้า
               </p>
             </div>
             <Badge color={readiness.tone}>{readiness.label}</Badge>
