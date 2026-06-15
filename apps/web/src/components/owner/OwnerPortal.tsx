@@ -5315,9 +5315,12 @@ function OwnerTenantsContent({
   const [tenantFilter, setTenantFilter] =
     useState<TenantListFilter>("active_flow");
   const [tenantSearchTerm, setTenantSearchTerm] = useState("");
-  const justCreatedTenant = justCreatedTenantId
-    ? tenants.find((item) => item.tenant.id === justCreatedTenantId)?.tenant
+  const justCreatedTenantSummary = justCreatedTenantId
+    ? tenants.find((item) => item.tenant.id === justCreatedTenantId)
     : null;
+  const justCreatedTenant = justCreatedTenantSummary?.tenant ?? null;
+  const justCreatedReadiness = justCreatedTenantSummary?.setup_readiness ?? null;
+  const justCreatedNextAction = justCreatedReadiness?.next_action ?? null;
   const tenantSearchQuery = normalizeOwnerSearchQuery(tenantSearchTerm);
   const filteredTenants = tenants.filter(
     (item) =>
@@ -5364,28 +5367,67 @@ function OwnerTenantsContent({
                 เพิ่ม {justCreatedTenant.name} แล้ว
               </p>
               <p className="mt-1 text-xs leading-5 text-brand-600 dark:text-brand-400">
-                ขั้นต่อไปคือเชื่อม SML ผ่าน JavaWS แล้วค่อยตั้ง LINE และแผนแจ้งเตือน
+                {justCreatedNextAction
+                  ? `ขั้นต่อไป: ${justCreatedNextAction.label} · ${justCreatedNextAction.detail}`
+                  : "ขั้นต่อไปคือเชื่อม SML ผ่าน JavaWS แล้วค่อยตั้ง LINE และแผนแจ้งเตือน"}
               </p>
-              <div className="mt-3 grid gap-2 text-xs leading-5 text-brand-700 sm:grid-cols-3 dark:text-brand-200">
-                <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
-                  1. บันทึกและทดสอบ SML JavaWS
+              {justCreatedReadiness ? (
+                <div className="mt-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-brand-700 dark:text-brand-200">
+                    <Badge color={justCreatedReadiness.ready ? "success" : "warning"}>
+                      {justCreatedReadiness.completed}/{justCreatedReadiness.total} พร้อม
+                    </Badge>
+                    <span>
+                      สรุปจาก readiness จริงของร้านนี้ ใช้เป็น checklist ก่อนส่ง brief ให้ลูกค้า
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs leading-5 text-brand-700 sm:grid-cols-3 dark:text-brand-200">
+                    {justCreatedReadiness.checks.slice(0, 6).map((check) => (
+                      <div
+                        className="border-l border-brand-200 pl-3 dark:border-brand-500/30"
+                        key={check.key}
+                      >
+                        <span
+                          className={
+                            check.ok
+                              ? "font-semibold text-success-700 dark:text-success-300"
+                              : "font-semibold text-warning-700 dark:text-warning-300"
+                          }
+                        >
+                          {check.ok ? "พร้อม" : "ต้องทำ"} · {check.label}
+                        </span>
+                        <span className="mt-0.5 block text-brand-600 dark:text-brand-300">
+                          {check.detail}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
-                  2. รันรายงานทดสอบให้มี snapshot แรก
+              ) : (
+                <div className="mt-3 grid gap-2 text-xs leading-5 text-brand-700 sm:grid-cols-3 dark:text-brand-200">
+                  <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
+                    1. บันทึกและทดสอบ SML JavaWS
+                  </div>
+                  <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
+                    2. รันรายงานทดสอบให้มี snapshot แรก
+                  </div>
+                  <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
+                    3. ตั้ง LINE และเปิดแผนแจ้งเตือน
+                  </div>
                 </div>
-                <div className="border-l border-brand-200 pl-3 dark:border-brand-500/30">
-                  3. ตั้ง LINE และเปิดแผนแจ้งเตือน
-                </div>
-              </div>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
                 className="inline-flex h-9 items-center justify-center rounded-lg bg-brand-500 px-3 text-sm font-medium text-white hover:bg-brand-600"
-                href={`/owner/sml-connections?tenant=${encodeURIComponent(
-                  justCreatedTenant.id,
-                )}`}
+                href={
+                  justCreatedNextAction?.href ??
+                  `/owner/sml-connections?tenant=${encodeURIComponent(
+                    justCreatedTenant.id,
+                  )}`
+                }
               >
-                เชื่อม SML ร้านนี้
+                {justCreatedNextAction?.label ?? "เชื่อม SML ร้านนี้"}
               </Link>
               <Link
                 className="inline-flex h-9 items-center justify-center rounded-lg border border-brand-200 bg-white px-3 text-sm font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/30 dark:bg-gray-900 dark:text-brand-300"
