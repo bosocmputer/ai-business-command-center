@@ -703,8 +703,10 @@ export default function OwnerPortal({
         : [],
     [lineTargets, selectedTenantId],
   );
+  const selectedTenantIdRef = useRef(selectedTenantId);
   const setSelectedOwnerTenantId = useCallback((tenantId: string) => {
     setSelectedTenantId(tenantId);
+    selectedTenantIdRef.current = tenantId;
     if (typeof window === "undefined") {
       return;
     }
@@ -721,7 +723,6 @@ export default function OwnerPortal({
     );
   }, []);
   const sectionMeta = getOwnerSectionMeta(section);
-  const selectedTenantIdRef = useRef(selectedTenantId);
 
   const applySystemConfigState = useCallback((config: SystemConfigStatus) => {
     setSystemConfig(config);
@@ -1174,9 +1175,9 @@ export default function OwnerPortal({
 
   useEffect(() => {
     if (!selectedTenantId && tenants[0]) {
-      setSelectedTenantId(pickDefaultOwnerTenantId(tenants));
+      setSelectedOwnerTenantId(pickDefaultOwnerTenantId(tenants));
     }
-  }, [selectedTenantId, tenants]);
+  }, [setSelectedOwnerTenantId, selectedTenantId, tenants]);
 
   useEffect(() => {
     if (
@@ -1527,7 +1528,7 @@ export default function OwnerPortal({
       setNewTenantDescription("");
       setNewTenantViewerEmail("");
       setNewTenantPlanCode("starter");
-      setSelectedTenantId(tenantId);
+      setSelectedOwnerTenantId(tenantId);
       setJustCreatedTenantId(tenantId);
       setResult({
         tone: "success",
@@ -1978,7 +1979,7 @@ export default function OwnerPortal({
         throw new Error(payload.error || "อนุมัติผู้รับ LINE ไม่สำเร็จ");
       }
 
-      setSelectedTenantId(payload.data.tenant_id);
+      setSelectedOwnerTenantId(payload.data.tenant_id);
       setResult({
         tone: "success",
         message: `อนุมัติ ${payload.data.display_name} เป็น ${formatLineAccessProfile(payload.data.access_profile_key)} แล้ว`,
@@ -11105,7 +11106,7 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
     return {
       actionLabel: "เปิดร้าน",
       description: "ร้านถูกบล็อกหรือยังไม่เปิดใช้งาน ต้องแก้สถานะก่อน",
-      href: "/owner",
+      href: `/owner/tenants?tenant=${encodeURIComponent(item.tenant.id)}`,
     };
   }
   if (firstMissing.label.includes("SML")) {
@@ -11119,14 +11120,14 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
     return {
       actionLabel: "รันรายงาน",
       description: "ยังไม่มี snapshot ล่าสุดสำหรับ dashboard และ LINE",
-      href: "/owner/reports",
+      href: `/owner/reports?tenant=${encodeURIComponent(item.tenant.id)}`,
     };
   }
   if (firstMissing.label.includes("LINE")) {
     return {
       actionLabel: "ตั้ง LINE",
       description: "ต้องเพิ่ม LINE OA หรืออนุมัติผู้รับแผนแจ้งเตือน",
-      href: "/owner/line",
+      href: `/owner/line?tenant=${encodeURIComponent(item.tenant.id)}`,
     };
   }
   if (firstMissing.label.includes("แผนแจ้งเตือน")) {
@@ -11140,7 +11141,7 @@ function getTenantNextStep(item: TenantSummary, checks: ReadinessCheck[]) {
   return {
     actionLabel: "ดูรายละเอียด",
     description: firstMissing.detail,
-    href: "/owner",
+    href: `/owner/tenants?tenant=${encodeURIComponent(item.tenant.id)}`,
   };
 }
 

@@ -11595,7 +11595,9 @@ function buildStoreSetupReadinessChecks(input: {
       ok: input.summary.access.enabled,
       label: "เปิดใช้งานร้าน",
       detail: input.summary.access.message,
-      href: "/owner/tenants",
+      href: `/owner/tenants?tenant=${encodeURIComponent(
+        input.summary.tenant.id,
+      )}`,
     },
     {
       key: "sml_javaws",
@@ -11616,7 +11618,9 @@ function buildStoreSetupReadinessChecks(input: {
         hasSuccessfulReportRun("purchase_goods_payables"),
       label: "ทดสอบรายงานสำเร็จ",
       detail: "รันอย่างน้อยหนึ่งรายงานให้สำเร็จก่อนเปิดแผนแจ้งเตือน",
-      href: "/owner/reports",
+      href: `/owner/reports?tenant=${encodeURIComponent(
+        input.summary.tenant.id,
+      )}`,
     },
     {
       key: "line_channel",
@@ -11625,14 +11629,14 @@ function buildStoreSetupReadinessChecks(input: {
       detail: input.lineChannels.length
         ? `${sendReadyLineChannels.length}/${input.lineChannels.length} LINE OA มี token พร้อมส่งจริง`
         : "ใช้ LINE OA กลางหรือเพิ่ม LINE OA ของร้าน แล้วบันทึก access token",
-      href: "/owner/line",
+      href: `/owner/line?tenant=${encodeURIComponent(input.summary.tenant.id)}`,
     },
     {
       key: "line_target",
       ok: enabledTargets.length > 0,
       label: "มีผู้รับแจ้งเตือน",
       detail: `${enabledTargets.length}/${input.lineTargets.length} ผู้รับเปิดรับรายงาน`,
-      href: "/owner/line",
+      href: `/owner/line?tenant=${encodeURIComponent(input.summary.tenant.id)}`,
     },
     {
       key: "notification_plan",
