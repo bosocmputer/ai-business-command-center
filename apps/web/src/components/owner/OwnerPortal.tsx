@@ -4079,6 +4079,13 @@ type OwnerProofVerdict = {
   tone: OwnerBadgeTone;
 };
 
+type OwnerPilotProofPackage = {
+  buyerPromise: string;
+  caveat: string;
+  headline: string;
+  proofLine: string;
+};
+
 function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
@@ -4457,6 +4464,7 @@ function OwnerProofEvidenceStrip({
   const latestFailure = operationsStatus?.report_health?.latest_javaws_failure ?? null;
   const proof = operationsStatus?.production_proof ?? null;
   const verdict = buildProductionProofVerdict(proof, activeTenants.length);
+  const pilotProofPackage = buildPilotProofPackage(proof, verdict);
   const scheduledProofValue = proof
     ? proof.scheduled_run_count > 0
       ? `${proof.scheduled_success_count.toLocaleString("th-TH")}/${proof.scheduled_run_count.toLocaleString("th-TH")} สำเร็จ`
@@ -4507,6 +4515,34 @@ function OwnerProofEvidenceStrip({
           >
             {verdict.actionLabel}
           </Link>
+        </div>
+      </div>
+      <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <div>
+            <p className="text-xs font-medium uppercase text-gray-400">
+              ชุด proof สำหรับ pilot
+            </p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
+              {pilotProofPackage.headline}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              หลักฐานคุยกับลูกค้า
+            </p>
+            <p className="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {pilotProofPackage.proofLine}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              ข้อเสนอและข้อควรพูดตรง ๆ
+            </p>
+            <p className="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {pilotProofPackage.buyerPromise} {pilotProofPackage.caveat}
+            </p>
+          </div>
         </div>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -6994,6 +7030,92 @@ function buildProductionProofVerdict(
     label: "เก็บ proof ต่อ",
     title: "มี proof แต่ยังควรดูรอบถัดไปเพิ่ม",
     tone: "info",
+  };
+}
+
+function buildPilotProofPackage(
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined,
+  verdict: OwnerProofVerdict,
+): OwnerPilotProofPackage {
+  if (!proof) {
+    return {
+      buyerPromise:
+        "ยังไม่ควรใช้เป็นข้อความขายจนกว่าจะเห็นรอบแจ้งเตือนและ LINE delivery จริง",
+      caveat: "เปิด audit เพื่อดูหลักฐานล่าสุดก่อนคุย pilot.",
+      headline: "ยังไม่มี proof package สำหรับลูกค้า",
+      proofLine: "ยังไม่มีข้อมูล 7 วันล่าสุดจาก production proof",
+    };
+  }
+
+  const scheduledRate = formatProofRate(proof.scheduled_success_rate);
+  const lineRate = formatProofRate(proof.line_delivery_success_rate);
+  const heavyP90 =
+    proof.heavy_report_p90_ms !== null
+      ? formatElapsedMs(proof.heavy_report_p90_ms)
+      : "ยังไม่มีค่า p90";
+  const latestProblem = proof.latest_problem_at
+    ? formatDateTime(proof.latest_problem_at)
+    : "ยังไม่พบเวลาล่าสุด";
+  const coverage = `${proof.eligible_tenant_count.toLocaleString(
+    "th-TH",
+  )}/${proof.active_tenant_count.toLocaleString("th-TH")} ร้าน`;
+  const proofLine = `${proof.window_days.toLocaleString(
+    "th-TH",
+  )} วันล่าสุด: coverage ${coverage}, รอบแจ้งเตือนสำเร็จ ${scheduledRate}, LINE สำเร็จ ${lineRate}, heavy report p90 ${heavyP90}.`;
+
+  if (verdict.tone === "success") {
+    return {
+      buyerPromise:
+        "เสนอเป็น pilot ผู้บริหารที่ได้รายงาน SML อัตโนมัติพร้อมหลักฐาน delivery และ audit",
+      caveat: "ยังต้องติดตามรอบจริงต่อเนื่องก่อนขยายหลาย tenant.",
+      headline: "พร้อมใช้เป็น proof สำหรับเปิด pilot",
+      proofLine,
+    };
+  }
+
+  if (proof.report_failure_count > 0 || proof.scheduled_failed_count > 0) {
+    return {
+      buyerPromise:
+        "ใช้ demo ได้ในฐานะระบบรายงานผู้บริหารที่มี audit และแจ้ง incident แทนการปล่อยให้ยอดผิดเงียบ",
+      caveat: `ต้องพูดตรง ๆ ว่ายังมี failed ${proof.report_failure_count.toLocaleString(
+        "th-TH",
+      )} ครั้งในช่วงนี้ ล่าสุด ${latestProblem}.`,
+      headline: "มี proof สำหรับ demo แต่ยังไม่ควรขายว่าไร้ incident",
+      proofLine,
+    };
+  }
+
+  if (
+    proof.line_delivery_count <= 0 ||
+    proof.line_delivery_failed_count > 0 ||
+    (proof.line_delivery_success_rate !== null &&
+      proof.line_delivery_success_rate < 0.98)
+  ) {
+    return {
+      buyerPromise:
+        "รายงานสร้างได้แล้ว แต่ต้องพิสูจน์เส้นทางส่งถึงผู้บริหารให้แน่นก่อนขายเป็น managed alert",
+      caveat: "รอดู LINE delivery ให้ผ่านเกณฑ์ก่อนใช้เป็น pilot proof.",
+      headline: "ตัวรายงานพร้อม แต่ delivery proof ยังไม่แน่น",
+      proofLine,
+    };
+  }
+
+  if (proof.heavy_report_p90_ms !== null && proof.heavy_report_p90_ms >= 300000) {
+    return {
+      buyerPromise:
+        "เสนอ value เรื่องไม่ต้องให้คนดึงรายงานหนักเอง แต่ต้องกำหนด SLA รอบหนักให้ชัด",
+      caveat: "ควรลดเวลารัน heavy report ก่อนเพิ่มรอบถี่หรือ tenant ใหม่.",
+      headline: "พิสูจน์ระบบได้ แต่ performance ยังเป็นเงื่อนไขขาย",
+      proofLine,
+    };
+  }
+
+  return {
+    buyerPromise:
+      "ใช้เล่า value ได้ว่าเจ้าของร้านเห็นรายงาน SML และสถานะส่ง LINE จากระบบเดียว",
+    caveat: "เก็บ clean rounds เพิ่มเพื่อทำให้ข้อความขายแข็งแรงขึ้น.",
+    headline: "มี proof แล้ว แต่ควรเก็บหลักฐานเพิ่ม",
+    proofLine,
   };
 }
 
