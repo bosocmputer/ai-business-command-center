@@ -565,6 +565,8 @@ export default function OwnerPortal({
   >({});
   const [editingNotificationRuleId, setEditingNotificationRuleId] =
     useState<string | null>(null);
+  const [newNotificationDraftTenantId, setNewNotificationDraftTenantId] =
+    useState<string | null>(null);
   const [notificationName, setNotificationName] = useState("Daily SML digest");
   const [notificationEnabled, setNotificationEnabled] = useState(false);
   const [notificationPeriodPreset, setNotificationPeriodPreset] =
@@ -936,6 +938,7 @@ export default function OwnerPortal({
 
   const applyNotificationRuleToForm = useCallback(
     (rule: OwnerNotificationRule) => {
+      setNewNotificationDraftTenantId(null);
       setEditingNotificationRuleId(rule.id);
       setNotificationName(rule.name);
       setNotificationEnabled(rule.enabled);
@@ -966,6 +969,7 @@ export default function OwnerPortal({
           target.allowed_actions.includes("receive_morning_brief"),
       )
       .map((target) => target.id);
+    setNewNotificationDraftTenantId(selectedTenantId);
     setEditingNotificationRuleId(null);
     setNotificationName("Daily SML digest");
     setNotificationEnabled(false);
@@ -981,10 +985,11 @@ export default function OwnerPortal({
     setNotificationTargetIds(defaultTargets);
     setLastNotificationRunResult(null);
     setPendingNotificationRunId(null);
-  }, [selectedTenantLineTargets]);
+  }, [selectedTenantId, selectedTenantLineTargets]);
 
   const applyNotificationPresetToDraft = useCallback(
     (input: NotificationPresetDraftInput) => {
+      setNewNotificationDraftTenantId(selectedTenantId);
       setEditingNotificationRuleId(null);
       setNotificationName(input.name);
       setNotificationEnabled(input.enabled);
@@ -1001,7 +1006,7 @@ export default function OwnerPortal({
       setLastNotificationRunResult(null);
       setPendingNotificationRunId(null);
     },
-    [],
+    [selectedTenantId],
   );
 
   const loadStoreSetupDetail = useCallback(async (tenantId: string) => {
@@ -1290,6 +1295,13 @@ export default function OwnerPortal({
       return;
     }
 
+    if (
+      !editingNotificationRuleId &&
+      newNotificationDraftTenantId === selectedTenantId
+    ) {
+      return;
+    }
+
     const firstRule = notificationRules.find(
       (rule) => rule.tenant_id === selectedTenantId,
     );
@@ -1302,6 +1314,7 @@ export default function OwnerPortal({
   }, [
     applyNotificationRuleToForm,
     editingNotificationRuleId,
+    newNotificationDraftTenantId,
     notificationRules,
     resetNotificationRuleForm,
     selectedTenantId,
