@@ -4502,10 +4502,10 @@ function OwnerProofEvidenceStrip({
           }
         />
         <HealthFact
-          label="JavaWS incident"
+          label="Report failed"
           value={
             proof
-              ? `${proof.javaws_incident_count.toLocaleString("th-TH")} ครั้ง`
+              ? `${proof.report_failure_count.toLocaleString("th-TH")} ครั้ง`
               : latestFailure
               ? `${formatJavaWsFailurePhase(latestFailure.failure_phase)} · ${
                   latestFailure.finished_at
