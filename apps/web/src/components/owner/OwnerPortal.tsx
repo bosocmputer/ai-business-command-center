@@ -38,6 +38,7 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
+import { CopyIcon } from "@/icons";
 import { AdminSecurityDialogs } from "@/components/command-center/AdminSecurityDialogs";
 import {
   buildAdminJsonHeaders,
@@ -4086,6 +4087,8 @@ type OwnerPilotProofPackage = {
   proofLine: string;
 };
 
+type OwnerProofCopyStatus = "idle" | "success" | "error";
+
 function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
@@ -4465,6 +4468,12 @@ function OwnerProofEvidenceStrip({
   const proof = operationsStatus?.production_proof ?? null;
   const verdict = buildProductionProofVerdict(proof, activeTenants.length);
   const pilotProofPackage = buildPilotProofPackage(proof, verdict);
+  const pilotProofShareText = buildPilotProofShareText(
+    pilotProofPackage,
+    verdict,
+    proof,
+  );
+  const [copyStatus, setCopyStatus] = useState<OwnerProofCopyStatus>("idle");
   const scheduledProofValue = proof
     ? proof.scheduled_run_count > 0
       ? `${proof.scheduled_success_count.toLocaleString("th-TH")}/${proof.scheduled_run_count.toLocaleString("th-TH")} สำเร็จ`
@@ -4475,6 +4484,29 @@ function OwnerProofEvidenceStrip({
       ? `${proof.line_delivery_success_count.toLocaleString("th-TH")}/${proof.line_delivery_count.toLocaleString("th-TH")} ส่งสำเร็จ`
       : "ยังไม่มี delivery"
     : `${lineReady}/${activeTenants.length} ส่งสำเร็จ`;
+  const copyButtonLabel =
+    copyStatus === "success"
+      ? "คัดลอกแล้ว"
+      : copyStatus === "error"
+      ? "ลองอีกครั้ง"
+      : "คัดลอก";
+
+  useEffect(() => {
+    if (copyStatus === "idle") {
+      return;
+    }
+    const timeout = window.setTimeout(() => setCopyStatus("idle"), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
+
+  async function handleCopyPilotProof() {
+    try {
+      await copyTextToClipboard(pilotProofShareText);
+      setCopyStatus("success");
+    } catch {
+      setCopyStatus("error");
+    }
+  }
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
@@ -4520,9 +4552,26 @@ function OwnerProofEvidenceStrip({
       <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <div>
-            <p className="text-xs font-medium uppercase text-gray-400">
-              ชุด proof สำหรับ pilot
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs font-medium uppercase text-gray-400">
+                ชุด proof สำหรับ pilot
+              </p>
+              <button
+                aria-label="คัดลอก proof สำหรับ pilot"
+                className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition ${
+                  copyStatus === "success"
+                    ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+                    : copyStatus === "error"
+                    ? "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                }`}
+                onClick={() => void handleCopyPilotProof()}
+                type="button"
+              >
+                <CopyIcon className="size-4" />
+                {copyButtonLabel}
+              </button>
+            </div>
             <p className="mt-1 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
               {pilotProofPackage.headline}
             </p>
@@ -7117,6 +7166,53 @@ function buildPilotProofPackage(
     headline: "มี proof แล้ว แต่ควรเก็บหลักฐานเพิ่ม",
     proofLine,
   };
+}
+
+function buildPilotProofShareText(
+  proofPackage: OwnerPilotProofPackage,
+  verdict: OwnerProofVerdict,
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined,
+) {
+  const lines = [
+    "AI-BCC Pilot Proof",
+    `สถานะ: ${verdict.label} - ${verdict.title}`,
+    `สรุป: ${proofPackage.headline}`,
+    `หลักฐาน: ${proofPackage.proofLine}`,
+    `ข้อเสนอ: ${proofPackage.buyerPromise}`,
+    `ข้อควรพูดตรง ๆ: ${proofPackage.caveat}`,
+  ];
+  if (proof) {
+    lines.push(
+      `อัปเดตล่าสุด: ${formatDateTime(proof.generated_at)} (${proof.window_days.toLocaleString(
+        "th-TH",
+      )} วันล่าสุด)`,
+    );
+  }
+  return lines.join("\n");
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) {
+      throw new Error("copy command failed");
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function ownerProofVerdictAccentClass(tone: OwnerBadgeTone) {
