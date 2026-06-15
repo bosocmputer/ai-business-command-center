@@ -4098,6 +4098,17 @@ type OwnerPilotLaunchAction = {
   tone: OwnerBadgeTone;
 };
 
+type OwnerPilotSalesKit = {
+  buyerFit: string;
+  headline: string;
+  message: string;
+  nextStep: string;
+  objections: string[];
+  offer: string;
+  proofBoundary: string;
+  tone: OwnerBadgeTone;
+};
+
 function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
@@ -4488,8 +4499,18 @@ function OwnerProofEvidenceStrip({
     proof,
     verdict,
   });
+  const pilotSalesKit = buildPilotSalesKit({
+    activeTenants,
+    proof,
+    proofPackage: pilotProofPackage,
+    verdict,
+  });
+  const pilotSalesKitShareText = buildPilotSalesKitShareText(pilotSalesKit);
   const [copyStatus, setCopyStatus] = useState<OwnerProofCopyStatus>("idle");
+  const [salesKitCopyStatus, setSalesKitCopyStatus] =
+    useState<OwnerProofCopyStatus>("idle");
   const manualCopyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const manualSalesKitTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scheduledProofValue = proof
     ? proof.scheduled_run_count > 0
       ? `${proof.scheduled_success_count.toLocaleString("th-TH")}/${proof.scheduled_run_count.toLocaleString("th-TH")} สำเร็จ`
@@ -4506,6 +4527,12 @@ function OwnerProofEvidenceStrip({
       : copyStatus === "manual"
       ? "ลองคัดลอกอีกครั้ง"
       : "คัดลอก";
+  const salesKitCopyButtonLabel =
+    salesKitCopyStatus === "success"
+      ? "คัดลอกแล้ว"
+      : salesKitCopyStatus === "manual"
+      ? "เลือกข้อความเอง"
+      : "คัดลอกข้อความขาย";
 
   useEffect(() => {
     if (copyStatus !== "success") {
@@ -4516,6 +4543,14 @@ function OwnerProofEvidenceStrip({
   }, [copyStatus]);
 
   useEffect(() => {
+    if (salesKitCopyStatus !== "success") {
+      return;
+    }
+    const timeout = window.setTimeout(() => setSalesKitCopyStatus("idle"), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [salesKitCopyStatus]);
+
+  useEffect(() => {
     if (copyStatus !== "manual") {
       return;
     }
@@ -4523,12 +4558,29 @@ function OwnerProofEvidenceStrip({
     manualCopyTextareaRef.current?.select();
   }, [copyStatus]);
 
+  useEffect(() => {
+    if (salesKitCopyStatus !== "manual") {
+      return;
+    }
+    manualSalesKitTextareaRef.current?.focus();
+    manualSalesKitTextareaRef.current?.select();
+  }, [salesKitCopyStatus]);
+
   async function handleCopyPilotProof() {
     try {
       await copyTextToClipboard(pilotProofShareText);
       setCopyStatus("success");
     } catch {
       setCopyStatus("manual");
+    }
+  }
+
+  async function handleCopyPilotSalesKit() {
+    try {
+      await copyTextToClipboard(pilotSalesKitShareText);
+      setSalesKitCopyStatus("success");
+    } catch {
+      setSalesKitCopyStatus("manual");
     }
   }
 
@@ -4634,6 +4686,93 @@ function OwnerProofEvidenceStrip({
             </p>
           </div>
         </div>
+      </div>
+      <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Sales kit สำหรับคุยลูกค้า
+              </p>
+              <Badge color={pilotSalesKit.tone}>
+                {pilotSalesKit.tone === "success"
+                  ? "พร้อมส่ง"
+                  : pilotSalesKit.tone === "warning"
+                  ? "ส่งแบบมี caveat"
+                  : "รอ proof"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ข้อความนี้ใช้คุยกับเจ้าของร้านหรือผู้บริหาร โดยยึดจาก proof ล่าสุดและไม่ใส่ข้อมูลลับของลูกค้า
+            </p>
+          </div>
+          <button
+            aria-label="คัดลอก sales kit สำหรับลูกค้า"
+            className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
+              salesKitCopyStatus === "success"
+                ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
+                : salesKitCopyStatus === "manual"
+                ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            }`}
+            onClick={() => void handleCopyPilotSalesKit()}
+            type="button"
+          >
+            <CopyIcon className="size-4" />
+            {salesKitCopyButtonLabel}
+          </button>
+        </div>
+        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.4fr)_minmax(0,1fr)]">
+          <div>
+            <p className="text-xs font-medium uppercase text-gray-400">
+              Positioning
+            </p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
+              {pilotSalesKit.headline}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {pilotSalesKit.offer}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase text-gray-400">
+              ข้อความส่งลูกค้า
+            </p>
+            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {pilotSalesKit.message}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase text-gray-400">
+              พูดตรง ๆ ก่อนปิด pilot
+            </p>
+            <p className="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {pilotSalesKit.proofBoundary}
+            </p>
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {pilotSalesKit.objections.map((item) => (
+                <li key={item}>• {item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
+          Next step: {pilotSalesKit.nextStep}
+        </p>
+        {salesKitCopyStatus === "manual" ? (
+          <div className="mt-3">
+            <p className="mb-1 text-xs leading-5 text-warning-700 dark:text-warning-300">
+              Browser บล็อกการคัดลอกอัตโนมัติ เลือกข้อความไว้ให้แล้ว กด Ctrl/Cmd+C ได้เลย
+            </p>
+            <textarea
+              ref={manualSalesKitTextareaRef}
+              className="h-36 w-full resize-none rounded-lg border border-warning-200 bg-warning-50 p-2 text-xs leading-5 text-gray-800 outline-none focus:border-warning-400 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-gray-100"
+              onFocus={(event) => event.currentTarget.select()}
+              readOnly
+              value={pilotSalesKitShareText}
+            />
+          </div>
+        ) : null}
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <HealthFact
@@ -7244,6 +7383,102 @@ function buildPilotProofPackage(
     headline: "มี proof แล้ว แต่ควรเก็บหลักฐานเพิ่ม",
     proofLine,
   };
+}
+
+function buildPilotSalesKit({
+  activeTenants,
+  proof,
+  proofPackage,
+  verdict,
+}: {
+  activeTenants: TenantSummary[];
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined;
+  proofPackage: OwnerPilotProofPackage;
+  verdict: OwnerProofVerdict;
+}): OwnerPilotSalesKit {
+  const readyTenantNames = activeTenants
+    .filter(
+      (item) =>
+        isPilotCoverageTenant(item) &&
+        item.health.latest_notification_run_status === "success" &&
+        item.health.latest_line_delivery_status === "success",
+    )
+    .map((item) => item.tenant.name);
+  const readyTenantLine = readyTenantNames.length
+    ? `ตอนนี้มีตัวอย่างจาก ${formatTenantNameList(readyTenantNames)} ที่ใช้เป็นเรื่องเล่า demo ได้`
+    : "ตอนนี้ควรเลือก demo tenant หลักและรันรอบจริงให้ผ่านก่อนใช้เป็นตัวอย่างลูกค้า";
+  const headline =
+    "รายงานผู้บริหารจาก SML อัตโนมัติ พร้อม audit และแจ้ง incident เมื่อระบบต้นทางผิดปกติ";
+  const buyerFit =
+    "เหมาะกับร้านที่ใช้ SML อยู่แล้วและผู้บริหารต้องรอดูยอดจากทีมงานทุกเช้า/เย็น";
+  const objections = [
+    "ไม่แทนการตรวจบัญชีปิดงบ แต่ช่วยให้เห็นยอดดำเนินงานตามรอบ",
+    "ถ้า SML JavaWS ตอบผิดรูปแบบ ระบบต้องแจ้ง incident แทนการสรุปยอด",
+    "เริ่มจาก 1-2 ร้านหรือสาขาที่ datasource และ LINE พร้อมก่อน",
+  ];
+
+  if (!proof || verdict.tone === "error") {
+    return {
+      buyerFit,
+      headline,
+      message:
+        "ตอนนี้ AI-BCC ยังไม่ควรถูกใช้เป็นข้อความขายเต็ม เพราะยังไม่มี proof production ที่พอจะยืนยันรอบแจ้งเตือนจริงได้ครบ\n\nสิ่งที่ควรคุยกับลูกค้าตอนนี้คือ demo แนวทาง: ระบบจะดึงรายงานจาก SML ตามรอบ ส่งให้ผู้บริหารผ่าน LINE และมี audit/incident notice เมื่อระบบต้นทางตอบผิดปกติ",
+      nextStep:
+        "ตั้งค่า SML JavaWS, LINE target และ notification rule ให้ครบ แล้วรอดูรอบจริงอย่างน้อย 1 รอบก่อนส่งข้อเสนอ pilot",
+      objections,
+      offer:
+        "ยังไม่ควรเสนอเป็น paid pilot จนกว่าจะมีรอบจริงและ delivery proof ที่ตรวจย้อนหลังได้",
+      proofBoundary: proofPackage.caveat,
+      tone: "error",
+    };
+  }
+
+  if (verdict.tone === "success") {
+    return {
+      buyerFit,
+      headline,
+      message: `สวัสดีครับ ผมอยากชวนลอง AI-BCC เป็น pilot สำหรับรายงานผู้บริหารจาก SML\n\nระบบจะดึงรายงานตามรอบ ส่งสรุปให้ผู้บริหารผ่าน LINE และเก็บ audit ว่ารายงานรันเมื่อไร ส่งสำเร็จไหม ถ้า SML/LINE มีปัญหา ระบบจะแจ้ง incident แทนการสรุปยอดที่ไม่น่าเชื่อถือ\n\nหลักฐานล่าสุด: ${proofPackage.proofLine}\n\n${readyTenantLine}`,
+      nextStep:
+        "เลือก 1 ร้าน/สาขาที่ SML และ LINE พร้อม เปิดรอบแจ้งเตือนจริง แล้วใช้ audit หลังรอบเป็นหลักฐานตัดสินใจต่อ",
+      objections,
+      offer:
+        "เสนอเป็น pilot ผู้บริหารที่ต้องการลดงานดึงรายงานเอง และต้องการหลักฐาน delivery/audit ที่ตรวจย้อนหลังได้",
+      proofBoundary:
+        "ยังควรพูดว่าระบบอยู่ช่วง pilot และต้องติดตามรอบจริงต่อเนื่องก่อนขยายหลาย tenant",
+      tone: "success",
+    };
+  }
+
+  return {
+    buyerFit,
+    headline,
+    message: `สวัสดีครับ ตอนนี้ AI-BCC พร้อมใช้ demo แบบมี caveat สำหรับร้านที่ใช้ SML และอยากให้ผู้บริหารได้รับรายงานอัตโนมัติ\n\nระบบช่วยดึงรายงานตามรอบ ส่ง LINE ให้ผู้บริหาร และมี audit/incident notice เมื่อ SML หรือช่องทางส่งมีปัญหา จุดสำคัญคือไม่ปล่อยให้ยอดที่อ่านไม่ได้ถูกสรุปเป็นยอดธุรกิจ\n\nหลักฐานล่าสุด: ${proofPackage.proofLine}\n\n${readyTenantLine}`,
+    nextStep:
+      "ใช้ demo กับ tenant ที่พร้อมก่อน แล้วรอดู clean round ถัดไปก่อนบอกลูกค้าว่าพร้อมขายเต็ม",
+    objections,
+    offer:
+      "ใช้เปิดบทสนทนาและ demo ได้ แต่ควรขายแบบ pilot ที่ owner ติดตามผลจริง ไม่ใช่คำมั่นว่าไม่มี incident",
+    proofBoundary: proofPackage.caveat,
+    tone: "warning",
+  };
+}
+
+function buildPilotSalesKitShareText(salesKit: OwnerPilotSalesKit) {
+  return [
+    "AI-BCC Sales Kit",
+    `Positioning: ${salesKit.headline}`,
+    `เหมาะกับ: ${salesKit.buyerFit}`,
+    `ข้อเสนอ: ${salesKit.offer}`,
+    "",
+    "ข้อความส่งลูกค้า:",
+    salesKit.message,
+    "",
+    `พูดตรง ๆ: ${salesKit.proofBoundary}`,
+    "ข้อควรระวัง:",
+    ...salesKit.objections.map((item) => `- ${item}`),
+    "",
+    `Next step: ${salesKit.nextStep}`,
+  ].join("\n");
 }
 
 function buildPilotLaunchActions({
