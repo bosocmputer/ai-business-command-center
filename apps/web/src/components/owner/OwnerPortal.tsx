@@ -4109,6 +4109,17 @@ type OwnerPilotSalesKit = {
   tone: OwnerBadgeTone;
 };
 
+type OwnerPilotQualification = {
+  avoid: string[];
+  decisionSignal: string;
+  evidenceToCapture: string[];
+  label: string;
+  minimumScope: string;
+  title: string;
+  tone: OwnerBadgeTone;
+  whoToApproach: string;
+};
+
 function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
@@ -4506,7 +4517,15 @@ function OwnerProofEvidenceStrip({
     proofPackage: pilotProofPackage,
     verdict,
   });
-  const pilotSalesKitShareText = buildPilotSalesKitShareText(pilotSalesKit);
+  const pilotQualification = buildPilotQualification({
+    activeTenants,
+    proof,
+    verdict,
+  });
+  const pilotSalesKitShareText = buildPilotSalesKitShareText(
+    pilotSalesKit,
+    pilotQualification,
+  );
   const [copyStatus, setCopyStatus] = useState<OwnerProofCopyStatus>("idle");
   const [salesKitCopyStatus, setSalesKitCopyStatus] =
     useState<OwnerProofCopyStatus>("idle");
@@ -4755,6 +4774,63 @@ function OwnerProofEvidenceStrip({
                 <li key={item}>• {item}</li>
               ))}
             </ul>
+          </div>
+        </div>
+        <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Pilot qualification
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้เลือกคนคุยและกันการขายเกิน proof ที่ระบบมีจริงตอนนี้
+              </p>
+            </div>
+            <Badge color={pilotQualification.tone}>
+              {pilotQualification.label}
+            </Badge>
+          </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                {pilotQualification.title}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {pilotQualification.whoToApproach}
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <HealthFact
+                label="Minimum pilot"
+                value={pilotQualification.minimumScope}
+              />
+              <HealthFact
+                label="Decision signal"
+                value={pilotQualification.decisionSignal}
+              />
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-xs font-medium uppercase text-gray-400">
+                เก็บ proof หลังรอบจริง
+              </p>
+              <ul className="mt-1 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {pilotQualification.evidenceToCapture.map((item) => (
+                  <li key={item}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-gray-400">
+                ยังไม่ควรขายกับ
+              </p>
+              <ul className="mt-1 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {pilotQualification.avoid.map((item) => (
+                  <li key={item}>• {item}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
         <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
@@ -7505,7 +7581,111 @@ function buildProofRecoveryLine(
   )} (${remainingDays.toLocaleString("th-TH")} วัน)`;
 }
 
-function buildPilotSalesKitShareText(salesKit: OwnerPilotSalesKit) {
+function buildPilotQualification({
+  activeTenants,
+  proof,
+  verdict,
+}: {
+  activeTenants: TenantSummary[];
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined;
+  verdict: OwnerProofVerdict;
+}): OwnerPilotQualification {
+  const readyTenantNames = activeTenants
+    .filter(
+      (item) =>
+        isPilotCoverageTenant(item) &&
+        item.health.datasource_configured &&
+        item.health.line_targets_enabled > 0 &&
+        item.health.notification_rules_enabled > 0 &&
+        item.health.latest_notification_run_status === "success" &&
+        item.health.latest_line_delivery_status === "success",
+    )
+    .map((item) => item.tenant.name);
+  const readyTenantLine = readyTenantNames.length
+    ? `เริ่มจากร้านที่มีหลักฐานแล้ว เช่น ${formatTenantNameList(
+        readyTenantNames,
+      )} แล้วค่อยขยายหลังรอบจริงนิ่ง`
+    : "เริ่มจากร้านที่ SML datasource, LINE target และแผนแจ้งเตือนพร้อมครบก่อน";
+  const commonEvidence = [
+    "notification run จบสำเร็จตามเวลา",
+    "report run มี row count และ snapshot ที่ตรวจย้อนหลังได้",
+    "LINE delivery หรือ incident notice ถูกส่งตามผลจริง",
+  ];
+  const commonAvoid = [
+    "ร้านที่ยังไม่มี SML datasource, LINE target หรือแผนแจ้งเตือนครบ",
+    "ลูกค้าที่ต้องการยอด realtime หรือใช้แทนงานบัญชีปิดงบ",
+    "เคสที่ต้องใช้ integration อื่นนอก SML reports ในรอบ pilot นี้",
+  ];
+
+  if (!proof || verdict.tone === "error") {
+    return {
+      avoid: commonAvoid,
+      decisionSignal: "มีรอบจริงอย่างน้อย 1 รอบ",
+      evidenceToCapture: [
+        "SML JavaWS health ผ่าน",
+        "LINE target เปิดรับรายงาน",
+        "notification rule ถูกเปิดและมี run id",
+      ],
+      label: "รอ proof",
+      minimumScope: "ยังไม่เสนอ paid pilot",
+      title: "ใช้คุยเป็น demo แนวทางก่อน ยังไม่ควรปิด pilot",
+      tone: "error",
+      whoToApproach:
+        "คุยกับคนที่อยากเห็นภาพระบบก่อนเท่านั้น และบอกชัดว่ายังต้องมีรอบจริงสำเร็จก่อนเปิดใช้จริงกับผู้บริหาร",
+    };
+  }
+
+  if (proof.report_failure_count > 0 || proof.scheduled_failed_count > 0) {
+    return {
+      avoid: commonAvoid,
+      decisionSignal: "2 clean rounds หรือถึง Clean target",
+      evidenceToCapture: [
+        ...commonEvidence,
+        buildProofRecoveryLine(proof),
+      ],
+      label: "pilot แบบมี caveat",
+      minimumScope: "1 ร้าน, 2 รอบ, 2 รายงาน",
+      title: "เลือกเจ้าของร้านที่รับ pilot แบบโปร่งใสได้",
+      tone: "warning",
+      whoToApproach:
+        `${readyTenantLine} เหมาะกับผู้บริหารที่อยากลดงานดึงรายงานเอง แต่รับได้ว่าช่วง pilot จะมี incident notice หาก SML/LINE ผิดปกติ`,
+    };
+  }
+
+  if (verdict.tone === "success") {
+    return {
+      avoid: commonAvoid,
+      decisionSignal: "7 วันผ่านเกณฑ์ 98%+",
+      evidenceToCapture: [
+        ...commonEvidence,
+        "ผู้บริหารยืนยันว่าอ่านรายงานได้จริงและลดงาน follow-up กับทีม",
+      ],
+      label: "พร้อมเปิด pilot",
+      minimumScope: "1-2 ร้าน, 7 วัน",
+      title: "ชวนร้าน SML ที่มี pain รายงานประจำวันได้เลย",
+      tone: "success",
+      whoToApproach:
+        `${readyTenantLine} เหมาะกับร้านที่ผู้บริหารรอรายงานเช้า/เย็นจากทีมงานและอยากมี audit ว่าส่งถึงจริง`,
+    };
+  }
+
+  return {
+    avoid: commonAvoid,
+    decisionSignal: "รอบถัดไปต้องสำเร็จครบ",
+    evidenceToCapture: commonEvidence,
+    label: "เก็บ proof เพิ่ม",
+    minimumScope: "1 ร้าน, 1 รอบก่อน",
+    title: "ใช้ demo ได้ แต่ยังควรเก็บหลักฐานก่อนปิดดีล",
+    tone: verdict.tone === "warning" ? "warning" : "info",
+    whoToApproach:
+      `${readyTenantLine} เหมาะกับลูกค้าที่อยากลองก่อนและยอมให้ตัดสินจาก audit หลังรอบจริง`,
+  };
+}
+
+function buildPilotSalesKitShareText(
+  salesKit: OwnerPilotSalesKit,
+  qualification: OwnerPilotQualification,
+) {
   return [
     "AI-BCC Sales Kit",
     `Positioning: ${salesKit.headline}`,
@@ -7518,6 +7698,16 @@ function buildPilotSalesKitShareText(salesKit: OwnerPilotSalesKit) {
     `พูดตรง ๆ: ${salesKit.proofBoundary}`,
     "ข้อควรระวัง:",
     ...salesKit.objections.map((item) => `- ${item}`),
+    "",
+    "Pilot qualification:",
+    `- สถานะ: ${qualification.label} - ${qualification.title}`,
+    `- คนที่ควรคุย: ${qualification.whoToApproach}`,
+    `- Minimum scope: ${qualification.minimumScope}`,
+    `- Decision signal: ${qualification.decisionSignal}`,
+    "Proof ที่ต้องเก็บ:",
+    ...qualification.evidenceToCapture.map((item) => `- ${item}`),
+    "ยังไม่ควรขายกับ:",
+    ...qualification.avoid.map((item) => `- ${item}`),
     "",
     `Next step: ${salesKit.nextStep}`,
   ].join("\n");
