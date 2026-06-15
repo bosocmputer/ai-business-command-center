@@ -262,6 +262,29 @@ type ActionResult = {
   message: string;
 };
 
+type TenantCreateDryRunResult = {
+  will_mutate: false;
+  tenant_id: string;
+  name: string;
+  status: Tenant["status"];
+  plan_code: Tenant["planCode"];
+  viewer_email: string;
+  dashboard_path: string;
+  will_create_user_id: string;
+  checks: Array<{
+    key: string;
+    label: string;
+    ok: boolean;
+    detail: string;
+  }>;
+  next_action: {
+    label: string;
+    href: string;
+    detail: string;
+  };
+  warnings: string[];
+};
+
 type OwnerDataStatus = "checking" | "auth_required" | "ready" | "error";
 
 type DatasourceTestResult = {
@@ -658,6 +681,8 @@ export default function OwnerPortal({
   const [newTenantViewerEmail, setNewTenantViewerEmail] = useState("");
   const [newTenantPlanCode, setNewTenantPlanCode] =
     useState<Tenant["planCode"]>("starter");
+  const [tenantCreateDryRun, setTenantCreateDryRun] =
+    useState<TenantCreateDryRunResult | null>(null);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [justCreatedTenantId, setJustCreatedTenantId] = useState<string | null>(null);
   const [reportDateFrom, setReportDateFrom] = useState(
@@ -1569,8 +1594,7 @@ export default function OwnerPortal({
     });
   }
 
-  async function createTenant(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function validateNewTenantDraft() {
     const tenantName = newTenantName.trim();
     const tenantId = (
       newTenantId.trim() || suggestTenantIdFromName(tenantName)
@@ -1588,10 +1612,76 @@ export default function OwnerPortal({
       tenantName,
       viewerEmail,
     });
-    if (createBlockReason) {
+
+    return {
+      createBlockReason,
+      description,
+      tenantId,
+      tenantName,
+      viewerEmail,
+    };
+  }
+
+  async function dryRunTenantCreate() {
+    const draft = validateNewTenantDraft();
+    setTenantCreateDryRun(null);
+    if (draft.createBlockReason) {
       setResult({
         tone: "warning",
-        message: createBlockReason,
+        message: draft.createBlockReason,
+      });
+      return;
+    }
+
+    await runOwnerAction("create-dry-run", async () => {
+      const headers = await buildAdminJsonHeaders({
+        actionLabel: "ตรวจร้านใหม่แบบไม่บันทึก",
+        description:
+          "ตรวจ payload เพิ่มร้านใหม่กับ API จริง โดยไม่สร้าง tenant, user, SML secret หรือ LINE target",
+      });
+      if (!headers) {
+        throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลก่อนตรวจร้านใหม่");
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/owner/tenants/dry-run`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          tenant_id: draft.tenantId,
+          name: draft.tenantName,
+          status: "trial",
+          plan_code: newTenantPlanCode,
+          description: draft.description || undefined,
+          viewer_email: draft.viewerEmail || undefined,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: TenantCreateDryRunResult;
+        error?: string;
+      } & OwnerApiErrorPayload;
+      if (!response.ok || !payload.data) {
+        throw new Error(formatTenantCreateApiError(payload));
+      }
+
+      setTenantCreateDryRun(payload.data);
+      setResult({
+        tone: payload.data.checks.every((check) => check.ok)
+          ? "success"
+          : "warning",
+        message:
+          "ตรวจร้านใหม่แบบไม่บันทึกแล้ว ยังไม่มีการสร้าง tenant หรือ viewer จริง",
+      });
+    });
+  }
+
+  async function createTenant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const draft = validateNewTenantDraft();
+    if (draft.createBlockReason) {
+      setResult({
+        tone: "warning",
+        message: draft.createBlockReason,
       });
       return;
     }
@@ -1609,12 +1699,12 @@ export default function OwnerPortal({
         method: "POST",
         headers,
         body: JSON.stringify({
-          tenant_id: tenantId,
-          name: tenantName,
+          tenant_id: draft.tenantId,
+          name: draft.tenantName,
           status: "trial",
           plan_code: newTenantPlanCode,
-          description: description || undefined,
-          viewer_email: viewerEmail || undefined,
+          description: draft.description || undefined,
+          viewer_email: draft.viewerEmail || undefined,
         }),
       });
 
@@ -1628,8 +1718,9 @@ export default function OwnerPortal({
       setNewTenantDescription("");
       setNewTenantViewerEmail("");
       setNewTenantPlanCode("starter");
-      setSelectedOwnerTenantId(tenantId);
-      setJustCreatedTenantId(tenantId);
+      setTenantCreateDryRun(null);
+      setSelectedOwnerTenantId(draft.tenantId);
+      setJustCreatedTenantId(draft.tenantId);
       setResult({
         tone: "success",
         message: "เพิ่มร้านค้าใหม่แล้ว ขั้นต่อไปคือเชื่อม SML JavaWS",
@@ -3655,8 +3746,11 @@ export default function OwnerPortal({
           newTenantName={newTenantName}
           newTenantPlanCode={newTenantPlanCode}
           newTenantViewerEmail={newTenantViewerEmail}
+          tenantCreateDryRun={tenantCreateDryRun}
           onAssignLineRecipient={assignLineRecipientToTenant}
           onApproveLineTarget={approveLineTarget}
+          onClearTenantCreateDryRun={() => setTenantCreateDryRun(null)}
+          onDryRunTenantCreate={dryRunTenantCreate}
           onSetLineTargetProfile={updateLineTargetProfile}
           onUpdateLineChannel={updateLineChannel}
           onSaveDatasourceConfig={saveDatasourceConfig}
@@ -3874,6 +3968,7 @@ type OwnerSectionContentProps = {
   newTenantName: string;
   newTenantPlanCode: Tenant["planCode"];
   newTenantViewerEmail: string;
+  tenantCreateDryRun: TenantCreateDryRunResult | null;
   onAssignLineRecipient: (input: {
     recipient: LineRecipientRecord;
     lineChannelId: string;
@@ -3889,6 +3984,8 @@ type OwnerSectionContentProps = {
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
   ) => Promise<void>;
+  onClearTenantCreateDryRun: () => void;
+  onDryRunTenantCreate: () => Promise<void>;
   onSetLineTargetProfile: (
     target: LineTargetRecord,
     profileKey: LineAccessProfileKey,
@@ -5353,6 +5450,9 @@ function OwnerTenantsContent({
   selectedTenantSummary,
   newTenantPlanCode,
   newTenantViewerEmail,
+  tenantCreateDryRun,
+  onClearTenantCreateDryRun,
+  onDryRunTenantCreate,
   setNewTenantDescription,
   setNewTenantId,
   setNewTenantName,
@@ -5401,12 +5501,15 @@ function OwnerTenantsContent({
         newTenantName={newTenantName}
         newTenantPlanCode={newTenantPlanCode}
         newTenantViewerEmail={newTenantViewerEmail}
+        onClearTenantCreateDryRun={onClearTenantCreateDryRun}
+        onDryRunTenantCreate={onDryRunTenantCreate}
         publicOrigin={publicOrigin}
         setNewTenantDescription={setNewTenantDescription}
         setNewTenantId={setNewTenantId}
         setNewTenantName={setNewTenantName}
         setNewTenantPlanCode={setNewTenantPlanCode}
         setNewTenantViewerEmail={setNewTenantViewerEmail}
+        tenantCreateDryRun={tenantCreateDryRun}
       />
 
       {justCreatedTenant ? (
@@ -9151,12 +9254,15 @@ function OwnerSetupPanel({
   newTenantName,
   newTenantPlanCode,
   newTenantViewerEmail,
+  onClearTenantCreateDryRun,
+  onDryRunTenantCreate,
   publicOrigin,
   setNewTenantDescription,
   setNewTenantId,
   setNewTenantName,
   setNewTenantPlanCode,
   setNewTenantViewerEmail,
+  tenantCreateDryRun,
 }: {
   busy: string | null;
   createTenant: (event: FormEvent<HTMLFormElement>) => void;
@@ -9166,12 +9272,15 @@ function OwnerSetupPanel({
   newTenantName: string;
   newTenantPlanCode: Tenant["planCode"];
   newTenantViewerEmail: string;
+  onClearTenantCreateDryRun: () => void;
+  onDryRunTenantCreate: () => Promise<void>;
   publicOrigin: string;
   setNewTenantDescription: (value: string) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
   setNewTenantPlanCode: (value: Tenant["planCode"]) => void;
   setNewTenantViewerEmail: (value: string) => void;
+  tenantCreateDryRun: TenantCreateDryRunResult | null;
 }) {
   const suggestedTenantId = suggestTenantIdFromName(newTenantName);
   const proposedTenantId = (newTenantId.trim() || suggestedTenantId).trim();
@@ -9207,6 +9316,20 @@ function OwnerSetupPanel({
   });
   const canCreate = !createBlockReason;
   const isCreateDisabled = Boolean(busy) || !canCreate;
+  const isDryRunDisabled = Boolean(busy) || !canCreate;
+  const dryRunMatchesDraft =
+    tenantCreateDryRun?.tenant_id === proposedTenantId &&
+    tenantCreateDryRun?.name === tenantName &&
+    tenantCreateDryRun?.plan_code === newTenantPlanCode &&
+    tenantCreateDryRun?.viewer_email ===
+      (viewerEmail || `viewer+${proposedTenantId}@ai-business.local`);
+  const visibleDryRun = dryRunMatchesDraft ? tenantCreateDryRun : null;
+  const dryRunDashboardUrl = visibleDryRun
+    ? buildCustomerDashboardUrl({
+        dashboardPath: visibleDryRun.dashboard_path,
+        publicOrigin,
+      })
+    : "";
   const previewCustomerDashboardUrl =
     proposedTenantId && tenantIdLooksValid && !duplicateTenant
       ? buildCustomerDashboardUrl({
@@ -9397,6 +9520,7 @@ function OwnerSetupPanel({
               maxLength={120}
               minLength={2}
               onChange={(event) => {
+                onClearTenantCreateDryRun();
                 setNewTenantName(event.target.value);
                 setNewTenantId("");
               }}
@@ -9411,9 +9535,10 @@ function OwnerSetupPanel({
             </label>
             <select
               className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-              onChange={(event) =>
-                setNewTenantPlanCode(event.target.value as Tenant["planCode"])
-              }
+              onChange={(event) => {
+                onClearTenantCreateDryRun();
+                setNewTenantPlanCode(event.target.value as Tenant["planCode"]);
+              }}
               value={newTenantPlanCode}
             >
               <option value="starter">Starter</option>
@@ -9435,7 +9560,10 @@ function OwnerSetupPanel({
               }`}
               maxLength={80}
               minLength={3}
-              onChange={(event) => setNewTenantId(event.target.value)}
+              onChange={(event) => {
+                onClearTenantCreateDryRun();
+                setNewTenantId(event.target.value);
+              }}
               pattern="[a-z0-9][a-z0-9_-]{2,79}"
               placeholder="tenant_abc_shop"
               value={proposedTenantId}
@@ -9470,7 +9598,10 @@ function OwnerSetupPanel({
                   ? "border-gray-300 dark:border-gray-700"
                   : "border-warning-300 dark:border-warning-500"
               }`}
-              onChange={(event) => setNewTenantViewerEmail(event.target.value)}
+              onChange={(event) => {
+                onClearTenantCreateDryRun();
+                setNewTenantViewerEmail(event.target.value);
+              }}
               placeholder="ถ้ายังไม่มี เว้นว่างได้"
               type="email"
               value={newTenantViewerEmail}
@@ -9489,7 +9620,10 @@ function OwnerSetupPanel({
             <textarea
               className="mt-1 min-h-[88px] w-full rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
               maxLength={500}
-              onChange={(event) => setNewTenantDescription(event.target.value)}
+              onChange={(event) => {
+                onClearTenantCreateDryRun();
+                setNewTenantDescription(event.target.value);
+              }}
               placeholder="เช่น เจ้าของร้าน, สาขาที่จะเริ่ม, ข้อมูล setup ที่ยังต้องขอเพิ่ม"
               value={newTenantDescription}
             />
@@ -9552,13 +9686,83 @@ function OwnerSetupPanel({
           </div>
         </div>
 
+        {visibleDryRun ? (
+          <div className="mt-4 rounded-lg border border-success-100 bg-success-50 px-4 py-3 dark:border-success-500/30 dark:bg-success-500/10">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-success-700 dark:text-success-300">
+                    ผลตรวจแบบไม่บันทึก
+                  </p>
+                  <Badge color="success">ไม่สร้างข้อมูลจริง</Badge>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-success-700/80 dark:text-success-200">
+                  API ตรวจ payload ชุดนี้แล้ว ยังไม่สร้าง tenant, viewer, datasource,
+                  LINE target หรือ audit log
+                </p>
+              </div>
+              <p className="break-words text-xs font-semibold text-success-700 dark:text-success-300">
+                {dryRunDashboardUrl}
+              </p>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+              {visibleDryRun.checks.map((check) => (
+                <div
+                  className="border-l border-success-200 pl-3 dark:border-success-500/30"
+                  key={check.key}
+                >
+                  <span
+                    className={
+                      check.ok
+                        ? "font-semibold text-success-700 dark:text-success-300"
+                        : "font-semibold text-warning-700 dark:text-warning-300"
+                    }
+                  >
+                    {check.ok ? "ผ่าน" : "ต้องแก้"} · {check.label}
+                  </span>
+                  <span className="mt-1 block leading-5 text-success-700/80 dark:text-success-200">
+                    {check.detail}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {visibleDryRun.warnings.length ? (
+              <div className="mt-3 space-y-2">
+                {visibleDryRun.warnings.map((warning) => (
+                  <p
+                    className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
+                    key={warning}
+                  >
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
             ยังไม่บันทึก SML/LINE secret ในขั้นนี้ เพื่อแยกความเสี่ยงและให้ทดสอบ connection ทีละหน้า
           </p>
-          <Button disabled={isCreateDisabled} size="sm">
-            {createButtonLabel}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={isDryRunDisabled}
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => void onDryRunTenantCreate()}
+            >
+              {busy === "create-dry-run"
+                ? "กำลังตรวจ..."
+                : "ตรวจแบบไม่บันทึก"}
+            </Button>
+            <Button disabled={isCreateDisabled} size="sm">
+              {createButtonLabel}
+            </Button>
+          </div>
         </div>
 
         {newTenantName.trim() ? (

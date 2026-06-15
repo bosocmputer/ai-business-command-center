@@ -206,6 +206,7 @@ import {
   type StockBalanceFallbackSnapshot,
 } from "./heavy-report-resilience.js";
 import { createHeavyReportCoalescer } from "./heavy-report-coalescer.js";
+import { buildTenantCreateDryRunPreview } from "./tenant-create-preview.js";
 import {
   getReportExecutionPolicy,
 } from "./report-execution-policy.js";
@@ -1127,6 +1128,42 @@ app.post(
     });
   },
 );
+
+app.post("/api/owner/tenants/dry-run", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const body = ownerTenantCreateSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid tenant create request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+  const noteSafety = validateTenantNoteSafety(body.data.description);
+  if (!noteSafety.ok) {
+    return reply.status(422).send(noteSafety.response);
+  }
+
+  const existingTenant = (await systemStore.listTenants()).find(
+    (tenant) => tenant.id === body.data.tenant_id,
+  );
+  const tenantSlug = getTenantSlug(body.data.tenant_id);
+
+  return {
+    data: buildTenantCreateDryRunPreview({
+      dashboardPath: `/app/${tenantSlug}`,
+      duplicateTenantName: existingTenant?.name ?? null,
+      name: body.data.name,
+      planCode: body.data.plan_code,
+      status: body.data.status,
+      tenantId: body.data.tenant_id,
+      viewerEmail: body.data.viewer_email ?? null,
+    }),
+  };
+});
 
 app.post("/api/owner/tenants", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
