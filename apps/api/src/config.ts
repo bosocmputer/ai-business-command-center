@@ -1,4 +1,9 @@
-import type { LineTargetType, Tenant, TenantId } from "@ai-bcc/shared";
+import {
+  tenantIdSchema,
+  type LineTargetType,
+  type Tenant,
+  type TenantId,
+} from "@ai-bcc/shared";
 
 export type PostgresDatasourceConfig = {
   kind: "sml_postgres";
@@ -89,13 +94,23 @@ export function getTenantDefinition(tenantId: TenantId) {
 }
 
 export function resolveTenantIdFromSlug(slug: string): TenantId | null {
-  return (
-    tenantDefinitions.find((tenant) => tenant.customerSlug === slug)?.id ?? null
+  const configuredTenant = tenantDefinitions.find(
+    (tenant) => tenant.customerSlug === slug,
   );
+  if (configuredTenant) {
+    return configuredTenant.id;
+  }
+
+  const tenantId = tenantIdSchema.safeParse(slug);
+  if (!tenantId.success || getTenantDefinition(tenantId.data)) {
+    return null;
+  }
+
+  return tenantId.data;
 }
 
 export function getTenantSlug(tenantId: TenantId) {
-  return getTenantDefinition(tenantId)?.customerSlug ?? null;
+  return getTenantDefinition(tenantId)?.customerSlug ?? tenantId;
 }
 
 export function readDatasourceConfig(

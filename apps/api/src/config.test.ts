@@ -64,12 +64,15 @@ describe("customer dashboard tenant slugs", () => {
     expect(resolveTenantIdFromSlug("248-shop")).toBe(
       "tenant_office_sml1_2026",
     );
-    expect(resolveTenantIdFromSlug("unknown-shop")).toBeNull();
+    expect(resolveTenantIdFromSlug("unknown-shop")).toBe("unknown-shop");
+    expect(resolveTenantIdFromSlug("Invalid Shop")).toBeNull();
   });
 
-  it("does not expose a dashboard path for arbitrary tenant ids", () => {
+  it("keeps curated slugs and falls back to tenant_id for DB-created tenants", () => {
     expect(getTenantSlug("tenant_demo_remote")).toBe("demo-shop");
     expect(getTenantSlug("tenant_office_sml1_2026")).toBe("248-shop");
-    expect(getTenantSlug("tenant_unknown")).toBeNull();
+    expect(getTenantSlug("tenant_new_shop")).toBe("tenant_new_shop");
+    expect(resolveTenantIdFromSlug("tenant_new_shop")).toBe("tenant_new_shop");
+    expect(resolveTenantIdFromSlug("tenant_demo_remote")).toBeNull();
   });
 });

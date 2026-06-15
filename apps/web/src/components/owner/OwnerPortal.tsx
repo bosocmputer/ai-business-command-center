@@ -5401,6 +5401,7 @@ function OwnerTenantsContent({
         newTenantName={newTenantName}
         newTenantPlanCode={newTenantPlanCode}
         newTenantViewerEmail={newTenantViewerEmail}
+        publicOrigin={publicOrigin}
         setNewTenantDescription={setNewTenantDescription}
         setNewTenantId={setNewTenantId}
         setNewTenantName={setNewTenantName}
@@ -9150,6 +9151,7 @@ function OwnerSetupPanel({
   newTenantName,
   newTenantPlanCode,
   newTenantViewerEmail,
+  publicOrigin,
   setNewTenantDescription,
   setNewTenantId,
   setNewTenantName,
@@ -9164,6 +9166,7 @@ function OwnerSetupPanel({
   newTenantName: string;
   newTenantPlanCode: Tenant["planCode"];
   newTenantViewerEmail: string;
+  publicOrigin: string;
   setNewTenantDescription: (value: string) => void;
   setNewTenantId: (value: string) => void;
   setNewTenantName: (value: string) => void;
@@ -9204,6 +9207,13 @@ function OwnerSetupPanel({
   });
   const canCreate = !createBlockReason;
   const isCreateDisabled = Boolean(busy) || !canCreate;
+  const previewCustomerDashboardUrl =
+    proposedTenantId && tenantIdLooksValid && !duplicateTenant
+      ? buildCustomerDashboardUrl({
+          dashboardPath: `/app/${proposedTenantId}`,
+          publicOrigin,
+        })
+      : "";
   const createButtonLabel =
     busy === "create"
       ? "กำลังสร้างร้าน..."
@@ -9553,13 +9563,21 @@ function OwnerSetupPanel({
 
         {newTenantName.trim() ? (
           <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-xs leading-5 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-            หลังสร้างร้าน{" "}
-            <span className="font-semibold text-gray-800 dark:text-white">
-              {newTenantName.trim()}
-            </span>{" "}
-            ระบบจะเลือก tenant{" "}
-            <span className="font-mono font-semibold">{proposedTenantId}</span>{" "}
-            ให้ทันที และแสดงปุ่มไปเชื่อม SML JavaWS ของร้านนี้
+            <p>
+              หลังสร้างร้าน{" "}
+              <span className="font-semibold text-gray-800 dark:text-white">
+                {newTenantName.trim()}
+              </span>{" "}
+              ระบบจะเลือก tenant{" "}
+              <span className="font-mono font-semibold">{proposedTenantId}</span>{" "}
+              ให้ทันที และแสดงปุ่มไปเชื่อม SML JavaWS ของร้านนี้
+            </p>
+            <p className="mt-2 break-words">
+              ลิงก์ dashboard ลูกค้าที่จะได้:{" "}
+              <span className="font-mono font-semibold text-gray-800 dark:text-white">
+                {previewCustomerDashboardUrl || "รอ tenant_id ที่ถูกต้องก่อนสร้าง"}
+              </span>
+            </p>
           </div>
         ) : null}
       </form>
