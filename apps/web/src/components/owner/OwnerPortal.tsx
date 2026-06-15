@@ -10705,6 +10705,74 @@ function TenantDetailPanel({
   });
   const editDescriptionSensitiveHints =
     findSensitiveTenantNoteHints(editDescription);
+  const savedFeatureFlags = getTenantUiFeatureFlags(tenant);
+  const savedThresholds = getTenantBusinessSignalThresholds(tenant);
+  const savedCurrentPeriodEnd = toDatetimeLocalValue(tenant.currentPeriodEnd);
+  const changedFields = [
+    editName.trim() !== tenant.name ? "ชื่อร้าน" : null,
+    editDescription.trim() !== (tenant.description ?? "") ? "note ภายใน" : null,
+    editPlanCode !== tenant.planCode ? "แพ็กเกจ" : null,
+    editStatus !== tenant.status ? "สถานะร้าน" : null,
+    editCurrentPeriodEnd !== savedCurrentPeriodEnd ? "รอบ subscription" : null,
+    editStatus === "suspended" &&
+    editSuspendedReason.trim() !== (tenant.suspendedReason ?? "")
+      ? "เหตุผลระงับ"
+      : null,
+    editBusinessSignalsEnabled !== savedFeatureFlags.business_signals_enabled
+      ? "Business Signals"
+      : null,
+    editLineActionDigestV2Enabled !==
+    savedFeatureFlags.line_action_digest_v2_enabled
+      ? "LINE Action Digest"
+      : null,
+    editLineHeavyReportFallbackEnabled !==
+    savedFeatureFlags.line_heavy_report_fallback_enabled
+      ? "heavy report fallback"
+      : null,
+    editLineReportFailureIncidentEnabled !==
+    savedFeatureFlags.line_report_failure_incident_enabled
+      ? "LINE incident notice"
+      : null,
+    editSmlChunkedHeavyReportsEnabled !==
+    savedFeatureFlags.sml_chunked_heavy_reports_enabled
+      ? "SML chunked reports"
+      : null,
+    editDemoModeEnabled !== savedFeatureFlags.demo_mode_enabled
+      ? "Demo Mode"
+      : null,
+    thresholdValidation.ok &&
+    (thresholdValidation.values.lowGrossMarginPercent !==
+      savedThresholds.low_gross_margin_percent ||
+      thresholdValidation.values.salesDropPercent !==
+        savedThresholds.sales_drop_percent ||
+      thresholdValidation.values.salesDropAmount !==
+        savedThresholds.sales_drop_amount ||
+      thresholdValidation.values.purchaseConcentrationPercent !==
+        savedThresholds.purchase_concentration_percent ||
+      thresholdValidation.values.missingBranchAmount !==
+        savedThresholds.missing_branch_amount ||
+      thresholdValidation.values.negativeGrossProfitAmount !==
+        savedThresholds.negative_gross_profit_amount ||
+      editNoSalesEnabled !== savedThresholds.no_sales_enabled)
+      ? "เกณฑ์แจ้งเตือน"
+      : null,
+  ].filter((field): field is string => Boolean(field));
+  const detailFormDirty = changedFields.length > 0;
+  const saveBlockedReason = !editName.trim()
+    ? "กรุณากรอกชื่อร้าน"
+    : !thresholdValidation.ok
+      ? thresholdValidation.message
+      : editDescriptionSensitiveHints.length
+        ? "ลบ token/password/secret ออกจาก note ก่อนบันทึก"
+        : !detailFormDirty
+          ? "ยังไม่มีการแก้ไข"
+          : null;
+  const statusChangeWarning =
+    editStatus !== tenant.status && editStatus === "suspended"
+      ? "การระงับร้านจะบล็อก dashboard ลูกค้าและหยุดส่ง LINE จริง"
+      : editStatus !== tenant.status && tenant.status === "suspended"
+        ? "การเปิดร้านกลับจะไม่เปิดแผนแจ้งเตือนเดิมให้อัตโนมัติ"
+        : null;
   const canCancel =
     tenant.status !== "cancelled" &&
     deleteConfirmName.trim() === tenant.name.trim() &&
@@ -11114,13 +11182,36 @@ function TenantDetailPanel({
           ) : null}
         </details>
 
+        <div
+          aria-live="polite"
+          className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+            saveBlockedReason
+              ? "border-gray-200 bg-white text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400"
+              : "border-brand-100 bg-brand-50 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
+          }`}
+        >
+          {saveBlockedReason ? (
+            saveBlockedReason
+          ) : (
+            <>
+              กำลังแก้: {changedFields.slice(0, 5).join(", ")}
+              {changedFields.length > 5
+                ? ` และอีก ${changedFields.length - 5} รายการ`
+                : ""}
+            </>
+          )}
+          {statusChangeWarning ? (
+            <span className="mt-1 block font-medium text-warning-700 dark:text-warning-300">
+              {statusChangeWarning}
+            </span>
+          ) : null}
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={
               saveBusy ||
-              !editName.trim() ||
-              !thresholdValidation.ok ||
-              editDescriptionSensitiveHints.length > 0
+              Boolean(saveBlockedReason)
             }
             size="sm"
           >
