@@ -14,6 +14,7 @@ import {
   buildNotificationIdempotencyKey,
   deriveNotificationPeriodRange,
   deriveMorningBriefDateRange,
+  findSensitiveTenantNoteHints,
   getDueNotificationRuleTimes,
   getNextNotificationRunAt,
   getZonedDateTimeParts,
@@ -1140,6 +1141,10 @@ app.post("/api/owner/tenants", async (request, reply) => {
       details: body.error.flatten().fieldErrors,
     });
   }
+  const noteSafety = validateTenantNoteSafety(body.data.description);
+  if (!noteSafety.ok) {
+    return reply.status(422).send(noteSafety.response);
+  }
 
   const existingTenant = (await systemStore.listTenants()).find(
     (tenant) => tenant.id === body.data.tenant_id,
@@ -1206,6 +1211,10 @@ app.patch("/api/owner/tenants/:tenantId", async (request, reply) => {
       error: "Invalid tenant update request",
       details: body.error.flatten().fieldErrors,
     });
+  }
+  const noteSafety = validateTenantNoteSafety(body.data.description);
+  if (!noteSafety.ok) {
+    return reply.status(422).send(noteSafety.response);
   }
 
   const current = (await systemStore.listTenants()).find(
@@ -13302,6 +13311,27 @@ const businessSignalsQuerySchema = z.object({
     .optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
+
+function validateTenantNoteSafety(description: string | undefined) {
+  const hints = findSensitiveTenantNoteHints(description ?? "");
+  if (!hints.length) {
+    return { ok: true as const };
+  }
+
+  return {
+    ok: false as const,
+    response: {
+      error:
+        "Tenant note appears to contain token/password/secret data. Remove sensitive data and save secrets only in encrypted setup pages.",
+      details: {
+        description: [
+          "Remove token/password/secret-like content from note before saving.",
+        ],
+      },
+      sensitive_hints: hints,
+    },
+  };
+}
 
 const ownerTenantCreateSchema = z.object({
   tenant_id: tenantIdSchema,

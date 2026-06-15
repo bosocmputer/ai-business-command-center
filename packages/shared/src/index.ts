@@ -58,6 +58,48 @@ export const planCodeSchema = z.enum(["starter", "business", "pro"]);
 
 export const userRoleSchema = z.enum(["owner_admin", "tenant_viewer"]);
 
+export function findSensitiveTenantNoteHints(value: string) {
+  const normalized = value.toLowerCase();
+  const hints: string[] = [];
+  const terms = [
+    ["token", "token"],
+    ["password", "password"],
+    ["passwd", "password"],
+    ["pwd", "password"],
+    ["bearer", "bearer"],
+    ["authorization", "authorization"],
+    ["basic auth", "basic auth"],
+    ["access_token", "access token"],
+    ["access token", "access token"],
+    ["api key", "api key"],
+    ["apikey", "api key"],
+    ["channel secret", "channel secret"],
+    ["channel_secret", "channel secret"],
+    ["secret", "secret"],
+    ["รหัสผ่าน", "รหัสผ่าน"],
+    ["คีย์ลับ", "คีย์ลับ"],
+  ] as const;
+
+  for (const [needle, label] of terms) {
+    if (
+      label === "secret" &&
+      (normalized.includes("channel secret") ||
+        normalized.includes("channel_secret"))
+    ) {
+      continue;
+    }
+    if (normalized.includes(needle) && !hints.includes(label)) {
+      hints.push(label);
+    }
+  }
+
+  if (/\b[a-z0-9_-]{32,}\b/i.test(value) && !hints.includes("ค่าลับยาว")) {
+    hints.push("ค่าลับยาว");
+  }
+
+  return hints;
+}
+
 export const isoDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");

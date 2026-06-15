@@ -14,7 +14,7 @@
    - ตรวจ `tenant_id` ที่ระบบสร้างให้ หรือแก้ก่อนสร้าง
    - เลือกแพ็กเกจเริ่มต้น
    - ใส่อีเมล viewer/note ภายในถ้ามี
-   - ห้ามใส่ SML/LINE secret, token, password หรือ channel secret ใน note; ถ้าใส่คำที่ดูเหมือน secret ระบบจะไม่ให้สร้างร้านจนกว่าจะลบออก
+   - ห้ามใส่ SML/LINE secret, token, password หรือ channel secret ใน note; ถ้าใส่คำที่ดูเหมือน secret ระบบจะไม่ให้สร้างหรือบันทึกร้านจนกว่าจะลบออก ทั้งจาก UI และ API
 4. หลังสร้างร้าน ให้กด CTA “เชื่อม SML ร้านนี้” หรือเข้า `/owner/sml-connections?tenant=<tenant_id>`
 5. ทำตาม handoff หลังสร้างร้าน: เชื่อม SML -> รันรายงานทดสอบ -> ตั้ง LINE และแผนแจ้งเตือน
    - หน้า `/owner/tenants` ใช้ readiness checklist ชุดเดียวกันทั้งรายการร้าน, panel รายละเอียด และ Store Setup Cockpit

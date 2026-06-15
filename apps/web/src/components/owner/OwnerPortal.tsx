@@ -12,6 +12,7 @@ import Link from "next/link";
 import {
   deriveNotificationPeriodRange,
   deriveMorningBriefDateRange,
+  findSensitiveTenantNoteHints,
   getReportCatalogEntry,
   type BusinessSignalThresholdsConfig,
   type BusinessSignalRecord,
@@ -4207,33 +4208,6 @@ function buildTenantOnboardingRequestText(input: {
     "",
     "เพื่อความปลอดภัย กรุณาอย่าส่งรหัสผ่าน, token, channel secret หรือ key ลับในแชตนี้ ถ้าต้องใช้ secret ให้ให้ผู้ดูแลกรอกในหน้า Owner โดยตรง",
   ].join("\n");
-}
-
-function findSensitiveTenantNoteHints(value: string) {
-  const normalized = value.toLowerCase();
-  const hints: string[] = [];
-  const terms = [
-    ["token", "token"],
-    ["secret", "secret"],
-    ["password", "password"],
-    ["passwd", "password"],
-    ["pwd", "password"],
-    ["bearer", "bearer"],
-    ["access_token", "access token"],
-    ["channel secret", "channel secret"],
-    ["รหัสผ่าน", "รหัสผ่าน"],
-  ];
-
-  for (const [needle, label] of terms) {
-    if (normalized.includes(needle) && !hints.includes(label)) {
-      hints.push(label);
-    }
-  }
-  if (/\b[a-z0-9_-]{32,}\b/i.test(value) && !hints.includes("ค่าลับยาว")) {
-    hints.push("ค่าลับยาว");
-  }
-
-  return hints;
 }
 
 type OwnerPilotLaunchAction = {
@@ -10076,6 +10050,8 @@ function TenantDetailPanel({
     missingBranchAmount: editMissingBranchAmount,
     negativeGrossProfitAmount: editNegativeGrossProfitAmount,
   });
+  const editDescriptionSensitiveHints =
+    findSensitiveTenantNoteHints(editDescription);
   const canCancel =
     tenant.status !== "cancelled" &&
     deleteConfirmName.trim() === tenant.name.trim() &&
@@ -10107,6 +10083,9 @@ function TenantDetailPanel({
       return;
     }
     if (!thresholdValidation.ok) {
+      return;
+    }
+    if (editDescriptionSensitiveHints.length) {
       return;
     }
     await onUpdateTenant(tenant, {
@@ -10192,6 +10171,17 @@ function TenantDetailPanel({
               placeholder="โน้ตภายใน เช่น contact, branch, สถานะ rollout"
               value={editDescription}
             />
+            {editDescriptionSensitiveHints.length ? (
+              <span className="block text-xs leading-5 text-warning-600 dark:text-warning-400">
+                note นี้มีคำที่ดูเหมือนข้อมูลลับ:{" "}
+                {editDescriptionSensitiveHints.join(", ")} กรุณาลบออกแล้วบันทึก secret
+                ในหน้าที่เข้ารหัสเท่านั้น
+              </span>
+            ) : (
+              <span className="block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้ note สำหรับบริบทงานเท่านั้น ห้ามใส่ token, password หรือ key ลับ
+              </span>
+            )}
           </label>
         </div>
 
@@ -10473,7 +10463,12 @@ function TenantDetailPanel({
 
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={saveBusy || !editName.trim() || !thresholdValidation.ok}
+            disabled={
+              saveBusy ||
+              !editName.trim() ||
+              !thresholdValidation.ok ||
+              editDescriptionSensitiveHints.length > 0
+            }
             size="sm"
           >
             {saveBusy ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
