@@ -1574,10 +1574,8 @@ app.post("/api/owner/line-channels", async (request, reply) => {
     display_name: body.data.display_name,
     channel_type: "line_oa",
     scope: body.data.scope,
-    channel_access_token_configured: Boolean(
-      body.data.channel_access_token_configured,
-    ),
-    channel_secret_configured: Boolean(body.data.channel_secret_configured),
+    channel_access_token_configured: false,
+    channel_secret_configured: false,
     enabled: body.data.enabled ?? true,
     source: "manual",
     created_at: now,
@@ -13202,8 +13200,6 @@ const lineChannelCreateSchema = z.object({
   tenant_id: tenantIdSchema,
   display_name: z.string().trim().min(2).max(120),
   scope: z.enum(["tenant", "owner_shared"]).optional().default("tenant"),
-  channel_access_token_configured: z.boolean().optional().default(false),
-  channel_secret_configured: z.boolean().optional().default(false),
   enabled: z.boolean().optional().default(true),
 });
 

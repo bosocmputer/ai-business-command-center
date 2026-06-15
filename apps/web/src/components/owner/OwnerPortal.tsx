@@ -653,8 +653,6 @@ export default function OwnerPortal({
     useState<ValidationSignoffResult | null>(null);
   const [lineChannelName, setLineChannelName] = useState("");
   const [lineChannelShared, setLineChannelShared] = useState(false);
-  const [lineTokenConfigured, setLineTokenConfigured] = useState(false);
-  const [lineSecretConfigured, setLineSecretConfigured] = useState(false);
   const [lineSecretChannelId, setLineSecretChannelId] = useState("");
   const [lineAccessTokenInput, setLineAccessTokenInput] = useState("");
   const [lineChannelSecretInput, setLineChannelSecretInput] = useState("");
@@ -1728,22 +1726,26 @@ export default function OwnerPortal({
           tenant_id: selectedTenantId,
           display_name: displayName,
           scope: lineChannelShared ? "owner_shared" : "tenant",
-          channel_access_token_configured: lineTokenConfigured,
-          channel_secret_configured: lineSecretConfigured,
           enabled: true,
         }),
       });
 
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-        };
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: LineChannelRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.data) {
         throw new Error(payload.error || "เพิ่ม LINE OA ไม่สำเร็จ");
       }
 
       setLineChannelName("");
       setLineChannelShared(false);
-      setResult({ tone: "success", message: "เพิ่ม LINE OA ให้ร้านค้าแล้ว" });
+      setLineSecretChannelId(payload.data.id);
+      setResult({
+        tone: "success",
+        message:
+          "เพิ่ม LINE OA metadata แล้ว ขั้นต่อไปบันทึก Channel access token/secret แบบเข้ารหัส",
+      });
       await loadOwnerData();
     });
   }
@@ -3502,8 +3504,6 @@ export default function OwnerPortal({
           lineRecipients={lineRecipients}
           lineTargets={lineTargets}
           lineSecretChannelId={lineSecretChannelId}
-          lineSecretConfigured={lineSecretConfigured}
-          lineTokenConfigured={lineTokenConfigured}
           notificationEnabled={notificationEnabled}
           notificationDigestMode={notificationDigestMode}
           notificationManualScheduledDate={notificationManualScheduledDate}
@@ -3590,8 +3590,6 @@ export default function OwnerPortal({
           setLineChannelShared={setLineChannelShared}
           setLineChannelSecretInput={setLineChannelSecretInput}
           setLineSecretChannelId={setLineSecretChannelId}
-          setLineSecretConfigured={setLineSecretConfigured}
-          setLineTokenConfigured={setLineTokenConfigured}
           setNotificationEnabled={setNotificationEnabled}
           setNotificationDigestMode={setNotificationDigestMode}
           setNotificationManualScheduledDate={setNotificationManualScheduledDate}
@@ -3725,8 +3723,6 @@ type OwnerSectionContentProps = {
   lineRecipients: LineRecipientRecord[];
   lineTargets: LineTargetRecord[];
   lineSecretChannelId: string;
-  lineSecretConfigured: boolean;
-  lineTokenConfigured: boolean;
   notificationEnabled: boolean;
   notificationDigestMode: NotificationDigestMode;
   notificationManualScheduledDate: string;
@@ -3850,8 +3846,6 @@ type OwnerSectionContentProps = {
   setLineChannelShared: (value: boolean) => void;
   setLineChannelSecretInput: (value: string) => void;
   setLineSecretChannelId: (value: string) => void;
-  setLineSecretConfigured: (value: boolean) => void;
-  setLineTokenConfigured: (value: boolean) => void;
   setNotificationEnabled: (value: boolean) => void;
   setNotificationDigestMode: (value: NotificationDigestMode) => void;
   setNotificationManualScheduledDate: (value: string) => void;
@@ -5862,9 +5856,7 @@ function OwnerLineContent({
   lineChannelSecretInput,
   lineChannels,
   lineRecipients,
-  lineSecretConfigured,
   lineSecretChannelId,
-  lineTokenConfigured,
   onAssignLineRecipient,
   onApproveLineTarget,
   onSaveLineChannelSecrets,
@@ -5883,8 +5875,6 @@ function OwnerLineContent({
   setLineChannelShared,
   setLineChannelSecretInput,
   setLineSecretChannelId,
-  setLineSecretConfigured,
-  setLineTokenConfigured,
   setSelectedTenantId,
   tenants,
 }: OwnerSectionContentProps) {
@@ -5948,8 +5938,6 @@ function OwnerLineContent({
           lineChannelShared={lineChannelShared}
           lineChannelSecretInput={lineChannelSecretInput}
           lineSecretChannelId={lineSecretChannelId}
-          lineSecretConfigured={lineSecretConfigured}
-          lineTokenConfigured={lineTokenConfigured}
           onSaveLineChannelSecrets={onSaveLineChannelSecrets}
           onUpdateLineChannel={onUpdateLineChannel}
           selectedTenant={selectedTenant}
@@ -5960,8 +5948,6 @@ function OwnerLineContent({
           setLineChannelShared={setLineChannelShared}
           setLineChannelSecretInput={setLineChannelSecretInput}
           setLineSecretChannelId={setLineSecretChannelId}
-          setLineSecretConfigured={setLineSecretConfigured}
-          setLineTokenConfigured={setLineTokenConfigured}
           setSelectedTenantId={setSelectedTenantId}
           tenants={tenants}
         />
@@ -8776,8 +8762,6 @@ function LineChannelPanel({
   lineChannelShared,
   lineChannelSecretInput,
   lineSecretChannelId,
-  lineSecretConfigured,
-  lineTokenConfigured,
   onSaveLineChannelSecrets,
   onUpdateLineChannel,
   selectedTenant,
@@ -8788,8 +8772,6 @@ function LineChannelPanel({
   setLineChannelShared,
   setLineChannelSecretInput,
   setLineSecretChannelId,
-  setLineSecretConfigured,
-  setLineTokenConfigured,
   setSelectedTenantId,
   tenants,
 }: {
@@ -8800,8 +8782,6 @@ function LineChannelPanel({
   lineChannelShared: boolean;
   lineChannelSecretInput: string;
   lineSecretChannelId: string;
-  lineSecretConfigured: boolean;
-  lineTokenConfigured: boolean;
   onSaveLineChannelSecrets: (event: FormEvent<HTMLFormElement>) => void;
   onUpdateLineChannel: (input: {
     channel: LineChannelRecord;
@@ -8817,8 +8797,6 @@ function LineChannelPanel({
   setLineChannelShared: (value: boolean) => void;
   setLineChannelSecretInput: (value: string) => void;
   setLineSecretChannelId: (value: string) => void;
-  setLineSecretConfigured: (value: boolean) => void;
-  setLineTokenConfigured: (value: boolean) => void;
   setSelectedTenantId: (value: string) => void;
   tenants: TenantSummary[];
 }) {
@@ -8882,33 +8860,18 @@ function LineChannelPanel({
             </span>
           </label>
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
-              <input
-                checked={lineTokenConfigured}
-                className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
-                onChange={(event) =>
-                  setLineTokenConfigured(event.target.checked)
-                }
-                type="checkbox"
-              />
-              <span>มี Channel access token แล้ว</span>
-            </label>
-            <label className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
-              <input
-                checked={lineSecretConfigured}
-                className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
-                onChange={(event) =>
-                  setLineSecretConfigured(event.target.checked)
-                }
-                type="checkbox"
-              />
-              <span>มี Channel secret สำหรับ webhook แล้ว</span>
-            </label>
-          </div>
+          <p className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-xs leading-5 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
+            ขั้นนี้สร้างเฉพาะชื่อ LINE OA ในระบบ ยังไม่พร้อมส่งจริงจนกว่าจะบันทึก Channel access token
+            และ Channel secret ในฟอร์มถัดไป
+          </p>
 
-          <Button disabled={busy === "create-line-channel"} size="sm">
-            เพิ่ม LINE OA
+          <Button
+            disabled={busy === "create-line-channel" || !lineChannelName.trim()}
+            size="sm"
+          >
+            {busy === "create-line-channel"
+              ? "กำลังเพิ่ม..."
+              : "เพิ่ม LINE OA แล้วไปบันทึก secret"}
           </Button>
         </div>
       </form>
