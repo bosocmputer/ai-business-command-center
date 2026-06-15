@@ -4070,6 +4070,15 @@ type OwnerNextAction = {
   tone: OwnerBadgeTone;
 };
 
+type OwnerProofVerdict = {
+  actionLabel: string;
+  description: string;
+  href: string;
+  label: string;
+  title: string;
+  tone: OwnerBadgeTone;
+};
+
 function OwnerCockpitStatusBar({
   operationsStatus,
   tenants,
@@ -4447,6 +4456,7 @@ function OwnerProofEvidenceStrip({
     operationsStatus?.operational_alerts?.telegram.deliveries[0] ?? null;
   const latestFailure = operationsStatus?.report_health?.latest_javaws_failure ?? null;
   const proof = operationsStatus?.production_proof ?? null;
+  const verdict = buildProductionProofVerdict(proof, activeTenants.length);
   const scheduledProofValue = proof
     ? proof.scheduled_run_count > 0
       ? `${proof.scheduled_success_count.toLocaleString("th-TH")}/${proof.scheduled_run_count.toLocaleString("th-TH")} สำเร็จ`
@@ -4475,6 +4485,29 @@ function OwnerProofEvidenceStrip({
         >
           เปิด audit
         </Link>
+      </div>
+      <div
+        className={`mt-4 border-l-4 pl-4 ${ownerProofVerdictAccentClass(
+          verdict.tone,
+        )}`}
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <Badge color={verdict.tone}>{verdict.label}</Badge>
+            <h3 className="mt-2 text-base font-semibold text-gray-900 dark:text-white">
+              {verdict.title}
+            </h3>
+            <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">
+              {verdict.description}
+            </p>
+          </div>
+          <Link
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            href={verdict.href}
+          >
+            {verdict.actionLabel}
+          </Link>
+        </div>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <HealthFact
@@ -6818,6 +6851,166 @@ function buildOwnerCockpitStatus(
     title: "ระบบหลักพร้อมใช้งาน",
     tone: "success",
   };
+}
+
+function buildProductionProofVerdict(
+  proof: OwnerOperationsStatus["production_proof"] | null | undefined,
+  activeTenantCount: number,
+): OwnerProofVerdict {
+  if (!proof) {
+    return {
+      actionLabel: "เปิด audit",
+      description:
+        "ยังไม่มีข้อมูลสรุปรอบจริงล่าสุดในหน้านี้ ให้ดู audit เพื่อยืนยันว่ารอบแจ้งเตือนและ LINE delivery ทำงานสำเร็จแล้ว",
+      href: "/owner/audit",
+      label: "รอ proof",
+      title: "ยังสรุปความพร้อม pilot ไม่ได้",
+      tone: "warning",
+    };
+  }
+
+  if (proof.eligible_tenant_count <= 0) {
+    return {
+      actionLabel: "ตรวจร้านค้า",
+      description:
+        "ยังไม่มีร้านที่อยู่ใน coverage สำหรับรอบ production proof จึงยังไม่ควรใช้ข้อมูลนี้ประกอบการ demo หรือเปิด pilot",
+      href: "/owner",
+      label: "ยังไม่พร้อม",
+      title: "ยังไม่มีร้านพร้อมเข้ารอบจริง",
+      tone: "error",
+    };
+  }
+
+  if (proof.scheduled_run_count <= 0) {
+    return {
+      actionLabel: "เปิด audit",
+      description: `${proof.eligible_tenant_count.toLocaleString(
+        "th-TH",
+      )}/${Math.max(activeTenantCount, proof.active_tenant_count).toLocaleString(
+        "th-TH",
+      )} ร้านอยู่ใน coverage แล้ว แต่ยังไม่มีรอบแจ้งเตือนจริงในช่วง ${proof.window_days.toLocaleString(
+        "th-TH",
+      )} วันล่าสุด`,
+      href: "/owner/audit",
+      label: "รอรอบจริง",
+      title: "ต้องมี delivery จริงก่อนใช้เป็นหลักฐานขาย",
+      tone: "warning",
+    };
+  }
+
+  if (proof.scheduled_pending_count > 0) {
+    return {
+      actionLabel: "ดูสถานะรอบ",
+      description: `มีรอบแจ้งเตือนกำลังทำงาน ${proof.scheduled_pending_count.toLocaleString(
+        "th-TH",
+      )} รอบ รอให้จบก่อนสรุปว่ารอบนี้ผ่านหรือมี incident`,
+      href: "/owner/audit",
+      label: "กำลังรัน",
+      title: "ยังไม่ควรตัดสินจากตัวเลขระหว่างรอบ",
+      tone: "info",
+    };
+  }
+
+  if (proof.report_failure_count > 0 || proof.scheduled_failed_count > 0) {
+    const latestProblem = proof.latest_problem_at
+      ? `ล่าสุด ${formatDateTime(proof.latest_problem_at)}`
+      : "ยังไม่พบเวลาล่าสุด";
+    return {
+      actionLabel: "เปิด audit",
+      description: `พร้อมใช้ demo แบบมี caveat แต่ควรรอดู clean rounds ก่อนเปิดร้านใหม่ เพราะ ${proof.window_days.toLocaleString(
+        "th-TH",
+      )} วันล่าสุดมี report failed ${proof.report_failure_count.toLocaleString(
+        "th-TH",
+      )} ครั้ง และ notification failed ${proof.scheduled_failed_count.toLocaleString(
+        "th-TH",
+      )} ครั้ง (${latestProblem})`,
+      href: "/owner/audit",
+      label: "พร้อม demo มี caveat",
+      title: "ยังควรรอดูรอบที่ไม่มี failed ใหม่",
+      tone: "warning",
+    };
+  }
+
+  if (
+    proof.line_delivery_count <= 0 ||
+    proof.line_delivery_failed_count > 0 ||
+    (proof.line_delivery_success_rate !== null &&
+      proof.line_delivery_success_rate < 0.98)
+  ) {
+    return {
+      actionLabel: "ตรวจ LINE",
+      description: `รายงานสร้างได้ แต่หลักฐาน LINE delivery ยังไม่แน่นพอ: ${proof.line_delivery_success_count.toLocaleString(
+        "th-TH",
+      )}/${Math.max(1, proof.line_delivery_count).toLocaleString(
+        "th-TH",
+      )} ส่งสำเร็จในช่วง ${proof.window_days.toLocaleString("th-TH")} วันล่าสุด`,
+      href: "/owner/audit",
+      label: "ตรวจ delivery",
+      title: "ต้องยืนยันเส้นทางส่งผู้บริหารก่อน pilot",
+      tone: "warning",
+    };
+  }
+
+  if (proof.heavy_report_p90_ms !== null && proof.heavy_report_p90_ms >= 300000) {
+    return {
+      actionLabel: "ดู heavy report",
+      description: `heavy report p90 อยู่ที่ ${formatElapsedMs(
+        proof.heavy_report_p90_ms,
+      )} ถึงยังสำเร็จ แต่ควรตรวจ performance ก่อนเพิ่ม tenant หรือเพิ่มรอบแจ้งเตือน`,
+      href: "/owner/audit",
+      label: "ควรดู performance",
+      title: "ระบบผ่านแต่ heavy report เริ่มช้า",
+      tone: "warning",
+    };
+  }
+
+  if (
+    proof.scheduled_success_rate !== null &&
+    proof.scheduled_success_rate >= 0.98 &&
+    proof.line_delivery_success_rate !== null &&
+    proof.line_delivery_success_rate >= 0.98
+  ) {
+    return {
+      actionLabel: "ดูหลักฐานล่าสุด",
+      description: `${proof.eligible_tenant_count.toLocaleString(
+        "th-TH",
+      )}/${proof.active_tenant_count.toLocaleString(
+        "th-TH",
+      )} ร้านอยู่ใน coverage, รอบแจ้งเตือนและ LINE delivery ผ่านเกณฑ์ในช่วง ${proof.window_days.toLocaleString(
+        "th-TH",
+      )} วันล่าสุด ใช้เป็นหลักฐาน pilot ได้`,
+      href: "/owner/audit",
+      label: "พร้อม pilot",
+      title: "พร้อมใช้เป็น production proof",
+      tone: "success",
+    };
+  }
+
+  return {
+    actionLabel: "ดู audit",
+    description:
+      "มีหลักฐาน production proof แล้ว แต่ success rate ยังไม่ถึงเกณฑ์ 98% ให้ดูรายละเอียดรอบล่าสุดก่อนใช้เป็นหลักฐานเปิด pilot",
+    href: "/owner/audit",
+    label: "เก็บ proof ต่อ",
+    title: "มี proof แต่ยังควรดูรอบถัดไปเพิ่ม",
+    tone: "info",
+  };
+}
+
+function ownerProofVerdictAccentClass(tone: OwnerBadgeTone) {
+  if (tone === "success") {
+    return "border-success-500";
+  }
+  if (tone === "warning") {
+    return "border-warning-500";
+  }
+  if (tone === "error") {
+    return "border-error-500";
+  }
+  if (tone === "info") {
+    return "border-brand-500";
+  }
+  return "border-gray-300 dark:border-gray-700";
 }
 
 function buildOwnerNextAction(
