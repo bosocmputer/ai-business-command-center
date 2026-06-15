@@ -4087,7 +4087,7 @@ type OwnerPilotProofPackage = {
   proofLine: string;
 };
 
-type OwnerProofCopyStatus = "idle" | "success" | "error";
+type OwnerProofCopyStatus = "idle" | "success" | "manual";
 
 function OwnerCockpitStatusBar({
   operationsStatus,
@@ -4474,6 +4474,7 @@ function OwnerProofEvidenceStrip({
     proof,
   );
   const [copyStatus, setCopyStatus] = useState<OwnerProofCopyStatus>("idle");
+  const manualCopyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scheduledProofValue = proof
     ? proof.scheduled_run_count > 0
       ? `${proof.scheduled_success_count.toLocaleString("th-TH")}/${proof.scheduled_run_count.toLocaleString("th-TH")} สำเร็จ`
@@ -4487,16 +4488,24 @@ function OwnerProofEvidenceStrip({
   const copyButtonLabel =
     copyStatus === "success"
       ? "คัดลอกแล้ว"
-      : copyStatus === "error"
-      ? "ลองอีกครั้ง"
+      : copyStatus === "manual"
+      ? "ลองคัดลอกอีกครั้ง"
       : "คัดลอก";
 
   useEffect(() => {
-    if (copyStatus === "idle") {
+    if (copyStatus !== "success") {
       return;
     }
     const timeout = window.setTimeout(() => setCopyStatus("idle"), 2200);
     return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
+
+  useEffect(() => {
+    if (copyStatus !== "manual") {
+      return;
+    }
+    manualCopyTextareaRef.current?.focus();
+    manualCopyTextareaRef.current?.select();
   }, [copyStatus]);
 
   async function handleCopyPilotProof() {
@@ -4504,7 +4513,7 @@ function OwnerProofEvidenceStrip({
       await copyTextToClipboard(pilotProofShareText);
       setCopyStatus("success");
     } catch {
-      setCopyStatus("error");
+      setCopyStatus("manual");
     }
   }
 
@@ -4561,8 +4570,8 @@ function OwnerProofEvidenceStrip({
                 className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition ${
                   copyStatus === "success"
                     ? "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300"
-                    : copyStatus === "error"
-                    ? "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300"
+                    : copyStatus === "manual"
+                    ? "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300"
                     : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
                 }`}
                 onClick={() => void handleCopyPilotProof()}
@@ -4575,6 +4584,20 @@ function OwnerProofEvidenceStrip({
             <p className="mt-1 text-sm font-semibold leading-6 text-gray-900 dark:text-white">
               {pilotProofPackage.headline}
             </p>
+            {copyStatus === "manual" ? (
+              <div className="mt-3">
+                <p className="mb-1 text-xs leading-5 text-warning-700 dark:text-warning-300">
+                  Browser บล็อกการคัดลอกอัตโนมัติ เลือกข้อความไว้ให้แล้ว กด Ctrl/Cmd+C ได้เลย
+                </p>
+                <textarea
+                  ref={manualCopyTextareaRef}
+                  className="h-28 w-full resize-none rounded-lg border border-warning-200 bg-warning-50 p-2 text-xs leading-5 text-gray-800 outline-none focus:border-warning-400 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-gray-100"
+                  onFocus={(event) => event.currentTarget.select()}
+                  readOnly
+                  value={pilotProofShareText}
+                />
+              </div>
+            ) : null}
           </div>
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -7193,8 +7216,13 @@ function buildPilotProofShareText(
 
 async function copyTextToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Some browser contexts expose Clipboard API but still block writes.
+      // Fall through to the legacy copy command before showing manual copy UI.
+    }
   }
 
   const textarea = document.createElement("textarea");
@@ -7204,9 +7232,13 @@ async function copyTextToClipboard(text: string) {
   textarea.style.left = "-9999px";
   textarea.style.top = "0";
   document.body.appendChild(textarea);
+  textarea.focus();
   textarea.select();
+  textarea.setSelectionRange(0, text.length);
   try {
-    const copied = document.execCommand("copy");
+    const copied =
+      typeof document.execCommand === "function" &&
+      document.execCommand("copy");
     if (!copied) {
       throw new Error("copy command failed");
     }
