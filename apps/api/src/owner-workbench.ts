@@ -2,9 +2,13 @@ import type {
   BusinessSignalRecord,
   LineChannelRecord,
   LineTargetRecord,
+  LineAccessProfileKey,
   NotificationRuleRecord,
   NotificationRuleRunRecord,
+  ReportCategory,
+  ReportKey,
   ReportRunRecord,
+  TenantReportRolePermissionRecord,
   Tenant,
   TenantId,
 } from "@ai-bcc/shared";
@@ -117,6 +121,84 @@ export type OwnerWorkbenchNotificationSetupPayload = {
   recent_runs: NotificationRuleRunRecord[];
   target_count: number;
   enabled_target_count: number;
+};
+
+export type OwnerWorkbenchPermissionSetupPayload = {
+  tenant: Pick<Tenant, "id" | "name" | "status">;
+  reports: Array<{
+    report_key: ReportKey;
+    label: string;
+    description: string;
+    sensitive: boolean;
+  }>;
+  roles: Array<{
+    access_profile_key: LineAccessProfileKey;
+    label: string;
+    target_count: number;
+  }>;
+  permissions: TenantReportRolePermissionRecord[];
+  matrix: Partial<Record<LineAccessProfileKey, ReportKey[]>>;
+  target_counts: Partial<Record<LineAccessProfileKey, number>>;
+  impacted_notification_plans: Array<{
+    rule_id: string;
+    rule_name: string;
+    target_id: string;
+    target_display_name: string;
+    access_profile_key: LineAccessProfileKey;
+    report_key: ReportKey;
+    report_label: string;
+  }>;
+  updated_line_targets?: number;
+};
+
+export type OwnerWorkbenchReportSetupPayload = {
+  tenant: Pick<Tenant, "id" | "name" | "status"> & {
+    feature_flags: {
+      sml_chunked_heavy_reports_enabled: boolean;
+    };
+  };
+  reports: Array<{
+    report_key: ReportKey;
+    label: string;
+    short_label: string;
+    description: string;
+    category: ReportCategory;
+    sensitive: boolean;
+    heavy: boolean;
+    async_supported: boolean;
+    line_card: boolean;
+    signed_viewer: boolean;
+  }>;
+  latest_runs: Array<
+    Pick<
+      ReportRunRecord,
+      | "id"
+      | "tenant_id"
+      | "report_key"
+      | "params"
+      | "status"
+      | "started_at"
+      | "finished_at"
+      | "row_count"
+      | "safe_error_message"
+      | "queued_at"
+      | "claimed_at"
+      | "worker_id"
+      | "execution_strategy"
+      | "progress_stage"
+      | "progress_percent"
+      | "progress_updated_at"
+      | "failure_kind"
+      | "failure_phase"
+    >
+  >;
+  latest_snapshots: Array<{
+    report_key: ReportKey;
+    run_id: string;
+    generated_at: string;
+    params: ReportRunRecord["params"];
+    quality_status: string;
+  }>;
 };
 
 type OwnerTenantSummaryLike = {
@@ -282,7 +364,7 @@ function buildReportPermissionsStep(
       summary.health.line_targets_enabled > 0
         ? "ตรวจว่า role ผู้รับดูรายงานที่อยู่ในแผนแจ้งเตือนได้"
         : "เพิ่มผู้รับ LINE ก่อน แล้วค่อยตรวจสิทธิ์รายงาน",
-    href: `/owner/report-permissions?tenant=${encodeURIComponent(summary.tenant.id)}`,
+    href: `/owner-v2/stores/${encodeURIComponent(summary.tenant.id)}/permissions`,
   };
 }
 

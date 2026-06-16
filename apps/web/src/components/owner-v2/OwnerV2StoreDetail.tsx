@@ -1,0 +1,827 @@
+"use client";
+
+import type { FormEvent, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { findSensitiveTenantNoteHints, type Tenant } from "@ai-bcc/shared";
+import Badge from "@/components/ui/badge/Badge";
+import Button from "@/components/ui/button/Button";
+import { AlertIcon, CheckCircleIcon } from "@/icons";
+import { isAbortError, ownerV2Fetch } from "./api";
+import type {
+  OwnerV2StoreSetupCheck,
+  OwnerV2StoreSetupPayload,
+} from "./types";
+
+type StoreFormState = {
+  name: string;
+  description: string;
+  status: Exclude<Tenant["status"], "cancelled">;
+  plan_code: Tenant["planCode"];
+  current_period_end_date: string;
+  suspended_reason: string;
+};
+
+type DetailState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "success"; data: OwnerV2StoreSetupPayload };
+
+const editableStatuses: StoreFormState["status"][] = [
+  "trial",
+  "active",
+  "past_due",
+  "suspended",
+];
+
+export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
+  const [detailState, setDetailState] = useState<DetailState>({
+    status: "loading",
+  });
+  const [form, setForm] = useState<StoreFormState | null>(null);
+  const [initialForm, setInitialForm] = useState<StoreFormState | null>(null);
+  const [busy, setBusy] = useState<"save" | null>(null);
+  const [message, setMessage] = useState<{
+    tone: "success" | "warning" | "error";
+    text: string;
+  } | null>(null);
+
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setDetailState({ status: "loading" });
+      setMessage(null);
+      try {
+        const data = await ownerV2Fetch<OwnerV2StoreSetupPayload>(
+          `/api/owner/tenants/${encodeURIComponent(tenantId)}/store-setup`,
+          { signal },
+        );
+        if (signal?.aborted) {
+          return;
+        }
+        const nextForm = toStoreFormState(data.summary.tenant);
+        setDetailState({ status: "success", data });
+        setForm(nextForm);
+        setInitialForm(nextForm);
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        setDetailState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดข้อมูลร้านไม่สำเร็จ",
+        });
+      }
+    },
+    [tenantId],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  const sensitiveHints = useMemo(
+    () => findSensitiveTenantNoteHints(form?.description ?? ""),
+    [form?.description],
+  );
+  const selectedTenantStatus =
+    detailState.status === "success"
+      ? detailState.data.summary.tenant.status
+      : null;
+  const dirty =
+    form !== null &&
+    initialForm !== null &&
+    JSON.stringify(form) !== JSON.stringify(initialForm);
+  const saveDisabled =
+    busy !== null ||
+    selectedTenantStatus === "cancelled" ||
+    !form ||
+    !dirty ||
+    !form.name.trim() ||
+    sensitiveHints.length > 0;
+
+  async function saveStore(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+  if (!form || saveDisabled) {
+      setMessage({
+        tone: "warning",
+        text: sensitiveHints.length
+          ? "หมายเหตุมีคำที่เหมือนข้อมูลลับ กรุณาลบ token/password/secret ก่อนบันทึก"
+          : "ยังไม่มีข้อมูลที่เปลี่ยน หรือชื่อร้านยังไม่ครบ",
+      });
+      return;
+    }
+
+    setBusy("save");
+    setMessage(null);
+    try {
+      await ownerV2Fetch(`/api/owner/tenants/${encodeURIComponent(tenantId)}`, {
+        method: "PATCH",
+        body: {
+          name: form.name.trim(),
+          description: form.description.trim(),
+          status: form.status,
+          plan_code: form.plan_code,
+          current_period_end: dateInputToIso(form.current_period_end_date),
+          suspended_reason:
+            form.status === "suspended"
+              ? form.suspended_reason.trim() || null
+              : null,
+        },
+      });
+      setMessage({
+        tone: "success",
+        text: "บันทึกข้อมูลร้านแล้ว ระบบโหลด readiness ล่าสุดให้เรียบร้อย",
+      });
+      await load();
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "บันทึกข้อมูลร้านไม่สำเร็จ กรุณาลองใหม่",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (detailState.status === "loading" || !form) {
+    return <StoreDetailSkeleton />;
+  }
+
+  if (detailState.status === "error") {
+    return (
+      <Panel>
+        <PanelBody>
+          <Notice
+            tone="error"
+            title="โหลดข้อมูลร้านไม่สำเร็จ"
+            text={`${detailState.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
+          />
+          <Button
+            className="mt-4 h-10 px-4 py-0"
+            onClick={() => void load()}
+            type="button"
+          >
+            รีเฟรชข้อมูลร้าน
+          </Button>
+        </PanelBody>
+      </Panel>
+    );
+  }
+
+  const detail = detailState.data;
+  const tenant = detail.summary.tenant;
+  const readiness = detail.readiness;
+  const nextAction = readiness.next_action;
+
+  return (
+    <div className="space-y-5 sm:space-y-6">
+      {message ? (
+        <Notice tone={message.tone} title="สถานะข้อมูลร้าน" text={message.text} />
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Panel>
+          <PanelHeader
+            action={
+              tenant.status === "cancelled" ? (
+                <Badge color="error">ยกเลิกแล้ว</Badge>
+              ) : (
+                <Badge color={readiness.ready ? "success" : "warning"}>
+                  {readiness.ready
+                    ? "พร้อมใช้งาน"
+                    : `${readiness.completed}/${readiness.total} พร้อม`}
+                </Badge>
+              )
+            }
+            title="ข้อมูลร้าน"
+          />
+          <PanelBody>
+            <form className="space-y-5" onSubmit={saveStore}>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <Field label="ชื่อร้าน">
+                  <input
+                    className="owner-v2-input"
+                    disabled={tenant.status === "cancelled"}
+                    onChange={(event) =>
+                      setForm((current) =>
+                        current
+                          ? { ...current, name: event.target.value }
+                          : current,
+                      )
+                    }
+                    value={form.name}
+                  />
+                </Field>
+                <Field label="tenant_id">
+                  <input
+                    className="owner-v2-input font-mono"
+                    disabled
+                    value={tenant.id}
+                  />
+                </Field>
+                <Field label="Plan">
+                  <select
+                    className="owner-v2-input"
+                    disabled={tenant.status === "cancelled"}
+                    onChange={(event) =>
+                      setForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              plan_code: event.target.value as Tenant["planCode"],
+                            }
+                          : current,
+                      )
+                    }
+                    value={form.plan_code}
+                  >
+                    <option value="starter">starter</option>
+                    <option value="business">business</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </Field>
+                <Field label="สถานะ">
+                  <select
+                    className="owner-v2-input"
+                    disabled={tenant.status === "cancelled"}
+                    onChange={(event) =>
+                      setForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              status: event.target
+                                .value as StoreFormState["status"],
+                            }
+                          : current,
+                      )
+                    }
+                    value={form.status}
+                  >
+                    {editableStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {formatTenantStatus(status)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field
+                  help="เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์"
+                  label="สิ้นสุดรอบใช้งาน"
+                >
+                  <input
+                    className="owner-v2-input"
+                    disabled={tenant.status === "cancelled"}
+                    onChange={(event) =>
+                      setForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              current_period_end_date: event.target.value,
+                            }
+                          : current,
+                      )
+                    }
+                    type="date"
+                    value={form.current_period_end_date}
+                  />
+                </Field>
+                <Field
+                  help={
+                    form.status === "suspended"
+                      ? "ข้อความนี้ช่วยให้ admin คนถัดไปรู้เหตุผล"
+                      : "ใช้เมื่อสถานะเป็นระงับ"
+                  }
+                  label="เหตุผลระงับ"
+                >
+                  <input
+                    className="owner-v2-input"
+                    disabled={
+                      tenant.status === "cancelled" ||
+                      form.status !== "suspended"
+                    }
+                    onChange={(event) =>
+                      setForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              suspended_reason: event.target.value,
+                            }
+                          : current,
+                      )
+                    }
+                    value={form.suspended_reason}
+                  />
+                </Field>
+              </div>
+
+              <Field
+                help={
+                  sensitiveHints.length
+                    ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
+                    : "ห้ามใส่ token/password/secret ในช่องนี้"
+                }
+                label="หมายเหตุ"
+              >
+                <textarea
+                  className="owner-v2-input min-h-28"
+                  disabled={tenant.status === "cancelled"}
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current
+                        ? { ...current, description: event.target.value }
+                        : current,
+                    )
+                  }
+                  value={form.description}
+                />
+              </Field>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  className="h-10 px-4 py-0"
+                  disabled={saveDisabled}
+                  type="submit"
+                >
+                  {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
+                </Button>
+                <Button
+                  className="h-10 px-4 py-0"
+                  disabled={busy !== null || !dirty}
+                  onClick={() => {
+                    setForm(initialForm);
+                    setMessage(null);
+                  }}
+                  type="button"
+                  variant="outline"
+                >
+                  คืนค่าล่าสุด
+                </Button>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  ปุ่มบันทึกเปิดเมื่อข้อมูลเปลี่ยนและไม่มีข้อมูลลับในหมายเหตุ
+                </p>
+              </div>
+            </form>
+          </PanelBody>
+        </Panel>
+
+        <div className="space-y-6">
+          <Panel>
+            <PanelHeader
+              action={
+                <Badge color={readiness.ready ? "success" : "warning"}>
+                  {readiness.completed}/{readiness.total}
+                </Badge>
+              }
+              title="Readiness"
+            />
+            <PanelBody>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.06]">
+                <div
+                  className={`h-full rounded-full ${
+                    readiness.ready ? "bg-success-500" : "bg-brand-500"
+                  }`}
+                  style={{
+                    width: `${Math.round(
+                      (readiness.completed / Math.max(1, readiness.total)) *
+                        100,
+                    )}%`,
+                  }}
+                />
+              </div>
+              {nextAction ? (
+                <div className="mt-4 rounded-xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
+                  <p className="text-sm font-semibold text-warning-800 dark:text-warning-200">
+                    ขั้นต่อไป: {nextAction.label}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-warning-700 dark:text-warning-300">
+                    {nextAction.detail}
+                  </p>
+                  <Link
+                    className="mt-3 inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white shadow-theme-xs hover:bg-brand-600"
+                    href={v2HrefForCheck(tenant.id, nextAction)}
+                  >
+                    เปิดขั้นนี้
+                  </Link>
+                </div>
+              ) : (
+                <Notice
+                  tone="success"
+                  title="ร้านนี้พร้อมใช้งาน"
+                  text="ตรวจหน้าลูกค้าหรือรอบแจ้งเตือนได้จากหน้านี้"
+                />
+              )}
+              <div className="mt-5 space-y-3">
+                {readiness.checks.map((check) => (
+                  <ReadinessRow
+                    check={check}
+                    key={check.key}
+                    tenantId={tenant.id}
+                  />
+                ))}
+              </div>
+            </PanelBody>
+          </Panel>
+
+          <Panel>
+            <PanelHeader title="ทางลัด" />
+            <PanelBody>
+              <div className="grid grid-cols-1 gap-3">
+                {detail.summary.customer_dashboard_path ? (
+                  <QuickLink
+                    href={detail.summary.customer_dashboard_path}
+                    label="เปิด dashboard ลูกค้า"
+                    value={detail.summary.customer_dashboard_path}
+                  />
+                ) : null}
+                <QuickLink
+                  href={`/owner-v2?tenant=${encodeURIComponent(tenant.id)}`}
+                  label="เปิดใน Workbench"
+                  value="ดูทุกขั้นตอนแบบ lazy loading"
+                />
+                <QuickLink
+                  href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}/sml`}
+                  label="ตั้งค่า SML"
+                  value={detail.datasource.database ?? "ยังไม่เลือก database"}
+                />
+              </div>
+            </PanelBody>
+          </Panel>
+        </div>
+      </div>
+
+      <Panel>
+        <PanelHeader title="สถานะระบบของร้าน" />
+        <PanelBody>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Fact
+              label="SML datasource"
+              tone={detail.datasource.kind === "sml_javaws" ? "success" : "warning"}
+              value={
+                detail.datasource.kind === "sml_javaws"
+                  ? detail.datasource.database ?? "ตั้งค่าแล้ว"
+                  : "ยังไม่พร้อม"
+              }
+            />
+            <Fact
+              label="LINE พร้อมส่ง"
+              tone={
+                detail.summary.health.line_targets_enabled > 0
+                  ? "success"
+                  : "warning"
+              }
+              value={`${detail.summary.health.line_targets_enabled}/${detail.summary.health.line_targets_total} ผู้รับ`}
+            />
+            <Fact
+              label="แผนแจ้งเตือน"
+              tone={
+                detail.summary.health.notification_rules_enabled > 0
+                  ? "success"
+                  : "warning"
+              }
+              value={`${detail.summary.health.notification_rules_enabled}/${detail.summary.health.notification_rules_total} แผนเปิด`}
+            />
+            <Fact
+              label="Business signals"
+              tone={
+                detail.summary.health.critical_business_signals > 0
+                  ? "error"
+                  : detail.summary.health.open_business_signals > 0
+                    ? "warning"
+                    : "success"
+              }
+              value={`${detail.summary.health.open_business_signals} เปิดอยู่`}
+            />
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Fact
+              label="รายงานล่าสุด"
+              value={
+                detail.summary.health.latest_report_run_at
+                  ? `${formatRunStatus(detail.summary.health.latest_report_status)} · ${formatDateTime(detail.summary.health.latest_report_run_at)}`
+                  : "ยังไม่มี run"
+              }
+            />
+            <Fact
+              label="Snapshot ล่าสุด"
+              value={formatDateTime(detail.summary.health.latest_snapshot_at)}
+            />
+            <Fact
+              label="LINE delivery ล่าสุด"
+              value={
+                detail.summary.health.latest_line_delivery_at
+                  ? `${formatLineDeliveryStatus(detail.summary.health.latest_line_delivery_status)} · ${formatDateTime(detail.summary.health.latest_line_delivery_at)}`
+                  : "ยังไม่มี delivery"
+              }
+            />
+            <Fact
+              label="แจ้งเตือนล่าสุด"
+              value={
+                detail.summary.health.latest_notification_run_at
+                  ? `${formatRunStatus(detail.summary.health.latest_notification_run_status)} · ${formatDateTime(detail.summary.health.latest_notification_run_at)}`
+                  : "ยังไม่มีรอบ"
+              }
+            />
+          </div>
+        </PanelBody>
+      </Panel>
+    </div>
+  );
+}
+
+function Panel({ children }: { children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      {children}
+    </section>
+  );
+}
+
+function PanelHeader({
+  action,
+  title,
+}: {
+  action?: ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+      <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
+        {title}
+      </h3>
+      {action}
+    </div>
+  );
+}
+
+function PanelBody({ children }: { children: ReactNode }) {
+  return (
+    <div className="border-t border-gray-100 p-5 sm:p-6 dark:border-gray-800">
+      {children}
+    </div>
+  );
+}
+
+function Field({
+  children,
+  help,
+  label,
+}: {
+  children: ReactNode;
+  help?: string;
+  label: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+        {label}
+      </span>
+      {children}
+      {help ? (
+        <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {help}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function ReadinessRow({
+  check,
+  tenantId,
+}: {
+  check: OwnerV2StoreSetupCheck;
+  tenantId: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <span
+        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+          check.ok
+            ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
+            : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300"
+        }`}
+      >
+        {check.ok ? (
+          <CheckCircleIcon className="h-4 w-4" />
+        ) : (
+          <AlertIcon className="h-4 w-4" />
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+              {check.label}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {check.detail}
+            </p>
+          </div>
+          <Link
+            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+            href={v2HrefForCheck(tenantId, check)}
+          >
+            {check.ok ? "ดู" : "ทำต่อ"}
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickLink({
+  href,
+  label,
+  value,
+}: {
+  href: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Link
+      className="block rounded-xl border border-gray-100 bg-gray-50 p-3 hover:border-brand-200 hover:bg-brand-50/40 dark:border-gray-800 dark:bg-white/[0.02] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
+      href={href}
+    >
+      <span className="block text-sm font-semibold text-gray-800 dark:text-white/90">
+        {label}
+      </span>
+      <span className="mt-1 block break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
+        {value}
+      </span>
+    </Link>
+  );
+}
+
+function Fact({
+  label,
+  tone = "light",
+  value,
+}: {
+  label: string;
+  tone?: "success" | "warning" | "error" | "light";
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+        <Badge color={tone} size="sm">
+          {tone === "success"
+            ? "ปกติ"
+            : tone === "warning"
+              ? "ต้องดู"
+              : tone === "error"
+                ? "สำคัญ"
+                : "ข้อมูล"}
+        </Badge>
+      </div>
+      <p className="mt-3 break-words text-sm font-semibold text-gray-900 dark:text-white">
+        {value || "-"}
+      </p>
+    </div>
+  );
+}
+
+function Notice({
+  text,
+  title,
+  tone,
+}: {
+  text: string;
+  title: string;
+  tone: "success" | "warning" | "error";
+}) {
+  const classes = {
+    success:
+      "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
+    warning:
+      "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
+    error:
+      "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
+  }[tone];
+  return (
+    <div className={`rounded-xl border p-4 ${classes}`}>
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="mt-1 text-sm leading-6">{text}</p>
+    </div>
+  );
+}
+
+function StoreDetailSkeleton() {
+  return (
+    <div className="space-y-5 sm:space-y-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="h-[520px] animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+        <div className="space-y-6">
+          <div className="h-80 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+          <div className="h-48 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+        </div>
+      </div>
+      <div className="h-56 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+    </div>
+  );
+}
+
+function toStoreFormState(tenant: Tenant): StoreFormState {
+  return {
+    name: tenant.name,
+    description: tenant.description ?? "",
+    status:
+      tenant.status === "cancelled"
+        ? "suspended"
+        : (tenant.status as StoreFormState["status"]),
+    plan_code: tenant.planCode,
+    current_period_end_date: isoToDateInput(tenant.currentPeriodEnd),
+    suspended_reason: tenant.suspendedReason ?? "",
+  };
+}
+
+function isoToDateInput(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+  return value.slice(0, 10);
+}
+
+function dateInputToIso(value: string) {
+  if (!value) {
+    return null;
+  }
+  return new Date(`${value}T00:00:00+07:00`).toISOString();
+}
+
+function v2HrefForCheck(tenantId: string, check: OwnerV2StoreSetupCheck) {
+  const encodedTenantId = encodeURIComponent(tenantId);
+  if (check.key === "sml_javaws") {
+    return `/owner-v2/stores/${encodedTenantId}/sml`;
+  }
+  if (check.key === "report_test") {
+    return `/owner-v2/stores/${encodedTenantId}/reports`;
+  }
+  if (check.key === "line_channel" || check.key === "line_target") {
+    return `/owner-v2/stores/${encodedTenantId}/line`;
+  }
+  if (check.key === "report_permissions") {
+    return `/owner-v2/stores/${encodedTenantId}/permissions`;
+  }
+  if (check.key === "notification_plan") {
+    return `/owner-v2/stores/${encodedTenantId}/notifications`;
+  }
+  return `/owner-v2/stores/${encodedTenantId}`;
+}
+
+function formatTenantStatus(status: string) {
+  const labels: Record<string, string> = {
+    trial: "ทดลองใช้",
+    active: "ใช้งาน",
+    past_due: "ค้างชำระ",
+    suspended: "ระงับ",
+    cancelled: "ยกเลิก",
+  };
+  return labels[status] ?? status;
+}
+
+function formatRunStatus(status?: string | null) {
+  if (!status) {
+    return "ยังไม่ทราบ";
+  }
+  const labels: Record<string, string> = {
+    queued: "รอรัน",
+    running: "กำลังรัน",
+    success: "สำเร็จ",
+    failed: "ล้มเหลว",
+  };
+  return labels[status] ?? status;
+}
+
+function formatLineDeliveryStatus(status?: string | null) {
+  if (!status) {
+    return "ยังไม่ทราบ";
+  }
+  const labels: Record<string, string> = {
+    sent: "ส่งแล้ว",
+    failed: "ส่งไม่สำเร็จ",
+    skipped: "ข้าม",
+  };
+  return labels[status] ?? status;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "ยังไม่มีเวลา";
+  }
+  return new Intl.DateTimeFormat("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Bangkok",
+  }).format(new Date(value));
+}

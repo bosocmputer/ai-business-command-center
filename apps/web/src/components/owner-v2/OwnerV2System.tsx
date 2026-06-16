@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch } from "./api";
@@ -88,22 +87,12 @@ export default function OwnerV2System() {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
       <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              Runtime readiness
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              แสดงเฉพาะสถานะที่ admin ต้องรู้ ไม่แสดง secret value กลับมาบน UI
-            </p>
-          </div>
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
-            href="/owner/settings"
-          >
-            แก้ system config
-          </Link>
-        </div>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+          Runtime readiness
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          แสดงเฉพาะสถานะที่ admin ต้องรู้ ไม่แสดง secret value กลับมาบน UI
+        </p>
         <div className="mt-5 grid gap-3 md:grid-cols-2">
           <Fact
             label="Config source"

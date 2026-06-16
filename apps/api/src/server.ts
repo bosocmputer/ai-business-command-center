@@ -226,7 +226,9 @@ import {
   sanitizeWorkbenchDatasourceStatus,
   type OwnerWorkbenchLineSetupPayload,
   type OwnerWorkbenchNotificationSetupPayload,
+  type OwnerWorkbenchPermissionSetupPayload,
   type OwnerWorkbenchPayload,
+  type OwnerWorkbenchReportSetupPayload,
   type OwnerWorkbenchSmlSetupPayload,
 } from "./owner-workbench.js";
 
@@ -653,6 +655,28 @@ app.get("/api/owner/store-setup", async (request, reply) => {
   };
 });
 
+app.get(
+  "/api/owner/tenants/:tenantId/store-setup",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const detail = await buildOwnerStoreSetupDetail(routeParams.data.tenantId);
+    if (!detail) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    return { data: detail };
+  },
+);
+
 app.get("/api/owner/setup-status", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
   if (!adminAuth.ok) {
@@ -909,6 +933,124 @@ app.get(
         target_count: safeTargets.length,
         enabled_target_count: enabledTargets.length,
       } satisfies OwnerWorkbenchNotificationSetupPayload,
+    };
+  },
+);
+
+app.get(
+  "/api/owner/tenants/:tenantId/report-permissions",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const response = await buildTenantReportPermissionsResponse(tenant.id, [
+      tenant,
+    ]);
+
+    return {
+      data: {
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+        },
+        reports: response.reports,
+        roles: response.roles,
+        permissions: response.permissions,
+        matrix: response.matrix,
+        target_counts: response.target_counts,
+        impacted_notification_plans: response.impacted_notification_plans,
+      } satisfies OwnerWorkbenchPermissionSetupPayload,
+    };
+  },
+);
+
+app.get(
+  "/api/owner/tenants/:tenantId/report-setup",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const [runs, snapshots] = await Promise.all([
+      systemStore.listRuns(tenant.id, undefined, 40),
+      Promise.all(
+        reportKeyValues.map(async (reportKey) => {
+          const snapshot = await systemStore.getLatestSnapshot(
+            tenant.id,
+            reportKey,
+          );
+          if (!snapshot) {
+            return null;
+          }
+          return {
+            report_key: snapshot.report_key,
+            run_id: snapshot.run_id,
+            generated_at: snapshot.generated_at,
+            params: snapshot.params,
+            quality_status: snapshot.quality_status,
+          };
+        }),
+      ),
+    ]);
+    const featureFlags = tenant.featureFlags ?? tenantFeatureFlagsSchema.parse({});
+
+    return {
+      data: {
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+          feature_flags: {
+            sml_chunked_heavy_reports_enabled:
+              featureFlags.sml_chunked_heavy_reports_enabled,
+          },
+        },
+        reports: reportKeyValues.map((reportKey) => {
+          const entry = getReportCatalogEntry(reportKey);
+          const asyncSupported = isChunkedHeavyReportKey(reportKey);
+          return {
+            report_key: reportKey,
+            label: entry.permissionLabel,
+            short_label: entry.shortLabel,
+            description: entry.permissionDescription,
+            category: entry.category,
+            sensitive: entry.sensitive,
+            heavy: asyncSupported,
+            async_supported: asyncSupported,
+            line_card: entry.capabilities.lineCard,
+            signed_viewer: entry.capabilities.signedViewer,
+          };
+        }),
+        latest_runs: runs.map(toOwnerReportRunSummary),
+        latest_snapshots: snapshots.filter(
+          (snapshot): snapshot is NonNullable<typeof snapshot> =>
+            Boolean(snapshot),
+        ),
+      } satisfies OwnerWorkbenchReportSetupPayload,
     };
   },
 );
@@ -11259,6 +11401,29 @@ function toOwnerNotificationRule(rule: NotificationRuleRecord) {
   return {
     ...rule,
     next_run: getNextNotificationRunAt({ rule }),
+  };
+}
+
+function toOwnerReportRunSummary(run: ReportRunRecord) {
+  return {
+    id: run.id,
+    tenant_id: run.tenant_id,
+    report_key: run.report_key,
+    params: run.params,
+    status: run.status,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    row_count: run.row_count,
+    safe_error_message: run.safe_error_message,
+    queued_at: run.queued_at ?? null,
+    claimed_at: run.claimed_at ?? null,
+    worker_id: run.worker_id ?? null,
+    execution_strategy: run.execution_strategy ?? null,
+    progress_stage: run.progress_stage ?? null,
+    progress_percent: run.progress_percent ?? null,
+    progress_updated_at: run.progress_updated_at ?? null,
+    failure_kind: run.failure_kind ?? null,
+    failure_phase: run.failure_phase ?? null,
   };
 }
 

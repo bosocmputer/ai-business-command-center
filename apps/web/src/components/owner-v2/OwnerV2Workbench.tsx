@@ -14,6 +14,7 @@ import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
   OwnerV2PermissionSetupPayload,
+  OwnerV2ReportSetupPayload,
   OwnerV2SetupStep,
   OwnerV2SmlSetupPayload,
   OwnerV2StepId,
@@ -30,6 +31,7 @@ type DetailState =
       step: OwnerV2StepId;
       data:
         | OwnerV2SmlSetupPayload
+        | OwnerV2ReportSetupPayload
         | OwnerV2LineSetupPayload
         | OwnerV2NotificationSetupPayload
         | OwnerV2PermissionSetupPayload
@@ -57,8 +59,10 @@ const stepLabels: Record<OwnerV2StepId, string> = {
 export default function OwnerV2Workbench() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTenantId = searchParams.get("tenant") ?? "";
-  const initialStep = parseStep(searchParams.get("step"));
+  const queryTenantId = searchParams.get("tenant") ?? "";
+  const queryStep = parseStep(searchParams.get("step"));
+  const initialTenantId = queryTenantId;
+  const initialStep = queryStep;
   const [selectedTenantId, setSelectedTenantId] = useState(initialTenantId);
   const [activeStep, setActiveStep] = useState<OwnerV2StepId>(initialStep);
   const activeStepRef = useRef<OwnerV2StepId>(initialStep);
@@ -108,6 +112,16 @@ export default function OwnerV2Workbench() {
   useEffect(() => {
     activeStepRef.current = activeStep;
   }, [activeStep]);
+
+  useEffect(() => {
+    if (queryTenantId !== selectedTenantId) {
+      setSelectedTenantId(queryTenantId);
+      setDetailState({ status: "idle" });
+    }
+    if (queryStep !== activeStepRef.current) {
+      setActiveStep(queryStep);
+    }
+  }, [queryStep, queryTenantId, selectedTenantId]);
 
   const loadWorkbench = useCallback(
     async (tenantId: string, signal?: AbortSignal) => {
@@ -171,6 +185,7 @@ export default function OwnerV2Workbench() {
         const path = detailEndpointForStep(tenantId, step);
         const data = await ownerV2Fetch<
           | OwnerV2SmlSetupPayload
+          | OwnerV2ReportSetupPayload
           | OwnerV2LineSetupPayload
           | OwnerV2NotificationSetupPayload
           | OwnerV2PermissionSetupPayload
@@ -248,7 +263,7 @@ export default function OwnerV2Workbench() {
   if (workbench && workbench.tenants.length === 0) {
     return (
       <WorkbenchMessage
-        actionHref="/owner-v2/new"
+        actionHref="/owner-v2/stores/new"
         actionLabel="เพิ่มร้านแรก"
         message="ยังไม่มีร้านในระบบ เริ่มจากสร้างร้านแล้วค่อยเชื่อม SML และ LINE"
         title="ยังไม่มีร้านให้จัดการ"
@@ -272,7 +287,7 @@ export default function OwnerV2Workbench() {
             </div>
             <Link
               className="inline-flex h-9 items-center justify-center rounded-lg bg-brand-500 px-3 text-sm font-medium text-white hover:bg-brand-600"
-              href="/owner-v2/new"
+              href="/owner-v2/stores/new"
             >
               เพิ่มร้าน
             </Link>
@@ -546,11 +561,18 @@ function StepDetail({
   if (detailState.status !== "success") {
     return <DetailSkeleton />;
   }
-  if (activeStep === "sml" || activeStep === "reports") {
+  if (activeStep === "sml") {
     return (
-      <SmlOrReportStep
+      <SmlStep
         data={detailState.data as OwnerV2SmlSetupPayload}
-        mode={activeStep}
+        tenantId={selectedTenant.id}
+      />
+    );
+  }
+  if (activeStep === "reports") {
+    return (
+      <ReportStep
+        data={detailState.data as OwnerV2ReportSetupPayload}
         tenantId={selectedTenant.id}
       />
     );
@@ -601,9 +623,9 @@ function StoreStep({ selectedTenant }: { selectedTenant: OwnerV2Tenant }) {
       <div className="flex flex-wrap gap-2">
         <Link
           className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
-          href={`/owner/tenants?tenant=${encodeURIComponent(selectedTenant.id)}`}
+          href={`/owner-v2/stores/${encodeURIComponent(selectedTenant.id)}`}
         >
-          แก้ข้อมูลร้านใน v1
+          เปิดหน้าร้าน
         </Link>
         {selectedTenant.dashboard_path ? (
           <Link
@@ -618,13 +640,11 @@ function StoreStep({ selectedTenant }: { selectedTenant: OwnerV2Tenant }) {
   );
 }
 
-function SmlOrReportStep({
+function SmlStep({
   data,
-  mode,
   tenantId,
 }: {
   data: OwnerV2SmlSetupPayload;
-  mode: "sml" | "reports";
   tenantId: string;
 }) {
   const datasource = data.datasource;
@@ -633,23 +653,17 @@ function SmlOrReportStep({
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            {mode === "sml" ? "SML JavaWS" : "ทดสอบรายงาน"}
+            SML JavaWS
           </h3>
           <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {mode === "sml"
-              ? "แสดงเฉพาะสถานะ config ที่ปลอดภัย ไม่แสดง password หรือ token"
-              : "ใช้ตรวจว่ารายงานรันสำเร็จจริงก่อนเปิดแจ้งเตือนประจำวัน"}
+            แสดงเฉพาะสถานะ config ที่ปลอดภัย ไม่แสดง password หรือ token
           </p>
         </div>
         <Link
           className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
-          href={
-            mode === "sml"
-              ? `/owner/sml-connections?tenant=${encodeURIComponent(tenantId)}`
-              : `/owner/reports?tenant=${encodeURIComponent(tenantId)}`
-          }
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/sml`}
         >
-          {mode === "sml" ? "เปิดฟอร์ม SML" : "รันรายงานทดสอบ"}
+          เปิดฟอร์ม SML
         </Link>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
@@ -686,6 +700,83 @@ function SmlOrReportStep({
   );
 }
 
+function ReportStep({
+  data,
+  tenantId,
+}: {
+  data: OwnerV2ReportSetupPayload;
+  tenantId: string;
+}) {
+  const latestRun = data.latest_runs[0] ?? null;
+  const heavyReports = data.reports.filter((report) => report.heavy);
+  const asyncHeavyReports = heavyReports.filter((report) => report.async_supported);
+  return (
+    <div className="space-y-4 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+            ทดสอบรายงาน
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้ตรวจว่ารายงานรันสำเร็จจริงก่อนเปิดแจ้งเตือนประจำวัน
+          </p>
+        </div>
+        <Link
+          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/reports`}
+        >
+          รันรายงานทดสอบ
+        </Link>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <Fact label="รายงานทั้งหมด" value={`${data.reports.length} รายงาน`} />
+        <Fact
+          label="Heavy report"
+          value={`${heavyReports.length} รายงาน`}
+        />
+        <Fact
+          label="Chunked runner"
+          value={
+            data.tenant.feature_flags.sml_chunked_heavy_reports_enabled
+              ? "เปิดใช้งาน"
+              : "ยังปิดอยู่"
+          }
+        />
+        <Fact
+          label="Snapshot ล่าสุด"
+          value={`${data.latest_snapshots.length} รายงาน`}
+        />
+      </div>
+      {latestRun ? (
+        <InlineNotice
+          message={`${latestRun.report_key} · ${formatDateTime(
+            latestRun.finished_at ?? latestRun.started_at,
+          )} · ${latestRun.row_count.toLocaleString("th-TH")} rows${
+            latestRun.failure_phase ? ` · phase ${latestRun.failure_phase}` : ""
+          }`}
+          title={`รายงานล่าสุด: ${formatReportRunStatus(latestRun.status)}`}
+          tone={latestRun.status === "success" ? "success" : "warning"}
+        />
+      ) : (
+        <InlineNotice
+          message="ยังไม่มี report run ล่าสุด กดรันรายงานทดสอบก่อนเปิดแผนแจ้งเตือน"
+          title="ยังไม่มีหลักฐานรายงาน"
+          tone="warning"
+        />
+      )}
+      {asyncHeavyReports.length ? (
+        <InlineNotice
+          message={`${asyncHeavyReports
+            .map((report) => report.short_label)
+            .join(", ")} รองรับ async/chunked เพื่อลด timeout ของ SML JavaWS`}
+          title="Heavy report พร้อมรันแบบ async"
+          tone="info"
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function LineStep({
   data,
   tenantId,
@@ -706,7 +797,7 @@ function LineStep({
         </div>
         <Link
           className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
-          href={`/owner/line?tenant=${encodeURIComponent(tenantId)}`}
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
         >
           จัดการ LINE
         </Link>
@@ -777,7 +868,7 @@ function PermissionStep({
         </div>
         <Link
           className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
-          href={`/owner/report-permissions?tenant=${encodeURIComponent(tenantId)}`}
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
         >
           แก้สิทธิ์
         </Link>
@@ -828,7 +919,7 @@ function NotificationStep({
         </div>
         <Link
           className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
-          href={`/owner/notifications?tenant=${encodeURIComponent(tenantId)}`}
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
         >
           ตั้งแผนแจ้งเตือน
         </Link>
@@ -998,13 +1089,15 @@ function fallbackStep(step: OwnerV2StepId): OwnerV2SetupStep {
 function detailEndpointForStep(tenantId: string, step: OwnerV2StepId) {
   const encodedTenantId = encodeURIComponent(tenantId);
   if (step === "sml" || step === "reports") {
-    return `/api/owner/tenants/${encodedTenantId}/sml-setup`;
+    return step === "sml"
+      ? `/api/owner/tenants/${encodedTenantId}/sml-setup`
+      : `/api/owner/tenants/${encodedTenantId}/report-setup`;
   }
   if (step === "line") {
     return `/api/owner/tenants/${encodedTenantId}/line-setup`;
   }
   if (step === "permissions") {
-    return `/api/owner/report-permissions?tenant_id=${encodedTenantId}`;
+    return `/api/owner/tenants/${encodedTenantId}/report-permissions`;
   }
   return `/api/owner/tenants/${encodedTenantId}/notification-setup`;
 }
