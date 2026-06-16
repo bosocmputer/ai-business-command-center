@@ -1,8 +1,17 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
+import {
+  AlertIcon,
+  BellIcon,
+  BoxCubeIcon,
+  CheckCircleIcon,
+  PlugInIcon,
+  TimeIcon,
+} from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 
 type OperationsStatus = {
@@ -91,26 +100,40 @@ export default function OwnerV2Ops() {
 
   if (status === "loading" && !data) {
     return (
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="h-44 animate-pulse rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-        <div className="h-44 animate-pulse rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6"
+              key={index}
+            />
+          ))}
+        </div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+          <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+        </div>
       </div>
     );
   }
 
   if (status === "error") {
     return (
-      <section className="rounded-xl border border-error-200 bg-error-50 p-5 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
-        <p className="font-semibold">โหลด Ops status ไม่สำเร็จ</p>
-        <p className="mt-1 text-sm leading-6">{errorMessage}</p>
-        <Button
-          className="mt-4 h-10 px-4 py-0"
-          onClick={() => void load()}
-          type="button"
-        >
-          รีเฟรช
-        </Button>
-      </section>
+      <OpsNotice
+        action={
+          <Button
+            className="mt-4 h-10 px-4 py-0"
+            onClick={() => void load()}
+            type="button"
+            variant="outline"
+          >
+            รีเฟรช Ops
+          </Button>
+        }
+        text={`${errorMessage} ลองรีเฟรชอีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ API และ session ผู้ดูแล`}
+        title="โหลด Ops status ไม่สำเร็จ"
+        tone="error"
+      />
     );
   }
 
@@ -122,19 +145,22 @@ export default function OwnerV2Ops() {
   const heavyRuns = data?.report_health?.heavy_report_runs ?? [];
 
   return (
-    <div className="space-y-4">
-      <section className="grid gap-3 md:grid-cols-4">
-        <Fact
+    <div className="space-y-6">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <OpsMetric
+          icon={<BoxCubeIcon className="h-6 w-6" />}
           label="Worker"
           tone={data?.worker?.status === "ok" ? "success" : "warning"}
           value={formatWorker(data?.worker)}
         />
-        <Fact
+        <OpsMetric
+          icon={<TimeIcon className="h-6 w-6" />}
           label="Scheduler"
           tone={data?.scheduler?.enabled ? "success" : "warning"}
           value={data?.scheduler?.enabled ? "DB-backed" : "ยังไม่พร้อม"}
         />
-        <Fact
+        <OpsMetric
+          icon={<BellIcon className="h-6 w-6" />}
           label="Telegram ops"
           tone={telegramReady ? "success" : "warning"}
           value={
@@ -145,132 +171,299 @@ export default function OwnerV2Ops() {
               : "ยังไม่พร้อม"
           }
         />
-        <Fact
+        <OpsMetric
+          icon={<PlugInIcon className="h-6 w-6" />}
           label="Backup"
           tone={data?.backup?.configured ? "success" : "warning"}
           value={data?.backup?.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            JavaWS failure ล่าสุด
-          </h2>
-          {latestJavaWs ? (
-            <div className="mt-4 rounded-lg border border-warning-200 bg-warning-50 p-4 text-sm leading-6 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300">
-              <p className="font-semibold">
-                {latestJavaWs.tenant_id} · {latestJavaWs.report_key}
-              </p>
-              <p className="mt-1">
-                {latestJavaWs.failure_kind ?? "-"} / phase{" "}
-                {latestJavaWs.failure_phase ?? "-"}
-              </p>
-              <p className="mt-1">{latestJavaWs.safe_error_message}</p>
-            </div>
-          ) : (
-            <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-              ยังไม่พบ JavaWS failure ล่าสุด
-            </p>
+      {latestJavaWs ? (
+        <OpsNotice
+          text={`${latestJavaWs.tenant_id} · ${latestJavaWs.report_key} · ${
+            latestJavaWs.failure_kind ?? "-"
+          } / phase ${latestJavaWs.failure_phase ?? "-"}: ${
+            latestJavaWs.safe_error_message
+          }`}
+          title="JavaWS failure ล่าสุด"
+          tone="warning"
+        />
+      ) : (
+        <OpsNotice
+          text="ยังไม่พบ JavaWS failure ล่าสุดในข้อมูลที่ระบบส่งกลับมา ถ้าเกิด failure รอบถัดไป phase diagnostic จะแสดงที่หน้านี้"
+          title="JavaWS diagnostic"
+          tone="success"
+        />
+      )}
+
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <HeavyReportTable runs={heavyRuns.slice(0, 8)} />
+        <TelegramDeliveries
+          deliveries={(data?.operational_alerts?.telegram?.deliveries ?? []).slice(
+            0,
+            8,
           )}
-
-          <h3 className="mt-6 text-sm font-semibold text-gray-900 dark:text-white">
-            Heavy report ล่าสุด
-          </h3>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {heavyRuns.slice(0, 6).map((run) => (
-              <div
-                className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
-                key={run.id}
-              >
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  {run.tenant_id}
-                </p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {run.report_key}
-                </p>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <Badge color={run.status === "success" ? "success" : "warning"}>
-                    {run.status}
-                  </Badge>
-                  <span className="text-sm text-gray-700 dark:text-gray-300">
-                    {run.duration_ms === null
-                      ? "-"
-                      : `${Math.round(run.duration_ms / 1000)}s`}
-                  </span>
-                </div>
-              </div>
-            ))}
-            {!heavyRuns.length ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                ยังไม่มี heavy report ล่าสุด
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            Telegram deliveries
-          </h2>
-          <div className="mt-4 space-y-3">
-            {(data?.operational_alerts?.telegram?.deliveries ?? [])
-              .slice(0, 8)
-              .map((delivery) => (
-                <div
-                  className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
-                  key={`${delivery.alert_type}-${delivery.created_at}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {delivery.alert_type}
-                    </p>
-                    <Badge color={delivery.status === "success" ? "success" : "warning"}>
-                      {delivery.status}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {formatDateTime(delivery.created_at)}
-                  </p>
-                  {delivery.safe_error_message ? (
-                    <p className="mt-1 text-xs text-error-600 dark:text-error-400">
-                      {delivery.safe_error_message}
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-            {!(data?.operational_alerts?.telegram?.deliveries ?? []).length ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                ยังไม่มี delivery ล่าสุด
-              </p>
-            ) : null}
-          </div>
-        </div>
+        />
       </section>
     </div>
   );
 }
 
-function Fact({
+function OpsMetric({
+  icon,
   label,
   tone,
   value,
 }: {
+  icon: ReactNode;
   label: string;
   tone: "success" | "warning";
   value: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <p className="break-words text-sm font-semibold text-gray-900 dark:text-white">
-          {value}
-        </p>
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-white/90">
+        {icon}
+      </div>
+      <div className="mt-5 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-theme-sm text-gray-500 dark:text-gray-400">
+            {label}
+          </span>
+          <h4 className="mt-2 break-words text-base font-bold text-gray-800 dark:text-white/90">
+            {value}
+          </h4>
+        </div>
         <Badge color={tone}>{tone === "success" ? "ปกติ" : "ต้องดู"}</Badge>
       </div>
     </div>
   );
+}
+
+function OpsNotice({
+  action,
+  text,
+  title,
+  tone,
+}: {
+  action?: ReactNode;
+  text: string;
+  title: string;
+  tone: "success" | "warning" | "error";
+}) {
+  const Icon = tone === "success" ? CheckCircleIcon : AlertIcon;
+  const toneClass = {
+    success:
+      "border-success-500 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/15 dark:text-success-400",
+    warning:
+      "border-warning-500 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/15 dark:text-orange-400",
+    error:
+      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/15 dark:text-error-400",
+  }[tone];
+
+  return (
+    <section className={`rounded-xl border p-4 ${toneClass}`}>
+      <div className="flex items-start gap-3">
+        <Icon className="-mt-0.5 h-6 w-6 shrink-0" />
+        <div>
+          <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+            {title}
+          </h3>
+          <p className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+            {text}
+          </p>
+          {action}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeavyReportTable({
+  runs,
+}: {
+  runs: NonNullable<OperationsStatus["report_health"]>["heavy_report_runs"];
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            Heavy report ล่าสุด
+          </h3>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            แสดงเฉพาะ metadata ที่ปลอดภัย ไม่แสดง SQL หรือข้อมูลลูกค้า
+          </p>
+        </div>
+        <Badge color={runs?.length ? "info" : "light"}>
+          {runs?.length ? `${runs.length} runs` : "empty"}
+        </Badge>
+      </div>
+
+      {runs?.length ? (
+        <div className="w-full overflow-x-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="border-y border-gray-100 dark:border-gray-800">
+                <TableHead>Tenant</TableHead>
+                <TableHead>Report</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead align="right">Duration</TableHead>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {runs.map((run) => (
+                <tr key={run.id}>
+                  <TableCell>
+                    <p className="font-medium text-gray-800 text-theme-sm dark:text-white/90">
+                      {run.tenant_id}
+                    </p>
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-theme-sm text-gray-500 dark:text-gray-400">
+                      {run.report_key}
+                    </p>
+                  </TableCell>
+                  <TableCell>
+                    <Badge color={statusTone(run.status)}>{run.status}</Badge>
+                  </TableCell>
+                  <TableCell align="right">
+                    <p className="font-medium text-gray-700 text-theme-sm dark:text-gray-300">
+                      {durationLabel(run.duration_ms)}
+                    </p>
+                  </TableCell>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState text="ยังไม่มี heavy report ล่าสุด" />
+      )}
+    </section>
+  );
+}
+
+function TelegramDeliveries({
+  deliveries,
+}: {
+  deliveries: NonNullable<
+    NonNullable<
+      NonNullable<OperationsStatus["operational_alerts"]>["telegram"]
+    >["deliveries"]
+  >;
+}) {
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            Telegram deliveries
+          </h3>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            Ops alert ล่าสุด
+          </p>
+        </div>
+        <BellIcon className="h-5 w-5 text-gray-400" />
+      </div>
+
+      {deliveries.length ? (
+        <div className="custom-scrollbar flex max-h-[420px] flex-col overflow-y-auto pr-2">
+          {deliveries.map((delivery) => (
+            <div
+              className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
+              key={`${delivery.alert_type}-${delivery.created_at}`}
+            >
+              <div className="min-w-0">
+                <h4 className="truncate text-base font-semibold text-gray-800 dark:text-white/90">
+                  {delivery.alert_type}
+                </h4>
+                <span className="mt-1 block text-theme-xs text-gray-500 dark:text-gray-400">
+                  {formatDateTime(delivery.created_at)}
+                </span>
+                {delivery.safe_error_message ? (
+                  <p className="mt-2 text-theme-xs leading-5 text-error-600 dark:text-error-400">
+                    {delivery.safe_error_message}
+                  </p>
+                ) : null}
+              </div>
+              <div className="shrink-0 text-right">
+                <Badge color={statusTone(delivery.status)}>
+                  {delivery.status}
+                </Badge>
+                <span className="mt-2 block text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                  {delivery.severity}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState text="ยังไม่มี delivery ล่าสุด" />
+      )}
+    </section>
+  );
+}
+
+function TableHead({
+  align = "left",
+  children,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+}) {
+  return (
+    <th className="py-3">
+      <div
+        className={`flex items-center ${
+          align === "right" ? "justify-end" : ""
+        }`}
+      >
+        <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+          {children}
+        </p>
+      </div>
+    </th>
+  );
+}
+
+function TableCell({
+  align = "left",
+  children,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+}) {
+  return (
+    <td className="py-3">
+      <div
+        className={`flex items-center ${
+          align === "right" ? "justify-end" : ""
+        }`}
+      >
+        {children}
+      </div>
+    </td>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-6 text-center text-theme-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+      {text}
+    </div>
+  );
+}
+
+function statusTone(status: string) {
+  if (status === "success" || status === "ok") {
+    return "success";
+  }
+  if (status === "failed" || status === "error") {
+    return "error";
+  }
+  return "warning";
 }
 
 function formatWorker(worker?: OperationsStatus["worker"]) {
@@ -281,6 +474,13 @@ function formatWorker(worker?: OperationsStatus["worker"]) {
     return `ปกติ ${worker.age_seconds ?? "-"}s`;
   }
   return worker.status;
+}
+
+function durationLabel(durationMs: number | null) {
+  if (durationMs === null) {
+    return "-";
+  }
+  return `${Math.round(durationMs / 1000)}s`;
 }
 
 function formatDateTime(value?: string | null) {
