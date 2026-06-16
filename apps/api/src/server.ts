@@ -219,6 +219,16 @@ import {
   sendOperationalTelegramAlert,
   upsertTelegramOperationalAlertTarget,
 } from "./operational-alerts.js";
+import {
+  countOwnerWorkbenchOpsWarnings,
+  projectOwnerWorkbenchSelected,
+  projectOwnerWorkbenchTenant,
+  sanitizeWorkbenchDatasourceStatus,
+  type OwnerWorkbenchLineSetupPayload,
+  type OwnerWorkbenchNotificationSetupPayload,
+  type OwnerWorkbenchPayload,
+  type OwnerWorkbenchSmlSetupPayload,
+} from "./owner-workbench.js";
 
 const app = Fastify({
   logger: {
@@ -681,6 +691,227 @@ app.get("/api/owner/setup-status", async (request, reply) => {
     },
   };
 });
+
+app.get("/api/owner/workbench", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const query = z
+    .object({ tenant_id: tenantIdSchema.optional() })
+    .safeParse(request.query ?? {});
+  if (!query.success) {
+    return reply.status(400).send({
+      error: "Invalid workbench query",
+      details: query.error.flatten().fieldErrors,
+    });
+  }
+
+  const tenants = await systemStore.listTenants();
+  const selectedTenantId = resolveOwnerWorkbenchTenantId({
+    requestedTenantId: query.data.tenant_id,
+    tenants,
+  });
+  const [summaryResults, operations] = await Promise.all([
+    Promise.all(tenants.map((tenant) => buildOwnerTenantSummary(tenant.id))),
+    buildOperationsStatus({ includeAuditLogs: false }).catch(() => null),
+  ]);
+  const summaries = summaryResults.filter(
+    (summary): summary is NonNullable<typeof summary> => Boolean(summary),
+  );
+  const workbenchTenants = summaries.map(projectOwnerWorkbenchTenant);
+  const selectedSummary =
+    summaries.find((summary) => summary.tenant.id === selectedTenantId) ?? null;
+  const telegramStatus = operations?.operational_alerts?.telegram?.status ?? null;
+  const opsCounts = countOwnerWorkbenchOpsWarnings({
+    tenants: workbenchTenants,
+    workerStatus: operations?.worker.status ?? null,
+    telegramReady: telegramStatus
+      ? Boolean(
+          telegramStatus.configured &&
+            telegramStatus.targets.some((target) => target.enabled),
+        )
+      : false,
+  });
+
+  return {
+    data: {
+      tenants: workbenchTenants,
+      selected_tenant_id: selectedSummary?.tenant.id ?? null,
+      selected: selectedSummary
+        ? projectOwnerWorkbenchSelected(selectedSummary)
+        : null,
+      ops: {
+        ...opsCounts,
+        worker_status: operations?.worker.status ?? null,
+        telegram_ready: telegramStatus
+          ? Boolean(
+              telegramStatus.configured &&
+                telegramStatus.targets.some((target) => target.enabled),
+            )
+          : false,
+      },
+    } satisfies OwnerWorkbenchPayload,
+  };
+});
+
+app.get(
+  "/api/owner/tenants/:tenantId/sml-setup",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const [datasource, runs] = await Promise.all([
+      readDatasourceConfigStatus({
+        store: systemStore,
+        tenantId: tenant.id,
+        envConfig: readDatasourceConfig(tenant.id),
+      }),
+      systemStore.listRuns(tenant.id, undefined, 1),
+    ]);
+    const latestRun = runs[0] ?? null;
+
+    return {
+      data: {
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+          databaseName: tenant.databaseName,
+        },
+        datasource: sanitizeWorkbenchDatasourceStatus(datasource),
+        latest_test: null,
+        latest_report_run: latestRun
+          ? {
+              id: latestRun.id,
+              report_key: latestRun.report_key,
+              status: latestRun.status,
+              started_at: latestRun.started_at,
+              finished_at: latestRun.finished_at,
+              row_count: latestRun.row_count,
+              safe_error_message: latestRun.safe_error_message,
+              failure_kind: latestRun.failure_kind ?? null,
+              failure_phase: latestRun.failure_phase ?? null,
+            }
+          : null,
+      } satisfies OwnerWorkbenchSmlSetupPayload,
+    };
+  },
+);
+
+app.get(
+  "/api/owner/tenants/:tenantId/line-setup",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const [channels, targets] = await Promise.all([
+      listEffectiveLineChannels(tenant.id),
+      listEffectiveLineTargets(tenant.id),
+    ]);
+    const safeTargets = targets.map(toSafeLineTargetRecord);
+    const sendReadyChannels = channels.filter(isLineChannelSendReady);
+    const readyTargets = safeTargets.filter(
+      (target) =>
+        target.approved &&
+        target.enabled &&
+        target.allowed_actions.includes("receive_morning_brief") &&
+        resolveLineTargetDeliveryReadiness({ lineChannels: channels, target }).ok,
+    );
+
+    return {
+      data: {
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+        },
+        channels,
+        targets: safeTargets,
+        readiness: {
+          ready_targets: readyTargets.length,
+          total_targets: safeTargets.length,
+          send_ready_channels: sendReadyChannels.length,
+          total_channels: channels.length,
+        },
+      } satisfies OwnerWorkbenchLineSetupPayload,
+    };
+  },
+);
+
+app.get(
+  "/api/owner/tenants/:tenantId/notification-setup",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const [rules, recentRuns, targets, channels] = await Promise.all([
+      systemStore.listNotificationRules(tenant.id),
+      systemStore.listNotificationRuleRuns({ tenantId: tenant.id, limit: 20 }),
+      listEffectiveLineTargets(tenant.id),
+      listEffectiveLineChannels(tenant.id),
+    ]);
+    const safeTargets = targets.map(toSafeLineTargetRecord);
+    const enabledTargets = safeTargets.filter(
+      (target) =>
+        target.approved &&
+        target.enabled &&
+        target.allowed_actions.includes("receive_morning_brief") &&
+        resolveLineTargetDeliveryReadiness({ lineChannels: channels, target }).ok,
+    );
+
+    return {
+      data: {
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+        },
+        rules: rules.map(toOwnerNotificationRule),
+        recent_runs: recentRuns,
+        target_count: safeTargets.length,
+        enabled_target_count: enabledTargets.length,
+      } satisfies OwnerWorkbenchNotificationSetupPayload,
+    };
+  },
+);
 
 app.get("/api/owner/tenants/:tenantId/business-signals", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
@@ -11911,6 +12142,24 @@ function tenantAccessStatus(tenant: { status: string }) {
 async function getTenantOrNull(tenantId: TenantId) {
   return (
     (await systemStore.listTenants()).find((tenant) => tenant.id === tenantId) ??
+    null
+  );
+}
+
+function resolveOwnerWorkbenchTenantId(input: {
+  requestedTenantId?: TenantId;
+  tenants: Tenant[];
+}) {
+  if (
+    input.requestedTenantId &&
+    input.tenants.some((tenant) => tenant.id === input.requestedTenantId)
+  ) {
+    return input.requestedTenantId;
+  }
+
+  return (
+    input.tenants.find((tenant) => tenant.status !== "cancelled")?.id ??
+    input.tenants[0]?.id ??
     null
   );
 }

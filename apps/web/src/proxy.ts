@@ -72,6 +72,10 @@ function isProtectedOwnerPath(pathname: string) {
     return true;
   }
 
+  if (pathname === "/owner-v2" || pathname.startsWith("/owner-v2/")) {
+    return true;
+  }
+
   if (
     (pathname === "/command-center" || pathname.startsWith("/command-center/")) &&
     !pathname.startsWith("/command-center/brief")
