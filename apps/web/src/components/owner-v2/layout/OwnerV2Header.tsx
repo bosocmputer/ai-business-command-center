@@ -43,6 +43,36 @@ const quickActions = [
     label: "เพิ่มร้าน",
   },
   {
+    detail: "เลือกร้านก่อนเปิด report runner และ snapshot ล่าสุด",
+    href: "/owner-v2/stores",
+    keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
+    label: "รายงาน",
+  },
+  {
+    detail: "เลือกร้านก่อนตั้งค่า SML JavaWS",
+    href: "/owner-v2/stores",
+    keywords: "sml javaws datasource connection เชื่อม sml",
+    label: "SML JavaWS",
+  },
+  {
+    detail: "เลือกร้านก่อนจัดการ LINE OA และผู้รับ",
+    href: "/owner-v2/stores",
+    keywords: "line oa recipients targets ผู้รับ",
+    label: "LINE OA",
+  },
+  {
+    detail: "เลือกร้านก่อนตรวจ role และ report permissions",
+    href: "/owner-v2/stores",
+    keywords: "permissions access role สิทธิ์ รายงาน",
+    label: "สิทธิ์รายงาน",
+  },
+  {
+    detail: "เลือกร้านก่อนตั้งแผนแจ้งเตือน",
+    href: "/owner-v2/stores",
+    keywords: "notification schedule rules แจ้งเตือน แผน",
+    label: "แผนแจ้งเตือน",
+  },
+  {
     detail: "ดู incidents, worker, LINE, Telegram",
     href: "/owner-v2/ops",
     keywords: "ops operations worker incident telegram line",
@@ -70,18 +100,64 @@ export default function OwnerV2Header() {
   const router = useRouter();
   const actionAreaRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
+  const scopedQuickActions = useMemo(() => {
+    const tenantId = getTenantIdFromPathname(pathname);
+    if (!tenantId) {
+      return quickActions;
+    }
+    const tenantPath = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
+    return [
+      ...quickActions,
+      {
+        detail: "เปิดข้อมูลร้านและ readiness ของร้านนี้",
+        href: tenantPath,
+        keywords: "store tenant readiness detail ข้อมูลร้าน",
+        label: "ร้านนี้",
+      },
+      {
+        detail: "ตั้งค่า SML JavaWS ของร้านนี้",
+        href: `${tenantPath}/sml`,
+        keywords: "sml javaws datasource connection เชื่อม sml",
+        label: "SML ร้านนี้",
+      },
+      {
+        detail: "รัน approved report runner ของร้านนี้",
+        href: `${tenantPath}/reports`,
+        keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
+        label: "รายงานร้านนี้",
+      },
+      {
+        detail: "จัดการ LINE OA และผู้รับของร้านนี้",
+        href: `${tenantPath}/line`,
+        keywords: "line oa recipients targets ผู้รับ",
+        label: "LINE ร้านนี้",
+      },
+      {
+        detail: "ตรวจ role และ report permissions ของร้านนี้",
+        href: `${tenantPath}/permissions`,
+        keywords: "permissions access role สิทธิ์ รายงาน",
+        label: "สิทธิ์ร้านนี้",
+      },
+      {
+        detail: "ตั้งแผนแจ้งเตือนของร้านนี้",
+        href: `${tenantPath}/notifications`,
+        keywords: "notification schedule rules แจ้งเตือน แผน",
+        label: "แจ้งเตือนร้านนี้",
+      },
+    ];
+  }, [pathname]);
 
   const filteredActions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
-      return quickActions;
+      return scopedQuickActions;
     }
-    return quickActions.filter((item) =>
+    return scopedQuickActions.filter((item) =>
       `${item.label} ${item.detail} ${item.keywords}`
         .toLowerCase()
         .includes(query),
     );
-  }, [searchQuery]);
+  }, [scopedQuickActions, searchQuery]);
 
   const opsCount =
     workbenchState.status === "success"
@@ -297,7 +373,10 @@ export default function OwnerV2Header() {
               </button>
 
               {isNotificationOpen ? (
-                <OperationalNotificationDropdown state={workbenchState} />
+                <OperationalNotificationDropdown
+                  onClose={() => setNotificationOpen(false)}
+                  state={workbenchState}
+                />
               ) : null}
             </div>
 
@@ -369,8 +448,10 @@ export default function OwnerV2Header() {
 }
 
 function OperationalNotificationDropdown({
+  onClose,
   state,
 }: {
+  onClose: () => void;
   state: HeaderWorkbenchState;
 }) {
   return (
@@ -379,11 +460,21 @@ function OperationalNotificationDropdown({
         <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
           Operations
         </h2>
-        {state.status === "success" ? (
-          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-white/5 dark:text-gray-300">
-            {state.data.ops.warning_count + state.data.ops.critical_count} alerts
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {state.status === "success" ? (
+            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-white/5 dark:text-gray-300">
+              {state.data.ops.warning_count + state.data.ops.critical_count} alerts
+            </span>
+          ) : null}
+          <button
+            aria-label="Close operational notifications"
+            className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            <CloseMenuIcon />
+          </button>
+        </div>
       </div>
 
       <div className="custom-scrollbar flex h-auto flex-col overflow-y-auto">
@@ -582,6 +673,14 @@ function needsAttention(tenant: OwnerV2Tenant) {
     tenant.health.latest_report_status === "failed" ||
     tenant.health.latest_notification_run_status === "failed"
   );
+}
+
+function getTenantIdFromPathname(pathname: string) {
+  const match = pathname.match(/^\/owner-v2\/stores\/([^/]+)/);
+  if (!match || match[1] === "new") {
+    return null;
+  }
+  return decodeURIComponent(match[1]);
 }
 
 function HamburgerIcon() {

@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 export function OwnerV2Shell({
   children,
-  subtitle,
   title,
 }: {
   children: ReactNode;
@@ -13,14 +12,9 @@ export function OwnerV2Shell({
   return (
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">
-            {title}
-          </h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {subtitle}
-          </p>
-        </div>
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h2>
         <nav>
           <ol className="flex items-center gap-1.5">
             <li>
@@ -28,7 +22,7 @@ export function OwnerV2Shell({
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white/90"
                 href="/owner-v2"
               >
-                Owner v2
+                Home
                 <svg
                   className="stroke-current"
                   fill="none"
