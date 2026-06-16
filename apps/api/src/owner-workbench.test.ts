@@ -99,7 +99,7 @@ describe("owner workbench projection", () => {
             key: "sml_javaws",
             ok: true,
             label: "เชื่อม SML ผ่าน JavaWS",
-            detail: "Tomcat พร้อม",
+            detail: "http://example.local:8080 · krabi",
             href: "/owner/sml-connections?tenant=tenant_krabi",
           },
         ],
@@ -110,6 +110,9 @@ describe("owner workbench projection", () => {
       "sml_javaws",
       "report_permissions",
     ]);
+    expect(selected.steps[0]?.detail).toBe(
+      "เชื่อม SML JavaWS แล้ว ตรวจรายงานทดสอบถัดไป",
+    );
     expect(collectOwnerWorkbenchSensitiveKeys(selected)).toEqual([]);
   });
 
@@ -138,9 +141,6 @@ describe("owner workbench projection", () => {
       source: "encrypted_store",
       kind: "sml_javaws",
       database: "krabi",
-      base_url: "http://example.local:8080",
-      webapp_path: "/SMLJavaWebService",
-      endpoint: "DotNetFrameWork",
       config_file_name: "SMLConfigDATA.xml",
       auth_mode: "basic",
       auth_configured: true,
@@ -149,6 +149,9 @@ describe("owner workbench projection", () => {
       updated_at: "2026-06-16T00:00:00.000Z",
     });
     expect(collectOwnerWorkbenchSensitiveKeys(projected)).toEqual([]);
+    expect(projected).not.toHaveProperty("base_url");
+    expect(projected).not.toHaveProperty("webapp_path");
+    expect(projected).not.toHaveProperty("endpoint");
   });
 
   it("detects sensitive keys if a future endpoint accidentally includes them", () => {
@@ -158,8 +161,13 @@ describe("owner workbench projection", () => {
         nested: {
           channel_access_token: "secret",
           response_body: "<xml />",
+          endpoint: "http://example.local:8080/SMLJavaWebService",
         },
       }),
-    ).toEqual(["nested.channel_access_token", "nested.response_body"]);
+    ).toEqual([
+      "nested.channel_access_token",
+      "nested.response_body",
+      "nested.endpoint",
+    ]);
   });
 });

@@ -73,9 +73,6 @@ export type OwnerWorkbenchDatasourceStatus = Pick<
   | "source"
   | "kind"
   | "database"
-  | "base_url"
-  | "webapp_path"
-  | "endpoint"
   | "config_file_name"
   | "auth_mode"
   | "auth_configured"
@@ -204,7 +201,7 @@ export function projectOwnerWorkbenchStep(
     key,
     ok: check.ok,
     label: check.label,
-    detail: check.detail,
+    detail: safeWorkbenchStepDetail({ key, ok: check.ok, detail: check.detail }),
     step,
     action_label: workbenchActionLabelForKey(key, check.ok),
     href: `/owner-v2?tenant=${encodeURIComponent(tenantId)}&step=${step}`,
@@ -218,9 +215,6 @@ export function sanitizeWorkbenchDatasourceStatus(
     source: datasource.source,
     kind: datasource.kind,
     database: datasource.database,
-    base_url: datasource.base_url,
-    webapp_path: datasource.webapp_path,
-    endpoint: datasource.endpoint,
     config_file_name: datasource.config_file_name,
     auth_mode: datasource.auth_mode,
     auth_configured: datasource.auth_configured,
@@ -360,9 +354,25 @@ function workbenchActionLabelForKey(
   return "ตรวจร้าน";
 }
 
+function safeWorkbenchStepDetail(input: {
+  key: OwnerWorkbenchStepKey;
+  ok: boolean;
+  detail: string;
+}) {
+  if (input.key === "sml_javaws") {
+    return input.ok
+      ? "เชื่อม SML JavaWS แล้ว ตรวจรายงานทดสอบถัดไป"
+      : "กรอก Tomcat URL, port, SMLConfig และ database";
+  }
+  return input.detail;
+}
+
 function isSensitiveWorkbenchKey(key: string) {
   const normalized = key.toLowerCase();
   if (
+    normalized === "base_url" ||
+    normalized === "webapp_path" ||
+    normalized === "endpoint" ||
     normalized === "encrypted_value" ||
     normalized === "channel_access_token" ||
     normalized === "channel_secret" ||

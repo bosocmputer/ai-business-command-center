@@ -67,9 +67,6 @@ export type OwnerV2DatasourceStatus = {
   source: "encrypted_store" | "env" | "missing";
   kind: string | null;
   database: string | null;
-  base_url: string | null;
-  webapp_path: string | null;
-  endpoint: string | null;
   config_file_name: string | null;
   auth_mode: string | null;
   auth_configured: boolean;
