@@ -323,7 +323,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
             <Metric label="failed ล่าสุด" value={failedRuns.toString()} />
           </div>
 
-          <div className="grid gap-3">
+          <div className="custom-scrollbar flex max-h-[560px] flex-col overflow-y-auto pr-2">
             {reports.map((report) => (
               <ReportRow
                 key={report.report_key}
@@ -347,13 +347,13 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           <PanelBody>
             {selectedReport ? (
               <>
-                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                      <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
                         {selectedReport.label}
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                      <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
                         {selectedReport.description}
                       </p>
                     </div>
@@ -367,7 +367,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     จากวันที่
                     <input
-                      className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                      className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-theme-sm text-gray-800 shadow-theme-xs outline-hidden transition placeholder:text-gray-400 focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
                       onChange={(event) => setDateFrom(event.target.value)}
                       type="date"
                       value={dateFrom}
@@ -376,7 +376,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     ถึงวันที่
                     <input
-                      className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                      className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-theme-sm text-gray-800 shadow-theme-xs outline-hidden transition placeholder:text-gray-400 focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
                       onChange={(event) => setDateTo(event.target.value)}
                       type="date"
                       value={dateTo}
@@ -464,10 +464,10 @@ function ReportRow({
 }) {
   return (
     <button
-      className={`w-full rounded-xl border p-4 text-left transition ${
+      className={`w-full border-b border-gray-200 py-4 text-left transition first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800 ${
         selected
-          ? "border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
-          : "border-gray-100 bg-gray-50 hover:border-gray-200 hover:bg-white dark:border-gray-800 dark:bg-white/[0.02] dark:hover:bg-white/[0.04]"
+          ? "rounded-xl bg-brand-50 px-3 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
+          : "px-1 hover:bg-gray-50 dark:hover:bg-white/[0.04]"
       }`}
       onClick={onSelect}
       type="button"
@@ -475,7 +475,7 @@ function ReportRow({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-gray-900 dark:text-white">
+            <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
               {report.label}
             </p>
             {report.sensitive ? (
@@ -489,7 +489,7 @@ function ReportRow({
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
             {report.description}
           </p>
         </div>
@@ -519,9 +519,9 @@ function RunDetail({
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
         <div
-          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
             run.status === "success"
               ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
               : run.status === "failed"
@@ -538,10 +538,10 @@ function RunDetail({
           )}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
             {formatRunStatus(run.status)}
           </p>
-          <p className="mt-1 break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
+          <p className="mt-1 break-words text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
             {run.id}
           </p>
         </div>
@@ -573,20 +573,23 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
   const percent = Math.max(0, Math.min(100, progress.progress_percent ?? 0));
   const isDone = isTerminalStatus(progress.run.status);
   return (
-    <div className="rounded-xl border border-brand-100 bg-brand-50 p-4 text-brand-700 dark:border-brand-500/20 dark:bg-brand-500/10 dark:text-brand-200">
+    <div className="rounded-xl border border-blue-light-500 bg-blue-light-50 p-4 dark:border-blue-light-500/30 dark:bg-blue-light-500/10">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">
-            {formatRunStatus(progress.run.status)}
-          </p>
-          <p className="mt-1 text-xs leading-5">
-            {formatProgressStage(progress.progress_stage)} ·{" "}
-            {formatElapsedMs(progress.elapsed_ms)}
-          </p>
+        <div className="flex items-start gap-3">
+          <InfoIcon className="mt-0.5 h-5 w-5 shrink-0 text-blue-light-600 dark:text-blue-light-400" />
+          <div>
+            <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+              {formatRunStatus(progress.run.status)}
+            </p>
+            <p className="mt-1 text-theme-xs leading-5 text-gray-600 dark:text-gray-300">
+              {formatProgressStage(progress.progress_stage)} ·{" "}
+              {formatElapsedMs(progress.elapsed_ms)}
+            </p>
+          </div>
         </div>
         <Badge color={isDone ? "success" : "info"}>{percent}%</Badge>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/70 dark:bg-gray-900/50">
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/80 dark:bg-gray-900/50">
         <div
           className="h-full rounded-full bg-brand-500 transition-all"
           style={{ width: `${percent}%` }}
@@ -602,7 +605,9 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
           value={progress.chunk_summary.rows_processed.toLocaleString("th-TH")}
         />
       </div>
-      <p className="mt-3 text-xs leading-5">{progress.next_action_message}</p>
+      <p className="mt-3 text-theme-xs leading-5 text-gray-600 dark:text-gray-300">
+        {progress.next_action_message}
+      </p>
     </div>
   );
 }
@@ -627,11 +632,11 @@ function PanelHeader({
   return (
     <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
           {title}
         </h2>
         {description ? (
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+          <p className="mt-1 max-w-2xl text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
             {description}
           </p>
         ) : null}
@@ -647,9 +652,9 @@ function PanelBody({ children }: { children: ReactNode }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-lg font-semibold text-gray-900 dark:text-white">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
         {value}
       </p>
     </div>
@@ -658,9 +663,9 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SmallFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
-      <p className="text-[11px] text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 truncate text-xs font-semibold text-gray-800 dark:text-white/90">
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 truncate text-theme-xs font-semibold text-gray-800 dark:text-white/90">
         {value}
       </p>
     </div>
@@ -676,15 +681,28 @@ function Notice({
 }) {
   const classes = {
     error:
-      "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
+      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/10",
     success:
-      "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
+      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/10",
     warning:
-      "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
+      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10",
   }[tone];
+  const Icon =
+    tone === "success" ? CheckCircleIcon : tone === "warning" ? InfoIcon : AlertIcon;
+  const iconClass =
+    tone === "success"
+      ? "text-success-600 dark:text-success-400"
+      : tone === "warning"
+        ? "text-warning-600 dark:text-warning-400"
+        : "text-error-600 dark:text-error-400";
   return (
-    <div className={`rounded-xl border px-4 py-3 text-sm leading-6 ${classes}`}>
-      {children}
+    <div className={`rounded-xl border p-4 ${classes}`}>
+      <div className="flex items-start gap-3">
+        <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${iconClass}`} />
+        <div className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -699,14 +717,14 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-center dark:border-gray-800 dark:bg-white/[0.02]">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+    <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
         <InfoIcon className="h-5 w-5" />
       </div>
-      <p className="mt-3 text-sm font-semibold text-gray-900 dark:text-white">
+      <p className="mt-3 text-theme-sm font-semibold text-gray-800 dark:text-white/90">
         {title}
       </p>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+      <p className="mx-auto mt-2 max-w-md text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
         {detail}
       </p>
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
