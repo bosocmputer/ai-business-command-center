@@ -95,7 +95,7 @@ export default function OwnerV2System() {
       <SystemNotice
         action={
           <Button
-            className="mt-4 h-10 px-4 py-0"
+            className="mt-4 h-10 w-full px-4 py-0 sm:w-auto"
             onClick={() => void load()}
             type="button"
             variant="outline"
@@ -295,21 +295,23 @@ function SystemPanel({
   title: string;
 }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+        <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
           {title}
         </h3>
         <Badge color="info">{badge}</Badge>
       </div>
-      {children}
+      <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+        {children}
+      </div>
     </section>
   );
 }
 
 function FactList({ facts }: { facts: FactItem[] }) {
   return (
-    <div className="custom-scrollbar flex max-h-[520px] flex-col overflow-y-auto pr-2">
+    <div className="custom-scrollbar flex max-h-[520px] flex-col overflow-y-auto">
       {facts.map((fact) => (
         <div
           className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
@@ -343,22 +345,32 @@ function SystemNotice({
   title: string;
   tone: "info" | "error";
 }) {
-  const Icon = tone === "info" ? InfoIcon : AlertIcon;
-  const toneClass = {
-    info: "border-blue-light-500 bg-blue-light-50 text-blue-light-600 dark:border-blue-light-500/30 dark:bg-blue-light-500/15 dark:text-blue-light-400",
-    error:
-      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/15 dark:text-error-400",
+  const toneConfig = {
+    error: {
+      className:
+        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-error-500",
+    },
+    info: {
+      className:
+        "border-blue-light-500 bg-blue-light-50 dark:border-blue-light-500/30 dark:bg-blue-light-500/15",
+      icon: <InfoIcon className="size-6 fill-current" />,
+      iconClassName: "text-blue-light-500 dark:text-blue-light-400",
+    },
   }[tone];
 
   return (
-    <section className={`rounded-xl border p-4 ${toneClass}`}>
+    <section className={`rounded-xl border p-4 ${toneConfig.className}`}>
       <div className="flex items-start gap-3">
-        <Icon className="-mt-0.5 h-6 w-6 shrink-0" />
-        <div>
-          <h4 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
+          {toneConfig.icon}
+        </div>
+        <div className="min-w-0">
+          <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
-          </h4>
-          <p className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+          </h3>
+          <p className="text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
             {text}
           </p>
           {action}
