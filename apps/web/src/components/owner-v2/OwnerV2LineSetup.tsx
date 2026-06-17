@@ -11,7 +11,7 @@ import type {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
+import { AlertIcon, CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type { OwnerV2LineSetupPayload } from "./types";
 
@@ -1221,7 +1221,7 @@ function PanelHeader({
       <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
         {title}
       </h3>
-      {action}
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
@@ -1262,20 +1262,23 @@ function Fact({
   tone?: "success" | "warning" | "error" | "light";
   value: string;
 }) {
-  const toneClasses = {
-    success:
-      "border-success-100 bg-success-50 text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-400",
-    warning:
-      "border-warning-100 bg-warning-50 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-400",
-    error:
-      "border-error-100 bg-error-50 text-error-700 dark:border-error-500/20 dark:bg-error-500/10 dark:text-error-400",
-    light:
-      "border-gray-100 bg-gray-50 text-gray-700 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-300",
-  };
   return (
-    <div className={`rounded-xl border p-4 ${toneClasses[tone]}`}>
-      <p className="text-theme-xs opacity-80">{label}</p>
-      <p className="mt-2 text-xl font-semibold">{value}</p>
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+        {tone !== "light" ? (
+          <Badge color={tone} size="sm">
+            {tone === "success"
+              ? "ปกติ"
+              : tone === "warning"
+                ? "ต้องดู"
+                : "ผิดพลาด"}
+          </Badge>
+        ) : null}
+      </div>
+      <p className="mt-2 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
+        {value}
+      </p>
     </div>
   );
 }
@@ -1289,22 +1292,39 @@ function Notice({
   title: string;
   tone: "success" | "warning" | "error";
 }) {
-  const toneClasses = {
-    success:
-      "border-success-500 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
-    warning:
-      "border-warning-500 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
-    error:
-      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
-  };
-  const Icon = tone === "success" ? CheckCircleIcon : InfoIcon;
+  const toneConfig = {
+    success: {
+      className:
+        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
+      icon: <CheckCircleIcon className="size-6 fill-current" />,
+      iconClassName: "text-success-500",
+    },
+    warning: {
+      className:
+        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
+      icon: <InfoIcon className="size-6 fill-current" />,
+      iconClassName: "text-warning-500 dark:text-orange-400",
+    },
+    error: {
+      className:
+        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-error-500",
+    },
+  }[tone];
   return (
-    <div className={`rounded-xl border p-4 ${toneClasses[tone]}`}>
-      <div className="flex gap-3">
-        <Icon className="mt-0.5 size-5 shrink-0" />
-        <div>
-          <p className="text-sm font-semibold">{title}</p>
-          <p className="mt-1 text-sm leading-6 opacity-90">{text}</p>
+    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
+      <div className="flex items-start gap-3">
+        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
+          {toneConfig.icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            {title}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {text}
+          </p>
         </div>
       </div>
     </div>
@@ -1321,7 +1341,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-center dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
       <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
         {title}
       </p>
@@ -1339,10 +1359,10 @@ function ReadinessItem({
   check: { ok: boolean; label: string; detail: string };
 }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex items-start gap-3">
         <span
-          className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ${
+          className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ${
             check.ok
               ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
               : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-400"
@@ -1388,7 +1408,7 @@ function NextAction({
 }) {
   return (
     <Link
-      className="block rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:border-brand-200 hover:bg-brand-50 dark:border-gray-800 dark:bg-white/[0.02] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
+      className="block rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
       href={href}
     >
       <div className="flex items-start justify-between gap-3">
