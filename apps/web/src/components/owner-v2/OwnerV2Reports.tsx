@@ -323,7 +323,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
             <Metric label="failed ล่าสุด" value={failedRuns.toString()} />
           </div>
 
-          <div className="custom-scrollbar flex max-h-[560px] flex-col overflow-y-auto pr-2">
+          <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
             {reports.map((report) => (
               <ReportRow
                 key={report.report_key}
@@ -464,10 +464,10 @@ function ReportRow({
 }) {
   return (
     <button
-      className={`w-full border-b border-gray-200 py-4 text-left transition first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800 ${
+      className={`w-full rounded-lg p-3 text-left transition ${
         selected
-          ? "rounded-xl bg-brand-50 px-3 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
-          : "px-1 hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+          ? "bg-brand-50 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
+          : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
       }`}
       onClick={onSelect}
       type="button"
@@ -573,15 +573,15 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
   const percent = Math.max(0, Math.min(100, progress.progress_percent ?? 0));
   const isDone = isTerminalStatus(progress.run.status);
   return (
-    <div className="rounded-xl border border-blue-light-500 bg-blue-light-50 p-4 dark:border-blue-light-500/30 dark:bg-blue-light-500/10">
+    <div className="rounded-xl border border-blue-light-500 bg-blue-light-50 p-4 dark:border-blue-light-500/30 dark:bg-blue-light-500/15">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <InfoIcon className="mt-0.5 h-5 w-5 shrink-0 text-blue-light-600 dark:text-blue-light-400" />
+          <InfoIcon className="-mt-0.5 h-6 w-6 shrink-0 text-blue-light-500 dark:text-blue-light-400" />
           <div>
             <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
               {formatRunStatus(progress.run.status)}
             </p>
-            <p className="mt-1 text-theme-xs leading-5 text-gray-600 dark:text-gray-300">
+            <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
               {formatProgressStage(progress.progress_stage)} ·{" "}
               {formatElapsedMs(progress.elapsed_ms)}
             </p>
@@ -605,7 +605,7 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
           value={progress.chunk_summary.rows_processed.toLocaleString("th-TH")}
         />
       </div>
-      <p className="mt-3 text-theme-xs leading-5 text-gray-600 dark:text-gray-300">
+      <p className="mt-3 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
         {progress.next_action_message}
       </p>
     </div>
@@ -681,25 +681,25 @@ function Notice({
 }) {
   const classes = {
     error:
-      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/10",
+      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
     success:
-      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/10",
+      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
     warning:
-      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10",
+      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
   }[tone];
   const Icon =
     tone === "success" ? CheckCircleIcon : tone === "warning" ? InfoIcon : AlertIcon;
   const iconClass =
     tone === "success"
-      ? "text-success-600 dark:text-success-400"
+      ? "text-success-500"
       : tone === "warning"
-        ? "text-warning-600 dark:text-warning-400"
-        : "text-error-600 dark:text-error-400";
+        ? "text-warning-500 dark:text-orange-400"
+        : "text-error-500";
   return (
     <div className={`rounded-xl border p-4 ${classes}`}>
       <div className="flex items-start gap-3">
-        <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${iconClass}`} />
-        <div className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+        <Icon className={`-mt-0.5 h-6 w-6 shrink-0 ${iconClass}`} />
+        <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
           {children}
         </div>
       </div>
@@ -717,7 +717,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
         <InfoIcon className="h-5 w-5" />
       </div>
