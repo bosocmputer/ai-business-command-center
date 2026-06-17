@@ -10,7 +10,7 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { AlertIcon, InfoIcon, LockIcon } from "@/icons";
+import { AlertIcon, CheckCircleIcon, InfoIcon, LockIcon } from "@/icons";
 import {
   isAbortError,
   ownerV2Fetch,
@@ -266,20 +266,25 @@ export default function OwnerV2ReportPermissions({
             <ImpactNotice impacts={visibleImpacts} tenantId={tenantId} />
           ) : null}
 
-          <div className="hidden overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-800 lg:block">
-            <table className="min-w-full divide-y divide-gray-100 text-sm dark:divide-gray-800">
-              <thead className="bg-gray-50 text-left dark:bg-white/[0.02]">
-                <tr>
-                  <th className="w-[34%] px-4 py-3 font-semibold text-gray-700 dark:text-gray-300">
-                    รายงาน
-                  </th>
+          <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] lg:block">
+            <div className="max-w-full overflow-x-auto">
+              <table className="w-full min-w-[760px]">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-800">
+                    <th className="w-[34%] px-5 py-3 text-left sm:px-6">
+                      <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+                        รายงาน
+                      </p>
+                    </th>
                   {roles.map((role) => (
                     <th
-                      className="min-w-38 px-3 py-3 text-center font-semibold text-gray-700 dark:text-gray-300"
+                      className="min-w-38 px-3 py-3 text-center"
                       key={role.access_profile_key}
                     >
-                      <span className="block">{role.label}</span>
-                      <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-gray-400">
+                      <span className="block font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+                        {role.label}
+                      </span>
+                      <span className="mt-1 block text-theme-xs font-normal text-gray-400 dark:text-gray-500">
                         {role.target_count} LINE ID
                       </span>
                     </th>
@@ -289,9 +294,9 @@ export default function OwnerV2ReportPermissions({
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {reports.map((report) => (
                   <tr key={report.report_key}>
-                    <td className="px-4 py-4 align-top">
+                    <td className="px-5 py-4 align-top sm:px-6">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-gray-900 dark:text-white">
+                        <span className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                           {report.label}
                         </span>
                         {report.sensitive ? (
@@ -300,7 +305,7 @@ export default function OwnerV2ReportPermissions({
                           </Badge>
                         ) : null}
                       </div>
-                      <p className="mt-1 max-w-[62ch] text-xs leading-5 text-gray-500 dark:text-gray-400">
+                      <p className="mt-1 max-w-[62ch] text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
                         {report.description}
                       </p>
                     </td>
@@ -338,13 +343,14 @@ export default function OwnerV2ReportPermissions({
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
 
           <div className="space-y-3 lg:hidden">
             {reports.map((report) => (
               <div
-                className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+                className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
                 key={report.report_key}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -369,7 +375,7 @@ export default function OwnerV2ReportPermissions({
                     );
                     return (
                       <label
-                        className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-900"
+                        className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]"
                         key={role.access_profile_key}
                       >
                         <span className="min-w-0">
@@ -416,7 +422,7 @@ export default function OwnerV2ReportPermissions({
               <Metric label="ปิด" value={delta.removed.toString()} />
             </div>
 
-            <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-400">
                   <LockIcon className="h-4 w-4" />
@@ -542,11 +548,11 @@ function PanelHeader({
   title: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
       <div>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
           {title}
-        </h2>
+        </h3>
         {description ? (
           <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
             {description}
@@ -559,7 +565,11 @@ function PanelHeader({
 }
 
 function PanelBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-5 p-5">{children}</div>;
+  return (
+    <div className="space-y-5 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+      {children}
+    </div>
+  );
 }
 
 function Notice({
@@ -569,18 +579,37 @@ function Notice({
   children: ReactNode;
   tone: "success" | "warning" | "error";
 }) {
-  const classes = {
-    error:
-      "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
-    success:
-      "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
-    warning:
-      "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
+  const toneConfig = {
+    error: {
+      className:
+        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-error-500",
+    },
+    success: {
+      className:
+        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
+      icon: <CheckCircleIcon className="size-6 fill-current" />,
+      iconClassName: "text-success-500",
+    },
+    warning: {
+      className:
+        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
+      icon: <InfoIcon className="size-6 fill-current" />,
+      iconClassName: "text-warning-500 dark:text-orange-400",
+    },
   }[tone];
 
   return (
-    <div className={`rounded-xl border px-4 py-3 text-sm leading-6 ${classes}`}>
-      {children}
+    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
+      <div className="flex items-start gap-3">
+        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
+          {toneConfig.icon}
+        </div>
+        <div className="min-w-0 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -593,7 +622,7 @@ function ImpactNotice({
   tenantId: string;
 }) {
   return (
-    <div className="rounded-xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
+    <div className="rounded-xl border border-warning-500 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/15">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -608,7 +637,7 @@ function ImpactNotice({
           </p>
         </div>
         <Link
-          className="inline-flex items-center justify-center rounded-lg border border-warning-300 bg-white px-3 py-2 text-sm font-medium text-warning-700 transition hover:bg-warning-50 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-200"
+          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-warning-300 bg-white px-3 text-sm font-medium text-warning-700 transition hover:bg-warning-50 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-200 sm:w-auto"
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
         >
           ไปแก้แผนแจ้งเตือน
@@ -639,7 +668,7 @@ function ImpactNotice({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white">
         {value}
@@ -668,7 +697,7 @@ function RoleShortcut({
       key === "stock_reorder",
   );
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -683,9 +712,9 @@ function RoleShortcut({
           {role.target_count} target
         </Badge>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <button
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
           disabled={disabled}
           onClick={() => onSetRoleReports(allReportKeys)}
           type="button"
@@ -693,7 +722,7 @@ function RoleShortcut({
           เปิดทั้งหมด
         </button>
         <button
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
           disabled={disabled}
           onClick={() => onSetRoleReports(basicReportKeys)}
           type="button"
@@ -701,7 +730,7 @@ function RoleShortcut({
           เปิดเฉพาะพื้นฐาน
         </button>
         <button
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
           disabled={disabled}
           onClick={() => onSetRoleReports([])}
           type="button"
@@ -726,7 +755,7 @@ function ActionLink({
 }) {
   return (
     <Link
-      className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 transition hover:border-brand-200 hover:bg-brand-50/50 dark:border-gray-800 dark:bg-white/[0.02] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
+      className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-brand-200 hover:bg-brand-50/50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
       href={href}
     >
       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-brand-600 dark:bg-gray-900 dark:text-brand-400">
@@ -754,7 +783,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-center dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 dark:bg-gray-900 dark:text-gray-400">
         <InfoIcon className="h-5 w-5" />
       </div>
