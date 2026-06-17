@@ -165,7 +165,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             text={`${detailState.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
           />
           <Button
-            className="mt-4 h-10 px-4 py-0"
+            className="mt-4 w-full sm:w-auto"
             onClick={() => void load()}
             type="button"
           >
@@ -346,14 +346,14 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
               <div className="flex flex-wrap items-center gap-3">
                 <Button
-                  className="h-10 px-4 py-0"
+                  className="w-full sm:w-auto"
                   disabled={saveDisabled}
                   type="submit"
                 >
                   {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
                 </Button>
                 <Button
-                  className="h-10 px-4 py-0"
+                  className="w-full sm:w-auto"
                   disabled={busy !== null || !dirty}
                   onClick={() => {
                     setForm(initialForm);
@@ -364,7 +364,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                 >
                   คืนค่าล่าสุด
                 </Button>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="w-full text-xs text-gray-500 dark:text-gray-400 sm:w-auto">
                   ปุ่มบันทึกเปิดเมื่อข้อมูลเปลี่ยนและไม่มีข้อมูลลับในหมายเหตุ
                 </p>
               </div>
@@ -404,11 +404,11 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                       <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
                         ขั้นต่อไป: {nextAction.label}
                       </p>
-                      <p className="mt-1 text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+                      <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
                         {nextAction.detail}
                       </p>
                       <Link
-                        className="mt-3 inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600"
+                        className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-brand-500 px-4 py-3 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto"
                         href={v2HrefForCheck(tenant.id, nextAction)}
                       >
                         เปิดขั้นนี้
@@ -423,7 +423,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                   text="ตรวจหน้าลูกค้าหรือรอบแจ้งเตือนได้จากหน้านี้"
                 />
               )}
-              <div className="custom-scrollbar mt-5 flex max-h-[360px] flex-col overflow-y-auto pr-2">
+              <div className="custom-scrollbar mt-5 flex max-h-[360px] flex-col gap-2 overflow-y-auto">
                 {readiness.checks.map((check) => (
                   <ReadinessRow
                     check={check}
@@ -438,7 +438,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
           <Panel>
             <PanelHeader title="ทางลัด" />
             <PanelBody>
-              <div className="custom-scrollbar flex max-h-[300px] flex-col overflow-y-auto pr-2">
+              <div className="custom-scrollbar flex max-h-[300px] flex-col gap-2 overflow-y-auto">
                 {detail.summary.customer_dashboard_path ? (
                   <QuickLink
                     href={detail.summary.customer_dashboard_path}
@@ -602,7 +602,7 @@ function ReadinessRow({
   tenantId: string;
 }) {
   return (
-    <div className="flex items-start gap-3 border-b border-gray-200 py-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800">
+    <div className="flex items-start gap-3 rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
       <span
         className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
           check.ok
@@ -627,7 +627,7 @@ function ReadinessRow({
             </p>
           </div>
           <Link
-            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-theme-xs font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+            className="inline-flex w-full shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-theme-xs font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto"
             href={v2HrefForCheck(tenantId, check)}
           >
             {check.ok ? "ดู" : "ทำต่อ"}
@@ -649,7 +649,7 @@ function QuickLink({
 }) {
   return (
     <Link
-      className="block border-b border-gray-200 py-4 transition first:pt-0 last:border-b-0 last:pb-0 hover:text-brand-600 dark:border-gray-800 dark:hover:text-brand-400"
+      className="block rounded-lg p-3 transition hover:bg-gray-50 hover:text-brand-600 dark:hover:bg-white/[0.03] dark:hover:text-brand-400"
       href={href}
     >
       <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">
@@ -672,7 +672,7 @@ function Fact({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="flex items-start justify-between gap-2">
         <p className="text-theme-xs text-gray-500 dark:text-gray-400">
           {label}
@@ -705,28 +705,28 @@ function Notice({
 }) {
   const classes = {
     success:
-      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/10",
+      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
     warning:
-      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10",
+      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
     error:
-      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/10",
+      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
   }[tone];
   const Icon = tone === "success" ? CheckCircleIcon : AlertIcon;
   const iconClass =
     tone === "success"
-      ? "text-success-600 dark:text-success-400"
+      ? "text-success-500"
       : tone === "warning"
-        ? "text-warning-600 dark:text-warning-400"
-        : "text-error-600 dark:text-error-400";
+        ? "text-warning-500 dark:text-orange-400"
+        : "text-error-500";
   return (
     <div className={`rounded-xl border p-4 ${classes}`}>
       <div className="flex items-start gap-3">
-        <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${iconClass}`} />
+        <Icon className={`-mt-0.5 h-6 w-6 shrink-0 ${iconClass}`} />
         <div>
           <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </p>
-          <p className="mt-1 text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
             {text}
           </p>
         </div>
