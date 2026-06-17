@@ -427,8 +427,8 @@ export default function OwnerV2Workbench() {
               เปิดเฉพาะขั้นที่ต้องดู ระบบจะโหลดรายละเอียดของขั้นนั้นเท่านั้น
             </p>
           </div>
-          <div className="grid gap-0 lg:grid-cols-[300px_minmax(0,1fr)]">
-            <div className="border-b border-gray-100 p-3 dark:border-gray-800 lg:border-b-0 lg:border-r">
+          <div className="grid gap-0 2xl:grid-cols-[300px_minmax(0,1fr)]">
+            <div className="border-b border-gray-100 p-3 dark:border-gray-800 2xl:border-b-0 2xl:border-r">
               {stepOrder.map((stepId) => {
                 const step =
                   selectedSteps.find((item) => item.step === stepId) ??
