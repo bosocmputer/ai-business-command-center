@@ -8,6 +8,8 @@ import Button from "@/components/ui/button/Button";
 import {
   AlertIcon,
   CheckCircleIcon,
+  InfoIcon,
+  PlusIcon,
 } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type {
@@ -55,6 +57,12 @@ const stepLabels: Record<OwnerV2StepId, string> = {
   permissions: "สิทธิ์",
   notifications: "แจ้งเตือน",
 };
+
+const primaryActionClass =
+  "inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600";
+
+const secondaryActionClass =
+  "inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200";
 
 export default function OwnerV2Workbench() {
   const router = useRouter();
@@ -273,33 +281,34 @@ export default function OwnerV2Workbench() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <aside className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="border-b border-gray-100 p-4 dark:border-gray-800">
-          <div className="flex items-center justify-between gap-3">
+    <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <aside className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="mb-6">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
                 ร้านค้า
               </h2>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
                 เลือกร้านเพื่อดูงานถัดไป
               </p>
             </div>
             <Link
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-brand-500 px-3 text-sm font-medium text-white hover:bg-brand-600"
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 px-3 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600"
               href="/owner-v2/stores/new"
             >
+              <PlusIcon className="h-4 w-4" />
               เพิ่มร้าน
             </Link>
           </div>
           <input
-            className="mt-3 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-100 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:focus:border-brand-500"
+            className="mt-4 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-theme-sm text-gray-800 shadow-theme-xs outline-hidden transition placeholder:text-gray-400 focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
             onChange={(event) => setTenantSearch(event.target.value)}
             placeholder="ค้นหาชื่อร้านหรือ tenant id"
             value={tenantSearch}
           />
         </div>
-        <div className="max-h-[680px] overflow-y-auto p-2">
+        <div className="custom-scrollbar flex max-h-[680px] flex-col overflow-y-auto pr-2">
           {filteredTenants.map((tenant) => (
             <TenantRow
               key={tenant.id}
@@ -309,19 +318,19 @@ export default function OwnerV2Workbench() {
             />
           ))}
           {!filteredTenants.length ? (
-            <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+            <p className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-theme-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
               ไม่พบร้านที่ตรงกับคำค้น ลองล้างคำค้นหา
             </p>
           ) : null}
         </div>
       </aside>
 
-      <main className="space-y-4">
-        <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
+      <main className="space-y-6">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                <h2 className="text-theme-xl font-semibold text-gray-800 dark:text-white/90">
                   {selectedTenant?.name ?? "เลือกร้าน"}
                 </h2>
                 {selectedTenant ? (
@@ -334,7 +343,7 @@ export default function OwnerV2Workbench() {
                   </Badge>
                 ) : null}
               </div>
-              <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-400">
+              <p className="mt-2 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
                 {workbench?.selected?.access_message ??
                   "เลือกหรือเพิ่มร้านเพื่อเริ่มตั้งค่า"}
               </p>
@@ -351,7 +360,7 @@ export default function OwnerV2Workbench() {
               </Button>
               {selectedTenant?.dashboard_path ? (
                 <Link
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
                   href={selectedTenant.dashboard_path}
                 >
                   เปิดหน้าลูกค้า
@@ -360,7 +369,7 @@ export default function OwnerV2Workbench() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
             <Fact
               label="Ops warning"
               value={`${workbench?.ops.warning_count ?? 0} รายการ`}
@@ -376,13 +385,13 @@ export default function OwnerV2Workbench() {
           </div>
 
           {workbench?.selected?.next_action ? (
-            <div className="mt-4 rounded-xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
+            <div className="mt-5 rounded-xl border border-warning-500 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/15">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-warning-800 dark:text-warning-200">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
                     สิ่งที่ควรทำต่อ: {workbench.selected.next_action.label}
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-warning-700 dark:text-warning-300">
+                  <p className="mt-1 text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
                     {workbench.selected.next_action.detail}
                   </p>
                 </div>
@@ -399,18 +408,22 @@ export default function OwnerV2Workbench() {
               </div>
             </div>
           ) : selectedTenant ? (
-            <div className="mt-4 rounded-xl border border-success-200 bg-success-50 p-4 text-sm text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300">
-              ร้านนี้พร้อมใช้งานแล้ว ตรวจรอบแจ้งเตือนและเปิดหน้าลูกค้าได้เลย
+            <div className="mt-5">
+              <InlineNotice
+                message="ตรวจรอบแจ้งเตือนและเปิดหน้าลูกค้าได้เลย"
+                title="ร้านนี้พร้อมใช้งานแล้ว"
+                tone="success"
+              />
             </div>
           ) : null}
         </section>
 
-        <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="border-b border-gray-100 p-4 dark:border-gray-800">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+          <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6 sm:py-5">
+            <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
               ขั้นตอนตั้งค่าร้าน
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
               เปิดเฉพาะขั้นที่ต้องดู ระบบจะโหลดรายละเอียดของขั้นนั้นเท่านั้น
             </p>
           </div>
@@ -453,20 +466,20 @@ function TenantRow({
 }) {
   return (
     <button
-      className={`mb-1 w-full rounded-lg border px-3 py-3 text-left transition ${
+      className={`w-full border-b border-gray-100 py-4 text-left transition first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800 ${
         selected
-          ? "border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
-          : "border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-gray-800 dark:hover:bg-white/[0.04]"
+          ? "rounded-xl bg-brand-50 px-3 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
+          : "px-1 hover:bg-gray-50 dark:hover:bg-white/[0.04]"
       }`}
       onClick={() => onSelect(tenant.id)}
       type="button"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+          <p className="truncate text-theme-sm font-medium text-gray-800 dark:text-white/90">
             {tenant.name}
           </p>
-          <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-1 truncate text-theme-xs text-gray-500 dark:text-gray-400">
             {tenant.id}
           </p>
         </div>
@@ -474,7 +487,7 @@ function TenantRow({
           {tenant.completed_steps}/{tenant.total_steps}
         </Badge>
       </div>
-      <p className="mt-2 text-xs leading-5 text-gray-600 dark:text-gray-400">
+      <p className="mt-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
         {tenant.next_action?.label ?? "พร้อมใช้งาน"}
       </p>
     </button>
@@ -492,10 +505,10 @@ function StepButton({
 }) {
   return (
     <button
-      className={`mb-2 flex w-full items-start gap-3 rounded-lg border px-3 py-3 text-left transition ${
+      className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition ${
         active
-          ? "border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
-          : "border-gray-100 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-transparent dark:hover:bg-white/[0.04]"
+          ? "bg-brand-50 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
+          : "hover:bg-gray-50 dark:hover:bg-white/[0.04]"
       }`}
       onClick={onClick}
       type="button"
@@ -514,10 +527,10 @@ function StepButton({
         )}
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-semibold text-gray-900 dark:text-white">
+        <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">
           {stepLabels[step.step]}
         </span>
-        <span className="mt-0.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+        <span className="mt-0.5 block text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
           {step.detail}
         </span>
       </span>
@@ -622,14 +635,14 @@ function StoreStep({ selectedTenant }: { selectedTenant: OwnerV2Tenant }) {
       </div>
       <div className="flex flex-wrap gap-2">
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className={secondaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(selectedTenant.id)}`}
         >
           เปิดหน้าร้าน
         </Link>
         {selectedTenant.dashboard_path ? (
           <Link
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+            className={primaryActionClass}
             href={selectedTenant.dashboard_path}
           >
             เปิด dashboard ลูกค้า
@@ -660,7 +673,7 @@ function SmlStep({
           </p>
         </div>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+          className={primaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/sml`}
         >
           เปิดฟอร์ม SML
@@ -722,7 +735,7 @@ function ReportStep({
           </p>
         </div>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+          className={primaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/reports`}
         >
           รันรายงานทดสอบ
@@ -796,7 +809,7 @@ function LineStep({
           </p>
         </div>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+          className={primaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
         >
           จัดการ LINE
@@ -814,7 +827,7 @@ function LineStep({
           value={`${data.readiness.ready_targets}/${data.readiness.total_targets}`}
         />
       </div>
-      <div className="rounded-lg border border-gray-100 dark:border-gray-800">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
         {data.channels.slice(0, 4).map((channel) => (
           <div
             className="flex flex-col gap-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800 md:flex-row md:items-center md:justify-between"
@@ -867,7 +880,7 @@ function PermissionStep({
           </p>
         </div>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+          className={primaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
         >
           แก้สิทธิ์
@@ -918,7 +931,7 @@ function NotificationStep({
           </p>
         </div>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600"
+          className={primaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
         >
           ตั้งแผนแจ้งเตือน
@@ -935,7 +948,7 @@ function NotificationStep({
           value={`${data.enabled_target_count}/${data.target_count}`}
         />
       </div>
-      <div className="rounded-lg border border-gray-100 dark:border-gray-800">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
         {data.rules.slice(0, 4).map((rule) => (
           <div
             className="flex flex-col gap-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800 md:flex-row md:items-center md:justify-between"
@@ -968,9 +981,9 @@ function NotificationStep({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 dark:border-gray-800 dark:bg-white/[0.02]">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-gray-900 dark:text-white">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">
         {value || "-"}
       </p>
     </div>
@@ -988,17 +1001,34 @@ function InlineNotice({
 }) {
   const classes = {
     success:
-      "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
+      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/10",
     warning:
-      "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
+      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10",
     error:
-      "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
-    info: "border-blue-light-200 bg-blue-light-50 text-blue-light-700 dark:border-blue-light-500/30 dark:bg-blue-light-500/10 dark:text-blue-light-300",
+      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/10",
+    info: "border-blue-light-500 bg-blue-light-50 dark:border-blue-light-500/30 dark:bg-blue-light-500/10",
+  }[tone];
+  const Icon =
+    tone === "success" ? CheckCircleIcon : tone === "info" ? InfoIcon : AlertIcon;
+  const iconClasses = {
+    success: "text-success-600 dark:text-success-400",
+    warning: "text-warning-600 dark:text-warning-400",
+    error: "text-error-600 dark:text-error-400",
+    info: "text-blue-light-600 dark:text-blue-light-400",
   }[tone];
   return (
-    <div className={`rounded-lg border p-4 ${classes}`}>
-      <p className="text-sm font-semibold">{title}</p>
-      <p className="mt-1 text-sm leading-6">{message}</p>
+    <div className={`rounded-xl border p-4 ${classes}`}>
+      <div className="flex items-start gap-3">
+        <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${iconClasses}`} />
+        <div>
+          <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+            {title}
+          </p>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+            {message}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1018,18 +1048,20 @@ function WorkbenchMessage({
   title: string;
   tone: "warning" | "error" | "info";
 }) {
-  const actionClass =
-    "inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white hover:bg-brand-600";
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
+    <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
       <InlineNotice message={message} title={title} tone={tone} />
       <div className="mt-4">
         {actionHref ? (
-          <Link className={actionClass} href={actionHref}>
+          <Link className={primaryActionClass} href={actionHref}>
             {actionLabel}
           </Link>
         ) : (
-          <button className={actionClass} onClick={onAction} type="button">
+          <button
+            className={primaryActionClass}
+            onClick={onAction}
+            type="button"
+          >
             {actionLabel}
           </button>
         )}
@@ -1040,11 +1072,11 @@ function WorkbenchMessage({
 
 function WorkbenchSkeleton() {
   return (
-    <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <div className="h-[560px] animate-pulse rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-      <div className="space-y-4">
-        <div className="h-56 animate-pulse rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-        <div className="h-80 animate-pulse rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+    <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="h-[560px] animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+      <div className="space-y-6">
+        <div className="h-56 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+        <div className="h-80 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
       </div>
     </div>
   );
@@ -1055,11 +1087,11 @@ function DetailSkeleton() {
     <div className="space-y-4 p-5">
       <div className="h-5 w-48 animate-pulse rounded bg-gray-100 dark:bg-white/[0.06]" />
       <div className="grid gap-3 md:grid-cols-3">
-        <div className="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
-        <div className="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
-        <div className="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
+        <div className="h-20 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.06]" />
+        <div className="h-20 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.06]" />
+        <div className="h-20 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.06]" />
       </div>
-      <div className="h-24 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
+      <div className="h-24 animate-pulse rounded-xl bg-gray-100 dark:bg-white/[0.06]" />
     </div>
   );
 }
