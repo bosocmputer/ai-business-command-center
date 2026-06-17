@@ -9,6 +9,7 @@ import {
   BellIcon,
   BoxCubeIcon,
   CheckCircleIcon,
+  InfoIcon,
   PlugInIcon,
   TimeIcon,
 } from "@/icons";
@@ -122,7 +123,7 @@ export default function OwnerV2Ops() {
       <OpsNotice
         action={
           <Button
-            className="mt-4 h-10 px-4 py-0"
+            className="mt-4 h-10 w-full px-4 py-0 sm:w-auto"
             onClick={() => void load()}
             type="button"
             variant="outline"
@@ -252,25 +253,38 @@ function OpsNotice({
   title: string;
   tone: "success" | "warning" | "error";
 }) {
-  const Icon = tone === "success" ? CheckCircleIcon : AlertIcon;
-  const toneClass = {
-    success:
-      "border-success-500 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/15 dark:text-success-400",
-    warning:
-      "border-warning-500 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/15 dark:text-orange-400",
-    error:
-      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/15 dark:text-error-400",
+  const toneConfig = {
+    error: {
+      className:
+        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-error-500",
+    },
+    success: {
+      className:
+        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
+      icon: <CheckCircleIcon className="size-6 fill-current" />,
+      iconClassName: "text-success-500",
+    },
+    warning: {
+      className:
+        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
+      icon: <InfoIcon className="size-6 fill-current" />,
+      iconClassName: "text-warning-500 dark:text-orange-400",
+    },
   }[tone];
 
   return (
-    <section className={`rounded-xl border p-4 ${toneClass}`}>
+    <section className={`rounded-xl border p-4 ${toneConfig.className}`}>
       <div className="flex items-start gap-3">
-        <Icon className="-mt-0.5 h-6 w-6 shrink-0" />
-        <div>
+        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
+          {toneConfig.icon}
+        </div>
+        <div className="min-w-0">
           <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </h3>
-          <p className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
             {text}
           </p>
           {action}
@@ -286,10 +300,10 @@ function HeavyReportTable({
   runs: NonNullable<OperationsStatus["report_health"]>["heavy_report_runs"];
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
         <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
             Heavy report ล่าสุด
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
@@ -302,10 +316,10 @@ function HeavyReportTable({
       </div>
 
       {runs?.length ? (
-        <div className="w-full overflow-x-auto">
-          <table className="min-w-full">
+        <div className="max-w-full overflow-x-auto border-t border-gray-100 dark:border-gray-800">
+          <table className="w-full min-w-[720px]">
             <thead>
-              <tr className="border-y border-gray-100 dark:border-gray-800">
+              <tr className="border-b border-gray-100 dark:border-gray-800">
                 <TableHead>Tenant</TableHead>
                 <TableHead>Report</TableHead>
                 <TableHead>Status</TableHead>
@@ -339,7 +353,9 @@ function HeavyReportTable({
           </table>
         </div>
       ) : (
-        <EmptyState text="ยังไม่มี heavy report ล่าสุด" />
+        <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+          <EmptyState text="ยังไม่มี heavy report ล่าสุด" />
+        </div>
       )}
     </section>
   );
@@ -355,10 +371,10 @@ function TelegramDeliveries({
   >;
 }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="mb-6 flex items-center justify-between gap-3">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
         <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
             Telegram deliveries
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
@@ -369,7 +385,7 @@ function TelegramDeliveries({
       </div>
 
       {deliveries.length ? (
-        <div className="custom-scrollbar flex max-h-[420px] flex-col overflow-y-auto pr-2">
+        <div className="custom-scrollbar flex max-h-[420px] flex-col overflow-y-auto border-t border-gray-100 px-5 dark:border-gray-800 sm:px-6">
           {deliveries.map((delivery) => (
             <div
               className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
@@ -400,7 +416,9 @@ function TelegramDeliveries({
           ))}
         </div>
       ) : (
-        <EmptyState text="ยังไม่มี delivery ล่าสุด" />
+        <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+          <EmptyState text="ยังไม่มี delivery ล่าสุด" />
+        </div>
       )}
     </section>
   );
@@ -414,7 +432,7 @@ function TableHead({
   children: ReactNode;
 }) {
   return (
-    <th className="py-3">
+    <th className="px-5 py-3 text-left sm:px-6">
       <div
         className={`flex items-center ${
           align === "right" ? "justify-end" : ""
@@ -436,7 +454,7 @@ function TableCell({
   children: ReactNode;
 }) {
   return (
-    <td className="py-3">
+    <td className="px-5 py-4 sm:px-6">
       <div
         className={`flex items-center ${
           align === "right" ? "justify-end" : ""
@@ -450,8 +468,10 @@ function TableCell({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-6 text-center text-theme-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
-      {text}
+    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-6 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+      <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
+        {text}
+      </p>
     </div>
   );
 }
