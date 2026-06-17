@@ -284,8 +284,9 @@ export default function OwnerV2NewTenant() {
             <Notice tone={message.tone} text={message.text} />
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-3">
             <Button
+              className="w-full sm:w-auto"
               disabled={busy !== null || !canDryRun}
               startIcon={<TaskIcon className="h-4 w-4" />}
               type="submit"
@@ -293,6 +294,7 @@ export default function OwnerV2NewTenant() {
               {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจ dry-run"}
             </Button>
             <Button
+              className="w-full sm:w-auto"
               disabled={
                 busy !== null ||
                 !preview ||
@@ -307,14 +309,14 @@ export default function OwnerV2NewTenant() {
               {busy === "create" ? "กำลังสร้าง..." : "สร้างร้านจริง"}
             </Button>
           </div>
-          <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+          <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
             ปุ่มสร้างร้านจะเปิดได้หลัง dry-run ล่าสุดผ่านและข้อมูลฟอร์มยังไม่เปลี่ยน
           </p>
         </form>
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
           <div>
             <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
               Preview ก่อนสร้าง
@@ -323,21 +325,23 @@ export default function OwnerV2NewTenant() {
               ตรวจผลกระทบก่อนบันทึกจริง
             </p>
           </div>
-          <Badge color={preview ? (previewHasBlockingCheck ? "warning" : "success") : "light"}>
+          <Badge
+            color={preview ? (previewHasBlockingCheck ? "warning" : "success") : "light"}
+          >
             {preview ? "มี preview" : "ยังไม่มี"}
           </Badge>
         </div>
         {preview ? (
           <div className="space-y-5 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3">
               <Fact label="tenant_id" value={preview.tenant_id} />
               <Fact label="Dashboard" value={preview.dashboard_path} />
               <Fact label="Viewer" value={preview.viewer_email} />
             </div>
-            <div className="custom-scrollbar flex max-h-[360px] flex-col overflow-y-auto pr-2">
+            <div className="custom-scrollbar flex max-h-[360px] flex-col gap-2 overflow-y-auto">
               {preview.checks.map((check) => (
                 <div
-                  className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
+                  className="flex items-start justify-between gap-4 rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]"
                   key={check.key}
                 >
                   <div className="min-w-0">
@@ -397,7 +401,7 @@ function Field({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-b border-gray-200 pb-4 last:border-b-0 last:pb-0 dark:border-gray-800">
+    <div className="rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
       <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
         {value}
@@ -417,12 +421,18 @@ function Notice({
     tone === "success" ? CheckCircleIcon : tone === "info" ? InfoIcon : AlertIcon;
   const classes = {
     success:
-      "border-success-500 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/15 dark:text-success-400",
+      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
     warning:
-      "border-warning-500 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/15 dark:text-orange-400",
+      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
     error:
-      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/15 dark:text-error-400",
-    info: "border-blue-light-500 bg-blue-light-50 text-blue-light-600 dark:border-blue-light-500/30 dark:bg-blue-light-500/15 dark:text-blue-light-400",
+      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+    info: "border-blue-light-500 bg-blue-light-50 dark:border-blue-light-500/30 dark:bg-blue-light-500/15",
+  }[tone];
+  const iconClass = {
+    success: "text-success-500",
+    warning: "text-warning-500 dark:text-orange-400",
+    error: "text-error-500",
+    info: "text-blue-light-500 dark:text-blue-light-400",
   }[tone];
   const title = {
     success: "พร้อมดำเนินการ",
@@ -434,12 +444,12 @@ function Notice({
   return (
     <div className={`rounded-xl border p-4 ${classes}`}>
       <div className="flex items-start gap-3">
-        <Icon className="-mt-0.5 h-6 w-6 shrink-0" />
+        <Icon className={`-mt-0.5 h-6 w-6 shrink-0 ${iconClass}`} />
         <div>
           <h4 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </h4>
-          <p className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
             {text}
           </p>
         </div>
