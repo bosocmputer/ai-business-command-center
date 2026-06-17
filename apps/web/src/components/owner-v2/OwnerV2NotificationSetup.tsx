@@ -20,7 +20,7 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
+import { AlertIcon, CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type {
   OwnerV2LineSetupPayload,
@@ -467,7 +467,7 @@ export default function OwnerV2NotificationSetup({
             <PanelHeader
               action={
                 <Button
-                  className="h-10 px-4 py-0"
+                  className="h-10 w-full px-4 py-0 sm:w-auto"
                   onClick={startNewRule}
                   startIcon={<PlusIcon className="size-4" />}
                   type="button"
@@ -594,7 +594,7 @@ export default function OwnerV2NotificationSetup({
 
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
                   <Field label="เวลาแจ้งเตือน">
-                    <div className="flex gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row">
                       <input
                         className="owner-v2-input"
                         onChange={(event) =>
@@ -607,7 +607,7 @@ export default function OwnerV2NotificationSetup({
                         value={form.timeInput}
                       />
                       <Button
-                        className="h-11 shrink-0 px-4 py-0"
+                        className="h-11 w-full shrink-0 px-4 py-0 sm:w-auto"
                         onClick={() =>
                           setForm((current) => addNotificationTime(current))
                         }
@@ -725,16 +725,16 @@ export default function OwnerV2NotificationSetup({
                       actionBlockedReason ??
                       "บันทึกแผนก่อน dry-run หรือส่งจริง เพื่อกันค่าฟอร์มไม่ตรงกับ schedule"}
                   </div>
-                  <div className="flex flex-wrap gap-3">
+                  <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
                     <Button
-                      className="h-11 px-4 py-0"
+                      className="h-11 w-full px-4 py-0 sm:w-auto"
                       disabled={saveDisabled}
                       type="submit"
                     >
                       บันทึกแผน
                     </Button>
                     <Button
-                      className="h-11 px-4 py-0"
+                      className="h-11 w-full px-4 py-0 sm:w-auto"
                       disabled={dryRunDisabled}
                       onClick={() => void executeRule("dry_run")}
                       type="button"
@@ -743,7 +743,7 @@ export default function OwnerV2NotificationSetup({
                       Dry-run
                     </Button>
                     <Button
-                      className="h-11 px-4 py-0"
+                      className="h-11 w-full px-4 py-0 sm:w-auto"
                       disabled={sendDisabled}
                       onClick={() => void executeRule("send")}
                       type="button"
@@ -857,7 +857,7 @@ function ReportSelector({
     {},
   );
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
@@ -888,7 +888,10 @@ function ReportSelector({
       </div>
       <div className="mt-5 space-y-4">
         {Object.entries(grouped).map(([category, reportKeys]) => (
-          <div key={category}>
+          <div
+            className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+            key={category}
+          >
             <p className="mb-2 text-theme-xs font-medium text-gray-500 dark:text-gray-400">
               {categoryLabels[category] ?? category}
             </p>
@@ -898,10 +901,10 @@ function ReportSelector({
                 const checked = selectedReportKeys.includes(reportKey);
                 return (
                   <label
-                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${
                       checked
                         ? "border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
-                        : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+                        : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]"
                     }`}
                     key={reportKey}
                   >
@@ -975,7 +978,7 @@ function TargetSelector({
         </Badge>
       </div>
       <div className="max-w-full overflow-x-auto border-t border-gray-100 dark:border-gray-800">
-        <table className="min-w-full">
+        <table className="w-full min-w-[720px]">
           <thead>
             <tr className="border-b border-gray-100 dark:border-gray-800">
               {["เลือก", "ผู้รับ", "พร้อมส่ง", "เหตุผล"].map((label) => (
@@ -1047,7 +1050,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
         const progress = getProgressPercent(run);
         return (
           <div
-            className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
+            className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
             key={run.id}
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1078,7 +1081,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
               </div>
             ) : null}
             {run.safe_error_message ? (
-              <p className="mt-3 text-theme-xs leading-5 text-warning-700 dark:text-warning-300">
+              <p className="mt-3 rounded-lg bg-warning-50 p-3 text-theme-xs leading-5 text-warning-700 dark:bg-warning-500/10 dark:text-warning-300">
                 {run.safe_error_message}
               </p>
             ) : null}
@@ -1117,7 +1120,7 @@ function PanelHeader({
       <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
         {title}
       </h3>
-      {action}
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
@@ -1158,20 +1161,25 @@ function Fact({
   tone?: "success" | "warning" | "error" | "light";
   value: string;
 }) {
-  const toneClasses = {
-    error:
-      "border-error-100 bg-error-50 text-error-700 dark:border-error-500/20 dark:bg-error-500/10 dark:text-error-400",
-    light:
-      "border-gray-100 bg-gray-50 text-gray-700 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-300",
-    success:
-      "border-success-100 bg-success-50 text-success-700 dark:border-success-500/20 dark:bg-success-500/10 dark:text-success-400",
-    warning:
-      "border-warning-100 bg-warning-50 text-warning-700 dark:border-warning-500/20 dark:bg-warning-500/10 dark:text-warning-400",
-  };
+  const toneLabel = {
+    error: "ผิดพลาด",
+    light: null,
+    success: "ปกติ",
+    warning: "ต้องดู",
+  }[tone];
   return (
-    <div className={`rounded-xl border p-4 ${toneClasses[tone]}`}>
-      <p className="text-theme-xs opacity-80">{label}</p>
-      <p className="mt-2 text-xl font-semibold">{value}</p>
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+        {toneLabel ? (
+          <Badge color={tone} size="sm">
+            {toneLabel}
+          </Badge>
+        ) : null}
+      </div>
+      <p className="mt-2 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
+        {value}
+      </p>
     </div>
   );
 }
@@ -1185,22 +1193,39 @@ function Notice({
   title: string;
   tone: "success" | "warning" | "error";
 }) {
-  const toneClasses = {
-    error:
-      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
-    success:
-      "border-success-500 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
-    warning:
-      "border-warning-500 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
-  };
-  const Icon = tone === "success" ? CheckCircleIcon : InfoIcon;
+  const toneConfig = {
+    error: {
+      className:
+        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-error-500",
+    },
+    success: {
+      className:
+        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
+      icon: <CheckCircleIcon className="size-6 fill-current" />,
+      iconClassName: "text-success-500",
+    },
+    warning: {
+      className:
+        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
+      icon: <InfoIcon className="size-6 fill-current" />,
+      iconClassName: "text-warning-500 dark:text-orange-400",
+    },
+  }[tone];
   return (
-    <div className={`rounded-xl border p-4 ${toneClasses[tone]}`}>
-      <div className="flex gap-3">
-        <Icon className="mt-0.5 size-5 shrink-0" />
-        <div>
-          <p className="text-sm font-semibold">{title}</p>
-          <p className="mt-1 text-sm leading-6 opacity-90">{text}</p>
+    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
+      <div className="flex items-start gap-3">
+        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
+          {toneConfig.icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            {title}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {text}
+          </p>
         </div>
       </div>
     </div>
@@ -1217,7 +1242,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 text-center dark:border-gray-800 dark:bg-white/[0.02]">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
       <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
         {title}
       </p>
