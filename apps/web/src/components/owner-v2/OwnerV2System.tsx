@@ -139,9 +139,11 @@ export default function OwnerV2System() {
         : "ยังไม่ตั้ง",
     },
     {
-      label: "Worker token",
+      label: "Worker heartbeat",
       ok: Boolean(data?.worker_heartbeat_token_configured),
-      value: data?.worker_id ?? "ยังไม่ตั้ง",
+      value: data?.worker_heartbeat_token_configured
+        ? data?.worker_id ?? "ตั้งค่าแล้ว"
+        : "ยังไม่ตั้ง",
     },
     {
       label: "Backup",
