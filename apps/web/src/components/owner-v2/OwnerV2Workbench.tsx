@@ -59,10 +59,10 @@ const stepLabels: Record<OwnerV2StepId, string> = {
 };
 
 const primaryActionClass =
-  "inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600";
+  "inline-flex h-10 w-full items-center justify-center rounded-lg bg-brand-500 px-4 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
 
 const secondaryActionClass =
-  "inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200";
+  "inline-flex h-10 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
 
 export default function OwnerV2Workbench() {
   const router = useRouter();
@@ -282,11 +282,11 @@ export default function OwnerV2Workbench() {
 
   return (
     <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <aside className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="mb-6">
+      <aside className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="px-5 py-4 sm:px-6 sm:py-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+              <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
                 ร้านค้า
               </h2>
               <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
@@ -308,7 +308,7 @@ export default function OwnerV2Workbench() {
             value={tenantSearch}
           />
         </div>
-        <div className="custom-scrollbar flex max-h-[680px] flex-col overflow-y-auto pr-2">
+        <div className="custom-scrollbar flex max-h-[680px] flex-col overflow-y-auto border-t border-gray-100 px-5 dark:border-gray-800 sm:px-6">
           {filteredTenants.map((tenant) => (
             <TenantRow
               key={tenant.id}
@@ -318,9 +318,14 @@ export default function OwnerV2Workbench() {
             />
           ))}
           {!filteredTenants.length ? (
-            <p className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-theme-sm text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
-              ไม่พบร้านที่ตรงกับคำค้น ลองล้างคำค้นหา
-            </p>
+            <div className="my-5 rounded-2xl border border-gray-200 bg-white px-4 py-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+              <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
+                ไม่พบร้านที่ตรงกับคำค้น
+              </p>
+              <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+                ลองล้างคำค้นหา หรือเพิ่มร้านใหม่
+              </p>
+            </div>
           ) : null}
         </div>
       </aside>
@@ -348,9 +353,9 @@ export default function OwnerV2Workbench() {
                   "เลือกหรือเพิ่มร้านเพื่อเริ่มตั้งค่า"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
               <Button
-                className="h-10 px-4 py-0"
+                className="h-10 w-full px-4 py-0 sm:w-auto"
                 onClick={() => void loadWorkbench(selectedTenantId)}
                 size="sm"
                 type="button"
@@ -360,7 +365,7 @@ export default function OwnerV2Workbench() {
               </Button>
               {selectedTenant?.dashboard_path ? (
                 <Link
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+                  className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto"
                   href={selectedTenant.dashboard_path}
                 >
                   เปิดหน้าลูกค้า
@@ -396,7 +401,7 @@ export default function OwnerV2Workbench() {
                   </p>
                 </div>
                 <Button
-                  className="h-10 shrink-0 px-4 py-0"
+                  className="h-10 w-full shrink-0 px-4 py-0 md:w-auto"
                   onClick={() =>
                     handleStepSelect(workbench.selected!.next_action!.step)
                   }
@@ -466,7 +471,7 @@ function TenantRow({
 }) {
   return (
     <button
-      className={`w-full border-b border-gray-100 py-4 text-left transition first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800 ${
+      className={`w-full border-b border-gray-100 py-4 text-left transition last:border-b-0 dark:border-gray-800 ${
         selected
           ? "rounded-xl bg-brand-50 px-3 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
           : "px-1 hover:bg-gray-50 dark:hover:bg-white/[0.04]"
@@ -999,32 +1004,44 @@ function InlineNotice({
   title: string;
   tone: "success" | "warning" | "error" | "info";
 }) {
-  const classes = {
-    success:
-      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/10",
-    warning:
-      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/10",
-    error:
-      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/10",
-    info: "border-blue-light-500 bg-blue-light-50 dark:border-blue-light-500/30 dark:bg-blue-light-500/10",
+  const toneConfig = {
+    error: {
+      className:
+        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-error-500",
+    },
+    info: {
+      className:
+        "border-blue-light-500 bg-blue-light-50 dark:border-blue-light-500/30 dark:bg-blue-light-500/15",
+      icon: <InfoIcon className="size-6 fill-current" />,
+      iconClassName: "text-blue-light-500 dark:text-blue-light-400",
+    },
+    success: {
+      className:
+        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
+      icon: <CheckCircleIcon className="size-6 fill-current" />,
+      iconClassName: "text-success-500",
+    },
+    warning: {
+      className:
+        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
+      icon: <AlertIcon className="size-6 fill-current" />,
+      iconClassName: "text-warning-500 dark:text-orange-400",
+    },
   }[tone];
-  const Icon =
-    tone === "success" ? CheckCircleIcon : tone === "info" ? InfoIcon : AlertIcon;
-  const iconClasses = {
-    success: "text-success-600 dark:text-success-400",
-    warning: "text-warning-600 dark:text-warning-400",
-    error: "text-error-600 dark:text-error-400",
-    info: "text-blue-light-600 dark:text-blue-light-400",
-  }[tone];
+
   return (
-    <div className={`rounded-xl border p-4 ${classes}`}>
+    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
       <div className="flex items-start gap-3">
-        <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${iconClasses}`} />
-        <div>
+        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
+          {toneConfig.icon}
+        </div>
+        <div className="min-w-0">
           <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </p>
-          <p className="mt-1 text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
             {message}
           </p>
         </div>
