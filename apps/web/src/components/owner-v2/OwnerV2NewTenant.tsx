@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import type React from "react";
+import type { FormEvent, ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   findSensitiveTenantNoteHints,
@@ -12,6 +12,13 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
+import {
+  AlertIcon,
+  CheckCircleIcon,
+  InfoIcon,
+  PlusIcon,
+  TaskIcon,
+} from "@/icons";
 import { ownerV2Fetch } from "./api";
 
 type TenantCreateDryRunPreview = {
@@ -154,18 +161,26 @@ export default function OwnerV2NewTenant() {
   };
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            เพิ่มร้านใหม่
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            ขั้นนี้สร้าง tenant และ viewer เริ่มต้นเท่านั้น ไม่แตะ SML หรือ LINE secret
-          </p>
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
+          <div>
+            <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+              เพิ่มร้านใหม่
+            </h2>
+            <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+              สร้าง tenant และ viewer เริ่มต้นเท่านั้น ไม่แตะ SML หรือ LINE secret
+            </p>
+          </div>
+          <Badge color={previewMatchesForm ? "success" : "info"}>
+            {previewMatchesForm ? "dry-run ล่าสุดผ่านฟอร์มนี้" : "ต้อง dry-run ก่อน"}
+          </Badge>
         </div>
 
-        <form className="mt-5 space-y-4" onSubmit={runDryRun}>
+        <form
+          className="space-y-6 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6"
+          onSubmit={runDryRun}
+        >
           <Field label="ชื่อร้าน">
             <input
               className="owner-v2-input"
@@ -180,24 +195,41 @@ export default function OwnerV2NewTenant() {
               value={name}
             />
           </Field>
-          <Field
-            help={
-              suggestedTenantId && suggestedTenantId !== tenantId
-                ? `แนะนำ: ${suggestedTenantId}`
-                : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"
-            }
-            label="tenant_id"
-          >
-            <input
-              className="owner-v2-input font-mono"
-              onChange={(event) => {
-                setTenantId(event.target.value);
-                setPreview(null);
-              }}
-              placeholder="tenant_krabi"
-              value={tenantId}
-            />
-          </Field>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Field
+              help={
+                suggestedTenantId && suggestedTenantId !== tenantId
+                  ? `แนะนำ: ${suggestedTenantId}`
+                  : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"
+              }
+              label="tenant_id"
+            >
+              <input
+                className="owner-v2-input font-mono"
+                onChange={(event) => {
+                  setTenantId(event.target.value);
+                  setPreview(null);
+                }}
+                placeholder="tenant_krabi"
+                value={tenantId}
+              />
+            </Field>
+            <Field
+              help="ถ้าเว้นว่าง ระบบจะสร้าง viewer+tenant_id@ai-business.local"
+              label="Viewer email"
+            >
+              <input
+                className="owner-v2-input"
+                onChange={(event) => {
+                  setViewerEmail(event.target.value);
+                  setPreview(null);
+                }}
+                placeholder="owner@example.com"
+                type="email"
+                value={viewerEmail}
+              />
+            </Field>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Plan">
               <select
@@ -229,18 +261,6 @@ export default function OwnerV2NewTenant() {
               </select>
             </Field>
           </div>
-          <Field help="ถ้าเว้นว่าง ระบบจะสร้าง viewer+tenant_id@ai-business.local" label="Viewer email">
-            <input
-              className="owner-v2-input"
-              onChange={(event) => {
-                setViewerEmail(event.target.value);
-                setPreview(null);
-              }}
-              placeholder="owner@example.com"
-              type="email"
-              value={viewerEmail}
-            />
-          </Field>
           <Field
             help={
               sensitiveHints.length
@@ -265,7 +285,11 @@ export default function OwnerV2NewTenant() {
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button disabled={busy !== null || !canDryRun} type="submit">
+            <Button
+              disabled={busy !== null || !canDryRun}
+              startIcon={<TaskIcon className="h-4 w-4" />}
+              type="submit"
+            >
               {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจ dry-run"}
             </Button>
             <Button
@@ -276,6 +300,7 @@ export default function OwnerV2NewTenant() {
                 previewHasBlockingCheck
               }
               onClick={() => void createTenant()}
+              startIcon={<PlusIcon className="h-4 w-4" />}
               type="button"
               variant="outline"
             >
@@ -288,34 +313,44 @@ export default function OwnerV2NewTenant() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-          Preview ก่อนสร้าง
-        </h2>
+      <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+          <div>
+            <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+              Preview ก่อนสร้าง
+            </h2>
+            <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
+              ตรวจผลกระทบก่อนบันทึกจริง
+            </p>
+          </div>
+          <Badge color={preview ? (previewHasBlockingCheck ? "warning" : "success") : "light"}>
+            {preview ? "มี preview" : "ยังไม่มี"}
+          </Badge>
+        </div>
         {preview ? (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3">
+          <div className="space-y-5 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+            <div className="space-y-4">
               <Fact label="tenant_id" value={preview.tenant_id} />
               <Fact label="Dashboard" value={preview.dashboard_path} />
               <Fact label="Viewer" value={preview.viewer_email} />
             </div>
-            <div className="space-y-2">
+            <div className="custom-scrollbar flex max-h-[360px] flex-col overflow-y-auto pr-2">
               {preview.checks.map((check) => (
                 <div
-                  className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+                  className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
                   key={check.key}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  <div className="min-w-0">
+                    <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                       {check.label}
                     </p>
-                    <Badge color={check.ok ? "success" : "warning"}>
-                      {check.ok ? "ผ่าน" : "ต้องแก้"}
-                    </Badge>
+                    <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                      {check.detail}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    {check.detail}
-                  </p>
+                  <Badge color={check.ok ? "success" : "warning"}>
+                    {check.ok ? "ผ่าน" : "ต้องแก้"}
+                  </Badge>
                 </div>
               ))}
             </div>
@@ -324,9 +359,12 @@ export default function OwnerV2NewTenant() {
             ) : null}
           </div>
         ) : (
-          <p className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm leading-6 text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
-            กรอกข้อมูลร้านแล้วกดตรวจ dry-run ระบบจะแสดงผลกระทบก่อนสร้างจริง
-          </p>
+          <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+            <Notice
+              text="กรอกข้อมูลร้านแล้วกดตรวจ dry-run ระบบจะแสดง tenant_id, dashboard, viewer และ checks ก่อนสร้างจริง"
+              tone="info"
+            />
+          </div>
         )}
       </section>
     </div>
@@ -338,18 +376,18 @@ function Field({
   help,
   label,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   help?: string;
   label: string;
 }) {
   return (
-    <label className="block">
-      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+    <label className="block min-w-0">
+      <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
         {label}
       </span>
-      <span className="mt-1 block">{children}</span>
+      <span className="block">{children}</span>
       {help ? (
-        <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+        <span className="mt-1.5 block text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
           {help}
         </span>
       ) : null}
@@ -359,9 +397,9 @@ function Field({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-gray-900 dark:text-white">
+    <div className="border-b border-gray-200 pb-4 last:border-b-0 last:pb-0 dark:border-gray-800">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
         {value}
       </p>
     </div>
@@ -373,15 +411,39 @@ function Notice({
   tone,
 }: {
   text: string;
-  tone: "success" | "warning" | "error";
+  tone: "success" | "warning" | "error" | "info";
 }) {
+  const Icon =
+    tone === "success" ? CheckCircleIcon : tone === "info" ? InfoIcon : AlertIcon;
   const classes = {
     success:
-      "border-success-200 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-300",
+      "border-success-500 bg-success-50 text-success-700 dark:border-success-500/30 dark:bg-success-500/15 dark:text-success-400",
     warning:
-      "border-warning-200 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-300",
+      "border-warning-500 bg-warning-50 text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/15 dark:text-orange-400",
     error:
-      "border-error-200 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300",
+      "border-error-500 bg-error-50 text-error-700 dark:border-error-500/30 dark:bg-error-500/15 dark:text-error-400",
+    info: "border-blue-light-500 bg-blue-light-50 text-blue-light-600 dark:border-blue-light-500/30 dark:bg-blue-light-500/15 dark:text-blue-light-400",
   }[tone];
-  return <p className={`rounded-lg border p-3 text-sm leading-6 ${classes}`}>{text}</p>;
+  const title = {
+    success: "พร้อมดำเนินการ",
+    warning: "ต้องตรวจข้อมูล",
+    error: "ดำเนินการไม่สำเร็จ",
+    info: "ก่อนสร้างร้าน",
+  }[tone];
+
+  return (
+    <div className={`rounded-xl border p-4 ${classes}`}>
+      <div className="flex items-start gap-3">
+        <Icon className="-mt-0.5 h-6 w-6 shrink-0" />
+        <div>
+          <h4 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+            {title}
+          </h4>
+          <p className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+            {text}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
