@@ -1529,6 +1529,7 @@ export const notificationRunProgressStageSchema = z.enum([
   "queued",
   "claimed",
   "running_report",
+  "waiting_chunked_report",
   "preparing_line",
   "sending_line",
   "completed",

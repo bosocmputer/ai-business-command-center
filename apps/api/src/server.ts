@@ -205,7 +205,10 @@ import {
   type ArCustomerMovementFallbackSnapshot,
   type StockBalanceFallbackSnapshot,
 } from "./heavy-report-resilience.js";
-import { createHeavyReportCoalescer } from "./heavy-report-coalescer.js";
+import {
+  createHeavyReportCoalescer,
+  sameReportParams,
+} from "./heavy-report-coalescer.js";
 import { buildTenantCreateDryRunPreview } from "./tenant-create-preview.js";
 import {
   getReportExecutionPolicy,
@@ -300,6 +303,25 @@ const CHUNKED_HEAVY_MAX_CHUNK_ATTEMPTS = 2;
 const CHUNKED_HEAVY_NOTIFICATION_WAIT_MS =
   CHUNKED_HEAVY_REPORT_MAX_DURATION_MS + 90_000;
 const CHUNKED_HEAVY_NOTIFICATION_POLL_MS = 1_000;
+const NOTIFICATION_CHUNKED_WAIT_MS =
+  readBoundedIntegerEnv("NOTIFICATION_CHUNKED_WAIT_MINUTES", 60, {
+    min: 1,
+    max: 240,
+  }) *
+  60 *
+  1000;
+const NOTIFICATION_STALE_GRACE_MS =
+  readBoundedIntegerEnv("NOTIFICATION_STALE_GRACE_MINUTES", 5, {
+    min: 1,
+    max: 60,
+  }) *
+  60 *
+  1000;
+const NOTIFICATION_WAIT_POLL_MS =
+  readBoundedIntegerEnv("NOTIFICATION_WAIT_POLL_SECONDS", 60, {
+    min: 10,
+    max: 600,
+  }) * 1000;
 const DASHBOARD_TOKEN_TTL_HOURS = 24;
 const DASHBOARD_TOKEN_LOOKBACK_DAYS = 31;
 const DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS = 31;
@@ -7487,7 +7509,8 @@ type NotificationRuleExecutionResult =
       mode: LineSendMode;
     };
 
-const NOTIFICATION_QUEUE_STALE_MS = 20 * 60 * 1000;
+const NOTIFICATION_QUEUE_STALE_MS =
+  NOTIFICATION_CHUNKED_WAIT_MS + NOTIFICATION_STALE_GRACE_MS;
 const NOTIFICATION_QUEUE_BACKGROUND_LIMIT = 1;
 const NOTIFICATION_QUEUE_PROCESSOR_LOCK_KEY = "notification_rule_queue_processor";
 let notificationQueueProcessorActive = false;
@@ -7951,6 +7974,170 @@ function buildMissingChunkedReportRun(
     row_count: 0,
     safe_error_message: safeErrorMessage,
   };
+}
+
+type ChunkedNotificationReportExecution =
+  | {
+      status: "ready";
+      result: Awaited<ReturnType<typeof runAndPersistReportByKey>>;
+      duplicate: boolean;
+    }
+  | {
+      status: "waiting";
+      runRecord: ReportRunRecord | null;
+      activeRun: ReportRunRecord | null;
+      duplicate: boolean;
+      safeErrorMessage: string | null;
+    };
+
+async function runOrWaitChunkedNotificationReport(input: {
+  tenantId: TenantId;
+  reportKey: ChunkedHeavyReportKey;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<ChunkedNotificationReportExecution> {
+  const enqueueResult = await enqueueChunkedHeavyReportRun({
+    tenantId: input.tenantId,
+    reportKey: input.reportKey,
+    params: input.params,
+    force: false,
+    requestAction: input.requestAction,
+  });
+
+  if (!enqueueResult.ok) {
+    const activeRun = enqueueResult.activeRun ?? null;
+    if (activeRun && (activeRun.status === "queued" || activeRun.status === "running")) {
+      kickChunkedReportRunProcessor(activeRun.id);
+      return {
+        status: "waiting",
+        runRecord: null,
+        activeRun,
+        duplicate: true,
+        safeErrorMessage: enqueueResult.error,
+      };
+    }
+
+    const safeErrorMessage = enqueueResult.error;
+    return {
+      status: "ready",
+      duplicate: false,
+      result: {
+        ok: false,
+        statusCode: enqueueResult.statusCode === 409 ? 424 : enqueueResult.statusCode,
+        error: safeErrorMessage,
+        runRecord:
+          enqueueResult.runRecord ??
+          activeRun ??
+          buildMissingChunkedReportRun(input, safeErrorMessage),
+      },
+    };
+  }
+
+  let runRecord =
+    (await systemStore.getRun(enqueueResult.runRecord.id)) ??
+    enqueueResult.runRecord;
+
+  if (runRecord.status === "success") {
+    const snapshot = await systemStore.getSnapshotByRunId(
+      runRecord.tenant_id,
+      runRecord.id,
+      input.reportKey,
+    );
+    if (snapshot) {
+      return {
+        status: "ready",
+        duplicate: enqueueResult.duplicate,
+        result: {
+          ok: true,
+          snapshot,
+          runRecord,
+        },
+      };
+    }
+    return {
+      status: "ready",
+      duplicate: enqueueResult.duplicate,
+      result: {
+        ok: false,
+        statusCode: 500,
+        error:
+          "ประมวลผลรายงานสำเร็จแต่ไม่พบ snapshot กรุณาตรวจสอบระบบจัดเก็บรายงาน",
+        runRecord,
+      },
+    };
+  }
+
+  if (runRecord.status === "failed") {
+    return {
+      status: "ready",
+      duplicate: enqueueResult.duplicate,
+      result: {
+        ok: false,
+        statusCode: 424,
+        error:
+          runRecord.safe_error_message ??
+          toSafeChunkedReportErrorMessage(
+            input.reportKey,
+            new Error("chunked report run failed"),
+          ),
+        runRecord,
+      },
+    };
+  }
+
+  kickChunkedReportRunProcessor(runRecord.id);
+  return {
+    status: "waiting",
+    runRecord,
+    activeRun: null,
+    duplicate: enqueueResult.duplicate,
+    safeErrorMessage: null,
+  };
+}
+
+function getNotificationRunStartedAtMs(run: NotificationRuleRunRecord) {
+  const startedAt =
+    run.started_at ?? run.claimed_at ?? run.queued_at ?? run.created_at;
+  const parsed = Date.parse(startedAt);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function isNotificationChunkedWaitTimedOut(
+  run: NotificationRuleRunRecord,
+  now: Date,
+) {
+  return now.getTime() - getNotificationRunStartedAtMs(run) >= NOTIFICATION_CHUNKED_WAIT_MS;
+}
+
+function buildNotificationChunkedWaitTimeoutMessage(reportKey: ChunkedHeavyReportKey) {
+  return toSafeChunkedReportErrorMessage(
+    reportKey,
+    new Error("chunked heavy report max duration exceeded"),
+  );
+}
+
+async function findNotificationChunkedReportRun(input: {
+  tenantId: TenantId;
+  reportKey: ChunkedHeavyReportKey;
+  params: SalesGoodsServicesParams;
+  reportRunIds: string[];
+}) {
+  for (const runId of [...input.reportRunIds].reverse()) {
+    const run = await systemStore.getRun(runId);
+    if (
+      run &&
+      run.tenant_id === input.tenantId &&
+      run.report_key === input.reportKey &&
+      sameReportParams(run.params, input.params)
+    ) {
+      return run;
+    }
+  }
+  return systemStore.findActiveReportRun({
+    tenantId: input.tenantId,
+    reportKey: input.reportKey,
+    params: input.params,
+  });
 }
 
 function delay(ms: number) {
@@ -8838,7 +9025,7 @@ async function enqueueWorkerNotificationRuleRun(input: {
     source: input.source,
     attempt,
     idempotency_key: idempotencyKey,
-    report_run_ids: [],
+    report_run_ids: input.retryFromRun?.report_run_ids ?? [],
     report_results: null,
     delivery_ids: [],
     safe_error_message: null,
@@ -8919,30 +9106,114 @@ async function markStaleNotificationQueueRuns(now: Date) {
   });
   for (const run of staleRuns) {
     const rule = await systemStore.getNotificationRule(run.rule_id);
+    let runForAudit = run;
+    const nextRetryAt =
+      rule && run.mode === "send" && run.attempt < rule.retry_policy.max_attempts
+        ? new Date(
+            now.getTime() + rule.retry_policy.retry_delay_minutes * 60_000,
+          ).toISOString()
+        : null;
+    if (nextRetryAt) {
+      runForAudit = await systemStore.upsertNotificationRuleRun({
+        ...run,
+        next_retry_at: nextRetryAt,
+        updated_at: failedAt,
+      });
+    }
     if (rule) {
       await systemStore.upsertNotificationRule({
         ...rule,
         last_run_at: failedAt,
         last_run_status: "failed",
-        last_safe_error_message: run.safe_error_message,
+        last_safe_error_message: runForAudit.safe_error_message,
         updated_at: failedAt,
       });
     }
     await systemStore.appendAuditLog({
-      tenant_id: run.tenant_id,
+      tenant_id: runForAudit.tenant_id,
       actor_id: null,
       action: "notification_rule_run_stale_failed",
       target_type: "notification_rule_run",
-      target_id: run.id,
+      target_id: runForAudit.id,
       metadata_json: {
-        rule_id: run.rule_id,
-        source: run.source,
-        attempt: run.attempt,
-        queued_at: run.queued_at,
-        claimed_at: run.claimed_at,
-        worker_id: run.worker_id,
+        rule_id: runForAudit.rule_id,
+        source: runForAudit.source,
+        attempt: runForAudit.attempt,
+        queued_at: runForAudit.queued_at,
+        claimed_at: runForAudit.claimed_at,
+        started_at: runForAudit.started_at,
+        worker_id: runForAudit.worker_id,
+        progress_stage: runForAudit.progress_stage,
+        progress_current_report_key: runForAudit.progress_current_report_key,
+        report_run_ids: runForAudit.report_run_ids,
+        next_retry_at: nextRetryAt,
+        stale_after_ms: NOTIFICATION_QUEUE_STALE_MS,
       },
     });
+    if (rule) {
+      const tenant = await getTenantOrNull(runForAudit.tenant_id);
+      try {
+        const deliveries = await sendOperationalTelegramAlert({
+          store: systemStore,
+          tenant,
+          alertType: "notification_run_failed",
+          severity: "critical",
+          messageText: buildOperationalAlertMessage({
+            title: "งานแจ้งเตือนผู้บริหารค้างเกิน stale safety",
+            severity: "critical",
+            tenantName: tenant?.name ?? runForAudit.tenant_id,
+            scheduledTime: `${runForAudit.scheduled_local_date} ${runForAudit.scheduled_local_time}`,
+            reportKey: runForAudit.progress_current_report_key,
+            status: "failed",
+            runId: runForAudit.id,
+            details: [
+              `attempt: ${runForAudit.attempt}`,
+              `progress_stage: ${runForAudit.progress_stage ?? "unknown"}`,
+              `next_retry_at: ${nextRetryAt ?? "none"}`,
+            ],
+            action:
+              "ตรวจ report run/chunked worker และปล่อยให้ retry รอบถัดไปทำต่อด้วย period เดิม",
+          }),
+          dedupeKey: buildOperationalAlertDedupeKey({
+            alertType: "notification_run_failed",
+            tenantId: runForAudit.tenant_id,
+            ruleId: rule.id,
+            scheduledDate: runForAudit.scheduled_local_date,
+            scheduledTime: runForAudit.scheduled_local_time,
+            reportKey: runForAudit.progress_current_report_key,
+            severity: "critical",
+          }),
+        });
+        await systemStore.appendAuditLog({
+          tenant_id: runForAudit.tenant_id,
+          actor_id: null,
+          action: "telegram_operational_alert_processed",
+          target_type: "operational_alert",
+          target_id: "notification_run_failed",
+          metadata_json: {
+            alert_type: "notification_run_failed",
+            severity: "critical",
+            notification_rule_run_id: runForAudit.id,
+            delivery_ids: deliveries.map((delivery) => delivery.id),
+            delivery_statuses: deliveries.map((delivery) => delivery.status),
+          },
+        });
+      } catch (error) {
+        await systemStore.appendAuditLog({
+          tenant_id: runForAudit.tenant_id,
+          actor_id: null,
+          action: "telegram_operational_alert_failed",
+          target_type: "operational_alert",
+          target_id: "notification_run_failed",
+          metadata_json: {
+            alert_type: "notification_run_failed",
+            severity: "critical",
+            notification_rule_run_id: runForAudit.id,
+            safe_error_message: toSafeErrorMessage(error),
+          },
+        });
+      }
+    }
   }
   return staleRuns;
 }
@@ -8986,11 +9257,71 @@ async function processQueuedNotificationRuleRuns(input: {
   try {
     const now = input.now ?? new Date();
     const staleFailed = await markStaleNotificationQueueRuns(now);
-    const queuedRuns = await systemStore.listQueuedNotificationRuleRuns(
-      input.limit ?? NOTIFICATION_QUEUE_BACKGROUND_LIMIT,
-    );
+    const maxRuns = input.limit ?? NOTIFICATION_QUEUE_BACKGROUND_LIMIT;
+    const resumableRuns = await systemStore.listResumableNotificationRuleRuns({
+      limit: maxRuns,
+      pollBefore: new Date(now.getTime() - NOTIFICATION_WAIT_POLL_MS).toISOString(),
+    });
     const processed: NotificationRuleExecutionResult[] = [];
     const skipped: Array<Record<string, unknown>> = [];
+
+    const processRunningNotificationRun = async (
+      runToProcess: NotificationRuleRunRecord,
+    ) => {
+      const rule = await systemStore.getNotificationRule(runToProcess.rule_id);
+      if (!rule || !rule.enabled) {
+        const failedRun = await failClaimedNotificationRun({
+          run: runToProcess,
+          safeErrorMessage: !rule
+            ? "ไม่พบแผนแจ้งเตือนที่คิวนี้อ้างอิง"
+            : "แผนแจ้งเตือนถูกปิดใช้งานก่อนเริ่มรัน",
+        });
+        processed.push({
+          ok: false,
+          statusCode: 424,
+          error: failedRun.safe_error_message ?? "รันแผนแจ้งเตือนไม่สำเร็จ",
+          run: failedRun,
+          deliveries: [],
+          report_run_ids: failedRun.report_run_ids,
+          mode: runToProcess.mode,
+        });
+        return;
+      }
+
+      const result = await executeNotificationRule({
+        rule,
+        mode: runToProcess.mode,
+        force: true,
+        now,
+        scheduledLocalDate: runToProcess.scheduled_local_date,
+        scheduledLocalTime: runToProcess.scheduled_local_time,
+        attempt: runToProcess.attempt,
+        source: runToProcess.source,
+        run: runToProcess,
+        workerId: input.workerId,
+        clientRequestId: runToProcess.client_request_id,
+      });
+      processed.push(result);
+    };
+
+    for (const waitingRun of resumableRuns) {
+      if (processed.length >= maxRuns) {
+        break;
+      }
+      if (
+        waitingRun.status !== "running" ||
+        waitingRun.progress_stage !== "waiting_chunked_report"
+      ) {
+        skipped.push({ run_id: waitingRun.id, reason: "not_resumable" });
+        continue;
+      }
+      await processRunningNotificationRun(waitingRun);
+    }
+
+    const remainingCapacity = Math.max(0, maxRuns - processed.length);
+    const queuedRuns = remainingCapacity
+      ? await systemStore.listQueuedNotificationRuleRuns(remainingCapacity)
+      : [];
 
     for (const queuedRun of queuedRuns) {
       const claimedRun = await systemStore.claimQueuedNotificationRuleRun({
@@ -9003,40 +9334,7 @@ async function processQueuedNotificationRuleRuns(input: {
         continue;
       }
 
-      const rule = await systemStore.getNotificationRule(claimedRun.rule_id);
-      if (!rule || !rule.enabled) {
-        const failedRun = await failClaimedNotificationRun({
-          run: claimedRun,
-          safeErrorMessage: !rule
-            ? "ไม่พบแผนแจ้งเตือนที่คิวนี้อ้างอิง"
-            : "แผนแจ้งเตือนถูกปิดใช้งานก่อนเริ่มรัน",
-        });
-        processed.push({
-          ok: false,
-          statusCode: 424,
-          error: failedRun.safe_error_message ?? "รันแผนแจ้งเตือนไม่สำเร็จ",
-          run: failedRun,
-          deliveries: [],
-          report_run_ids: failedRun.report_run_ids,
-          mode: claimedRun.mode,
-        });
-        continue;
-      }
-
-      const result = await executeNotificationRule({
-        rule,
-        mode: claimedRun.mode,
-        force: true,
-        now,
-        scheduledLocalDate: claimedRun.scheduled_local_date,
-        scheduledLocalTime: claimedRun.scheduled_local_time,
-        attempt: claimedRun.attempt,
-        source: claimedRun.source,
-        run: claimedRun,
-        workerId: input.workerId,
-        clientRequestId: claimedRun.client_request_id,
-      });
-      processed.push(result);
+      await processRunningNotificationRun(claimedRun);
     }
 
     return { processed, skipped, stale_failed: staleFailed };
@@ -9618,10 +9916,26 @@ async function executeNotificationRule(input: {
   const reportResults: NotificationReportResult[] = [
     ...(run.report_results ?? []),
   ];
+  const reportRunIds: string[] = [
+    ...new Set(
+      [
+        ...run.report_run_ids,
+        ...reportResults
+          .map((result) => result.run_id)
+          .filter((runId): runId is string => Boolean(runId)),
+      ],
+    ),
+  ];
+  const addReportRunId = (runId?: string | null) => {
+    if (runId && !reportRunIds.includes(runId)) {
+      reportRunIds.push(runId);
+    }
+  };
   const recordReportResult = (result: NotificationReportResult) => {
     const existingIndex = reportResults.findIndex(
       (item) => item.report_key === result.report_key,
     );
+    addReportRunId(result.run_id);
     if (existingIndex >= 0) {
       reportResults[existingIndex] = result;
       return;
@@ -9646,6 +9960,7 @@ async function executeNotificationRule(input: {
       progress_total_reports:
         progress.totalReports ?? run.progress_total_reports ?? totalReports,
       progress_updated_at: progressUpdatedAt,
+      report_run_ids: [...reportRunIds],
       report_results: reportResults.length
         ? [...reportResults]
         : run.report_results,
@@ -9696,7 +10011,7 @@ async function executeNotificationRule(input: {
       ...run,
       status: update.status,
       safe_error_message: update.safeErrorMessage ?? null,
-      report_run_ids: update.reportRunIds ?? run.report_run_ids,
+      report_run_ids: update.reportRunIds ?? [...reportRunIds],
       report_results: reportResults.length ? [...reportResults] : null,
       delivery_ids: update.deliveryIds ?? run.delivery_ids,
       finished_at: finishedAt,
@@ -9725,7 +10040,7 @@ async function executeNotificationRule(input: {
   const failRun = async (
     safeErrorMessage: string,
     statusCode: 403 | 424 | 500,
-    reportRunIds: string[] = run.report_run_ids,
+    reportRunIdsForFailure: string[] = [...reportRunIds],
     deliveryIds: string[] = run.delivery_ids,
     options?: {
       deliveryRecords?: LineDeliveryRecord[];
@@ -9745,7 +10060,7 @@ async function executeNotificationRule(input: {
     await finishRun({
       status: "failed",
       safeErrorMessage,
-      reportRunIds,
+      reportRunIds: reportRunIdsForFailure,
       deliveryIds: resolvedDeliveryIds,
       nextRetryAt,
     });
@@ -9782,7 +10097,7 @@ async function executeNotificationRule(input: {
       error: safeErrorMessage,
       run,
       deliveries: deliveryRecords,
-      report_run_ids: reportRunIds,
+      report_run_ids: reportRunIdsForFailure,
       mode: input.mode,
     };
   };
@@ -9811,7 +10126,6 @@ async function executeNotificationRule(input: {
     return failRun(validation.error, 424);
   }
 
-  const reportRunIds: string[] = [];
   const snapshots: ReportSnapshot[] = [];
   const businessSignalsEnabled = isBusinessSignalsEnabled(tenant);
   const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
@@ -10034,7 +10348,7 @@ async function executeNotificationRule(input: {
         incident.reportKey,
         target.target_id_hash.slice(0, 16),
       ].join(":");
-      if (input.mode === "send" && !input.force) {
+      if (input.mode === "send") {
         const existingDelivery =
           await systemStore.findSuccessfulLineDeliveryByKey({
             tenantId: input.rule.tenant_id,
@@ -10095,6 +10409,35 @@ async function executeNotificationRule(input: {
     return deliveries;
   };
   for (const [reportIndex, reportKey] of input.rule.report_keys.entries()) {
+    const previousFreshResult = reportResults.find(
+      (result) =>
+        result.report_key === reportKey &&
+        result.status === "success" &&
+        result.freshness === "fresh" &&
+        Boolean(result.run_id),
+    );
+    if (previousFreshResult?.run_id) {
+      addReportRunId(previousFreshResult.run_id);
+      const previousSnapshot = await systemStore.getSnapshotByRunId(
+        input.rule.tenant_id,
+        previousFreshResult.run_id,
+        reportKey,
+      );
+      if (!previousSnapshot) {
+        return failRun(
+          "พบผลรายงานเดิมแต่ไม่พบ snapshot สำหรับส่ง LINE กรุณารันใหม่อีกครั้ง",
+          500,
+          reportRunIds,
+        );
+      }
+      snapshots.push(previousSnapshot);
+      continue;
+    }
+
+    const wasWaitingForCurrentReport =
+      run.progress_stage === "waiting_chunked_report" &&
+      run.progress_current_report_key === reportKey;
+
     await updateRunProgress({
       stage: "running_report",
       percent: calculateReportProgressPercent(reportIndex, totalReports),
@@ -10123,7 +10466,7 @@ async function executeNotificationRule(input: {
       });
       if (recentTimeoutRun) {
         if (!reportRunIds.includes(recentTimeoutRun.id)) {
-          reportRunIds.push(recentTimeoutRun.id);
+          addReportRunId(recentTimeoutRun.id);
         }
         const fallback = resolveStockBalanceFallbackSnapshot({
           snapshot: await systemStore.getLatestSnapshotByParams(
@@ -10179,7 +10522,7 @@ async function executeNotificationRule(input: {
       });
       if (recentTimeoutRun) {
         if (!reportRunIds.includes(recentTimeoutRun.id)) {
-          reportRunIds.push(recentTimeoutRun.id);
+          addReportRunId(recentTimeoutRun.id);
         }
         const fallback = resolveArCustomerMovementFallbackSnapshot({
           snapshot: await systemStore.getLatestSnapshotByParams(
@@ -10221,8 +10564,154 @@ async function executeNotificationRule(input: {
       }
     }
 
+    const chunkedReportKey =
+      isChunkedHeavyReportKey(reportKey) &&
+      shouldUseChunkedHeavyReport(tenant, reportKey)
+        ? reportKey
+        : null;
+    const reusableChunkedRun = chunkedReportKey
+      ? await findNotificationChunkedReportRun({
+          tenantId: input.rule.tenant_id,
+          reportKey: chunkedReportKey,
+          params,
+          reportRunIds,
+        })
+      : null;
+    if (
+      chunkedReportKey &&
+      wasWaitingForCurrentReport &&
+      reusableChunkedRun?.status !== "success" &&
+      isNotificationChunkedWaitTimedOut(run, new Date())
+    ) {
+      const safeErrorMessage =
+        buildNotificationChunkedWaitTimeoutMessage(chunkedReportKey);
+      const timedOutRun =
+        reusableChunkedRun ??
+        buildMissingChunkedReportRun(
+          {
+            tenantId: input.rule.tenant_id,
+            reportKey: chunkedReportKey,
+            params,
+          },
+          safeErrorMessage,
+        );
+      addReportRunId(timedOutRun.id);
+      recordReportResult(
+        buildFailedNotificationReportResult({
+          reportKey,
+          runRecord: timedOutRun,
+          durationMs: Date.now() - getNotificationRunStartedAtMs(run),
+        }),
+      );
+      await systemStore.appendAuditLog({
+        tenant_id: input.rule.tenant_id,
+        actor_id: null,
+        action: "notification_rule_chunked_wait_timeout",
+        target_type: "notification_rule_run",
+        target_id: run.id,
+        metadata_json: {
+          notification_rule_id: input.rule.id,
+          report_key: reportKey,
+          report_run_id: timedOutRun.id,
+          wait_limit_ms: NOTIFICATION_CHUNKED_WAIT_MS,
+          source: input.source,
+          mode: input.mode,
+          attempt,
+          scheduled_local_date: zoned.date,
+          scheduled_local_time: zoned.time,
+          safe_error_message: safeErrorMessage,
+        },
+      });
+      const failureKind = classifyReportFailureKind(safeErrorMessage);
+      if (businessSignalsEnabled) {
+        await persistBusinessSignals(
+          [
+            buildReportFailureBusinessSignal({
+              tenant_id: input.rule.tenant_id,
+              report_key: reportKey,
+              run_id: timedOutRun.id,
+              period_from: params.date_from,
+              period_to: params.date_to,
+              safe_error_message: safeErrorMessage,
+              failure_kind: failureKind,
+            }),
+          ],
+          {
+            source: input.source,
+            notificationRuleId: input.rule.id,
+          },
+        );
+      }
+      await sendOpsAlertSafe({
+        alertType: "notification_run_failed",
+        severity: "critical",
+        reportKey,
+        messageText: buildOperationalAlertMessage({
+          title: "รอ chunked report ครบ SLA แล้วยังไม่สำเร็จ",
+          severity: "critical",
+          tenantName: tenant.name,
+          scheduledTime: `${zoned.date} ${zoned.time}`,
+          reportKey,
+          runId: timedOutRun.id,
+          status: "failed",
+          details: [
+            `notification_run_id: ${run.id}`,
+            `attempt: ${attempt}`,
+            `wait_limit_minutes: ${Math.round(NOTIFICATION_CHUNKED_WAIT_MS / 60_000)}`,
+            `สาเหตุ: ${safeErrorMessage}`,
+          ],
+          action:
+            "ตรวจ chunked report run/chunks และปล่อย retry รอบถัดไปใช้ period เดิม ไม่ต้องกดส่งซ้ำทันที",
+        }),
+      });
+      const incidentDeliveries = await sendReportFailureIncidentNotice({
+        reportKey,
+        runId: timedOutRun.id,
+        safeErrorMessage,
+        failureKind,
+      });
+      return failRun(
+        safeErrorMessage,
+        424,
+        reportRunIds,
+        incidentDeliveries.map((delivery) => delivery.id),
+        {
+          deliveryRecords: incidentDeliveries,
+          failureKind,
+        },
+      );
+    }
+
     const reportStartedAt = Date.now();
-    const { result, coalesced, policy } = await runNotificationReportWithPolicy({
+    let reportExecution:
+      | Awaited<ReturnType<typeof runNotificationRuleReportWithPolicy>>
+      | null = null;
+    if (chunkedReportKey && reusableChunkedRun?.status === "success") {
+      const reusableSnapshot = await systemStore.getSnapshotByRunId(
+        input.rule.tenant_id,
+        reusableChunkedRun.id,
+        chunkedReportKey,
+      );
+      reportExecution = {
+        status: "ready",
+        result: reusableSnapshot
+          ? {
+              ok: true,
+              snapshot: reusableSnapshot,
+              runRecord: reusableChunkedRun,
+            }
+          : {
+              ok: false,
+              statusCode: 500,
+              error:
+                "ประมวลผลรายงานสำเร็จแต่ไม่พบ snapshot กรุณาตรวจสอบระบบจัดเก็บรายงาน",
+              runRecord: reusableChunkedRun,
+            },
+        coalesced: true,
+        policy: getReportExecutionPolicy(reportKey),
+      };
+    }
+    reportExecution ??= await runNotificationRuleReportWithPolicy({
       tenant,
       tenantId: input.rule.tenant_id,
       reportKey,
@@ -10230,8 +10719,57 @@ async function executeNotificationRule(input: {
       requestAction: "notification_rule_report_run_requested",
       heavyReportFallbackEnabled,
     });
+    if (reportExecution.status === "waiting") {
+      const waitingRun = reportExecution.runRecord ?? reportExecution.activeRun;
+      addReportRunId(reportExecution.runRecord?.id ?? null);
+      await updateRunProgress({
+        stage: "waiting_chunked_report",
+        percent: calculateReportProgressPercent(reportIndex, totalReports),
+        currentReportKey: reportKey,
+        doneReports: reportIndex,
+        totalReports,
+      });
+      await systemStore.appendAuditLog({
+        tenant_id: input.rule.tenant_id,
+        actor_id: null,
+        action: "notification_rule_waiting_chunked_report",
+        target_type: "notification_rule_run",
+        target_id: run.id,
+        metadata_json: {
+          notification_rule_id: input.rule.id,
+          report_key: reportKey,
+          report_run_id: reportExecution.runRecord?.id ?? null,
+          active_report_run_id: reportExecution.activeRun?.id ?? null,
+          active_report_key: reportExecution.activeRun?.report_key ?? null,
+          source: input.source,
+          mode: input.mode,
+          attempt,
+          scheduled_local_date: zoned.date,
+          scheduled_local_time: zoned.time,
+          poll_seconds: Math.round(NOTIFICATION_WAIT_POLL_MS / 1000),
+          wait_deadline_at: new Date(
+            getNotificationRunStartedAtMs(run) + NOTIFICATION_CHUNKED_WAIT_MS,
+          ).toISOString(),
+          report_execution_policy: reportExecution.policy.mode,
+          coalesced: reportExecution.coalesced,
+          safe_error_message: reportExecution.safeErrorMessage,
+        },
+      });
+      if (waitingRun?.status === "queued" || waitingRun?.status === "running") {
+        kickChunkedReportRunProcessor(waitingRun.id);
+      }
+      return {
+        ok: true,
+        status: "processed",
+        run,
+        deliveries: [],
+        report_run_ids: reportRunIds,
+        mode: input.mode,
+      };
+    }
+    const { result, coalesced, policy } = reportExecution;
     const reportDurationMs = Date.now() - reportStartedAt;
-    reportRunIds.push(result.runRecord.id);
+    addReportRunId(result.runRecord.id);
 	    if (reportDurationMs >= 45_000) {
 	      await systemStore.appendAuditLog({
         tenant_id: input.rule.tenant_id,
@@ -10284,6 +10822,7 @@ async function executeNotificationRule(input: {
       if (
         reportKey === "stock_balance" &&
         heavyReportFallbackEnabled &&
+        !shouldUseChunkedHeavyReport(tenant, reportKey) &&
         isStockBalanceTimeoutMessage(result.error)
       ) {
         const fallback = resolveStockBalanceFallbackSnapshot({
@@ -10325,6 +10864,7 @@ async function executeNotificationRule(input: {
       if (
         reportKey === "ar_customer_movement" &&
         heavyReportFallbackEnabled &&
+        !shouldUseChunkedHeavyReport(tenant, reportKey) &&
         isArCustomerMovementTimeoutMessage(result.error)
       ) {
         const fallback = resolveArCustomerMovementFallbackSnapshot({
@@ -10594,7 +11134,7 @@ async function executeNotificationRule(input: {
       zoned.time,
       target.target_id_hash.slice(0, 16),
     ].join(":");
-    if (input.mode === "send" && !input.force) {
+    if (input.mode === "send") {
       const existingDelivery = await systemStore.findSuccessfulLineDeliveryByKey({
         tenantId: input.rule.tenant_id,
         deliveryKey,
@@ -10909,6 +11449,22 @@ function toSafeNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function readBoundedIntegerEnv(
+  name: string,
+  fallback: number,
+  bounds: { min: number; max: number },
+) {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(bounds.min, Math.min(bounds.max, Math.round(parsed)));
+}
+
 function validateManualNotificationSchedule(input: {
   rule: NotificationRuleRecord;
   scheduledLocalDate?: string;
@@ -10996,6 +11552,68 @@ async function runNotificationReportWithPolicy(input: {
   return {
     result: coalesced.value,
     coalesced: coalesced.coalesced,
+    policy,
+  };
+}
+
+async function runNotificationRuleReportWithPolicy(input: {
+  tenant: Tenant;
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+  heavyReportFallbackEnabled: boolean;
+}): Promise<
+  | {
+      status: "ready";
+      result: Awaited<ReturnType<typeof runAndPersistReportByKey>>;
+      coalesced: boolean;
+      policy: ReturnType<typeof getReportExecutionPolicy>;
+    }
+  | {
+      status: "waiting";
+      runRecord: ReportRunRecord | null;
+      activeRun: ReportRunRecord | null;
+      coalesced: boolean;
+      policy: ReturnType<typeof getReportExecutionPolicy>;
+      safeErrorMessage: string | null;
+    }
+> {
+  const policy = getReportExecutionPolicy(input.reportKey);
+  const shouldUseChunked =
+    policy.mode === "fresh_first_with_reference_fallback" &&
+    shouldUseChunkedHeavyReport(input.tenant, input.reportKey);
+
+  if (!shouldUseChunked) {
+    const ready = await runNotificationReportWithPolicy(input);
+    return {
+      status: "ready",
+      ...ready,
+    };
+  }
+
+  const chunked = await runOrWaitChunkedNotificationReport({
+    tenantId: input.tenantId,
+    reportKey: input.reportKey as ChunkedHeavyReportKey,
+    params: input.params,
+    requestAction: input.requestAction,
+  });
+
+  if (chunked.status === "waiting") {
+    return {
+      status: "waiting",
+      runRecord: chunked.runRecord,
+      activeRun: chunked.activeRun,
+      coalesced: chunked.duplicate,
+      policy,
+      safeErrorMessage: chunked.safeErrorMessage,
+    };
+  }
+
+  return {
+    status: "ready",
+    result: chunked.result,
+    coalesced: chunked.duplicate,
     policy,
   };
 }

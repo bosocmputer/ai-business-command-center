@@ -1625,6 +1625,16 @@ function formatProgressLabel(run: NotificationRuleRunRecord) {
   if (run.progress_stage === "claimed") {
     return "เริ่มงานแล้ว";
   }
+  if (run.progress_stage === "waiting_chunked_report") {
+    const totalReports = run.progress_total_reports ?? 0;
+    const doneReports = run.progress_done_reports ?? 0;
+    const reportLabel = run.progress_current_report_key
+      ? getReportCatalogEntry(run.progress_current_report_key).shortLabel
+      : "รายงานหนัก";
+    return totalReports > 0
+      ? `รอรายงานหนักประมวลผล: ${reportLabel} (${Math.min(doneReports + 1, totalReports)}/${totalReports})`
+      : `รอรายงานหนักประมวลผล: ${reportLabel}`;
+  }
   if (run.progress_stage === "preparing_line") {
     return "กำลังเตรียมข้อความ LINE";
   }

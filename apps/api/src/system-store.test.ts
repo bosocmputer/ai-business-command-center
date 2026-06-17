@@ -723,6 +723,37 @@ describe("local JSON system store", () => {
       }),
     ).resolves.toBeNull();
 
+    await store.upsertNotificationRuleRun({
+      ...claimed!,
+      progress_stage: "waiting_chunked_report",
+      progress_percent: 32,
+      progress_current_report_key: "stock_balance",
+      progress_updated_at: "2026-06-09T00:55:05.000Z",
+      report_run_ids: ["report_run_chunked_1"],
+      updated_at: "2026-06-09T00:55:05.000Z",
+    });
+    await expect(store.listQueuedNotificationRuleRuns(1)).resolves.toEqual([]);
+    await expect(
+      store.listResumableNotificationRuleRuns({
+        limit: 5,
+        pollBefore: "2026-06-09T00:55:04.000Z",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      store.listResumableNotificationRuleRuns({
+        limit: 5,
+        pollBefore: "2026-06-09T00:56:05.000Z",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: queuedRun.id,
+        status: "running",
+        progress_stage: "waiting_chunked_report",
+        progress_current_report_key: "stock_balance",
+        report_run_ids: ["report_run_chunked_1"],
+      }),
+    ]);
+
     const stale = await store.markStaleNotificationRuleRunsFailed({
       staleBefore: "2026-06-09T01:20:00.000Z",
       failedAt: "2026-06-09T01:20:01.000Z",

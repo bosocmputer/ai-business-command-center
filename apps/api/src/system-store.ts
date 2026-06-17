@@ -251,6 +251,10 @@ export type SystemStore = {
   listQueuedNotificationRuleRuns(
     limit?: number,
   ): Promise<NotificationRuleRunRecord[]>;
+  listResumableNotificationRuleRuns(input?: {
+    limit?: number;
+    pollBefore?: string | null;
+  }): Promise<NotificationRuleRunRecord[]>;
   claimQueuedNotificationRuleRun(input: {
     runId: string;
     claimedAt: string;
@@ -1025,6 +1029,34 @@ class LocalJsonSystemStore implements SystemStore {
       .filter((run) => run.status === "queued")
       .sort((a, b) =>
         (a.queued_at ?? a.created_at).localeCompare(b.queued_at ?? b.created_at),
+      )
+      .slice(0, limit);
+  }
+
+  async listResumableNotificationRuleRuns(input?: {
+    limit?: number;
+    pollBefore?: string | null;
+  }) {
+    const limit = input?.limit ?? 20;
+    const pollBefore = input?.pollBefore ?? null;
+    return this.requireData().notificationRuleRuns
+      .filter((run) => {
+        if (
+          run.status !== "running" ||
+          run.progress_stage !== "waiting_chunked_report"
+        ) {
+          return false;
+        }
+        if (!pollBefore || !run.progress_updated_at) {
+          return true;
+        }
+        return run.progress_updated_at <= pollBefore;
+      })
+      .sort((a, b) =>
+        (a.progress_updated_at ?? a.claimed_at ?? a.started_at ?? a.created_at)
+          .localeCompare(
+            b.progress_updated_at ?? b.claimed_at ?? b.started_at ?? b.created_at,
+          ),
       )
       .slice(0, limit);
   }
@@ -3393,6 +3425,66 @@ order by queued_at asc nulls last, created_at asc
 limit $1
 `,
       [limit],
+    );
+
+    return result.rows.map(mapNotificationRuleRunRow);
+  }
+
+  async listResumableNotificationRuleRuns(input?: {
+    limit?: number;
+    pollBefore?: string | null;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  report_results_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where status = 'running'
+  and progress_stage = 'waiting_chunked_report'
+  and (
+    $2::timestamptz is null
+    or progress_updated_at is null
+    or progress_updated_at <= $2::timestamptz
+  )
+order by progress_updated_at asc nulls first, claimed_at asc nulls last, created_at asc
+limit $1
+`,
+      [input?.limit ?? 20, input?.pollBefore ?? null],
     );
 
     return result.rows.map(mapNotificationRuleRunRow);

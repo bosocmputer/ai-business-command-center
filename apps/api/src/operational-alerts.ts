@@ -207,7 +207,19 @@ export async function sendOperationalTelegramAlert(input: {
     tenantFeatureFlagsSchema.parse(input.tenant?.featureFlags ?? {})
       .telegram_operational_alerts_enabled === true;
   if (!enabled) {
-    return [] as OperationalAlertDeliveryRecord[];
+    return [
+      await saveAlertDelivery(input.store, {
+        alertType: input.alertType,
+        severity: input.severity,
+        status: "skipped",
+        targetIdMasked: null,
+        dedupeKey: input.dedupeKey ?? null,
+        messageText: input.messageText,
+        providerResponse: { disabled: true },
+        safeErrorMessage:
+          "Telegram operational alerts are disabled for this tenant.",
+      }),
+    ];
   }
 
   if (input.dedupeKey) {

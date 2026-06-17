@@ -1514,7 +1514,7 @@ function RunHistoryPanel({
               </Badge>
               <CompactFact
                 label="Reports"
-                value={run.report_run_ids.length.toLocaleString("th-TH")}
+                value={getNotificationRunReportCount(run).toLocaleString("th-TH")}
               />
               <CompactFact
                 label="Deliveries"
@@ -2235,6 +2235,15 @@ function isNotificationRunActive(run: NotificationRuleRunRecord) {
   return run.status === "queued" || run.status === "running";
 }
 
+function getNotificationRunReportCount(run: NotificationRuleRunRecord) {
+  const resultRunIds = new Set(
+    (run.report_results ?? [])
+      .map((result) => result.run_id)
+      .filter((runId): runId is string => Boolean(runId)),
+  );
+  return Math.max(run.report_run_ids.length, resultRunIds.size);
+}
+
 function formatNotificationRunStatus(
   status: NotificationRuleRunRecord["status"],
 ) {
@@ -2273,6 +2282,18 @@ function formatNotificationRunProgressLabel(run: NotificationRuleRunRecord) {
   }
   if (run.progress_stage === "claimed") {
     return "เริ่มงานแล้ว";
+  }
+  if (run.progress_stage === "waiting_chunked_report") {
+    const totalReports = run.progress_total_reports ?? 0;
+    const doneReports = run.progress_done_reports ?? 0;
+    const currentReportNumber =
+      totalReports > 0 ? Math.min(doneReports + 1, totalReports) : null;
+    const reportLabel = run.progress_current_report_key
+      ? getReportCatalogEntry(run.progress_current_report_key).shortLabel
+      : "รายงานหนัก";
+    return currentReportNumber
+      ? `รอรายงานหนักประมวลผล: ${reportLabel} (${currentReportNumber}/${totalReports})`
+      : `รอรายงานหนักประมวลผล: ${reportLabel}`;
   }
   if (run.progress_stage === "preparing_line") {
     return "กำลังเตรียมข้อความ LINE";
