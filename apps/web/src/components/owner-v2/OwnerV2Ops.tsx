@@ -123,8 +123,9 @@ export default function OwnerV2Ops() {
       <OpsNotice
         action={
           <Button
-            className="mt-4 h-10 w-full px-4 py-0 sm:w-auto"
+            className="mt-4 w-full sm:w-auto"
             onClick={() => void load()}
+            size="sm"
             type="button"
             variant="outline"
           >
@@ -300,62 +301,93 @@ function HeavyReportTable({
   runs: NonNullable<OperationsStatus["report_health"]>["heavy_report_runs"];
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-            Heavy report ล่าสุด
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            รายงานหนักล่าสุด
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
             แสดงเฉพาะ metadata ที่ปลอดภัย ไม่แสดง SQL หรือข้อมูลลูกค้า
           </p>
         </div>
         <Badge color={runs?.length ? "info" : "light"}>
-          {runs?.length ? `${runs.length} runs` : "empty"}
+          {runs?.length ? `${runs.length} รายการ` : "ว่าง"}
         </Badge>
       </div>
 
       {runs?.length ? (
-        <div className="max-w-full overflow-x-auto border-t border-gray-100 dark:border-gray-800">
-          <table className="w-full min-w-[720px]">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-800">
-                <TableHead>Tenant</TableHead>
-                <TableHead>Report</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead align="right">Duration</TableHead>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {runs.map((run) => (
-                <tr key={run.id}>
-                  <TableCell>
-                    <p className="font-medium text-gray-800 text-theme-sm dark:text-white/90">
+        <>
+          <div className="space-y-3 md:hidden">
+            {runs.map((run) => (
+              <div
+                className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
+                key={run.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
                       {run.tenant_id}
                     </p>
-                  </TableCell>
-                  <TableCell>
-                    <p className="text-theme-sm text-gray-500 dark:text-gray-400">
+                    <p className="mt-1 break-words text-theme-xs text-gray-500 dark:text-gray-400">
                       {run.report_key}
                     </p>
-                  </TableCell>
-                  <TableCell>
-                    <Badge color={statusTone(run.status)}>{run.status}</Badge>
-                  </TableCell>
-                  <TableCell align="right">
-                    <p className="font-medium text-gray-700 text-theme-sm dark:text-gray-300">
-                      {durationLabel(run.duration_ms)}
-                    </p>
-                  </TableCell>
+                  </div>
+                  <Badge color={statusTone(run.status)}>{run.status}</Badge>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
+                  <span className="text-theme-xs text-gray-500 dark:text-gray-400">
+                    ใช้เวลา
+                  </span>
+                  <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">
+                    {durationLabel(run.duration_ms)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden w-full overflow-x-auto md:block">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-gray-100 border-y dark:border-gray-800">
+                  <TableHead>ร้าน</TableHead>
+                  <TableHead>รายงาน</TableHead>
+                  <TableHead>สถานะ</TableHead>
+                  <TableHead align="right">ใช้เวลา</TableHead>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {runs.map((run) => (
+                  <tr key={run.id}>
+                    <TableCell>
+                      <p className="font-medium text-gray-800 text-theme-sm dark:text-white/90">
+                        {run.tenant_id}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <p className="text-theme-sm text-gray-500 dark:text-gray-400">
+                        {run.report_key}
+                      </p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge color={statusTone(run.status)}>
+                        {run.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell align="right">
+                      <p className="font-medium text-gray-700 text-theme-sm dark:text-gray-300">
+                        {durationLabel(run.duration_ms)}
+                      </p>
+                    </TableCell>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : (
-        <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
-          <EmptyState text="ยังไม่มี heavy report ล่าสุด" />
-        </div>
+        <EmptyState text="ยังไม่มี heavy report ล่าสุด" />
       )}
     </section>
   );
@@ -371,24 +403,24 @@ function TelegramDeliveries({
   >;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-            Telegram deliveries
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            Telegram delivery ล่าสุด
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
             Ops alert ล่าสุด
           </p>
         </div>
-        <BellIcon className="h-5 w-5 text-gray-400" />
+        <BellIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" />
       </div>
 
       {deliveries.length ? (
-        <div className="custom-scrollbar flex max-h-[420px] flex-col overflow-y-auto border-t border-gray-100 px-5 dark:border-gray-800 sm:px-6">
+        <div className="custom-scrollbar flex max-h-[420px] flex-col gap-2 overflow-y-auto">
           {deliveries.map((delivery) => (
             <div
-              className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
+              className="flex items-start justify-between gap-4 rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]"
               key={`${delivery.alert_type}-${delivery.created_at}`}
             >
               <div className="min-w-0">
@@ -416,9 +448,7 @@ function TelegramDeliveries({
           ))}
         </div>
       ) : (
-        <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
-          <EmptyState text="ยังไม่มี delivery ล่าสุด" />
-        </div>
+        <EmptyState text="ยังไม่มี delivery ล่าสุด" />
       )}
     </section>
   );
@@ -432,7 +462,11 @@ function TableHead({
   children: ReactNode;
 }) {
   return (
-    <th className="px-5 py-3 text-left sm:px-6">
+    <th
+      className={
+        align === "right" ? "py-3 pl-5 text-left" : "py-3 pr-5 text-left"
+      }
+    >
       <div
         className={`flex items-center ${
           align === "right" ? "justify-end" : ""
@@ -454,7 +488,7 @@ function TableCell({
   children: ReactNode;
 }) {
   return (
-    <td className="px-5 py-4 sm:px-6">
+    <td className={align === "right" ? "py-3 pl-5" : "py-3 pr-5"}>
       <div
         className={`flex items-center ${
           align === "right" ? "justify-end" : ""
@@ -468,7 +502,7 @@ function TableCell({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-6 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 px-4 py-6 text-center dark:bg-white/[0.02]">
       <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
         {text}
       </p>
