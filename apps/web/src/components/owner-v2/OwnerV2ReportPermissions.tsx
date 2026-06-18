@@ -266,12 +266,12 @@ export default function OwnerV2ReportPermissions({
             <ImpactNotice impacts={visibleImpacts} tenantId={tenantId} />
           ) : null}
 
-          <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] lg:block">
-            <div className="max-w-full overflow-x-auto">
+          <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 lg:block">
+            <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[760px]">
                 <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-800">
-                    <th className="w-[34%] px-5 py-3 text-left sm:px-6">
+                  <tr className="border-y border-gray-100 dark:border-gray-800">
+                    <th className="w-[34%] py-3 pr-5 text-left sm:pr-6">
                       <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                         รายงาน
                       </p>
@@ -294,7 +294,7 @@ export default function OwnerV2ReportPermissions({
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {reports.map((report) => (
                   <tr key={report.report_key}>
-                    <td className="px-5 py-4 align-top sm:px-6">
+                    <td className="py-4 pr-5 align-top sm:pr-6">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                           {report.label}
@@ -637,7 +637,7 @@ function ImpactNotice({
           </p>
         </div>
         <Link
-          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-warning-300 bg-white px-3 text-sm font-medium text-warning-700 transition hover:bg-warning-50 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-200 sm:w-auto"
+          className="inline-flex w-full items-center justify-center rounded-lg border border-warning-300 bg-white px-4 py-2.5 text-sm font-medium text-warning-700 shadow-theme-xs transition hover:bg-warning-50 hover:text-warning-800 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-200 sm:w-auto"
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
         >
           ไปแก้แผนแจ้งเตือน
@@ -714,7 +714,7 @@ function RoleShortcut({
       </div>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <button
-          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
           disabled={disabled}
           onClick={() => onSetRoleReports(allReportKeys)}
           type="button"
@@ -722,7 +722,7 @@ function RoleShortcut({
           เปิดทั้งหมด
         </button>
         <button
-          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
           disabled={disabled}
           onClick={() => onSetRoleReports(basicReportKeys)}
           type="button"
@@ -730,7 +730,7 @@ function RoleShortcut({
           เปิดเฉพาะพื้นฐาน
         </button>
         <button
-          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
           disabled={disabled}
           onClick={() => onSetRoleReports([])}
           type="button"
