@@ -222,7 +222,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setChannelForm({ displayName: "", scope: "tenant", enabled: true });
       setMessage({
         tone: "success",
-        text: "เพิ่ม LINE OA แล้ว ขั้นต่อไปบันทึก Channel access token และ Channel secret",
+        text: "เพิ่ม LINE OA แล้ว ขั้นต่อไปบันทึก token ส่งข้อความและ secret รับ webhook",
       });
       await load();
     } catch (error) {
@@ -244,8 +244,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "warning",
         text: secretForm.channelId
-          ? "กรอก Channel access token หรือ Channel secret อย่างน้อย 1 ค่า"
-          : "เลือก LINE OA ก่อนบันทึก secret",
+          ? "กรอก token ส่งข้อความหรือ secret รับ webhook อย่างน้อย 1 ค่า"
+          : "เลือก LINE OA ก่อนบันทึก token/secret",
       });
       return;
     }
@@ -278,7 +278,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       }));
       setMessage({
         tone: "success",
-        text: "บันทึก LINE secret แล้ว ระบบไม่แสดงค่า secret กลับบนหน้าจอ",
+        text: "บันทึก token/secret แล้ว ระบบจะไม่แสดงค่าลับกลับบนหน้าจอ",
       });
       await load();
     } catch (error) {
@@ -287,7 +287,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         text:
           error instanceof Error
             ? error.message
-            : "บันทึก LINE secret ไม่สำเร็จ กรุณาตรวจ encryption key หรือสิทธิ์ผู้ดูแล",
+            : "บันทึก token/secret ไม่สำเร็จ กรุณาตรวจ encryption key หรือสิทธิ์ผู้ดูแล",
       });
     } finally {
       setBusy(null);
@@ -576,6 +576,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   {readyCheckCount}/{readinessChecks.length} พร้อม
                 </Badge>
               }
+              description="ตั้งค่า LINE OA, บันทึก token/secret, แล้วเพิ่มผู้รับเข้าร้านก่อนเปิดแผนแจ้งเตือน"
               title={`LINE OA ของ ${state.data.tenant.name}`}
             />
             <PanelBody>
@@ -591,7 +592,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   value={`${state.data.readiness.ready_targets}/${state.data.readiness.total_targets}`}
                 />
                 <Fact
-                  label="Secret ครบ"
+                  label="Token/secret พร้อม"
                   tone={secretReadyChannels.length > 0 ? "success" : "warning"}
                   value={`${secretReadyChannels.length}/${channels.length}`}
                 />
@@ -606,7 +607,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           </Panel>
 
           <Panel>
-            <PanelHeader title="LINE OA channels" />
+            <PanelHeader
+              description="เพิ่ม OA ของร้านหรือ OA กลาง แล้วเปิดใช้งานเฉพาะช่องทางที่พร้อมส่ง"
+              title="ช่องทาง LINE OA"
+            />
             <PanelBody className="space-y-5">
               <form
                 className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_180px_120px_auto]"
@@ -625,7 +629,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     value={channelForm.displayName}
                   />
                 </Field>
-                <Field label="Scope">
+                <Field label="ขอบเขต">
                   <select
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -677,7 +681,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           </Panel>
 
           <Panel>
-            <PanelHeader title="ผู้รับ LINE ของร้าน" />
+            <PanelHeader
+              description="อนุมัติผู้รับ, เลือกสิทธิ์เริ่มต้น และตรวจว่าผู้รับพร้อมรับรายงาน"
+              title="ผู้รับ LINE ของร้าน"
+            />
             <PanelBody className="space-y-5">
               {targets.length ? (
                 <TargetTable
@@ -718,7 +725,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
 
         <div className="space-y-5 sm:space-y-6">
           <Panel>
-            <PanelHeader title="บันทึก Channel secret" />
+            <PanelHeader
+              description="ระบบไม่แสดง token หรือ secret ที่บันทึกไว้กลับมาบนหน้าจอ"
+              title="บันทึก token/secret"
+            />
             <PanelBody>
               <form className="space-y-4" onSubmit={saveChannelSecrets}>
                 <Field label="เลือก LINE OA">
@@ -743,7 +753,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Channel access token">
+                <Field label="Token ส่งข้อความ">
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
@@ -758,7 +768,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     value={secretForm.channelAccessToken}
                   />
                 </Field>
-                <Field label="Channel secret">
+                <Field label="Secret รับ webhook">
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
@@ -779,10 +789,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   size="sm"
                   type="submit"
                 >
-                  บันทึก secret
+                  บันทึก token/secret
                 </Button>
                 <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                  ระบบเก็บเฉพาะสถานะว่าตั้งค่าแล้ว ไม่แสดง token หรือ secret กลับบน UI
+                  ถ้าเปลี่ยนค่า ให้กรอกเฉพาะช่องที่ต้องการอัปเดตแล้วกดบันทึก
                 </p>
               </form>
             </PanelBody>
@@ -795,6 +805,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   <Badge color="info">{selectableRecipients.length} เลือกได้</Badge>
                 ) : null
               }
+              description="โหลดเฉพาะตอนต้องเพิ่มผู้รับ เพื่อลดเวลาเปิดหน้า LINE"
               title="เพิ่มผู้รับจากคลัง"
             />
             <PanelBody>
@@ -904,7 +915,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           </Panel>
 
           <Panel>
-            <PanelHeader title="ขั้นถัดไป" />
+            <PanelHeader
+              description="ไปต่อเมื่อมีผู้รับพร้อมส่งแล้ว"
+              title="ขั้นถัดไป"
+            />
             <PanelBody className="space-y-3">
               <NextAction
                 href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
@@ -946,7 +960,7 @@ function ChannelTable({
   if (!channels.length) {
     return (
       <EmptyState
-        detail="เริ่มจากเพิ่ม LINE OA ของร้าน แล้วบันทึก Channel access token และ Channel secret"
+        detail="เริ่มจากเพิ่ม LINE OA ของร้าน แล้วบันทึก token ส่งข้อความและ secret รับ webhook"
         title="ยังไม่มี LINE OA"
       />
     );
@@ -958,13 +972,15 @@ function ChannelTable({
         <table className="min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
-              {["LINE OA", "Scope", "Secret", "สถานะ", "Action"].map((label) => (
-                <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
-                  <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
-                    {label}
-                  </p>
-                </th>
-              ))}
+              {["LINE OA", "ขอบเขต", "ค่าลับ", "สถานะ", "จัดการ"].map(
+                (label) => (
+                  <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
+                    <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+                      {label}
+                    </p>
+                  </th>
+                ),
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -976,7 +992,7 @@ function ChannelTable({
                       {channel.display_name}
                     </p>
                     <p className="mt-1 font-mono text-theme-xs text-gray-500 dark:text-gray-400">
-                      {channel.source === "env" ? "env fallback" : channel.id}
+                      {channel.source === "env" ? "ตั้งค่าจาก environment" : channel.id}
                     </p>
                   </div>
                 </td>
@@ -989,11 +1005,11 @@ function ChannelTable({
                   <div className="space-y-1">
                     <StatusText
                       ok={channel.channel_access_token_configured}
-                      text="access token"
+                      text="token ส่งข้อความ"
                     />
                     <StatusText
                       ok={channel.channel_secret_configured}
-                      text="channel secret"
+                      text="secret รับ webhook"
                     />
                   </div>
                 </td>
@@ -1049,7 +1065,7 @@ function TargetTable({
         <table className="min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
-              {["ผู้รับ", "สิทธิ์", "ความพร้อม", "ส่งผ่าน", "Action"].map(
+              {["ผู้รับ", "สิทธิ์", "ความพร้อม", "ส่งผ่าน", "จัดการ"].map(
                 (label) => (
                   <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
                     <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
@@ -1207,7 +1223,7 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] ${className}`}
+      className={`overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 ${className}`}
     >
       {children}
     </section>
@@ -1216,16 +1232,25 @@ function Panel({
 
 function PanelHeader({
   action,
+  description,
   title,
 }: {
   action?: ReactNode;
+  description?: string;
   title: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
-      <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-        {title}
-      </h3>
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h3>
+        {description ? (
+          <p className="mt-1 max-w-2xl text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            {description}
+          </p>
+        ) : null}
+      </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
@@ -1238,13 +1263,7 @@ function PanelBody({
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <div
-      className={`border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6 ${className}`}
-    >
-      {children}
-    </div>
-  );
+  return <div className={className || "space-y-5"}>{children}</div>;
 }
 
 function Field({ children, label }: { children: ReactNode; label: string }) {
@@ -1268,7 +1287,7 @@ function Fact({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <div className="flex items-start justify-between gap-3">
         <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
         {tone !== "light" ? (
@@ -1346,7 +1365,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02]">
       <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
         {title}
       </p>
@@ -1364,7 +1383,7 @@ function ReadinessItem({
   check: { ok: boolean; label: string; detail: string };
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <div className="flex items-start gap-3">
         <span
           className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ${
@@ -1413,7 +1432,7 @@ function NextAction({
 }) {
   return (
     <Link
-      className="block rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
+      className="block rounded-lg bg-gray-50 p-3 transition hover:bg-brand-50 dark:bg-white/[0.02] dark:hover:bg-brand-500/10"
       href={href}
     >
       <div className="flex items-start justify-between gap-3">
@@ -1486,17 +1505,17 @@ function buildReadinessChecks({
     },
     {
       ok: sendReadyChannels.length > 0,
-      label: "มี token สำหรับส่งจริง",
+      label: "มี token ส่งข้อความ",
       detail: sendReadyChannels.length
         ? `${sendReadyChannels.length}/${channels.length} ช่องทางส่งข้อความได้`
-        : "บันทึก Channel access token อย่างน้อย 1 ช่องทาง",
+        : "บันทึก token ส่งข้อความอย่างน้อย 1 ช่องทาง",
     },
     {
       ok: secretReadyChannels.length > 0,
-      label: "มี secret สำหรับ webhook",
+      label: "มี secret รับ webhook",
       detail: secretReadyChannels.length
         ? `${secretReadyChannels.length}/${channels.length} ช่องทางมี token และ secret`
-        : "บันทึก Channel secret เพื่อให้ระบบรับ userId หรือ groupId หลังผู้รับพิมพ์ test",
+        : "บันทึก secret รับ webhook เพื่อให้ระบบรับ userId หรือ groupId หลังผู้รับพิมพ์ test",
     },
     {
       ok: readyTargets.length > 0,
@@ -1504,7 +1523,7 @@ function buildReadinessChecks({
       detail: readyTargets.length
         ? `${readyTargets.length}/${totalTargets} ผู้รับพร้อมรับรายงาน`
         : approvedTargets.length
-          ? "ผู้รับอนุมัติแล้วแต่ยังติด token, action, หรือสิทธิ์รายงาน"
+          ? "ผู้รับอนุมัติแล้วแต่ยังติด token, สิทธิ์รับแจ้งเตือน หรือสิทธิ์รายงาน"
           : "อนุมัติผู้รับ LINE อย่างน้อย 1 รายการก่อนเปิดแผนแจ้งเตือน",
     },
   ];
