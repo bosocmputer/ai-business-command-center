@@ -100,8 +100,8 @@ export default function OwnerV2NewTenant() {
       setMessage({
         tone: "warning",
         text: sensitiveHints.length
-          ? "คำอธิบายร้านเหมือนมี token/password/secret กรุณาลบข้อมูลลับก่อน"
-          : "กรอกชื่อร้านและ tenant_id ให้ครบก่อนตรวจ",
+          ? "คำอธิบายร้านเหมือนมีข้อมูลลับ กรุณาลบก่อนตรวจตัวอย่าง"
+          : "กรอกชื่อร้านและรหัสร้านให้ครบก่อนตรวจตัวอย่าง",
       });
       return;
     }
@@ -124,7 +124,7 @@ export default function OwnerV2NewTenant() {
         text:
           error instanceof Error
             ? error.message
-            : "ตรวจ dry-run ไม่สำเร็จ กรุณาลองใหม่",
+            : "ตรวจตัวอย่างไม่สำเร็จ กรุณาลองใหม่",
       });
     } finally {
       setBusy(null);
@@ -136,7 +136,7 @@ export default function OwnerV2NewTenant() {
     if (!preview || !previewMatchesForm || previewHasBlockingCheck) {
       setMessage({
         tone: "warning",
-        text: "ต้องตรวจ dry-run ล่าสุดให้ผ่านก่อนสร้างร้านจริง",
+        text: "ต้องตรวจตัวอย่างล่าสุดให้ผ่านก่อนสร้างร้านจริง",
       });
       return;
     }
@@ -162,186 +162,177 @@ export default function OwnerV2NewTenant() {
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
-          <div>
-            <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
-              เพิ่มร้านใหม่
-            </h2>
-            <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-              สร้าง tenant และ viewer เริ่มต้นเท่านั้น ไม่แตะ SML หรือ LINE secret
-            </p>
-          </div>
-          <Badge color={previewMatchesForm ? "success" : "info"}>
-            {previewMatchesForm ? "dry-run ล่าสุดผ่านฟอร์มนี้" : "ต้อง dry-run ก่อน"}
-          </Badge>
-        </div>
+      <Panel>
+        <PanelHeader
+          action={
+            <Badge color={previewMatchesForm ? "success" : "info"}>
+              {previewMatchesForm ? "ตรวจล่าสุดตรงกับฟอร์มนี้" : "ต้องตรวจก่อน"}
+            </Badge>
+          }
+          description="สร้างร้านและผู้ดูแดชบอร์ดเริ่มต้นเท่านั้น ยังไม่บันทึกค่าลับของ SML หรือ LINE"
+          title="เพิ่มร้านใหม่"
+        />
 
-        <form
-          className="space-y-6 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6"
-          onSubmit={runDryRun}
-        >
-          <Field label="ชื่อร้าน">
-            <input
-              className="owner-v2-input"
-              onChange={(event) => {
-                setName(event.target.value);
-                if (!tenantId.trim()) {
-                  setTenantId(suggestTenantIdFromName(event.target.value));
+        <PanelBody>
+          <form className="space-y-6" onSubmit={runDryRun}>
+            <Field label="ชื่อร้าน">
+              <input
+                className="owner-v2-input"
+                onChange={(event) => {
+                  setName(event.target.value);
+                  if (!tenantId.trim()) {
+                    setTenantId(suggestTenantIdFromName(event.target.value));
+                  }
+                  setPreview(null);
+                }}
+                placeholder="เช่น กระบี่ สาขาใหญ่"
+                value={name}
+              />
+            </Field>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Field
+                help={
+                  suggestedTenantId && suggestedTenantId !== tenantId
+                    ? `แนะนำ: ${suggestedTenantId}`
+                    : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"
                 }
-                setPreview(null);
-              }}
-              placeholder="เช่น กระบี่ สาขาใหญ่"
-              value={name}
-            />
-          </Field>
-          <div className="grid gap-5 lg:grid-cols-2">
+                label="รหัสร้าน"
+              >
+                <input
+                  className="owner-v2-input font-mono"
+                  onChange={(event) => {
+                    setTenantId(event.target.value);
+                    setPreview(null);
+                  }}
+                  placeholder="tenant_krabi"
+                  value={tenantId}
+                />
+              </Field>
+              <Field
+                help="ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแดชบอร์ดให้อัตโนมัติ"
+                label="อีเมลผู้ดูแดชบอร์ด"
+              >
+                <input
+                  className="owner-v2-input"
+                  onChange={(event) => {
+                    setViewerEmail(event.target.value);
+                    setPreview(null);
+                  }}
+                  placeholder="owner@example.com"
+                  type="email"
+                  value={viewerEmail}
+                />
+              </Field>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="แพ็กเกจ">
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) => {
+                    setPlanCode(event.target.value as PlanCode);
+                    setPreview(null);
+                  }}
+                  value={planCode}
+                >
+                  <option value="starter">starter</option>
+                  <option value="business">business</option>
+                  <option value="pro">pro</option>
+                </select>
+              </Field>
+              <Field label="สถานะเริ่มต้น">
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) => {
+                    setStatus(event.target.value as Tenant["status"]);
+                    setPreview(null);
+                  }}
+                  value={status}
+                >
+                  <option value="trial">ทดลองใช้</option>
+                  <option value="active">ใช้งาน</option>
+                  <option value="past_due">ค้างชำระ</option>
+                  <option value="suspended">ระงับ</option>
+                </select>
+              </Field>
+            </div>
             <Field
               help={
-                suggestedTenantId && suggestedTenantId !== tenantId
-                  ? `แนะนำ: ${suggestedTenantId}`
-                  : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"
+                sensitiveHints.length
+                  ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
+                  : "ห้ามใส่ข้อมูลลับ เช่น token, password หรือ secret ในช่องนี้"
               }
-              label="tenant_id"
+              label="หมายเหตุ"
             >
-              <input
-                className="owner-v2-input font-mono"
+              <textarea
+                className="owner-v2-input min-h-24"
                 onChange={(event) => {
-                  setTenantId(event.target.value);
+                  setDescription(event.target.value);
                   setPreview(null);
                 }}
-                placeholder="tenant_krabi"
-                value={tenantId}
+                placeholder="บริบทสั้น ๆ ของร้าน"
+                value={description}
               />
             </Field>
-            <Field
-              help="ถ้าเว้นว่าง ระบบจะสร้าง viewer+tenant_id@ai-business.local"
-              label="Viewer email"
-            >
-              <input
-                className="owner-v2-input"
-                onChange={(event) => {
-                  setViewerEmail(event.target.value);
-                  setPreview(null);
-                }}
-                placeholder="owner@example.com"
-                type="email"
-                value={viewerEmail}
-              />
-            </Field>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Plan">
-              <select
-                className="owner-v2-input"
-                onChange={(event) => {
-                  setPlanCode(event.target.value as PlanCode);
-                  setPreview(null);
-                }}
-                value={planCode}
+
+            {message ? <Notice tone={message.tone} text={message.text} /> : null}
+
+            <div className="flex flex-wrap gap-3">
+              <Button
+                className="w-full sm:w-auto"
+                disabled={busy !== null || !canDryRun}
+                startIcon={<TaskIcon className="h-4 w-4" />}
+                type="submit"
               >
-                <option value="starter">starter</option>
-                <option value="business">business</option>
-                <option value="pro">pro</option>
-              </select>
-            </Field>
-            <Field label="สถานะเริ่มต้น">
-              <select
-                className="owner-v2-input"
-                onChange={(event) => {
-                  setStatus(event.target.value as Tenant["status"]);
-                  setPreview(null);
-                }}
-                value={status}
+                {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจตัวอย่างก่อนสร้าง"}
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                disabled={
+                  busy !== null ||
+                  !preview ||
+                  !previewMatchesForm ||
+                  previewHasBlockingCheck
+                }
+                onClick={() => void createTenant()}
+                startIcon={<PlusIcon className="h-4 w-4" />}
+                type="button"
+                variant="outline"
               >
-                <option value="trial">ทดลองใช้</option>
-                <option value="active">ใช้งาน</option>
-                <option value="past_due">ค้างชำระ</option>
-                <option value="suspended">ระงับ</option>
-              </select>
-            </Field>
-          </div>
-          <Field
-            help={
-              sensitiveHints.length
-                ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-                : "ห้ามใส่ token/password/secret ในช่องนี้"
-            }
-            label="หมายเหตุ"
-          >
-            <textarea
-              className="owner-v2-input min-h-24"
-              onChange={(event) => {
-                setDescription(event.target.value);
-                setPreview(null);
-              }}
-              placeholder="บริบทสั้น ๆ ของร้าน"
-              value={description}
-            />
-          </Field>
-
-          {message ? (
-            <Notice tone={message.tone} text={message.text} />
-          ) : null}
-
-          <div className="flex flex-wrap gap-3">
-            <Button
-              className="w-full sm:w-auto"
-              disabled={busy !== null || !canDryRun}
-              startIcon={<TaskIcon className="h-4 w-4" />}
-              type="submit"
-            >
-              {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจ dry-run"}
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              disabled={
-                busy !== null ||
-                !preview ||
-                !previewMatchesForm ||
-                previewHasBlockingCheck
-              }
-              onClick={() => void createTenant()}
-              startIcon={<PlusIcon className="h-4 w-4" />}
-              type="button"
-              variant="outline"
-            >
-              {busy === "create" ? "กำลังสร้าง..." : "สร้างร้านจริง"}
-            </Button>
-          </div>
-          <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-            ปุ่มสร้างร้านจะเปิดได้หลัง dry-run ล่าสุดผ่านและข้อมูลฟอร์มยังไม่เปลี่ยน
-          </p>
-        </form>
-      </section>
-
-      <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
-          <div>
-            <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
-              Preview ก่อนสร้าง
-            </h2>
-            <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-              ตรวจผลกระทบก่อนบันทึกจริง
+                {busy === "create" ? "กำลังสร้าง..." : "สร้างร้านจริง"}
+              </Button>
+            </div>
+            <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+              ปุ่มสร้างร้านจะเปิดได้หลังตรวจตัวอย่างผ่าน และข้อมูลฟอร์มยังไม่เปลี่ยน
             </p>
-          </div>
-          <Badge
-            color={preview ? (previewHasBlockingCheck ? "warning" : "success") : "light"}
-          >
-            {preview ? "มี preview" : "ยังไม่มี"}
-          </Badge>
-        </div>
+          </form>
+        </PanelBody>
+      </Panel>
+
+      <Panel>
+        <PanelHeader
+          action={
+            <Badge
+              color={
+                preview ? (previewHasBlockingCheck ? "warning" : "success") : "light"
+              }
+            >
+              {preview ? "มีตัวอย่าง" : "ยังไม่มี"}
+            </Badge>
+          }
+          description="ตรวจผลกระทบและรายการตรวจ ก่อนสร้างข้อมูลจริงในระบบ"
+          title="ตัวอย่างก่อนสร้าง"
+        />
         {preview ? (
-          <div className="space-y-5 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+          <PanelBody>
             <div className="grid grid-cols-1 gap-3">
-              <Fact label="tenant_id" value={preview.tenant_id} />
-              <Fact label="Dashboard" value={preview.dashboard_path} />
-              <Fact label="Viewer" value={preview.viewer_email} />
+              <Fact label="รหัสร้าน" value={preview.tenant_id} />
+              <Fact label="หน้าแดชบอร์ด" value={preview.dashboard_path} />
+              <Fact label="ผู้ดูแดชบอร์ด" value={preview.viewer_email} />
             </div>
             <div className="custom-scrollbar flex max-h-[360px] flex-col gap-2 overflow-y-auto">
               {preview.checks.map((check) => (
                 <div
-                  className="flex items-start justify-between gap-4 rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+                  className="flex items-start justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
                   key={check.key}
                 >
                   <div className="min-w-0">
@@ -361,18 +352,54 @@ export default function OwnerV2NewTenant() {
             {preview.warnings.length ? (
               <Notice tone="warning" text={preview.warnings.join(" ")} />
             ) : null}
-          </div>
+          </PanelBody>
         ) : (
-          <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+          <PanelBody>
             <Notice
-              text="กรอกข้อมูลร้านแล้วกดตรวจ dry-run ระบบจะแสดง tenant_id, dashboard, viewer และ checks ก่อนสร้างจริง"
+              text="กรอกข้อมูลร้านแล้วกดตรวจตัวอย่าง ระบบจะแสดงรหัสร้าน, แดชบอร์ด, ผู้ดู และรายการตรวจก่อนสร้างจริง"
               tone="info"
             />
-          </div>
+          </PanelBody>
         )}
-      </section>
+      </Panel>
     </div>
   );
+}
+
+function Panel({ children }: { children: ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      {children}
+    </section>
+  );
+}
+
+function PanelHeader({
+  action,
+  description,
+  title,
+}: {
+  action?: ReactNode;
+  description: string;
+  title: string;
+}) {
+  return (
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h3 className="break-words text-lg font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h3>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {description}
+        </p>
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}
+
+function PanelBody({ children }: { children: ReactNode }) {
+  return <div className="space-y-5">{children}</div>;
 }
 
 function Field({
@@ -401,7 +428,7 @@ function Field({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
         {value}
