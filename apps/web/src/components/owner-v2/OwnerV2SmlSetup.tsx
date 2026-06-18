@@ -273,8 +273,9 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             text={`${state.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
           />
           <Button
-            className="mt-4 h-10 px-4 py-0"
+            className="mt-4"
             onClick={() => void load()}
+            size="sm"
             type="button"
           >
             รีเฟรช SML
@@ -437,34 +438,38 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
               <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:flex-wrap sm:items-center dark:border-gray-800">
                 <Button
-                  className="h-11 w-full px-4 py-0 sm:w-auto"
+                  className="w-full sm:w-auto"
                   disabled={saveDisabled}
+                  size="sm"
                   type="submit"
                 >
                   {busy === "save" ? "กำลังบันทึก..." : "บันทึก SML"}
                 </Button>
                 <Button
-                  className="h-11 w-full px-4 py-0 sm:w-auto"
+                  className="w-full sm:w-auto"
                   disabled={savedTestDisabled}
                   onClick={() => void testSaved()}
+                  size="sm"
                   type="button"
                   variant="outline"
                 >
                   {busy === "test-saved" ? "กำลังทดสอบ..." : "ทดสอบค่าที่บันทึก"}
                 </Button>
                 <Button
-                  className="h-11 w-full px-4 py-0 sm:w-auto"
+                  className="w-full sm:w-auto"
                   disabled={draftTestDisabled}
                   onClick={() => void testDraft()}
+                  size="sm"
                   type="button"
                   variant="outline"
                 >
                   {busy === "test-draft" ? "กำลังทดสอบ..." : "ทดสอบฟอร์มนี้"}
                 </Button>
                 <Button
-                  className="h-11 w-full px-4 py-0 sm:w-auto"
+                  className="w-full sm:w-auto"
                   disabled={discoverDisabled}
                   onClick={() => void discoverDatabases()}
+                  size="sm"
                   type="button"
                   variant="outline"
                 >
@@ -659,13 +664,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
       <div className="flex flex-wrap gap-3">
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03]"
+          className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
         >
           กลับข้อมูลร้าน
         </Link>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white shadow-theme-xs hover:bg-brand-600"
+          className="inline-flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600"
           href={`/owner-v2?tenant=${encodeURIComponent(tenantId)}&step=reports`}
         >
           ไปทดสอบรายงาน
@@ -691,7 +696,7 @@ function PanelHeader({
   title: string;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
       <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
         {title}
       </h3>
