@@ -353,7 +353,7 @@ export default function OwnerV2NotificationSetup({
       setSendConfirmRuleId(selectedRuleId);
       setMessage({
         tone: "warning",
-        text: "ตรวจแผนและผู้รับอีกครั้ง แล้วกดยืนยันส่งจริง ระบบจะส่ง LINE ไปยัง target ที่เลือก",
+        text: "ตรวจแผนและผู้รับอีกครั้ง แล้วกดยืนยันส่งจริง ระบบจะส่ง LINE ไปยังผู้รับที่เลือก",
       });
       return;
     }
@@ -407,7 +407,7 @@ export default function OwnerV2NotificationSetup({
         text:
           mode === "send"
             ? "รับงานส่งจริงแล้ว ระบบกำลังรันรายงานและส่ง LINE"
-            : "รับงาน dry-run แล้ว ระบบกำลังรันรายงานโดยไม่ส่ง LINE จริง",
+            : "รับงานทดสอบแล้ว ระบบกำลังรันรายงานโดยไม่ส่ง LINE จริง",
       });
       await load();
     } catch (error) {
@@ -478,6 +478,7 @@ export default function OwnerV2NotificationSetup({
                   แผนใหม่
                 </Button>
               }
+              description="เลือกแผนรอบเช้า/เย็น หรือสร้างแผนใหม่ให้ร้านนี้"
               title="แผนของร้านนี้"
             />
             <PanelBody className="space-y-4">
@@ -504,7 +505,10 @@ export default function OwnerV2NotificationSetup({
           </Panel>
 
           <Panel>
-            <PanelHeader title="งานล่าสุด" />
+            <PanelHeader
+              description="ผลรันล่าสุดช่วยบอกว่ารอบไหนส่งสำเร็จหรือควรตรวจต่อ"
+              title="งานล่าสุด"
+            />
             <PanelBody>
               <RunList runs={recentRuns.slice(0, 6)} />
             </PanelBody>
@@ -523,6 +527,7 @@ export default function OwnerV2NotificationSetup({
                   <Badge color="info">แผนใหม่</Badge>
                 )
               }
+              description="ตั้งเวลา เลือกรายงาน และเลือกผู้รับ LINE ก่อนบันทึกหรือทดสอบ"
               title={selectedRule ? selectedRule.name : "สร้างแผนแจ้งเตือน"}
             />
             <PanelBody>
@@ -556,7 +561,7 @@ export default function OwnerV2NotificationSetup({
                       <option value="false">ปิดไว้ก่อน</option>
                     </select>
                   </Field>
-                  <Field label="รูปแบบ digest">
+                  <Field label="รูปแบบสรุป">
                     <select
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -631,9 +636,10 @@ export default function OwnerV2NotificationSetup({
                               times: current.times.filter((item) => item !== time),
                             }))
                           }
+                          aria-label={`ลบเวลา ${time}`}
                           type="button"
                         >
-                          {time} x
+                          {time} ลบ
                         </button>
                       ))}
                     </div>
@@ -726,7 +732,7 @@ export default function OwnerV2NotificationSetup({
                   <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
                     {saveBlockedReason ??
                       actionBlockedReason ??
-                      "บันทึกแผนก่อน dry-run หรือส่งจริง เพื่อกันค่าฟอร์มไม่ตรงกับ schedule"}
+                      "บันทึกแผนก่อนทดสอบหรือส่งจริง เพื่อกันค่าฟอร์มไม่ตรงกับเวลาแจ้งเตือน"}
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
                     <Button
@@ -745,7 +751,7 @@ export default function OwnerV2NotificationSetup({
                       type="button"
                       variant="outline"
                     >
-                      Dry-run
+                      ทดสอบไม่ส่งจริง
                     </Button>
                     <Button
                       className="w-full sm:w-auto"
@@ -767,8 +773,8 @@ export default function OwnerV2NotificationSetup({
 
           {runResult ? (
             <Notice
-              text={`run_id ${runResult.run_id ?? runResult.run?.id ?? "-"} · ${
-                runResult.mode === "send" ? "ส่งจริง" : "dry-run"
+              text={`รหัสงาน ${runResult.run_id ?? runResult.run?.id ?? "-"} · ${
+                runResult.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"
               } · ${formatNotificationRunStatus(
                 runResult.run?.status ?? (runResult.status as NotificationRuleRunRecord["status"]) ?? "queued",
               )}`}
@@ -779,7 +785,10 @@ export default function OwnerV2NotificationSetup({
 
           {activeRuns.length ? (
             <Panel>
-              <PanelHeader title="งานที่กำลังทำ" />
+              <PanelHeader
+                description="ระบบรันต่อได้แม้ปิดหน้านี้ กลับมาดูสถานะได้ภายหลัง"
+                title="งานที่กำลังทำ"
+              />
               <PanelBody>
                 <RunList runs={activeRuns} />
               </PanelBody>
@@ -863,14 +872,14 @@ function ReportSelector({
     {},
   );
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
+    <div className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02] sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-            รายงานใน digest
+            รายงานที่จะส่ง
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            เลือกเฉพาะรายงานที่ผู้รับมีสิทธิ์อ่าน
+            เลือกเฉพาะรายงานที่ผู้รับมีสิทธิ์อ่าน เพื่อไม่ให้รอบส่งติดเงื่อนไข
           </p>
         </div>
         <Badge color={selectedReportKeys.length ? "success" : "warning"}>
@@ -895,7 +904,7 @@ function ReportSelector({
       <div className="mt-5 space-y-4">
         {Object.entries(grouped).map(([category, reportKeys]) => (
           <div
-            className="rounded-xl border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]"
+            className="rounded-lg bg-white p-3 dark:bg-gray-900"
             key={category}
           >
             <p className="mb-2 text-theme-xs font-medium text-gray-500 dark:text-gray-400">
@@ -969,14 +978,14 @@ function TargetSelector({
     );
   }
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+    <div className="overflow-hidden rounded-lg bg-gray-50 px-4 pb-3 pt-4 dark:bg-white/[0.02] sm:px-5">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
             ผู้รับ LINE
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            เลือก target ที่พร้อมรับรายงานตามสิทธิ์
+            เลือกผู้รับที่พร้อมรับรายงานตามสิทธิ์
           </p>
         </div>
         <Badge color={selectedTargetIds.length ? "success" : "warning"}>
@@ -1045,7 +1054,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
   if (!runs.length) {
     return (
       <EmptyState
-        detail="หลัง dry-run หรือรอบ worker ทำงาน ผลล่าสุดจะแสดงตรงนี้"
+        detail="หลังทดสอบหรือรอบ worker ทำงาน ผลล่าสุดจะแสดงตรงนี้"
         title="ยังไม่มีประวัติรัน"
       />
     );
@@ -1056,7 +1065,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
         const progress = getProgressPercent(run);
         return (
           <div
-            className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
+            className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
             key={run.id}
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1065,7 +1074,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
                   {run.scheduled_local_date} {run.scheduled_local_time}
                 </p>
                 <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-                  {run.mode === "send" ? "ส่งจริง" : "dry-run"} · attempt{" "}
+                  {run.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"} · ครั้งที่{" "}
                   {run.attempt} · {formatElapsed(run)}
                 </p>
               </div>
@@ -1107,7 +1116,7 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] ${className}`}
+      className={`overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 ${className}`}
     >
       {children}
     </section>
@@ -1116,16 +1125,25 @@ function Panel({
 
 function PanelHeader({
   action,
+  description,
   title,
 }: {
   action?: ReactNode;
+  description?: string;
   title: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
-      <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-        {title}
-      </h3>
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h3 className="break-words text-lg font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h3>
+        {description ? (
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {description}
+          </p>
+        ) : null}
+      </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
@@ -1138,13 +1156,7 @@ function PanelBody({
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <div
-      className={`border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6 ${className}`}
-    >
-      {children}
-    </div>
-  );
+  return <div className={`space-y-5 ${className}`}>{children}</div>;
 }
 
 function Field({ children, label }: { children: ReactNode; label: string }) {
@@ -1174,7 +1186,7 @@ function Fact({
     warning: "ต้องดู",
   }[tone];
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <div className="flex items-start justify-between gap-3">
         <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
         {toneLabel ? (
@@ -1248,7 +1260,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
       <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
         {title}
       </p>
@@ -1474,7 +1486,7 @@ function getActionBlockedReason(input: {
   selectedTargetBlockedReason: string | null;
 }) {
   if (!input.selectedRuleId) {
-    return "บันทึกแผนก่อน dry-run หรือส่งจริง";
+    return "บันทึกแผนก่อนทดสอบหรือส่งจริง";
   }
   if (input.dirty) {
     return "มีการแก้ไขยังไม่บันทึก กรุณาบันทึกก่อนรัน";
