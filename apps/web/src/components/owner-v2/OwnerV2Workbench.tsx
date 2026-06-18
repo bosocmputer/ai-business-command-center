@@ -59,10 +59,10 @@ const stepLabels: Record<OwnerV2StepId, string> = {
 };
 
 const primaryActionClass =
-  "inline-flex h-10 w-full items-center justify-center rounded-lg bg-brand-500 px-4 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
+  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
 
 const secondaryActionClass =
-  "inline-flex h-10 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
+  "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
 
 export default function OwnerV2Workbench() {
   const router = useRouter();
@@ -282,11 +282,11 @@ export default function OwnerV2Workbench() {
 
   return (
     <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-      <aside className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div className="px-5 py-4 sm:px-6 sm:py-5">
-          <div className="flex items-start justify-between gap-3">
+      <aside className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+        <div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
                 ร้านค้า
               </h2>
               <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
@@ -294,7 +294,7 @@ export default function OwnerV2Workbench() {
               </p>
             </div>
             <Link
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 px-3 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600"
+              className={primaryActionClass}
               href="/owner-v2/stores/new"
             >
               <PlusIcon className="h-4 w-4" />
@@ -308,7 +308,7 @@ export default function OwnerV2Workbench() {
             value={tenantSearch}
           />
         </div>
-        <div className="custom-scrollbar flex max-h-[680px] flex-col gap-2 overflow-y-auto border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6">
+        <div className="custom-scrollbar mt-4 flex max-h-[680px] flex-col gap-2 overflow-y-auto">
           {filteredTenants.map((tenant) => (
             <TenantRow
               key={tenant.id}
@@ -318,7 +318,7 @@ export default function OwnerV2Workbench() {
             />
           ))}
           {!filteredTenants.length ? (
-            <div className="my-5 rounded-2xl border border-gray-200 bg-white px-4 py-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+            <div className="rounded-lg bg-gray-50 px-4 py-6 text-center dark:bg-white/[0.02]">
               <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                 ไม่พบร้านที่ตรงกับคำค้น
               </p>
@@ -355,7 +355,7 @@ export default function OwnerV2Workbench() {
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
               <Button
-                className="h-10 w-full px-4 py-0 sm:w-auto"
+                className="w-full sm:w-auto"
                 onClick={() => void loadWorkbench(selectedTenantId)}
                 size="sm"
                 type="button"
@@ -365,7 +365,7 @@ export default function OwnerV2Workbench() {
               </Button>
               {selectedTenant?.dashboard_path ? (
                 <Link
-                  className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 text-theme-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto"
+                  className={secondaryActionClass}
                   href={selectedTenant.dashboard_path}
                 >
                   เปิดหน้าลูกค้า
@@ -401,7 +401,7 @@ export default function OwnerV2Workbench() {
                   </p>
                 </div>
                 <Button
-                  className="h-10 w-full shrink-0 px-4 py-0 md:w-auto"
+                  className="w-full shrink-0 md:w-auto"
                   onClick={() =>
                     handleStepSelect(workbench.selected!.next_action!.step)
                   }
@@ -423,17 +423,17 @@ export default function OwnerV2Workbench() {
           ) : null}
         </section>
 
-        <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6 sm:py-5">
-            <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
               ขั้นตอนตั้งค่าร้าน
             </h2>
             <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
               เปิดเฉพาะขั้นที่ต้องดู ระบบจะโหลดรายละเอียดของขั้นนั้นเท่านั้น
             </p>
           </div>
-          <div className="grid gap-0 2xl:grid-cols-[300px_minmax(0,1fr)]">
-            <div className="border-b border-gray-100 p-3 dark:border-gray-800 2xl:border-b-0 2xl:border-r">
+          <div className="grid gap-4 2xl:grid-cols-[300px_minmax(0,1fr)]">
+            <div className="rounded-xl bg-gray-50 p-2 dark:bg-white/[0.02]">
               {stepOrder.map((stepId) => {
                 const step =
                   selectedSteps.find((item) => item.step === stepId) ??
@@ -448,11 +448,13 @@ export default function OwnerV2Workbench() {
                 );
               })}
             </div>
-            <StepDetail
-              activeStep={activeStep}
-              detailState={detailState}
-              selectedTenant={selectedTenant}
-            />
+            <div className="min-w-0">
+              <StepDetail
+                activeStep={activeStep}
+                detailState={detailState}
+                selectedTenant={selectedTenant}
+              />
+            </div>
           </div>
         </section>
       </main>
@@ -832,10 +834,10 @@ function LineStep({
           value={`${data.readiness.ready_targets}/${data.readiness.total_targets}`}
         />
       </div>
-      <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 rounded-xl bg-gray-50 p-2 dark:bg-white/[0.02]">
         {data.channels.slice(0, 4).map((channel) => (
           <div
-            className="flex flex-col gap-2 rounded-lg p-3 md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-2 rounded-lg bg-white p-3 dark:bg-white/[0.03] md:flex-row md:items-center md:justify-between"
             key={channel.id}
           >
             <div>
@@ -953,10 +955,10 @@ function NotificationStep({
           value={`${data.enabled_target_count}/${data.target_count}`}
         />
       </div>
-      <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 rounded-xl bg-gray-50 p-2 dark:bg-white/[0.02]">
         {data.rules.slice(0, 4).map((rule) => (
           <div
-            className="flex flex-col gap-2 rounded-lg p-3 md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-2 rounded-lg bg-white p-3 dark:bg-white/[0.03] md:flex-row md:items-center md:justify-between"
             key={rule.id}
           >
             <div>
@@ -986,7 +988,7 @@ function NotificationStep({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">
         {value || "-"}
