@@ -213,7 +213,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     if (selectedIsAsync && !chunkedEnabled) {
       setMessage({
         tone: "warning",
-        text: "รายงานหนักต้องเปิด feature flag sml_chunked_heavy_reports_enabled ก่อนรันแบบ async",
+        text: "รายงานหนักยังไม่พร้อม ต้องเปิด sml_chunked_heavy_reports_enabled ก่อนเริ่มรันเบื้องหลัง",
       });
       return;
     }
@@ -304,15 +304,15 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           action={
             <div className="flex flex-wrap gap-2">
               <Badge color={chunkedEnabled ? "success" : "warning"}>
-                {chunkedEnabled ? "chunked on" : "chunked off"}
+                {chunkedEnabled ? "รายงานหนักพร้อม" : "รายงานหนักปิด"}
               </Badge>
               <Badge color={activeRuns ? "info" : "light"}>
-                {activeRuns} active
+                กำลังทำงาน {activeRuns}
               </Badge>
             </div>
           }
-          description="รันเฉพาะ approved report runner ต่อร้าน ไม่โหลด raw rows และไม่แตะ LINE notification จนกว่า admin สั่ง"
-          title={`ทดสอบรายงานของ ${state.data.tenant.name}`}
+          description="เลือก report, ช่วงวันที่ แล้วรันทดสอบเฉพาะร้านนี้ก่อนนำไปใช้กับ dashboard หรือ LINE"
+          title={`รายงานของ ${state.data.tenant.name}`}
         />
         <PanelBody>
           {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
@@ -320,7 +320,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           <div className="grid gap-3 md:grid-cols-3">
             <Metric label="รายงานที่รองรับ" value={reports.length.toString()} />
             <Metric label="สำเร็จล่าสุด" value={successRuns.toString()} />
-            <Metric label="failed ล่าสุด" value={failedRuns.toString()} />
+            <Metric label="ไม่สำเร็จล่าสุด" value={failedRuns.toString()} />
           </div>
 
           <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
@@ -341,13 +341,13 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
       <div className="space-y-6">
         <Panel>
           <PanelHeader
-            description="กดรันเมื่อพร้อมเท่านั้น รายงานหนักใช้ async และปิดหน้าได้"
-            title="Run control"
+            description="กดรันเมื่อพร้อมเท่านั้น รายงานหนักจะรันเบื้องหลังและปิดหน้าได้"
+            title="ควบคุมการรัน"
           />
           <PanelBody>
             {selectedReport ? (
               <>
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+                <div className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
@@ -358,7 +358,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                       </p>
                     </div>
                     <Badge color={selectedReport.sensitive ? "warning" : "info"}>
-                      {selectedReport.sensitive ? "sensitive" : "standard"}
+                      {selectedReport.sensitive ? "ข้อมูลอ่อนไหว" : "มาตรฐาน"}
                     </Badge>
                   </div>
                 </div>
@@ -404,7 +404,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                   {busy === selectedReport.report_key
                     ? "กำลังเริ่มรัน..."
                     : selectedIsAsync
-                      ? "เริ่มรัน async"
+                      ? "เริ่มรันเบื้องหลัง"
                       : "รันทดสอบรายงาน"}
                 </Button>
                 <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
@@ -438,7 +438,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
 
         {progress ? (
           <Panel>
-            <PanelHeader title="Async progress" />
+            <PanelHeader title="ความคืบหน้าการรันเบื้องหลัง" />
             <PanelBody>
               <ProgressCard progress={progress} />
             </PanelBody>
@@ -464,6 +464,7 @@ function ReportRow({
 }) {
   return (
     <button
+      aria-pressed={selected}
       className={`w-full rounded-lg p-3 text-left transition ${
         selected
           ? "bg-brand-50 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
@@ -480,12 +481,12 @@ function ReportRow({
             </p>
             {report.sensitive ? (
               <Badge color="warning" size="sm">
-                sensitive
+                ข้อมูลอ่อนไหว
               </Badge>
             ) : null}
             {report.heavy ? (
               <Badge color="info" size="sm">
-                async
+                รายงานหนัก
               </Badge>
             ) : null}
           </div>
@@ -519,7 +520,7 @@ function RunDetail({
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex items-start gap-3 rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
         <div
           className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
             run.status === "success"
@@ -560,8 +561,8 @@ function RunDetail({
       </div>
       {run.failure_phase || run.failure_kind || run.safe_error_message ? (
         <Notice tone="error">
-          {run.failure_phase ? `Phase: ${run.failure_phase}. ` : ""}
-          {run.failure_kind ? `Kind: ${run.failure_kind}. ` : ""}
+          {run.failure_phase ? `ขั้นตอนที่ผิดพลาด: ${run.failure_phase}. ` : ""}
+          {run.failure_kind ? `ประเภทปัญหา: ${run.failure_kind}. ` : ""}
           {run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจ SML JavaWS แล้วลองใหม่"}
         </Notice>
       ) : null}
@@ -614,7 +615,7 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
 
 function Panel({ children }: { children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
       {children}
     </section>
   );
@@ -630,9 +631,9 @@ function PanelHeader({
   title: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <h2 className="text-base font-medium text-gray-800 dark:text-white/90">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
           {title}
         </h2>
         {description ? (
@@ -647,12 +648,12 @@ function PanelHeader({
 }
 
 function PanelBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-5 p-5">{children}</div>;
+  return <div className="space-y-5">{children}</div>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
         {value}
@@ -663,7 +664,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SmallFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+    <div className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-white/[0.02]">
       <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 truncate text-theme-xs font-semibold text-gray-800 dark:text-white/90">
         {value}
@@ -717,7 +718,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03] sm:p-6">
+    <div className="rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
         <InfoIcon className="h-5 w-5" />
       </div>
