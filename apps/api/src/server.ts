@@ -140,6 +140,7 @@ import {
   buildMorningBriefCarouselPreview,
   buildNotificationDigestPreview,
 } from "./notification-flex-preview.js";
+import { selectDeliveryRetryReportResults } from "./notification-delivery-retry.js";
 import { shouldSendReportFailureIncidentNotice } from "./notification-incident.js";
 import {
   normalizeLineWebhookEvents,
@@ -9007,6 +9008,22 @@ async function enqueueWorkerNotificationRuleRun(input: {
     .digest("hex")
     .slice(0, 20);
   const nowIso = new Date().toISOString();
+  const reusableReportResults = selectDeliveryRetryReportResults({
+    rule: input.rule,
+    retryFromRun: input.retryFromRun,
+  });
+  const reusableReportRunIds = reusableReportResults
+    ? [
+        ...new Set(
+          [
+            ...(input.retryFromRun?.report_run_ids ?? []),
+            ...reusableReportResults
+              .map((result) => result.run_id)
+              .filter((runId): runId is string => Boolean(runId)),
+          ],
+        ),
+      ]
+    : input.retryFromRun?.report_run_ids ?? [];
   const run = await systemStore.upsertNotificationRuleRun({
     id: `notification_run_${input.rule.id}_${digest}`,
     rule_id: input.rule.id,
@@ -9025,8 +9042,8 @@ async function enqueueWorkerNotificationRuleRun(input: {
     source: input.source,
     attempt,
     idempotency_key: idempotencyKey,
-    report_run_ids: input.retryFromRun?.report_run_ids ?? [],
-    report_results: null,
+    report_run_ids: reusableReportRunIds,
+    report_results: reusableReportResults ? [...reusableReportResults] : null,
     delivery_ids: [],
     safe_error_message: null,
     started_at: null,
@@ -9064,8 +9081,32 @@ async function enqueueWorkerNotificationRuleRun(input: {
       period_from_time: params.time_from ?? null,
       period_to_time: params.time_to ?? null,
       retry_from_run_id: input.retryFromRun?.id ?? null,
+      delivery_only_retry: Boolean(reusableReportResults),
+      reused_report_result_count: reusableReportResults?.length ?? 0,
+      reused_report_run_ids: reusableReportResults ? reusableReportRunIds : [],
     },
   });
+
+  if (reusableReportResults) {
+    await systemStore.appendAuditLog({
+      tenant_id: input.rule.tenant_id,
+      actor_id: null,
+      action: "notification_rule_delivery_retry_reusing_reports",
+      target_type: "notification_rule_run",
+      target_id: run.id,
+      metadata_json: {
+        notification_rule_id: input.rule.id,
+        mode: input.mode,
+        source: input.source,
+        scheduled_local_date: input.scheduledLocalDate,
+        scheduled_local_time: input.scheduledLocalTime,
+        attempt,
+        retry_from_run_id: input.retryFromRun?.id ?? null,
+        report_run_ids: reusableReportRunIds,
+        report_result_count: reusableReportResults.length,
+      },
+    });
+  }
 
   return { run, reused: false };
 }
