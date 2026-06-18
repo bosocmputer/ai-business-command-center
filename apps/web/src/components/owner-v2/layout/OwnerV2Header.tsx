@@ -25,10 +25,10 @@ type HeaderWorkbenchState =
 
 const quickActions = [
   {
-    detail: "เลือกร้าน ดู readiness และ next action",
+    detail: "เลือกร้าน ดูความพร้อม และทำขั้นถัดไป",
     href: "/owner-v2",
-    keywords: "workbench dashboard readiness next action",
-    label: "Workbench",
+    keywords: "workbench dashboard readiness next action เริ่มงาน ความพร้อม ทำต่อ",
+    label: "เริ่มงาน",
   },
   {
     detail: "ดูร้านทั้งหมดและเปิดหน้าตั้งค่าต่อร้าน",
@@ -39,11 +39,11 @@ const quickActions = [
   {
     detail: "เพิ่มร้านใหม่พร้อม dry-run preview",
     href: "/owner-v2/stores/new",
-    keywords: "new tenant add store เพิ่มร้าน",
-    label: "เพิ่มร้าน",
+    keywords: "new tenant add store เพิ่มร้าน ร้านใหม่",
+    label: "เพิ่มร้านใหม่",
   },
   {
-    detail: "เลือกร้านก่อนเปิด report runner และ snapshot ล่าสุด",
+    detail: "เลือกร้านก่อนรันทดสอบรายงานหรือดู snapshot ล่าสุด",
     href: "/owner-v2/stores",
     keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
     label: "รายงาน",
@@ -75,14 +75,14 @@ const quickActions = [
   {
     detail: "ดู incidents, worker, LINE, Telegram",
     href: "/owner-v2/ops",
-    keywords: "ops operations worker incident telegram line",
-    label: "Operations",
+    keywords: "ops operations worker incident telegram line ตรวจระบบ แจ้งเตือน",
+    label: "ตรวจระบบ",
   },
   {
-    detail: "ตั้งค่า runtime ที่จำเป็น",
+    detail: "ดูความพร้อมของค่าระบบกลางแบบไม่แสดงค่าลับ",
     href: "/owner-v2/system",
-    keywords: "system runtime settings config",
-    label: "System",
+    keywords: "system runtime settings config ระบบกลาง ค่าระบบ",
+    label: "ระบบกลาง",
   },
 ];
 
@@ -109,9 +109,9 @@ export default function OwnerV2Header() {
     return [
       ...quickActions,
       {
-        detail: "เปิดข้อมูลร้านและ readiness ของร้านนี้",
+        detail: "เปิดข้อมูลร้านและความพร้อมของร้านนี้",
         href: tenantPath,
-        keywords: "store tenant readiness detail ข้อมูลร้าน",
+        keywords: "store tenant readiness detail ข้อมูลร้าน ความพร้อม",
         label: "ร้านนี้",
       },
       {
@@ -121,7 +121,7 @@ export default function OwnerV2Header() {
         label: "SML ร้านนี้",
       },
       {
-        detail: "รัน approved report runner ของร้านนี้",
+        detail: "รันทดสอบรายงานที่อนุมัติไว้ของร้านนี้",
         href: `${tenantPath}/reports`,
         keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
         label: "รายงานร้านนี้",
@@ -269,7 +269,7 @@ export default function OwnerV2Header() {
               AI Business
             </span>
             <span className="block text-xs text-gray-500 dark:text-gray-400">
-              Owner Admin v2
+              ศูนย์จัดการร้าน
             </span>
           </Link>
 
@@ -294,7 +294,7 @@ export default function OwnerV2Header() {
                   className="shadow-theme-xs focus:border-brand-300 focus:ring-brand-500/10 h-11 w-full rounded-lg border border-gray-200 bg-transparent py-2.5 pl-12 pr-14 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-hidden focus:ring-3 xl:w-[430px] dark:border-gray-800 dark:bg-white/[0.03] dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
                   onChange={(event) => setSearchQuery(event.target.value)}
                   onFocus={() => setSearchFocused(true)}
-                  placeholder="Search or type command..."
+                  placeholder="ค้นหาเมนู เช่น เพิ่มร้าน, SML, LINE"
                   type="text"
                   value={searchQuery}
                 />
@@ -302,8 +302,7 @@ export default function OwnerV2Header() {
                   className="absolute right-2.5 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 px-[7px] py-[4.5px] text-xs text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400"
                   type="submit"
                 >
-                  <span>⌘</span>
-                  <span>K</span>
+                  <span>ไป</span>
                 </button>
               </div>
             </form>
@@ -347,9 +346,9 @@ export default function OwnerV2Header() {
           ref={actionAreaRef}
         >
           <div className="flex w-full items-center gap-2 lg:w-auto">
-            <OwnerV2MobileAction href="/owner-v2">Workbench</OwnerV2MobileAction>
+            <OwnerV2MobileAction href="/owner-v2">เริ่มงาน</OwnerV2MobileAction>
             <OwnerV2MobileAction href="/owner-v2/stores">ร้านค้า</OwnerV2MobileAction>
-            <OwnerV2MobileAction href="/owner-v2/ops">Ops</OwnerV2MobileAction>
+            <OwnerV2MobileAction href="/owner-v2/ops">ตรวจระบบ</OwnerV2MobileAction>
           </div>
 
           <div className="flex items-center gap-2">
@@ -410,13 +409,13 @@ export default function OwnerV2Header() {
                       ผู้ดูแล AI Business
                     </span>
                     <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-                      Owner Admin v2
+                      ศูนย์จัดการร้าน
                     </span>
                   </div>
                   <ul className="flex flex-col gap-1 border-b border-gray-200 pb-3 pt-4 dark:border-gray-800">
                     <li>
                       <OwnerV2UserMenuLink href="/owner-v2">
-                        Workbench
+                        เริ่มงาน
                       </OwnerV2UserMenuLink>
                     </li>
                     <li>
@@ -426,7 +425,7 @@ export default function OwnerV2Header() {
                     </li>
                     <li>
                       <OwnerV2UserMenuLink href="/owner-v2/ops">
-                        Operations
+                        ตรวจระบบ
                       </OwnerV2UserMenuLink>
                     </li>
                   </ul>
@@ -458,12 +457,12 @@ function OperationalNotificationDropdown({
     <div className="shadow-theme-lg absolute -right-[240px] mt-[17px] flex h-[480px] w-[350px] flex-col rounded-2xl border border-gray-200 bg-white p-3 sm:w-[361px] lg:right-0 dark:border-gray-800 dark:bg-gray-dark">
       <div className="mb-3 flex items-center justify-between border-b border-gray-100 pb-3 dark:border-gray-800">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Operations
+          งานที่ต้องตรวจ
         </h2>
         <div className="flex items-center gap-2">
           {state.status === "success" ? (
             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-white/5 dark:text-gray-300">
-              {state.data.ops.warning_count + state.data.ops.critical_count} alerts
+              {state.data.ops.warning_count + state.data.ops.critical_count} รายการ
             </span>
           ) : null}
           <button
@@ -484,7 +483,7 @@ function OperationalNotificationDropdown({
 
         {state.status === "error" ? (
           <NotificationMessage
-            detail={`${state.message} กรุณาเปิดหน้า Operations เพื่อตรวจสถานะเต็ม`}
+            detail={`${state.message} กรุณาเปิดหน้าตรวจระบบเพื่อดูสถานะเต็ม`}
             icon={<AlertIcon className="h-5 w-5" />}
             tone="error"
             title="โหลดสถานะไม่สำเร็จ"
@@ -495,11 +494,11 @@ function OperationalNotificationDropdown({
           <>
             <div className="grid grid-cols-2 gap-2">
               <NotificationMetric
-                label="Warnings"
+                label="เตือน"
                 value={state.data.ops.warning_count.toString()}
               />
               <NotificationMetric
-                label="Critical"
+                label="วิกฤต"
                 value={state.data.ops.critical_count.toString()}
               />
             </div>
@@ -530,7 +529,7 @@ function OperationalNotificationDropdown({
           className="flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600"
           href="/owner-v2/ops"
         >
-          เปิด Operations
+          เปิดหน้าตรวจระบบ
         </Link>
       </div>
     </div>
@@ -570,7 +569,7 @@ function TenantNoticeItem({ tenant }: { tenant: OwnerV2Tenant }) {
         </span>
         <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
           {tenant.next_action?.detail ??
-            `${tenant.completed_steps}/${tenant.total_steps} setup steps`}
+            `${tenant.completed_steps}/${tenant.total_steps} ขั้นพร้อม`}
         </span>
       </span>
     </Link>

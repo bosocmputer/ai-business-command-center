@@ -165,7 +165,7 @@ export default function OwnerV2Workbench() {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "โหลด Owner Workbench ไม่สำเร็จ",
+            : "โหลดหน้าเริ่มงานไม่สำเร็จ",
         );
       }
     },
@@ -255,10 +255,10 @@ export default function OwnerV2Workbench() {
   if (status === "error") {
     return (
       <WorkbenchMessage
-        actionLabel="รีเฟรช Workbench"
+        actionLabel="รีเฟรชหน้าเริ่มงาน"
         message={errorMessage}
         onAction={() => void loadWorkbench(selectedTenantId)}
-        title="โหลด Owner Workbench ไม่สำเร็จ"
+        title="โหลดหน้าเริ่มงานไม่สำเร็จ"
         tone="error"
       />
     );
@@ -376,7 +376,7 @@ export default function OwnerV2Workbench() {
 
           <div className="mt-5 grid gap-4 md:grid-cols-3">
             <Fact
-              label="Ops warning"
+              label="งานต้องตรวจ"
               value={`${workbench?.ops.warning_count ?? 0} รายการ`}
             />
             <Fact
@@ -384,7 +384,7 @@ export default function OwnerV2Workbench() {
               value={formatWorkerStatus(workbench?.ops.worker_status)}
             />
             <Fact
-              label="Telegram ops"
+              label="Telegram"
               value={workbench?.ops.telegram_ready ? "พร้อมแจ้งเตือน" : "ยังไม่พร้อม"}
             />
           </div>
@@ -633,7 +633,7 @@ function StoreStep({ selectedTenant }: { selectedTenant: OwnerV2Tenant }) {
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        <Fact label="Plan" value={selectedTenant.plan_code} />
+        <Fact label="แพ็กเกจ" value={selectedTenant.plan_code} />
         <Fact label="สถานะร้าน" value={formatTenantStatus(selectedTenant.status)} />
         <Fact
           label="ความพร้อม"
@@ -705,13 +705,13 @@ function SmlStep({
           message={`${data.latest_report_run.report_key} · ${formatDateTime(
             data.latest_report_run.finished_at ??
               data.latest_report_run.started_at,
-          )} · ${data.latest_report_run.row_count.toLocaleString("th-TH")} rows`}
+          )} · ${data.latest_report_run.row_count.toLocaleString("th-TH")} แถว`}
           title={`รายงานล่าสุด: ${formatReportRunStatus(data.latest_report_run.status)}`}
           tone={data.latest_report_run.status === "success" ? "success" : "warning"}
         />
       ) : (
         <InlineNotice
-          message="ยังไม่มี report run ล่าสุด กดรันรายงานทดสอบก่อนเปิดแผนแจ้งเตือน"
+          message="ยังไม่มีรายงานล่าสุด กดรันรายงานทดสอบก่อนเปิดแผนแจ้งเตือน"
           title="ยังไม่มีหลักฐานรายงาน"
           tone="warning"
         />
@@ -771,7 +771,7 @@ function ReportStep({
         <InlineNotice
           message={`${latestRun.report_key} · ${formatDateTime(
             latestRun.finished_at ?? latestRun.started_at,
-          )} · ${latestRun.row_count.toLocaleString("th-TH")} rows${
+          )} · ${latestRun.row_count.toLocaleString("th-TH")} แถว${
             latestRun.failure_phase ? ` · phase ${latestRun.failure_phase}` : ""
           }`}
           title={`รายงานล่าสุด: ${formatReportRunStatus(latestRun.status)}`}
@@ -779,7 +779,7 @@ function ReportStep({
         />
       ) : (
         <InlineNotice
-          message="ยังไม่มี report run ล่าสุด กดรันรายงานทดสอบก่อนเปิดแผนแจ้งเตือน"
+          message="ยังไม่มีรายงานล่าสุด กดรันรายงานทดสอบก่อนเปิดแผนแจ้งเตือน"
           title="ยังไม่มีหลักฐานรายงาน"
           tone="warning"
         />

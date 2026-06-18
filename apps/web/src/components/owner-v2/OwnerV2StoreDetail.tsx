@@ -448,8 +448,8 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                 ) : null}
                 <QuickLink
                   href={`/owner-v2?tenant=${encodeURIComponent(tenant.id)}`}
-                  label="เปิดใน Workbench"
-                  value="ดูทุกขั้นตอนแบบ lazy loading"
+                  label="เปิดในหน้าเริ่มงาน"
+                  value="ดูทุกขั้นตอนโดยโหลดเฉพาะส่วนที่เปิด"
                 />
                 <QuickLink
                   href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}/sml`}

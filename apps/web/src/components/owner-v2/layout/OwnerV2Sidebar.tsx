@@ -24,7 +24,7 @@ type OwnerV2NavItem = {
 const navItems: OwnerV2NavItem[] = [
   {
     icon: <GridIcon />,
-    name: "Workbench",
+    name: "เริ่มงาน",
     path: "/owner-v2",
   },
   {
@@ -32,17 +32,17 @@ const navItems: OwnerV2NavItem[] = [
     name: "ร้านค้า",
     subItems: [
       { name: "ร้านทั้งหมด", path: "/owner-v2/stores" },
-      { name: "เพิ่มร้าน", path: "/owner-v2/stores/new" },
+      { name: "เพิ่มร้านใหม่", path: "/owner-v2/stores/new" },
     ],
   },
   {
     icon: <BellIcon />,
-    name: "Operations",
+    name: "ตรวจระบบ",
     path: "/owner-v2/ops",
   },
   {
     icon: <PlugInIcon />,
-    name: "System",
+    name: "ระบบกลาง",
     path: "/owner-v2/system",
   },
 ];
@@ -124,7 +124,7 @@ export default function OwnerV2Sidebar() {
                 AI Business
               </span>
               <span className="block text-xs text-gray-500 dark:text-gray-400">
-                Owner Admin v2
+                ศูนย์จัดการร้าน
               </span>
             </span>
           ) : (
@@ -143,7 +143,7 @@ export default function OwnerV2Sidebar() {
                 sidebarExpanded ? "justify-start" : "justify-center"
               }`}
             >
-              {sidebarExpanded ? "เมนู" : <HorizontaLDots />}
+              {sidebarExpanded ? "งานผู้ดูแล" : <HorizontaLDots />}
             </h2>
             <ul className="flex flex-col gap-4">
               {navItems.map((nav, index) => {

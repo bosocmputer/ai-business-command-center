@@ -4,14 +4,14 @@ import { OwnerV2Shell } from "@/components/owner-v2/OwnerV2Shell";
 import OwnerV2Workbench from "@/components/owner-v2/OwnerV2Workbench";
 
 export const metadata: Metadata = {
-  title: "Owner Admin v2 | AI Business",
+  title: "เริ่มงานร้านค้า | AI Business",
 };
 
 export default function OwnerV2Page() {
   return (
     <OwnerV2Shell
       subtitle="เลือกหรือเพิ่มร้าน แล้วทำขั้นตอนถัดไปให้พร้อมส่งรายงานจริงโดยไม่ต้องเปิดข้อมูลทั้งระบบพร้อมกัน"
-      title="Store Operations Workbench"
+      title="เริ่มงานร้านค้า"
     >
       <Suspense fallback={<OwnerV2WorkbenchFallback />}>
         <OwnerV2Workbench />

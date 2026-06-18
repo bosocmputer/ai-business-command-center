@@ -18,7 +18,7 @@ export default async function OwnerV2StoreReportsPage({
   const { tenantId } = await params;
   return (
     <OwnerV2Shell
-      subtitle="ตรวจ report run ล่าสุดและหลักฐานก่อนเปิดแจ้งเตือน"
+      subtitle="ตรวจผลรันรายงานล่าสุดและหลักฐานก่อนเปิดแจ้งเตือน"
       title="ทดสอบรายงาน"
     >
       <OwnerV2Reports tenantId={tenantId} />

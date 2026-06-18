@@ -88,7 +88,7 @@ export default function OwnerV2Ops() {
       }
       setStatus("error");
       setErrorMessage(
-        error instanceof Error ? error.message : "โหลดสถานะ Ops ไม่สำเร็จ",
+        error instanceof Error ? error.message : "โหลดสถานะตรวจระบบไม่สำเร็จ",
       );
     }
   };
@@ -129,11 +129,11 @@ export default function OwnerV2Ops() {
             type="button"
             variant="outline"
           >
-            รีเฟรช Ops
+            รีเฟรชสถานะ
           </Button>
         }
         text={`${errorMessage} ลองรีเฟรชอีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ API และ session ผู้ดูแล`}
-        title="โหลด Ops status ไม่สำเร็จ"
+        title="โหลดสถานะตรวจระบบไม่สำเร็จ"
         tone="error"
       />
     );
@@ -151,19 +151,19 @@ export default function OwnerV2Ops() {
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <OpsMetric
           icon={<BoxCubeIcon className="h-6 w-6" />}
-          label="Worker"
+          label="ตัวประมวลผลงาน"
           tone={data?.worker?.status === "ok" ? "success" : "warning"}
           value={formatWorker(data?.worker)}
         />
         <OpsMetric
           icon={<TimeIcon className="h-6 w-6" />}
-          label="Scheduler"
+          label="ตัวตั้งเวลา"
           tone={data?.scheduler?.enabled ? "success" : "warning"}
-          value={data?.scheduler?.enabled ? "DB-backed" : "ยังไม่พร้อม"}
+          value={data?.scheduler?.enabled ? "เปิดใช้งาน" : "ยังไม่พร้อม"}
         />
         <OpsMetric
           icon={<BellIcon className="h-6 w-6" />}
-          label="Telegram ops"
+          label="Telegram แจ้งเตือน"
           tone={telegramReady ? "success" : "warning"}
           value={
             telegramReady
@@ -175,7 +175,7 @@ export default function OwnerV2Ops() {
         />
         <OpsMetric
           icon={<PlugInIcon className="h-6 w-6" />}
-          label="Backup"
+          label="สำรองข้อมูล"
           tone={data?.backup?.configured ? "success" : "warning"}
           value={data?.backup?.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
         />
@@ -188,13 +188,13 @@ export default function OwnerV2Ops() {
           } / phase ${latestJavaWs.failure_phase ?? "-"}: ${
             latestJavaWs.safe_error_message
           }`}
-          title="JavaWS failure ล่าสุด"
+          title="ปัญหา JavaWS ล่าสุด"
           tone="warning"
         />
       ) : (
         <OpsNotice
-          text="ยังไม่พบ JavaWS failure ล่าสุดในข้อมูลที่ระบบส่งกลับมา ถ้าเกิด failure รอบถัดไป phase diagnostic จะแสดงที่หน้านี้"
-          title="JavaWS diagnostic"
+          text="ยังไม่พบปัญหา JavaWS ล่าสุดในข้อมูลที่ระบบส่งกลับมา ถ้าเกิดปัญหารอบถัดไป ระบบจะแสดง phase diagnostic ที่หน้านี้"
+          title="ตัวช่วยวิเคราะห์ JavaWS"
           tone="success"
         />
       )}
@@ -308,7 +308,7 @@ function HeavyReportTable({
             รายงานหนักล่าสุด
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            แสดงเฉพาะ metadata ที่ปลอดภัย ไม่แสดง SQL หรือข้อมูลลูกค้า
+            แสดงเฉพาะหลักฐานปลอดภัย ไม่แสดง SQL หรือข้อมูลลูกค้า
           </p>
         </div>
         <Badge color={runs?.length ? "info" : "light"}>
@@ -407,10 +407,10 @@ function TelegramDeliveries({
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            Telegram delivery ล่าสุด
+            การส่ง Telegram ล่าสุด
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            Ops alert ล่าสุด
+            แจ้งเตือนสำหรับผู้ดูแลระบบ
           </p>
         </div>
         <BellIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" />
@@ -448,7 +448,7 @@ function TelegramDeliveries({
           ))}
         </div>
       ) : (
-        <EmptyState text="ยังไม่มี delivery ล่าสุด" />
+        <EmptyState text="ยังไม่มีประวัติส่ง Telegram ล่าสุด" />
       )}
     </section>
   );
