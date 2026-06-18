@@ -774,6 +774,7 @@ function SmlActionGuide({
   hasDatabase: boolean;
   latestReportSucceeded: boolean;
 }) {
+  const reportReady = canTestSaved && latestReportSucceeded;
   const steps = [
     {
       detail: "กรอก URL SML JavaWS และไฟล์ SMLConfig ให้ครบ",
@@ -793,7 +794,7 @@ function SmlActionGuide({
     {
       detail: "รันรายงานทดสอบให้สำเร็จก่อนเปิดแผนแจ้งเตือน",
       label: "ยืนยันรายงาน",
-      ok: latestReportSucceeded,
+      ok: reportReady,
     },
   ];
 
@@ -809,9 +810,9 @@ function SmlActionGuide({
           </p>
         </div>
         <Badge
-          color={latestReportSucceeded ? "success" : canTestSaved ? "warning" : "light"}
+          color={reportReady ? "success" : canTestSaved ? "warning" : "light"}
         >
-          {latestReportSucceeded
+          {reportReady
             ? "พร้อมไปขั้นรายงาน"
             : canTestSaved
               ? "ทดสอบ SML ได้"
