@@ -308,7 +308,7 @@ export default function OwnerV2Workbench() {
             value={tenantSearch}
           />
         </div>
-        <div className="custom-scrollbar flex max-h-[680px] flex-col overflow-y-auto border-t border-gray-100 px-5 dark:border-gray-800 sm:px-6">
+        <div className="custom-scrollbar flex max-h-[680px] flex-col gap-2 overflow-y-auto border-t border-gray-100 px-5 py-4 dark:border-gray-800 sm:px-6">
           {filteredTenants.map((tenant) => (
             <TenantRow
               key={tenant.id}
@@ -396,7 +396,7 @@ export default function OwnerV2Workbench() {
                   <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
                     สิ่งที่ควรทำต่อ: {workbench.selected.next_action.label}
                   </p>
-                  <p className="mt-1 text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
+                  <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
                     {workbench.selected.next_action.detail}
                   </p>
                 </div>
@@ -471,10 +471,10 @@ function TenantRow({
 }) {
   return (
     <button
-      className={`w-full border-b border-gray-100 py-4 text-left transition last:border-b-0 dark:border-gray-800 ${
+      className={`w-full rounded-lg p-3 text-left transition ${
         selected
-          ? "rounded-xl bg-brand-50 px-3 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
-          : "px-1 hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+          ? "bg-brand-50 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
+          : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
       }`}
       onClick={() => onSelect(tenant.id)}
       type="button"
@@ -510,10 +510,10 @@ function StepButton({
 }) {
   return (
     <button
-      className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition ${
+      className={`flex w-full items-start gap-3 rounded-lg p-3 text-left transition ${
         active
           ? "bg-brand-50 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
-          : "hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+          : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
       }`}
       onClick={onClick}
       type="button"
@@ -832,10 +832,10 @@ function LineStep({
           value={`${data.readiness.ready_targets}/${data.readiness.total_targets}`}
         />
       </div>
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
         {data.channels.slice(0, 4).map((channel) => (
           <div
-            className="flex flex-col gap-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800 md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-2 rounded-lg p-3 md:flex-row md:items-center md:justify-between"
             key={channel.id}
           >
             <div>
@@ -857,7 +857,7 @@ function LineStep({
           </div>
         ))}
         {!data.channels.length ? (
-          <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+          <p className="rounded-lg p-3 text-sm text-gray-500 dark:text-gray-400">
             ยังไม่มี LINE OA ให้เพิ่มช่องทางหรือใช้ OA กลางก่อน
           </p>
         ) : null}
@@ -953,10 +953,10 @@ function NotificationStep({
           value={`${data.enabled_target_count}/${data.target_count}`}
         />
       </div>
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
         {data.rules.slice(0, 4).map((rule) => (
           <div
-            className="flex flex-col gap-2 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800 md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-2 rounded-lg p-3 md:flex-row md:items-center md:justify-between"
             key={rule.id}
           >
             <div>
@@ -975,7 +975,7 @@ function NotificationStep({
           </div>
         ))}
         {!data.rules.length ? (
-          <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+          <p className="rounded-lg p-3 text-sm text-gray-500 dark:text-gray-400">
             ยังไม่มีแผนแจ้งเตือน ตั้งแผนหลัง SML และ LINE พร้อม
           </p>
         ) : null}
@@ -1038,10 +1038,10 @@ function InlineNotice({
           {toneConfig.icon}
         </div>
         <div className="min-w-0">
-          <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+          <p className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </p>
-          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+          <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
             {message}
           </p>
         </div>
