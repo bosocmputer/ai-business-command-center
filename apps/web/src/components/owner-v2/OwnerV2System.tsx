@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import {
@@ -34,6 +34,16 @@ type SystemConfigStatus = {
   };
 };
 
+type SystemCheck = {
+  id: string;
+  label: string;
+  ok: boolean;
+  status: string;
+  detail: string;
+  action: string;
+  priority: "critical" | "warning" | "info";
+};
+
 export default function OwnerV2System() {
   const [status, setStatus] = useState<"loading" | "success" | "error">(
     "loading",
@@ -60,7 +70,9 @@ export default function OwnerV2System() {
       }
       setStatus("error");
       setErrorMessage(
-        error instanceof Error ? error.message : "โหลด system config ไม่สำเร็จ",
+        error instanceof Error
+          ? error.message
+          : "โหลดสถานะระบบกลางไม่สำเร็จ",
       );
     }
   };
@@ -71,23 +83,17 @@ export default function OwnerV2System() {
     return () => controller.abort();
   }, []);
 
+  const checks = useMemo(() => buildSystemChecks(data), [data]);
+  const requiredChecks = checks.filter((check) => check.priority !== "info");
+  const actionItems = checks.filter(
+    (check) => !check.ok && check.priority !== "info",
+  );
+  const readyCount = requiredChecks.filter((check) => check.ok).length;
+  const allRequiredReady =
+    requiredChecks.length > 0 && readyCount === requiredChecks.length;
+
   if (status === "loading" && !data) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6"
-              key={index}
-            />
-          ))}
-        </div>
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-          <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-        </div>
-      </div>
-    );
+    return <SystemSkeleton />;
   }
 
   if (status === "error") {
@@ -100,147 +106,111 @@ export default function OwnerV2System() {
             type="button"
             variant="outline"
           >
-            รีเฟรช System
+            โหลดสถานะใหม่
           </Button>
         }
-        text={`${errorMessage} ลองรีเฟรชอีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ API และ session ผู้ดูแล`}
-        title="โหลด System status ไม่สำเร็จ"
+        text={`${errorMessage} ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ API และสิทธิ์ผู้ดูแล`}
+        title="โหลดสถานะระบบกลางไม่สำเร็จ"
         tone="error"
       />
     );
   }
 
-  const runtimeFacts = [
-    {
-      label: "Config source",
-      ok: data?.source === "encrypted_store",
-      value: formatSource(data?.source),
-    },
-    {
-      label: "Encryption",
-      ok: Boolean(data?.encryption_configured),
-      value: data?.encryption_configured ? "พร้อม" : "ยังไม่พร้อม",
-    },
-    {
-      label: "App base URL",
-      ok: Boolean(data?.app_base_url),
-      value: data?.app_base_url ?? "ยังไม่ตั้ง",
-    },
-    {
-      label: "Public API URL",
-      ok: Boolean(data?.public_api_base_url),
-      value: data?.public_api_base_url ?? "ยังไม่ตั้ง",
-    },
-    {
-      label: "Report signing",
-      ok: Boolean(data?.report_viewer_signing_secret_configured),
-      value: data?.report_viewer_signing_secret_configured
-        ? `${data.report_viewer_link_ttl_hours ?? 72} ชั่วโมง`
-        : "ยังไม่ตั้ง",
-    },
-    {
-      label: "Worker heartbeat",
-      ok: Boolean(data?.worker_heartbeat_token_configured),
-      value: data?.worker_heartbeat_token_configured
-        ? data?.worker_id ?? "ตั้งค่าแล้ว"
-        : "ยังไม่ตั้ง",
-    },
-    {
-      label: "Backup",
-      ok: Boolean(data?.backup_configured),
-      value: data?.backup_configured
-        ? formatDateTime(data.system_last_backup_at)
-        : "ยังต้องตั้ง",
-    },
-  ];
-
-  const bootstrapFacts = [
-    {
-      label: "Bootstrap file",
-      ok: Boolean(data?.bootstrap?.exists),
-      value: data?.bootstrap?.exists ? "พบไฟล์" : "ยังไม่พบ",
-    },
-    {
-      label: "System DB",
-      ok: Boolean(data?.bootstrap?.system_database_configured),
-      value: data?.bootstrap?.system_database_configured
-        ? "configured"
-        : "missing",
-    },
-    {
-      label: "Secret key",
-      ok: Boolean(data?.bootstrap?.secret_key_present),
-      value: data?.bootstrap?.secret_key_present ? "present" : "missing",
-    },
-  ];
-
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SystemMetric
-          icon={<PlugInIcon className="h-6 w-6" />}
-          label="Config source"
-          ok={data?.source === "encrypted_store"}
-          value={formatSource(data?.source)}
+          icon={<CheckCircleIcon className="h-5 w-5" />}
+          label="พร้อมใช้งาน"
+          tone={allRequiredReady ? "success" : "warning"}
+          value={`${readyCount}/${requiredChecks.length}`}
         />
         <SystemMetric
-          icon={<LockIcon className="h-6 w-6" />}
-          label="Encryption"
-          ok={Boolean(data?.encryption_configured)}
-          value={data?.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"}
+          icon={<LockIcon className="h-5 w-5" />}
+          label="ความปลอดภัย"
+          tone={
+            data?.encryption_configured &&
+            data?.report_viewer_signing_secret_configured
+              ? "success"
+              : "warning"
+          }
+          value={
+            data?.encryption_configured &&
+            data?.report_viewer_signing_secret_configured
+              ? "พร้อม"
+              : "ต้องตั้งค่า"
+          }
         />
         <SystemMetric
-          icon={<TimeIcon className="h-6 w-6" />}
-          label="Report link TTL"
-          ok={Boolean(data?.report_viewer_signing_secret_configured)}
+          icon={<TimeIcon className="h-5 w-5" />}
+          label="ลิงก์รายงาน"
+          tone={data?.report_viewer_signing_secret_configured ? "success" : "warning"}
           value={
             data?.report_viewer_signing_secret_configured
-              ? `${data.report_viewer_link_ttl_hours ?? 72} ชั่วโมง`
-              : "ยังไม่ตั้ง"
+              ? `${data.report_viewer_link_ttl_hours ?? 72} ชม.`
+              : "ยังไม่พร้อม"
           }
         />
         <SystemMetric
-          icon={<CheckCircleIcon className="h-6 w-6" />}
-          label="Backup"
-          ok={Boolean(data?.backup_configured)}
-          value={
-            data?.backup_configured
-              ? formatDateTime(data.system_last_backup_at)
-              : "ยังต้องตั้ง"
-          }
+          icon={<PlugInIcon className="h-5 w-5" />}
+          label="Worker"
+          tone={data?.worker_heartbeat_token_configured ? "success" : "warning"}
+          value={data?.worker_heartbeat_token_configured ? "พร้อมตรวจ" : "ต้องตั้งรหัส"}
         />
       </section>
 
-      <SystemNotice
-        text="หน้านี้แสดงเฉพาะสถานะที่ admin ต้องรู้ ไม่แสดง secret value, token, endpoint ลับ หรือ key จริงกลับมาบน UI"
-        title="System readiness"
-        tone="info"
-      />
+      {actionItems.length ? (
+        <ActionPanel checks={actionItems} />
+      ) : (
+        <SystemNotice
+          text="ระบบกลางพร้อมสำหรับการสร้างลิงก์รายงาน, worker heartbeat และการเก็บ config แบบปลอดภัยแล้ว"
+          title="ระบบกลางพร้อมใช้งาน"
+          tone="success"
+        />
+      )}
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <SystemPanel
-          badge={`${runtimeFacts.filter((fact) => fact.ok).length}/${
-            runtimeFacts.length
-          } พร้อม`}
-          title="Runtime readiness"
+          badge={`${readyCount}/${requiredChecks.length} พร้อม`}
+          description="แสดงเฉพาะสถานะที่ผู้ดูแลต้องรู้ ไม่แสดงค่าลับ, กุญแจเข้ารหัส, URL เต็ม หรือตำแหน่งไฟล์บนเครื่องแม่ข่าย"
+          title="สถานะระบบกลาง"
         >
-          <FactList facts={runtimeFacts} />
+          <div className="grid gap-3 md:grid-cols-2">
+            {requiredChecks.map((check) => (
+              <CheckCard check={check} key={check.id} />
+            ))}
+          </div>
         </SystemPanel>
 
         <SystemPanel
-          badge={`${bootstrapFacts.filter((fact) => fact.ok).length}/${
-            bootstrapFacts.length
-          } พร้อม`}
-          title="Bootstrap"
+          badge="ดูสถานะ"
+          description="ใช้ยืนยันว่าระบบอ่านค่าที่จำเป็นได้ แต่ไม่ต้องแก้จากหน้านี้"
+          title="หลักฐานปลอดภัย"
         >
-          <p className="mb-4 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-            ค่าเริ่มต้นที่ service ต้องใช้ก่อนอ่าน encrypted store
-          </p>
-          <FactList facts={bootstrapFacts} />
+          <SafeFact
+            label="แหล่งเก็บค่าระบบ"
+            value={formatConfigSource(data?.source)}
+          />
+          <SafeFact
+            label="ลิงก์แอปกลาง"
+            value={data?.app_base_url ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"}
+          />
+          <SafeFact
+            label="API สำหรับ public link"
+            value={data?.public_api_base_url ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"}
+          />
+          <SafeFact
+            label="สำรองข้อมูลล่าสุด"
+            value={
+              data?.backup_configured
+                ? formatDateTime(data.system_last_backup_at)
+                : "ยังไม่พบหลักฐาน"
+            }
+          />
           {data?.bootstrap?.read_error ? (
             <SystemNotice
-              text={data.bootstrap.read_error}
-              title="อ่าน bootstrap ไม่สำเร็จ"
+              text="ระบบอ่านค่าเริ่มต้นไม่ได้ ให้ตรวจไฟล์เริ่มต้นบนเครื่องแม่ข่าย โดยไม่ต้องเปิดเผยตำแหน่งไฟล์หรือค่าลับบนหน้านี้"
+              title="ต้องตรวจค่าเริ่มต้น"
               tone="error"
             />
           ) : null}
@@ -250,39 +220,186 @@ export default function OwnerV2System() {
   );
 }
 
-type FactItem = {
-  label: string;
-  ok: boolean;
-  value: string;
-};
+function buildSystemChecks(data: SystemConfigStatus | null): SystemCheck[] {
+  return [
+    {
+      action: "ตั้งค่าที่เก็บค่าลับแบบเข้ารหัสและกุญแจเข้ารหัสบนเครื่องแม่ข่ายก่อนเพิ่มค่าลับใหม่",
+      detail:
+        "ระบบต้องเข้ารหัสค่าลับของ SML, LINE และ Telegram ก่อนใช้งานจริง",
+      id: "encryption",
+      label: "เข้ารหัสค่าลับ",
+      ok: Boolean(data?.encryption_configured),
+      priority: "critical",
+      status: data?.encryption_configured ? "พร้อม" : "ต้องตั้งค่า",
+    },
+    {
+      action: "ตั้งค่าลับสำหรับเซ็นลิงก์ดูรายงานผู้บริหาร",
+      detail:
+        "ถ้าไม่พร้อม ระบบไม่ควรสร้างลิงก์รายงานที่เปิดจาก LINE หรือ browser",
+      id: "report-signing",
+      label: "ลิงก์รายงานปลอดภัย",
+      ok: Boolean(data?.report_viewer_signing_secret_configured),
+      priority: "critical",
+      status: data?.report_viewer_signing_secret_configured
+        ? `${data?.report_viewer_link_ttl_hours ?? 72} ชั่วโมง`
+        : "ยังไม่พร้อม",
+    },
+    {
+      action: "ตั้งรหัสตรวจ worker เพื่อให้ระบบรู้ว่า worker ยังทำงาน",
+      detail:
+        "ใช้แยกปัญหาระหว่างระบบแจ้งเตือนหยุดทำงานกับรายงานของร้านมีปัญหา",
+      id: "worker-heartbeat",
+      label: "ตรวจ worker ได้",
+      ok: Boolean(data?.worker_heartbeat_token_configured),
+      priority: "warning",
+      status: data?.worker_heartbeat_token_configured ? "พร้อม" : "ต้องตั้งรหัส",
+    },
+    {
+      action: "ตั้ง URL ของแอปและ API ให้ตรงกับ production URL",
+      detail:
+        "ใช้สร้างลิงก์รายงาน, webhook และหน้าที่ผู้บริหารเปิดจากข้อความแจ้งเตือน",
+      id: "public-links",
+      label: "ลิงก์ภายนอกพร้อม",
+      ok: Boolean(data?.app_base_url && data.public_api_base_url),
+      priority: "warning",
+      status:
+        data?.app_base_url && data.public_api_base_url
+          ? "ตั้งค่าแล้ว"
+          : "ยังไม่ครบ",
+    },
+    {
+      action: "ตรวจไฟล์เริ่มต้นและค่าเชื่อมต่อฐานข้อมูลระบบบน server",
+      detail:
+        "ระบบต้องอ่านค่าเริ่มต้นได้ก่อนเข้าแหล่งเก็บค่าลับและฐานข้อมูลระบบ",
+      id: "bootstrap",
+      label: "ค่าเริ่มต้นระบบ",
+      ok: Boolean(
+        data?.bootstrap?.exists &&
+          data.bootstrap.system_database_configured &&
+          data.bootstrap.secret_key_present &&
+          !data.bootstrap.read_error,
+      ),
+      priority: "warning",
+      status:
+        data?.bootstrap?.exists && !data.bootstrap.read_error
+          ? "อ่านได้"
+          : "ต้องตรวจ server",
+    },
+    {
+      action: "ตั้ง backup job หรือยืนยันว่ามี backup ล่าสุดในระบบปฏิบัติการ",
+      detail:
+        "ไม่บล็อกการใช้งานรายวัน แต่ควรมีหลักฐานก่อนเปิดใช้งานหลายร้านจริง",
+      id: "backup",
+      label: "สำรองข้อมูล",
+      ok: Boolean(data?.backup_configured),
+      priority: "warning",
+      status: data?.backup_configured
+        ? formatDateTime(data.system_last_backup_at)
+        : "ยังไม่พบหลักฐาน",
+    },
+    {
+      action: "ใช้เป็นหลักฐานประกอบเท่านั้น",
+      detail: "หน้านี้ไม่แสดง URL เต็มหรือตำแหน่งไฟล์บนเครื่องแม่ข่ายให้ผู้ดูแลเห็นโดยตรง",
+      id: "safe-display",
+      label: "ไม่แสดงค่าลับ",
+      ok: true,
+      priority: "info",
+      status: "ปลอดภัย",
+    },
+  ];
+}
+
+function ActionPanel({ checks }: { checks: SystemCheck[] }) {
+  return (
+    <section className="rounded-xl border border-warning-500 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/15">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-warning-600 dark:bg-gray-900 dark:text-warning-300">
+          <AlertIcon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+            มี {checks.length} จุดที่ควรตรวจระบบกลาง
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">
+            แก้จากค่าระบบบนเครื่องแม่ข่ายหรือแหล่งเก็บค่าลับแบบเข้ารหัสตามรายการด้านล่าง หน้านี้ใช้ดูสถานะเท่านั้น เพื่อไม่ให้แก้ค่าระบบผิดโดยไม่ตั้งใจ
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {checks.map((check) => (
+          <div
+            className="rounded-lg bg-white p-4 dark:bg-gray-900"
+            key={check.id}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                {check.label}
+              </p>
+              <Badge color={check.priority === "critical" ? "error" : "warning"} size="sm">
+                {check.status}
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              {check.action}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CheckCard({ check }: { check: SystemCheck }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            {check.label}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {check.detail}
+          </p>
+        </div>
+        <Badge color={check.ok ? "success" : "warning"} size="sm">
+          {check.ok ? "พร้อม" : "ต้องดู"}
+        </Badge>
+      </div>
+      <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+        สถานะ: {check.status}
+      </p>
+    </div>
+  );
+}
 
 function SystemMetric({
   icon,
   label,
-  ok,
+  tone,
   value,
 }: {
   icon: ReactNode;
   label: string;
-  ok: boolean;
+  tone: "success" | "warning";
   value: string;
 }) {
+  const toneClass = {
+    success:
+      "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400",
+    warning:
+      "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300",
+  }[tone];
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-white/90">
+      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${toneClass}`}>
         {icon}
       </div>
-      <div className="mt-5 flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <span className="text-theme-sm text-gray-500 dark:text-gray-400">
-            {label}
-          </span>
-          <h4 className="mt-2 break-words text-base font-bold text-gray-800 dark:text-white/90">
-            {value}
-          </h4>
-        </div>
-        <Badge color={ok ? "success" : "warning"}>{ok ? "พร้อม" : "ต้องดู"}</Badge>
-      </div>
+      <p className="mt-4 text-theme-xs text-gray-500 dark:text-gray-400">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-xl font-semibold text-gray-900 dark:text-white">
+        {value}
+      </p>
     </div>
   );
 }
@@ -290,48 +407,43 @@ function SystemMetric({
 function SystemPanel({
   badge,
   children,
+  description,
   title,
 }: {
   badge: string;
   children: ReactNode;
+  description: string;
   title: string;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
-        <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-          {title}
-        </h3>
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            {title}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {description}
+          </p>
+        </div>
         <Badge color="info">{badge}</Badge>
       </div>
-      <div className="border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
-        {children}
-      </div>
+      <div className="space-y-3">{children}</div>
     </section>
   );
 }
 
-function FactList({ facts }: { facts: FactItem[] }) {
+function SafeFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="custom-scrollbar flex max-h-[520px] flex-col overflow-y-auto">
-      {facts.map((fact) => (
-        <div
-          className="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 pt-4 first:pt-0 last:border-b-0 last:pb-0 dark:border-gray-800"
-          key={fact.label}
-        >
-          <div className="min-w-0">
-            <h4 className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
-              {fact.label}
-            </h4>
-            <span className="mt-1 block break-words text-theme-xs text-gray-500 dark:text-gray-400">
-              {fact.value}
-            </span>
-          </div>
-          <Badge color={fact.ok ? "success" : "warning"}>
-            {fact.ok ? "พร้อม" : "ต้องดู"}
-          </Badge>
-        </div>
-      ))}
+    <div className="flex items-start justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-800 dark:text-white/90">
+          {label}
+        </p>
+        <p className="mt-1 break-words text-theme-xs text-gray-500 dark:text-gray-400">
+          {value}
+        </p>
+      </div>
     </div>
   );
 }
@@ -345,7 +457,7 @@ function SystemNotice({
   action?: ReactNode;
   text: string;
   title: string;
-  tone: "info" | "error";
+  tone: "success" | "info" | "error";
 }) {
   const toneConfig = {
     error: {
@@ -360,6 +472,12 @@ function SystemNotice({
       icon: <InfoIcon className="size-6 fill-current" />,
       iconClassName: "text-blue-light-500 dark:text-blue-light-400",
     },
+    success: {
+      className:
+        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
+      icon: <CheckCircleIcon className="size-6 fill-current" />,
+      iconClassName: "text-success-500",
+    },
   }[tone];
 
   return (
@@ -369,10 +487,10 @@ function SystemNotice({
           {toneConfig.icon}
         </div>
         <div className="min-w-0">
-          <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+          <h2 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
-          </h3>
-          <p className="text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+          </h2>
+          <p className="text-theme-sm leading-6 text-gray-600 dark:text-gray-300">
             {text}
           </p>
           {action}
@@ -382,14 +500,37 @@ function SystemNotice({
   );
 }
 
-function formatSource(value?: string | null) {
+function SystemSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            className="h-32 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
+            key={index}
+          />
+        ))}
+      </div>
+      <div className="h-28 animate-pulse rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+        <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+      </div>
+    </div>
+  );
+}
+
+function formatConfigSource(value?: string | null) {
   if (value === "encrypted_store") {
-    return "encrypted store";
+    return "ใช้ที่เก็บค่าแบบเข้ารหัส";
   }
   if (value === "bootstrap") {
-    return "bootstrap";
+    return "อ่านจากค่าเริ่มต้น";
   }
-  return value ?? "ยังไม่ทราบ";
+  if (value === "env") {
+    return "อ่านจาก environment";
+  }
+  return "ยังไม่ทราบ";
 }
 
 function formatDateTime(value?: string | null) {

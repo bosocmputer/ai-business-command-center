@@ -3,14 +3,14 @@ import { OwnerV2Shell } from "@/components/owner-v2/OwnerV2Shell";
 import OwnerV2System from "@/components/owner-v2/OwnerV2System";
 
 export const metadata: Metadata = {
-  title: "System | Owner Admin v2",
+  title: "ระบบกลาง | Owner Admin v2",
 };
 
 export default function OwnerV2SystemPage() {
   return (
     <OwnerV2Shell
-      subtitle="ดูสถานะ runtime, encrypted store, report signing, worker token และ bootstrap โดยไม่แสดง secret value"
-      title="System Readiness"
+      subtitle="ตรวจเฉพาะสถานะระบบกลางที่ผู้ดูแลต้องรู้ โดยไม่แสดงค่าลับ, รหัสตรวจ, URL เต็ม หรือตำแหน่งไฟล์บนเครื่องแม่ข่าย"
+      title="ระบบกลาง"
     >
       <OwnerV2System />
     </OwnerV2Shell>
