@@ -437,8 +437,9 @@ export default function OwnerV2NotificationSetup({
             tone="error"
           />
           <Button
-            className="mt-4 h-10 px-4 py-0"
+            className="mt-4"
             onClick={() => void load()}
+            size="sm"
             type="button"
           >
             รีเฟรชแผนแจ้งเตือน
@@ -467,8 +468,9 @@ export default function OwnerV2NotificationSetup({
             <PanelHeader
               action={
                 <Button
-                  className="h-10 w-full px-4 py-0 sm:w-auto"
+                  className="w-full sm:w-auto"
                   onClick={startNewRule}
+                  size="sm"
                   startIcon={<PlusIcon className="size-4" />}
                   type="button"
                   variant="outline"
@@ -607,10 +609,11 @@ export default function OwnerV2NotificationSetup({
                         value={form.timeInput}
                       />
                       <Button
-                        className="h-11 w-full shrink-0 px-4 py-0 sm:w-auto"
+                        className="w-full shrink-0 sm:w-auto"
                         onClick={() =>
                           setForm((current) => addNotificationTime(current))
                         }
+                        size="sm"
                         type="button"
                         variant="outline"
                       >
@@ -727,25 +730,28 @@ export default function OwnerV2NotificationSetup({
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
                     <Button
-                      className="h-11 w-full px-4 py-0 sm:w-auto"
                       disabled={saveDisabled}
+                      className="w-full sm:w-auto"
+                      size="sm"
                       type="submit"
                     >
                       บันทึกแผน
                     </Button>
                     <Button
-                      className="h-11 w-full px-4 py-0 sm:w-auto"
+                      className="w-full sm:w-auto"
                       disabled={dryRunDisabled}
                       onClick={() => void executeRule("dry_run")}
+                      size="sm"
                       type="button"
                       variant="outline"
                     >
                       Dry-run
                     </Button>
                     <Button
-                      className="h-11 w-full px-4 py-0 sm:w-auto"
+                      className="w-full sm:w-auto"
                       disabled={sendDisabled}
                       onClick={() => void executeRule("send")}
+                      size="sm"
                       type="button"
                       variant={sendConfirmRuleId === selectedRuleId ? "primary" : "outline"}
                     >
@@ -806,10 +812,10 @@ function RuleList({
     <div className="space-y-2">
       {rules.map((rule) => (
         <button
-          className={`w-full rounded-xl border p-4 text-left transition ${
+          className={`w-full rounded-lg p-3 text-left transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-brand-500/10 ${
             selectedRuleId === rule.id
-              ? "border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
-              : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.02] dark:hover:bg-white/[0.04]"
+              ? "bg-brand-50 ring-1 ring-brand-200 dark:bg-brand-500/10 dark:ring-brand-500/30"
+              : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
           }`}
           key={rule.id}
           onClick={() => onSelectRule(rule)}
@@ -951,7 +957,7 @@ function TargetSelector({
       <EmptyState
         action={
           <Link
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
+            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
             href="../line"
           >
             ไปตั้งค่า LINE
@@ -963,8 +969,8 @@ function TargetSelector({
     );
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
             ผู้รับ LINE
@@ -977,12 +983,12 @@ function TargetSelector({
           {selectedTargetIds.length}/{targets.length}
         </Badge>
       </div>
-      <div className="max-w-full overflow-x-auto border-t border-gray-100 dark:border-gray-800">
+      <div className="w-full overflow-x-auto">
         <table className="w-full min-w-[720px]">
           <thead>
-            <tr className="border-b border-gray-100 dark:border-gray-800">
+            <tr className="border-y border-gray-100 dark:border-gray-800">
               {["เลือก", "ผู้รับ", "พร้อมส่ง", "เหตุผล"].map((label) => (
-                <th className="px-5 py-3 text-left sm:px-6" key={label}>
+                <th className="py-3 pr-5 text-left last:pr-0 sm:pr-6" key={label}>
                   <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                     {label}
                   </p>
@@ -999,7 +1005,7 @@ function TargetSelector({
               });
               return (
                 <tr key={target.id}>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <input
                       checked={selectedTargetIds.includes(target.id)}
                       className="size-4"
@@ -1007,7 +1013,7 @@ function TargetSelector({
                       type="checkbox"
                     />
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                       {target.display_name}
                     </p>
@@ -1015,12 +1021,12 @@ function TargetSelector({
                       {target.target_id_masked}
                     </p>
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <Badge color={readiness.ok ? "success" : "warning"}>
                       {readiness.ok ? "พร้อม" : "ติดเงื่อนไข"}
                     </Badge>
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <p className="max-w-md text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
                       {readiness.ok ? "ส่งได้ตามรายงานที่เลือก" : readiness.message}
                     </p>
