@@ -123,7 +123,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         tone: "warning",
         text:
           state.status === "success" && !state.config.encryption_configured
-            ? "ยังไม่มี encryption key จึงบันทึก secret ไม่ได้"
+            ? "ยังไม่มี encryption key จึงบันทึกรหัสลับไม่ได้"
             : validation.ok
               ? "ยังไม่มีข้อมูลที่เปลี่ยน"
               : `กรอกข้อมูลให้ครบ: ${validation.missing.join(", ")}`,
@@ -301,6 +301,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 {formatDatasourceSource(config.source)}
               </Badge>
             }
+            description="ตั้งค่า URL, SMLConfig และ database ของร้านนี้ แล้วทดสอบก่อนเปิดใช้รายงานหรือแจ้งเตือน"
             title="SML JavaWS"
           />
           <PanelBody>
@@ -319,7 +320,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     value={form.baseUrl}
                   />
                 </Field>
-                <Field label="SMLConfig file">
+                <Field label="ไฟล์ SMLConfig">
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -332,7 +333,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     value={form.configFileName}
                   />
                 </Field>
-                <Field label="Database">
+                <Field label="Database SML">
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -363,14 +364,14 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               <div className="space-y-4 border-t border-gray-100 pt-5 dark:border-gray-800">
                 <div>
                   <h4 className="text-sm font-medium text-gray-800 dark:text-white/90">
-                    Auth หลัง reverse proxy
+                    Auth หลัง proxy
                   </h4>
                   <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                    ใช้เฉพาะกรณีมี proxy หรือ gateway ครอบ JavaWS อยู่ด้านหน้า
+                    ใช้เฉพาะร้านที่มี proxy หรือ gateway อยู่หน้า JavaWS
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-                  <Field label="Mode">
+                  <Field label="โหมด">
                     <select
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -388,7 +389,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     </select>
                   </Field>
                   {form.authMode === "basic" ? (
-                    <Field label="Auth username">
+                    <Field label="ผู้ใช้ auth">
                       <input
                         className="owner-v2-input"
                         onChange={(event) =>
@@ -406,13 +407,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     <Field
                       label={
                         form.authMode === "basic"
-                          ? "Auth password"
+                          ? "รหัสผ่าน auth"
                           : "Bearer token"
                       }
                       help={
                         config.auth_configured
-                          ? "กรอก secret ใหม่เมื่อต้องทดสอบหรือบันทึกจากฟอร์ม"
-                          : "secret จะถูกเข้ารหัสฝั่ง server"
+                          ? "กรอกรหัสลับใหม่เมื่อต้องทดสอบหรือบันทึกจากฟอร์ม"
+                          : "รหัสลับจะถูกเข้ารหัสฝั่ง server"
                       }
                     >
                       <input
@@ -425,8 +426,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                         }
                         placeholder={
                           config.auth_configured
-                            ? "กรอก secret อีกครั้ง"
-                            : "ใส่ secret"
+                            ? "กรอกรหัสลับอีกครั้ง"
+                            : "ใส่รหัสลับ"
                         }
                         type="password"
                         value={form.authSecret}
@@ -475,12 +476,15 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 >
                   {busy === "discover" ? "กำลังค้นหา..." : "ค้นหา database"}
                 </Button>
+                <p className="w-full text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  ลำดับที่แนะนำ: ค้นหา database, บันทึก SML, แล้วทดสอบค่าที่บันทึก
+                </p>
               </div>
 
               {!config.encryption_configured ? (
                 <Notice
                   tone="warning"
-                  title="ยังบันทึก secret ไม่ได้"
+                  title="ยังบันทึกรหัสลับไม่ได้"
                   text="เพิ่ม secret_key ใน bootstrap config ก่อนบันทึก SML JavaWS"
                 />
               ) : null}
@@ -497,7 +501,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
         <div className="space-y-6">
           <Panel>
-            <PanelHeader title="สถานะปัจจุบัน" />
+            <PanelHeader
+              description="ดูว่าร้านนี้พร้อมใช้รายงานจาก SML แล้วหรือยัง"
+              title="สถานะปัจจุบัน"
+            />
             <PanelBody>
               <div className="grid grid-cols-1 gap-3">
                 <Fact
@@ -514,7 +521,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   value={config.config_file_name ?? "ยังไม่ระบุ"}
                 />
                 <Fact
-                  label="Auth"
+                  label="Auth proxy"
                   tone={config.auth_configured ? "success" : "warning"}
                   value={
                     config.auth_mode
@@ -533,7 +540,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           </Panel>
 
           <Panel>
-            <PanelHeader title="รายงานล่าสุด" />
+            <PanelHeader
+              description="ใช้ตรวจเร็วว่าการเชื่อม SML เคยสร้างรายงานสำเร็จหรือไม่"
+              title="รายงานล่าสุด"
+            />
             <PanelBody>
               {setup.latest_report_run ? (
                 <div className="space-y-3">
@@ -548,12 +558,12 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                       setup.latest_report_run.status,
                     )} · ${setup.latest_report_run.row_count.toLocaleString(
                       "th-TH",
-                    )} rows`}
+                    )} แถว`}
                   />
                   {setup.latest_report_run.safe_error_message ? (
                     <Notice
                       tone="warning"
-                      title="error ล่าสุด"
+                      title="ปัญหารายงานล่าสุด"
                       text={setup.latest_report_run.safe_error_message}
                     />
                   ) : null}
@@ -578,6 +588,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 {discovery.latency_ms} ms
               </Badge>
             }
+            description="เลือกชื่อ database ที่พบเพื่อเติมลงฟอร์มโดยไม่ต้องพิมพ์เอง"
             title="ผลค้นหา database"
           />
           <PanelBody>
@@ -628,13 +639,14 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 {testResult.ok ? "ผ่าน" : "ไม่ผ่าน"}
               </Badge>
             }
+            description="ผลนี้ใช้ยืนยันว่า JavaWS ตอบกลับและอ่านข้อมูลพื้นฐานได้"
             title="ผลทดสอบ SML"
           />
           <PanelBody>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Fact label="Latency" value={`${testResult.latency_ms} ms`} />
+              <Fact label="เวลาตอบกลับ" value={`${testResult.latency_ms} ms`} />
               <Fact
-                label="Database"
+                label="Database SML"
                 value={testResult.database_name ?? "ยังไม่ทราบ"}
               />
               <Fact
@@ -642,7 +654,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 value={formatDateTime(testResult.checked_at)}
               />
               <Fact
-                label="Required tables"
+                label="ตารางที่ต้องใช้"
                 tone={
                   Object.values(testResult.required_tables).every(Boolean)
                     ? "success"
@@ -682,7 +694,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
 function Panel({ children }: { children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
       {children}
     </section>
   );
@@ -690,27 +702,32 @@ function Panel({ children }: { children: ReactNode }) {
 
 function PanelHeader({
   action,
+  description,
   title,
 }: {
   action?: ReactNode;
+  description?: string;
   title: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
-      <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-        {title}
-      </h3>
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h3>
+        {description ? (
+          <p className="mt-1 max-w-2xl text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            {description}
+          </p>
+        ) : null}
+      </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
 
 function PanelBody({ children }: { children: ReactNode }) {
-  return (
-    <div className="space-y-5 border-t border-gray-100 p-5 sm:p-6 dark:border-gray-800">
-      {children}
-    </div>
-  );
+  return <div className="space-y-5">{children}</div>;
 }
 
 function Field({
@@ -747,7 +764,7 @@ function Fact({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <div className="flex items-start justify-between gap-3">
         <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
         {tone !== "light" ? (
@@ -818,10 +835,10 @@ function Notice({
 function SmlSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="h-[560px] animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+      <div className="h-[560px] animate-pulse overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6" />
       <div className="space-y-6">
-        <div className="h-72 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-        <div className="h-48 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+        <div className="h-72 animate-pulse overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6" />
+        <div className="h-48 animate-pulse overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6" />
       </div>
     </div>
   );
@@ -872,16 +889,16 @@ function validateDraft(form: SmlFormState, includeDatabase: boolean) {
     missing.push("Tomcat URL");
   }
   if (!form.configFileName.trim()) {
-    missing.push("SMLConfig file");
+    missing.push("ไฟล์ SMLConfig");
   }
   if (includeDatabase && !form.database.trim()) {
-    missing.push("Database");
+    missing.push("Database SML");
   }
   if (form.authMode === "basic" && !form.authUsername.trim()) {
-    missing.push("Auth username");
+    missing.push("ผู้ใช้ auth");
   }
   if (form.authMode !== "none" && !form.authSecret.trim()) {
-    missing.push(form.authMode === "basic" ? "Auth password" : "Bearer token");
+    missing.push(form.authMode === "basic" ? "รหัสผ่าน auth" : "Bearer token");
   }
   return { ok: missing.length === 0, missing };
 }
@@ -925,10 +942,10 @@ function buildDiscoveryPayload(form: SmlFormState) {
 
 function formatDatasourceSource(value: string) {
   if (value === "encrypted_store") {
-    return "encrypted store";
+    return "บันทึกในระบบ";
   }
   if (value === "env") {
-    return "env";
+    return "จาก environment";
   }
   return "ยังไม่ตั้ง";
 }
@@ -941,7 +958,7 @@ function formatRunStatus(status?: string | null) {
     queued: "รอรัน",
     running: "กำลังรัน",
     success: "สำเร็จ",
-    failed: "ล้มเหลว",
+    failed: "ไม่สำเร็จ",
   };
   return labels[status] ?? status;
 }
