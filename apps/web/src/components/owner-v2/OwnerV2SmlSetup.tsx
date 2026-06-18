@@ -123,7 +123,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         tone: "warning",
         text:
           state.status === "success" && !state.config.encryption_configured
-            ? "ยังไม่มี encryption key จึงบันทึกรหัสลับไม่ได้"
+            ? "ยังไม่มีกุญแจเข้ารหัส จึงบันทึกรหัสลับไม่ได้"
             : validation.ok
               ? "ยังไม่มีข้อมูลที่เปลี่ยน"
               : `กรอกข้อมูลให้ครบ: ${validation.missing.join(", ")}`,
@@ -142,7 +142,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       );
       setMessage({
         tone: "success",
-        text: "บันทึก SML JavaWS แล้ว กดทดสอบค่าที่บันทึกเพื่อยืนยันก่อนเปิดแจ้งเตือน",
+        text:
+          "บันทึกค่า SML แล้ว กดทดสอบค่าที่บันทึกแล้วเพื่อยืนยันก่อนเปิดแจ้งเตือน",
       });
       setTestResult(null);
       setDiscovery(null);
@@ -156,7 +157,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         text:
           error instanceof Error
             ? error.message
-            : "บันทึก SML JavaWS ไม่สำเร็จ",
+            : "บันทึกค่า SML ไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -202,14 +203,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           : result.safe_error_message ?? "ทดสอบ SML ไม่ผ่าน",
       });
     } catch (error) {
-      const details = (error as Error & { details?: unknown }).details;
       setTestResult(null);
       setMessage({
         tone: "error",
         text:
           error instanceof Error
             ? error.message
-            : `ทดสอบ SML ไม่สำเร็จ ${JSON.stringify(details ?? {})}`,
+            : "ทดสอบ SML ไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -286,12 +286,28 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   }
 
   const { config, setup } = state;
+  const actionHelp = buildActionHelp({
+    busy,
+    canUseSavedConfig,
+    config,
+    dirty,
+    discoveryValidation,
+    validation,
+  });
 
   return (
     <div className="space-y-5 sm:space-y-6">
       {message ? (
         <Notice tone={message.tone} title="สถานะ SML" text={message.text} />
       ) : null}
+
+      <SmlActionGuide
+        canDiscover={discoveryValidation.ok}
+        canSave={config.encryption_configured && validation.ok}
+        canTestSaved={canUseSavedConfig}
+        hasDatabase={Boolean(form.database.trim())}
+        latestReportSucceeded={setup.latest_report_run?.status === "success"}
+      />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel>
@@ -307,7 +323,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           <PanelBody>
             <form className="space-y-5" onSubmit={save}>
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                <Field label="Tomcat URL" help="เช่น http://host:port">
+                <Field
+                  label="URL SML JavaWS"
+                  help="ใส่ URL ของ Tomcat หรือ reverse proxy ที่เข้าถึง JavaWS ได้"
+                >
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -320,7 +339,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     value={form.baseUrl}
                   />
                 </Field>
-                <Field label="ไฟล์ SMLConfig">
+                <Field
+                  label="ไฟล์ SMLConfig"
+                  help="ชื่อไฟล์ config ที่ JavaWS ใช้อ่าน connection ของ SML"
+                >
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -333,7 +355,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     value={form.configFileName}
                   />
                 </Field>
-                <Field label="Database SML">
+                <Field
+                  label="ชื่อฐานข้อมูล SML"
+                  help="ใช้ปุ่มค้นหา database เพื่อลดการพิมพ์ผิด"
+                >
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -346,7 +371,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     value={form.database}
                   />
                 </Field>
-                <Field label="Webapp path">
+                <Field
+                  label="Path JavaWS"
+                  help="โดยทั่วไปใช้ค่าเดิมนี้ ยกเว้นร้านติดตั้ง path อื่น"
+                >
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -364,10 +392,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               <div className="space-y-4 border-t border-gray-100 pt-5 dark:border-gray-800">
                 <div>
                   <h4 className="text-sm font-medium text-gray-800 dark:text-white/90">
-                    Auth หลัง proxy
+                    รหัสผ่านหน้า JavaWS (ถ้ามี)
                   </h4>
                   <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                    ใช้เฉพาะร้านที่มี proxy หรือ gateway อยู่หน้า JavaWS
+                    ใช้เฉพาะร้านที่มี proxy, gateway หรือ token ก่อนเข้า JavaWS
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -440,21 +468,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:flex-wrap sm:items-center dark:border-gray-800">
                 <Button
                   className="w-full sm:w-auto"
-                  disabled={saveDisabled}
-                  size="sm"
-                  type="submit"
-                >
-                  {busy === "save" ? "กำลังบันทึก..." : "บันทึก SML"}
-                </Button>
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={savedTestDisabled}
-                  onClick={() => void testSaved()}
+                  disabled={discoverDisabled}
+                  onClick={() => void discoverDatabases()}
                   size="sm"
                   type="button"
                   variant="outline"
                 >
-                  {busy === "test-saved" ? "กำลังทดสอบ..." : "ทดสอบค่าที่บันทึก"}
+                  {busy === "discover" ? "กำลังค้นหา..." : "ค้นหา database"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
@@ -464,28 +484,39 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  {busy === "test-draft" ? "กำลังทดสอบ..." : "ทดสอบฟอร์มนี้"}
+                  {busy === "test-draft" ? "กำลังทดสอบ..." : "ทดสอบก่อนบันทึก"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
-                  disabled={discoverDisabled}
-                  onClick={() => void discoverDatabases()}
+                  disabled={saveDisabled}
+                  size="sm"
+                  type="submit"
+                >
+                  {busy === "save" ? "กำลังบันทึก..." : "บันทึกค่า SML"}
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={savedTestDisabled}
+                  onClick={() => void testSaved()}
                   size="sm"
                   type="button"
                   variant="outline"
                 >
-                  {busy === "discover" ? "กำลังค้นหา..." : "ค้นหา database"}
+                  {busy === "test-saved"
+                    ? "กำลังทดสอบ..."
+                    : "ทดสอบค่าที่บันทึกแล้ว"}
                 </Button>
                 <p className="w-full text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  ลำดับที่แนะนำ: ค้นหา database, บันทึก SML, แล้วทดสอบค่าที่บันทึก
+                  ลำดับที่แนะนำ: ค้นหา database, ทดสอบก่อนบันทึก, บันทึกค่า SML, แล้วทดสอบค่าที่บันทึกแล้ว
                 </p>
+                {actionHelp.length ? <ActionHelp items={actionHelp} /> : null}
               </div>
 
               {!config.encryption_configured ? (
                 <Notice
                   tone="warning"
                   title="ยังบันทึกรหัสลับไม่ได้"
-                  text="เพิ่ม secret_key ใน bootstrap config ก่อนบันทึก SML JavaWS"
+                  text="ตั้งค่ากุญแจเข้ารหัสของระบบกลางก่อนบันทึกข้อมูลที่มีรหัสลับ"
                 />
               ) : null}
               {!validation.ok ? (
@@ -508,7 +539,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             <PanelBody>
               <div className="grid grid-cols-1 gap-3">
                 <Fact
-                  label="Datasource"
+                  label="การเชื่อมต่อ"
                   tone={config.kind === "sml_javaws" ? "success" : "warning"}
                   value={
                     config.kind === "sml_javaws"
@@ -521,7 +552,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   value={config.config_file_name ?? "ยังไม่ระบุ"}
                 />
                 <Fact
-                  label="Auth proxy"
+                  label="รหัสผ่านหน้า JavaWS"
                   tone={config.auth_configured ? "success" : "warning"}
                   value={
                     config.auth_mode
@@ -571,7 +602,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               ) : (
                 <Notice
                   tone="warning"
-                  title="ยังไม่มี report run"
+                  title="ยังไม่มีผลรันรายงาน"
                   text="บันทึกและทดสอบ SML ก่อน แล้วค่อยรันรายงานทดสอบ"
                 />
               )}
@@ -646,7 +677,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Fact label="เวลาตอบกลับ" value={`${testResult.latency_ms} ms`} />
               <Fact
-                label="Database SML"
+                label="ชื่อฐานข้อมูล SML"
                 value={testResult.database_name ?? "ยังไม่ทราบ"}
               />
               <Fact
@@ -728,6 +759,110 @@ function PanelHeader({
 
 function PanelBody({ children }: { children: ReactNode }) {
   return <div className="space-y-5">{children}</div>;
+}
+
+function SmlActionGuide({
+  canDiscover,
+  canSave,
+  canTestSaved,
+  hasDatabase,
+  latestReportSucceeded,
+}: {
+  canDiscover: boolean;
+  canSave: boolean;
+  canTestSaved: boolean;
+  hasDatabase: boolean;
+  latestReportSucceeded: boolean;
+}) {
+  const steps = [
+    {
+      detail: "กรอก URL SML JavaWS และไฟล์ SMLConfig ให้ครบ",
+      label: "เตรียมข้อมูลเชื่อมต่อ",
+      ok: canDiscover,
+    },
+    {
+      detail: "ใช้ปุ่มค้นหาเพื่อลดโอกาสพิมพ์ชื่อ database ผิด",
+      label: "เลือก database",
+      ok: hasDatabase,
+    },
+    {
+      detail: "ทดสอบก่อนบันทึกได้ แล้วบันทึกค่า SML ที่ผ่านการตรวจ",
+      label: "บันทึกและทดสอบ SML",
+      ok: canSave && canTestSaved,
+    },
+    {
+      detail: "รันรายงานทดสอบให้สำเร็จก่อนเปิดแผนแจ้งเตือน",
+      label: "ยืนยันรายงาน",
+      ok: latestReportSucceeded,
+    },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            ลำดับที่ควรทำ
+          </h3>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ทำตามลำดับนี้เพื่อลดการบันทึกผิดร้านหรือเปิดแจ้งเตือนก่อน SML พร้อม
+          </p>
+        </div>
+        <Badge
+          color={latestReportSucceeded ? "success" : canTestSaved ? "warning" : "light"}
+        >
+          {latestReportSucceeded
+            ? "พร้อมไปขั้นรายงาน"
+            : canTestSaved
+              ? "ทดสอบ SML ได้"
+              : "ยังต้องตั้งค่า"}
+        </Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {steps.map((step, index) => (
+          <div
+            className="rounded-xl bg-gray-50 p-3 dark:bg-white/[0.02]"
+            key={step.label}
+          >
+            <div className="flex items-start gap-3">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  step.ok
+                    ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
+                    : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300"
+                }`}
+              >
+                {index + 1}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                  {step.label}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {step.detail}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ActionHelp({ items }: { items: string[] }) {
+  return (
+    <div className="w-full rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+        ถ้าปุ่มยังปิดอยู่ ให้ตรวจจุดนี้ก่อน
+      </p>
+      <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function Field({
@@ -886,13 +1021,13 @@ function isJavaWsAuthMode(value: string | null): value is JavaWsAuthMode {
 function validateDraft(form: SmlFormState, includeDatabase: boolean) {
   const missing: string[] = [];
   if (!form.baseUrl.trim()) {
-    missing.push("Tomcat URL");
+    missing.push("URL SML JavaWS");
   }
   if (!form.configFileName.trim()) {
     missing.push("ไฟล์ SMLConfig");
   }
   if (includeDatabase && !form.database.trim()) {
-    missing.push("Database SML");
+    missing.push("ชื่อฐานข้อมูล SML");
   }
   if (form.authMode === "basic" && !form.authUsername.trim()) {
     missing.push("ผู้ใช้ auth");
@@ -901,6 +1036,45 @@ function validateDraft(form: SmlFormState, includeDatabase: boolean) {
     missing.push(form.authMode === "basic" ? "รหัสผ่าน auth" : "Bearer token");
   }
   return { ok: missing.length === 0, missing };
+}
+
+function buildActionHelp({
+  busy,
+  canUseSavedConfig,
+  config,
+  dirty,
+  discoveryValidation,
+  validation,
+}: {
+  busy: "save" | "test-saved" | "test-draft" | "discover" | null;
+  canUseSavedConfig: boolean;
+  config: OwnerV2DatasourceStatus;
+  dirty: boolean;
+  discoveryValidation: ReturnType<typeof validateDraft>;
+  validation: ReturnType<typeof validateDraft>;
+}) {
+  if (busy) {
+    return ["รอให้คำสั่งที่กำลังทำงานอยู่เสร็จก่อน"];
+  }
+  const items: string[] = [];
+  if (!discoveryValidation.ok) {
+    items.push(
+      `ปุ่มค้นหา database ต้องกรอก: ${discoveryValidation.missing.join(", ")}`,
+    );
+  }
+  if (!validation.ok) {
+    items.push(`ปุ่มทดสอบและบันทึกต้องกรอก: ${validation.missing.join(", ")}`);
+  }
+  if (!config.encryption_configured) {
+    items.push("ปุ่มบันทึกต้องมีกุญแจเข้ารหัสของระบบกลางก่อน");
+  }
+  if (validation.ok && config.encryption_configured && !dirty) {
+    items.push("ปุ่มบันทึกจะเปิดเมื่อแก้ข้อมูลในฟอร์ม");
+  }
+  if (!canUseSavedConfig) {
+    items.push("ปุ่มทดสอบค่าที่บันทึกแล้วจะเปิดหลังบันทึกค่า SML");
+  }
+  return Array.from(new Set(items));
 }
 
 function buildDatasourcePayload(form: SmlFormState) {
