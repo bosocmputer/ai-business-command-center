@@ -534,8 +534,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
             tone="error"
           />
           <Button
-            className="mt-4 h-10 px-4 py-0"
+            className="mt-4"
             onClick={() => void load()}
+            size="sm"
             type="button"
           >
             รีเฟรช LINE
@@ -656,8 +657,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                 </Field>
                 <div className="flex items-end">
                   <Button
-                    className="h-11 w-full px-4 py-0"
+                    className="w-full"
                     disabled={createDisabled}
+                    size="sm"
                     startIcon={<PlusIcon className="size-4" />}
                     type="submit"
                   >
@@ -698,8 +700,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                 <EmptyState
                   action={
                     <Button
-                      className="h-10 px-4 py-0"
                       onClick={() => void loadRecipients()}
+                      size="sm"
                       type="button"
                       variant="outline"
                     >
@@ -772,8 +774,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   />
                 </Field>
                 <Button
-                  className="h-11 w-full px-4 py-0"
+                  className="w-full"
                   disabled={saveSecretDisabled}
+                  size="sm"
                   type="submit"
                 >
                   บันทึก secret
@@ -799,9 +802,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                 <EmptyState
                   action={
                     <Button
-                      className="h-10 px-4 py-0"
                       disabled={busy !== null}
                       onClick={() => void loadRecipients()}
+                      size="sm"
                       type="button"
                       variant="outline"
                     >
@@ -888,8 +891,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     </select>
                   </Field>
                   <Button
-                    className="h-11 w-full px-4 py-0"
+                    className="w-full"
                     disabled={assignDisabled}
+                    size="sm"
                     type="submit"
                   >
                     เพิ่มผู้รับเข้าร้าน
@@ -949,13 +953,13 @@ function ChannelTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="max-w-full overflow-x-auto">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="w-full overflow-x-auto">
         <table className="min-w-full">
           <thead>
-            <tr className="border-b border-gray-100 dark:border-gray-800">
+            <tr className="border-y border-gray-100 dark:border-gray-800">
               {["LINE OA", "Scope", "Secret", "สถานะ", "Action"].map((label) => (
-                <th className="px-5 py-3 text-left sm:px-6" key={label}>
+                <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
                   <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                     {label}
                   </p>
@@ -966,7 +970,7 @@ function ChannelTable({
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {channels.map((channel) => (
               <tr key={channel.id}>
-                <td className="px-5 py-4 sm:px-6">
+                <td className="py-4 pr-5 sm:pr-6">
                   <div>
                     <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                       {channel.display_name}
@@ -976,12 +980,12 @@ function ChannelTable({
                     </p>
                   </div>
                 </td>
-                <td className="px-5 py-4 sm:px-6">
+                <td className="py-4 pr-5 sm:pr-6">
                   <Badge color={channel.scope === "owner_shared" ? "info" : "light"}>
                     {channel.scope === "owner_shared" ? "OA กลาง" : "ของร้านนี้"}
                   </Badge>
                 </td>
-                <td className="px-5 py-4 sm:px-6">
+                <td className="py-4 pr-5 sm:pr-6">
                   <div className="space-y-1">
                     <StatusText
                       ok={channel.channel_access_token_configured}
@@ -993,16 +997,16 @@ function ChannelTable({
                     />
                   </div>
                 </td>
-                <td className="px-5 py-4 sm:px-6">
+                <td className="py-4 pr-5 sm:pr-6">
                   <Badge color={channel.enabled ? "success" : "warning"}>
                     {channel.enabled ? "เปิดใช้งาน" : "ปิดอยู่"}
                   </Badge>
                 </td>
-                <td className="px-5 py-4 sm:px-6">
+                <td className="py-4 pr-5 sm:pr-6">
                   <Button
-                    className="h-9 px-3 py-0"
                     disabled={busy !== null || channel.source === "env"}
                     onClick={() => onToggleChannel(channel)}
+                    size="sm"
                     type="button"
                     variant="outline"
                   >
@@ -1040,14 +1044,14 @@ function TargetTable({
   targets: LineTargetRecord[];
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      <div className="max-w-full overflow-x-auto">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="w-full overflow-x-auto">
         <table className="min-w-full">
           <thead>
-            <tr className="border-b border-gray-100 dark:border-gray-800">
+            <tr className="border-y border-gray-100 dark:border-gray-800">
               {["ผู้รับ", "สิทธิ์", "ความพร้อม", "ส่งผ่าน", "Action"].map(
                 (label) => (
-                  <th className="px-5 py-3 text-left sm:px-6" key={label}>
+                  <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
                     <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                       {label}
                     </p>
@@ -1069,7 +1073,7 @@ function TargetTable({
                 targetProfileDrafts[target.id] ?? target.access_profile_key;
               return (
                 <tr key={target.id}>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 sm:pr-6">
                     <div>
                       <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                         {target.display_name}
@@ -1080,10 +1084,10 @@ function TargetTable({
                       </p>
                     </div>
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 sm:pr-6">
                     <div className="min-w-40 space-y-2">
                       <select
-                        className="owner-v2-input h-10 py-2"
+                        className="owner-v2-input"
                         disabled={busy !== null}
                         onChange={(event) =>
                           onTargetProfileChange(
@@ -1101,9 +1105,10 @@ function TargetTable({
                       </select>
                       {target.approved && profileDraft !== target.access_profile_key ? (
                         <Button
-                          className="h-9 w-full px-3 py-0"
+                          className="w-full"
                           disabled={busy !== null}
                           onClick={() => onUpdateTargetProfile(target)}
+                          size="sm"
                           type="button"
                           variant="outline"
                         >
@@ -1112,7 +1117,7 @@ function TargetTable({
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 sm:pr-6">
                     <div className="space-y-2">
                       <Badge color={ready ? "success" : target.approved ? "warning" : "error"}>
                         {ready
@@ -1135,7 +1140,7 @@ function TargetTable({
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 sm:pr-6">
                     <div>
                       <p className="text-theme-sm text-gray-700 dark:text-gray-300">
                         {channel?.display_name ?? "ยังไม่ได้ผูก OA"}
@@ -1148,22 +1153,22 @@ function TargetTable({
                       </p>
                     </div>
                   </td>
-                  <td className="px-5 py-4 sm:px-6">
+                  <td className="py-4 pr-5 sm:pr-6">
                     <div className="flex min-w-36 flex-col gap-2">
                       {!target.approved ? (
                         <Button
-                          className="h-9 px-3 py-0"
                           disabled={busy !== null}
                           onClick={() => onApproveTarget(target)}
+                          size="sm"
                           type="button"
                         >
                           อนุมัติ
                         </Button>
                       ) : (
                         <Button
-                          className="h-9 px-3 py-0"
                           disabled={busy !== null}
                           onClick={() => onToggleTarget(target)}
+                          size="sm"
                           type="button"
                           variant="outline"
                         >
@@ -1172,9 +1177,9 @@ function TargetTable({
                       )}
                       {target.approved && missingBriefAction ? (
                         <Button
-                          className="h-9 px-3 py-0"
                           disabled={busy !== null}
                           onClick={() => onEnableMorningBriefAction(target)}
+                          size="sm"
                           type="button"
                           variant="outline"
                         >
