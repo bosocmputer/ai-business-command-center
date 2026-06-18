@@ -192,7 +192,7 @@ export default function OwnerV2ReportPermissions({
       setInitialDraft(nextDraft);
       setMessage({
         tone: "success",
-        text: `บันทึกสิทธิ์แล้ว และ sync LINE target ${data.updated_line_targets ?? 0} ราย`,
+        text: `บันทึกสิทธิ์แล้ว และปรับผู้รับ LINE ${data.updated_line_targets ?? 0} ราย`,
       });
     } catch (error) {
       const payload = (error as OwnerV2FetchError).payload;
@@ -204,7 +204,7 @@ export default function OwnerV2ReportPermissions({
         tone: "error",
         text:
           impacts.length > 0
-            ? "บันทึกไม่ได้ เพราะแผนแจ้งเตือนที่เปิดอยู่จะส่งรายงานให้ผู้รับที่ไม่มีสิทธิ์ กรุณาแก้ target หรือแผนแจ้งเตือนก่อน"
+            ? "บันทึกไม่ได้ เพราะแผนแจ้งเตือนที่เปิดอยู่จะส่งรายงานให้ผู้รับที่ไม่มีสิทธิ์ กรุณาแก้ผู้รับ LINE หรือแผนแจ้งเตือนก่อน"
             : error instanceof Error
               ? error.message
               : "บันทึกสิทธิ์รายงานไม่สำเร็จ",
@@ -233,7 +233,7 @@ export default function OwnerV2ReportPermissions({
                 โหลดใหม่
               </Button>
             }
-            detail={`${state.message} กรุณาตรวจ session ผู้ดูแลหรือเลือกร้านใหม่`}
+            detail={`${state.message} กรุณาตรวจสิทธิ์ผู้ดูแลหรือเลือกร้านใหม่`}
             title="โหลดสิทธิ์รายงานไม่สำเร็จ"
           />
         </PanelBody>
@@ -251,11 +251,11 @@ export default function OwnerV2ReportPermissions({
                 {dirty ? "ยังไม่ได้บันทึก" : "ข้อมูลล่าสุด"}
               </Badge>
               <Badge color="light">{reports.length} รายงาน</Badge>
-              <Badge color="light">{roles.length} roles</Badge>
+              <Badge color="light">{roles.length} กลุ่มสิทธิ์</Badge>
             </div>
           }
-          description="กำหนดว่าแต่ละ role เปิดดูรายงานใดได้บ้าง สิทธิ์นี้ใช้กับ LINE target และ signed viewer ของร้านนี้"
-          title="Matrix สิทธิ์รายงาน"
+          description="กำหนดว่าผู้รับแต่ละกลุ่มเปิดดูรายงานใดได้บ้าง สิทธิ์นี้ใช้กับ LINE และหน้าดูรายงานของร้านนี้"
+          title="สิทธิ์ดูรายงาน"
         />
         <PanelBody>
           {message ? (
@@ -266,7 +266,7 @@ export default function OwnerV2ReportPermissions({
             <ImpactNotice impacts={visibleImpacts} tenantId={tenantId} />
           ) : null}
 
-          <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 lg:block">
+          <div className="hidden overflow-hidden rounded-lg bg-gray-50 px-4 pb-3 pt-4 dark:bg-white/[0.02] sm:px-5 lg:block">
             <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[760px]">
                 <thead>
@@ -276,73 +276,73 @@ export default function OwnerV2ReportPermissions({
                         รายงาน
                       </p>
                     </th>
-                  {roles.map((role) => (
-                    <th
-                      className="min-w-38 px-3 py-3 text-center"
-                      key={role.access_profile_key}
-                    >
-                      <span className="block font-medium text-gray-500 text-theme-xs dark:text-gray-400">
-                        {role.label}
-                      </span>
-                      <span className="mt-1 block text-theme-xs font-normal text-gray-400 dark:text-gray-500">
-                        {role.target_count} LINE ID
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {reports.map((report) => (
-                  <tr key={report.report_key}>
-                    <td className="py-4 pr-5 align-top sm:pr-6">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
-                          {report.label}
+                    {roles.map((role) => (
+                      <th
+                        className="min-w-[9.5rem] px-3 py-3 text-center"
+                        key={role.access_profile_key}
+                      >
+                        <span className="block font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+                          {role.label}
                         </span>
-                        {report.sensitive ? (
-                          <Badge color="warning" size="sm">
-                            sensitive
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 max-w-[62ch] text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                        {report.description}
-                      </p>
-                    </td>
-                    {roles.map((role) => {
-                      const checked = Boolean(
-                        draft[role.access_profile_key]?.includes(
-                          report.report_key,
-                        ),
-                      );
-                      return (
-                        <td
-                          className="px-3 py-4 text-center align-top"
-                          key={role.access_profile_key}
-                        >
-                          <label className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]">
-                            <span className="sr-only">
-                              {role.label}: {report.label}
-                            </span>
-                            <input
-                              checked={checked}
-                              className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                              disabled={busy !== null}
-                              onChange={() =>
-                                togglePermission(
-                                  role.access_profile_key,
-                                  report.report_key,
-                                )
-                              }
-                              type="checkbox"
-                            />
-                          </label>
-                        </td>
-                      );
-                    })}
+                        <span className="mt-1 block text-theme-xs font-normal text-gray-400 dark:text-gray-500">
+                          {role.target_count} ผู้รับ
+                        </span>
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {reports.map((report) => (
+                    <tr key={report.report_key}>
+                      <td className="py-4 pr-5 align-top sm:pr-6">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
+                            {report.label}
+                          </span>
+                          {report.sensitive ? (
+                            <Badge color="warning" size="sm">
+                              ข้อมูลอ่อนไหว
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 max-w-[62ch] text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                          {report.description}
+                        </p>
+                      </td>
+                      {roles.map((role) => {
+                        const checked = Boolean(
+                          draft[role.access_profile_key]?.includes(
+                            report.report_key,
+                          ),
+                        );
+                        return (
+                          <td
+                            className="px-3 py-4 text-center align-top"
+                            key={role.access_profile_key}
+                          >
+                            <label className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]">
+                              <span className="sr-only">
+                                {role.label}: {report.label}
+                              </span>
+                              <input
+                                checked={checked}
+                                className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                disabled={busy !== null}
+                                onChange={() =>
+                                  togglePermission(
+                                    role.access_profile_key,
+                                    report.report_key,
+                                  )
+                                }
+                                type="checkbox"
+                              />
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           </div>
@@ -350,7 +350,7 @@ export default function OwnerV2ReportPermissions({
           <div className="space-y-3 lg:hidden">
             {reports.map((report) => (
               <div
-                className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]"
+                className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
                 key={report.report_key}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -359,7 +359,7 @@ export default function OwnerV2ReportPermissions({
                   </p>
                   {report.sensitive ? (
                     <Badge color="warning" size="sm">
-                      sensitive
+                      ข้อมูลอ่อนไหว
                     </Badge>
                   ) : null}
                 </div>
@@ -383,7 +383,7 @@ export default function OwnerV2ReportPermissions({
                             {role.label}
                           </span>
                           <span className="block text-xs text-gray-500 dark:text-gray-400">
-                            {role.target_count} LINE ID
+                            {role.target_count} ผู้รับ
                           </span>
                         </span>
                         <input
@@ -411,29 +411,29 @@ export default function OwnerV2ReportPermissions({
       <div className="space-y-6">
         <Panel>
           <PanelHeader
-            description="บันทึกแล้วระบบจะ sync สิทธิ์ไปยัง LINE target ของร้านนี้เท่านั้น"
+            description="บันทึกแล้วระบบจะปรับสิทธิ์ผู้รับ LINE ของร้านนี้เท่านั้น"
             title={state.data.tenant.name}
           />
           <PanelBody>
             <div className="grid grid-cols-2 gap-3">
-              <Metric label="LINE targets" value={totalTargets.toString()} />
+              <Metric label="ผู้รับ LINE" value={totalTargets.toString()} />
               <Metric label="สิทธิ์ที่เปิด" value={enabledCellCount.toString()} />
-              <Metric label="เพิ่ม" value={delta.added.toString()} />
-              <Metric label="ปิด" value={delta.removed.toString()} />
+              <Metric label="เพิ่มใหม่" value={delta.added.toString()} />
+              <Metric label="ปิดออก" value={delta.removed.toString()} />
             </div>
 
-            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+            <div className="mt-4 rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-400">
                   <LockIcon className="h-4 w-4" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                    Sensitive access
+                    สิทธิ์ข้อมูลอ่อนไหว
                   </p>
                   <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
                     เปิดข้อมูลต้นทุนหรือยอดลูกหนี้อยู่ {sensitiveAccessCount} จุด
-                    ควรตรวจ role ที่ไม่ใช่ผู้บริหารก่อนบันทึก
+                    ควรตรวจกลุ่มที่ไม่ใช่ผู้บริหารก่อนบันทึก
                   </p>
                 </div>
               </div>
@@ -475,8 +475,8 @@ export default function OwnerV2ReportPermissions({
 
         <Panel>
           <PanelHeader
-            description="ใช้เมื่อเริ่มตั้งร้านใหม่หรือแก้ role หลายจุด"
-            title="ตั้งค่าเร็วต่อ role"
+            description="ใช้เมื่อเริ่มตั้งร้านใหม่หรือแก้หลายกลุ่มในครั้งเดียว"
+            title="ตั้งเร็วตามกลุ่มผู้รับ"
           />
           <PanelBody>
             <div className="space-y-3">
@@ -503,8 +503,8 @@ export default function OwnerV2ReportPermissions({
               <ActionLink
                 href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
                 icon={<InfoIcon className="h-4 w-4" />}
-                text="แก้ role หรือสถานะของ LINE target"
-                title="LINE targets"
+                text="แก้กลุ่มสิทธิ์หรือสถานะของผู้รับ LINE"
+                title="ผู้รับ LINE"
               />
               <ActionLink
                 href={`/owner-v2/stores/${encodeURIComponent(
@@ -512,7 +512,7 @@ export default function OwnerV2ReportPermissions({
                 )}/notifications`}
                 icon={<AlertIcon className="h-4 w-4" />}
                 text="แก้แผนแจ้งเตือนที่ยังอ้างถึงรายงานเดิม"
-                title="Notification plans"
+                title="แผนแจ้งเตือน"
               />
             </div>
           </PanelBody>
@@ -531,7 +531,7 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] ${className}`}
+      className={`overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 ${className}`}
     >
       {children}
     </section>
@@ -548,9 +548,9 @@ function PanelHeader({
   title: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5">
-      <div>
-        <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h3 className="break-words text-lg font-semibold text-gray-800 dark:text-white/90">
           {title}
         </h3>
         {description ? (
@@ -565,11 +565,7 @@ function PanelHeader({
 }
 
 function PanelBody({ children }: { children: ReactNode }) {
-  return (
-    <div className="space-y-5 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
-      {children}
-    </div>
-  );
+  return <div className="space-y-5">{children}</div>;
 }
 
 function Notice({
@@ -632,8 +628,8 @@ function ImpactNotice({
             </p>
           </div>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-warning-700 dark:text-warning-300">
-            มีแผนที่เปิดใช้งานอยู่และผู้รับจะไม่มีสิทธิ์เปิดรายงาน กรุณาแก้
-            LINE target หรือแผนแจ้งเตือนก่อนลองบันทึกอีกครั้ง
+            มีแผนที่เปิดใช้งานอยู่และผู้รับจะไม่มีสิทธิ์เปิดรายงาน กรุณาแก้ผู้รับ
+            LINE หรือแผนแจ้งเตือนก่อนลองบันทึกอีกครั้ง
           </p>
         </div>
         <Link
@@ -668,7 +664,7 @@ function ImpactNotice({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white">
         {value}
@@ -697,7 +693,7 @@ function RoleShortcut({
       key === "stock_reorder",
   );
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -705,11 +701,11 @@ function RoleShortcut({
           </p>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             เปิดอยู่ {currentCount}/{allReportKeys.length} รายงาน,{" "}
-            {role.target_count} LINE ID
+            {role.target_count} ผู้รับ
           </p>
         </div>
         <Badge color={role.target_count ? "info" : "light"} size="sm">
-          {role.target_count} target
+          {role.target_count} ผู้รับ
         </Badge>
       </div>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -755,7 +751,7 @@ function ActionLink({
 }) {
   return (
     <Link
-      className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-brand-200 hover:bg-brand-50/50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
+      className="flex items-start gap-3 rounded-lg bg-gray-50 p-4 transition hover:bg-brand-50 dark:bg-white/[0.02] dark:hover:bg-brand-500/10"
       href={href}
     >
       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-brand-600 dark:bg-gray-900 dark:text-brand-400">
@@ -783,7 +779,7 @@ function EmptyState({
   title: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 dark:bg-gray-900 dark:text-gray-400">
         <InfoIcon className="h-5 w-5" />
       </div>
