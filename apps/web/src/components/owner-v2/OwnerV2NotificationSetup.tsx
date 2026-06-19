@@ -349,6 +349,10 @@ export default function OwnerV2NotificationSetup({
   }
 
   async function executeRule(mode: "dry_run" | "send") {
+    // Guard against double-invocation before busy flips the buttons disabled.
+    if (busy !== null) {
+      return;
+    }
     if (mode === "send" && sendConfirmRuleId !== selectedRuleId) {
       setSendConfirmRuleId(selectedRuleId);
       setMessage({

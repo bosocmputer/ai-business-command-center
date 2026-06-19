@@ -215,10 +215,16 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
     [tenant, detail.summary, readiness],
   );
 
+  const verdict = deriveStoreVerdict(detail);
+
   return (
     <div className="space-y-5 sm:space-y-6">
       {message ? (
         <Notice tone={message.tone} title="สถานะข้อมูลร้าน" text={message.text} />
+      ) : null}
+
+      {verdict ? (
+        <StoreVerdictBanner href={verdict.href} tenantId={tenant.id} tone={verdict.tone} title={verdict.title} text={verdict.text} actionLabel={verdict.actionLabel} />
       ) : null}
 
       <Panel>
@@ -869,6 +875,131 @@ function dateInputToIso(value: string) {
     return null;
   }
   return new Date(`${value}T00:00:00+07:00`).toISOString();
+}
+
+type StoreVerdict = {
+  tone: "success" | "warning" | "error";
+  title: string;
+  text: string;
+  actionLabel: string;
+  href: string;
+};
+
+/**
+ * Derive the single most useful "what now" verdict for a store, following
+ * doc 20 §"Empty And Error States": missing SML → missing LINE → failed round
+ * → ready. Mirrors the cockpit priority but scoped to this tenant's detail.
+ */
+function deriveStoreVerdict(
+  detail: OwnerV2StoreSetupPayload,
+): StoreVerdict | null {
+  const health = detail.summary.health;
+  const tenantId = detail.summary.tenant.id;
+  const tenantPath = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
+
+  // SML configured but latest round failed (incident).
+  if (
+    health.latest_notification_run_status === "failed" ||
+    health.latest_report_status === "failed"
+  ) {
+    return {
+      tone: "error",
+      title: "รอบล่าสุดยังใช้สรุปธุรกิจไม่ได้",
+      text: "ระบบบันทึก incident แล้ว ให้ตรวจสาเหตุจาก SML/JavaWS ก่อนรันใหม่",
+      actionLabel: "ดูรายละเอียดปัญหา",
+      href: detail.latest_javaws_failure
+        ? `${tenantPath}/sml`
+        : `${tenantPath}/reports`,
+    };
+  }
+
+  // No SML datasource yet.
+  if (!health.datasource_configured) {
+    return {
+      tone: "warning",
+      title: "ยังดึงรายงานไม่ได้",
+      text: "ร้านนี้ยังไม่ได้ตั้งค่า SML JavaWS จึงยังส่ง brief จริงไม่ได้",
+      actionLabel: "ตั้งค่า SML",
+      href: `${tenantPath}/sml`,
+    };
+  }
+
+  // SML ok but LINE missing.
+  if (
+    health.line_targets_enabled === 0 ||
+    health.latest_line_delivery_status === "failed"
+  ) {
+    return {
+      tone: "warning",
+      title: "พร้อมดึงรายงาน แต่ยังส่งผู้บริหารไม่ได้",
+      text: "เลือก LINE OA และอนุมัติผู้รับก่อนเปิดรอบแจ้งเตือน",
+      actionLabel: "ตั้งค่า LINE",
+      href: `${tenantPath}/line`,
+    };
+  }
+
+  // All ready.
+  if (
+    health.datasource_configured &&
+    health.line_targets_enabled > 0 &&
+    health.notification_rules_enabled > 0
+  ) {
+    return {
+      tone: "success",
+      title: "ร้านหลักพร้อมใช้งาน",
+      text: "รอรอบแจ้งเตือนถัดไป หรือเปิดดู proof ล่าสุดได้",
+      actionLabel: "ดูรอบล่าสุด",
+      href: `${tenantPath}?step=notifications`,
+    };
+  }
+
+  return null;
+}
+
+function StoreVerdictBanner({
+  actionLabel,
+  href,
+  tenantId,
+  text,
+  title,
+  tone,
+}: {
+  actionLabel: string;
+  href: string;
+  tenantId: string;
+  text: string;
+  title: string;
+  tone: StoreVerdict["tone"];
+}) {
+  void tenantId;
+  return (
+    <div
+      className={`rounded-2xl border p-5 ${
+        tone === "success"
+          ? "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15"
+          : tone === "warning"
+            ? "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15"
+            : "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15"
+      }`}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            {title}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {text}
+          </p>
+        </div>
+        <Link
+          className="inline-flex w-full shrink-0 items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto"
+          href={href}
+        >
+          {actionLabel}
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function v2HrefForCheck(tenantId: string, check: OwnerV2StoreSetupCheck) {

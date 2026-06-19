@@ -196,6 +196,9 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
   }, [loadProgress, progress]);
 
   async function runSelectedReport() {
+    if (busy !== null) {
+      return;
+    }
     if (!setup || !selectedReport) {
       setMessage({
         tone: "warning",
