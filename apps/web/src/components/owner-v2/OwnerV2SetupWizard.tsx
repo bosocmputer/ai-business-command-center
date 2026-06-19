@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
-import { AlertIcon, CheckCircleIcon } from "@/icons";
+import { AlertIcon, ArrowRightIcon, CheckCircleIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import { InlineNotice } from "./ui";
 import type {
@@ -17,50 +17,9 @@ import type {
   OwnerV2Tenant,
 } from "./types";
 
-type DetailState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | {
-      status: "success";
-      step: OwnerV2StepId;
-      data:
-        | OwnerV2SmlSetupPayload
-        | OwnerV2ReportSetupPayload
-        | OwnerV2LineSetupPayload
-        | OwnerV2NotificationSetupPayload
-        | OwnerV2PermissionSetupPayload
-        | null;
-    };
-
-const stepOrder: OwnerV2StepId[] = [
-  "store",
-  "sml",
-  "reports",
-  "line",
-  "permissions",
-  "notifications",
-];
-
-const stepLabels: Record<OwnerV2StepId, string> = {
-  store: "ร้าน",
-  sml: "SML",
-  reports: "รายงาน",
-  line: "LINE",
-  permissions: "สิทธิ์",
-  notifications: "แจ้งเตือน",
-};
-
-const primaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
-
-const secondaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
-
 // Empty placeholders so a step component can render safely even if its setup
-// payload is null (e.g. during a step-switch race or when the API returns no
-// data for an unconfigured slice). Keeps the wizard from crashing on
-// data.datasource / data.latest_runs / data.channels dereferences.
+// payload is null (e.g. during loading or when the API returns no data for an
+// unconfigured slice).
 const EMPTY_DATASOURCE = {
   source: "missing",
   kind: null,
@@ -80,284 +39,431 @@ const EMPTY_READINESS = {
   total_targets: 0,
 } as const;
 
+const stepOrder: OwnerV2StepId[] = [
+  "store",
+  "sml",
+  "reports",
+  "line",
+  "permissions",
+  "notifications",
+];
+
+const stepLabels: Record<OwnerV2StepId, string> = {
+  store: "ข้อมูลร้าน",
+  sml: "เชื่อม SML",
+  reports: "ทดสอบรายงาน",
+  line: "ตั้งค่า LINE",
+  permissions: "ตรวจสิทธิ์",
+  notifications: "ตั้งแผนแจ้งเตือน",
+};
+
+const stepSetupHref: Record<OwnerV2StepId, ((tenantId: string) => string) | null> = {
+  store: null, // store step has no setup page; it reflects tenant status
+  sml: (id) => `/owner-v2/stores/${encodeURIComponent(id)}/sml`,
+  reports: (id) => `/owner-v2/stores/${encodeURIComponent(id)}/reports`,
+  line: (id) => `/owner-v2/stores/${encodeURIComponent(id)}/line`,
+  permissions: (id) => `/owner-v2/stores/${encodeURIComponent(id)}/permissions`,
+  notifications: (id) => `/owner-v2/stores/${encodeURIComponent(id)}/notifications`,
+};
+
+const stepActionLabel: Record<OwnerV2StepId, string> = {
+  store: "ตรวจร้าน",
+  sml: "เปิดตั้งค่า SML",
+  reports: "เปิดทดสอบรายงาน",
+  line: "เปิดจัดการ LINE",
+  permissions: "เปิดแก้สิทธิ์",
+  notifications: "เปิดตั้งแผน",
+};
+
+const primaryActionClass =
+  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
+
+const outlineActionClass =
+  "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-theme-xs font-medium text-gray-600 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/[0.03] dark:hover:text-gray-100 sm:w-auto";
+
+type StepPayload =
+  | OwnerV2SmlSetupPayload
+  | OwnerV2ReportSetupPayload
+  | OwnerV2LineSetupPayload
+  | OwnerV2NotificationSetupPayload
+  | OwnerV2PermissionSetupPayload
+  | null;
+
+type StepDetailState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "success"; data: StepPayload };
+
 export default function OwnerV2SetupWizard({
   tenant,
   steps,
-  initialStep = "store",
-  onStepChange,
 }: {
   tenant: OwnerV2Tenant;
   steps: OwnerV2SetupStep[];
   initialStep?: OwnerV2StepId;
   onStepChange?: (step: OwnerV2StepId) => void;
 }) {
-  const [activeStep, setActiveStep] = useState<OwnerV2StepId>(initialStep);
-  const [detailState, setDetailState] = useState<DetailState>({
-    status: "idle",
-  });
-
-  const loadStepDetail = useCallback(
-    async (step: OwnerV2StepId, signal?: AbortSignal) => {
-      if (step === "store") {
-        setDetailState({ status: "success", step, data: null });
-        return;
-      }
-      setDetailState({ status: "loading" });
-      try {
-        const path = detailEndpointForStep(tenant.id, step);
-        const data = await ownerV2Fetch<
-          | OwnerV2SmlSetupPayload
-          | OwnerV2ReportSetupPayload
-          | OwnerV2LineSetupPayload
-          | OwnerV2NotificationSetupPayload
-          | OwnerV2PermissionSetupPayload
-        >(path, { signal });
-        if (signal?.aborted) {
-          return;
-        }
-        setDetailState({ status: "success", step, data });
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        setDetailState({
-          status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "โหลดรายละเอียดขั้นตอนนี้ไม่สำเร็จ",
-        });
-      }
-    },
-    [tenant.id],
+  // Resolve each step id to its prepared-step entry (ok/label/detail), falling
+  // back to a neutral entry if the backend didn't return one.
+  const prepared: Record<OwnerV2StepId, OwnerV2SetupStep> = {} as Record<
+    OwnerV2StepId,
+    OwnerV2SetupStep
+  >;
+  for (const stepId of stepOrder) {
+    prepared[stepId] =
+      steps.find((item) => item.step === stepId) ?? fallbackStep(stepId);
+  }
+  const completedCount = stepOrder.filter((id) => prepared[id].ok).length;
+  const allDone = completedCount === stepOrder.length;
+  const anyActionable = stepOrder.some(
+    (id) => stepSetupHref[id] !== null && !prepared[id].ok,
   );
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadStepDetail(activeStep, controller.signal);
-    return () => controller.abort();
-  }, [activeStep, loadStepDetail]);
-
-  const handleStepSelect = (step: OwnerV2StepId) => {
-    setActiveStep(step);
-    onStepChange?.(step);
-  };
+  const [showAll, setShowAll] = useState(false);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          ขั้นตอนตั้งค่าร้าน
-        </h2>
-        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-          เปิดเฉพาะขั้นที่ต้องดู ระบบจะโหลดรายละเอียดของขั้นนั้นเท่านั้น
-        </p>
-      </div>
-      <div className="grid gap-4 2xl:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="rounded-xl bg-gray-50 p-2 dark:bg-white/[0.02]">
-          {stepOrder.map((stepId) => {
-            const step =
-              steps.find((item) => item.step === stepId) ?? fallbackStep(stepId);
-            return (
-              <StepButton
-                active={activeStep === stepId}
-                key={stepId}
-                onClick={() => handleStepSelect(stepId)}
-                step={step}
-              />
-            );
-          })}
-        </div>
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <header className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="min-w-0">
-          <StepDetail
-            activeStep={activeStep}
-            detailState={detailState}
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            ขั้นตอนเตรียมร้าน
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {allDone
+              ? "เตรียมร้านครบทุกขั้นแล้ว เปิดใช้งานแจ้งเตือนอัตโนมัติได้"
+              : "เริ่มจากขั้นบนสุดที่ยังไม่เสร็จ กดปุ่มเพื่อเปิดหน้าตั้งค่าของขั้นนั้น"}
+          </p>
+        </div>
+        <Badge color={allDone ? "success" : "warning"} size="sm">
+          {completedCount}/{stepOrder.length} เสร็จ
+        </Badge>
+      </header>
+
+      <div className="space-y-3 px-4 pb-5 sm:px-6">
+        {allDone && !showAll ? (
+          <DoneSummary
+            completedCount={completedCount}
+            onShow={() => setShowAll(true)}
             tenant={tenant}
           />
-        </div>
+        ) : allDone && showAll ? (
+          <>
+            {stepOrder.map((stepId) => {
+              const step = prepared[stepId];
+              return (
+                <CompactStepRow
+                  href={setupHrefFor(tenant.id, stepId)}
+                  key={stepId}
+                  step={step}
+                />
+              );
+            })}
+            <button
+              className="mt-1 text-theme-xs font-medium text-gray-500 transition hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+              onClick={() => setShowAll(false)}
+              type="button"
+            >
+              ซ่อนรายละเอียดขั้นตอน
+            </button>
+          </>
+        ) : (
+          <>
+            {stepOrder.map((stepId) => {
+              const step = prepared[stepId];
+              // Hide the store step when complete (it reflects tenant status,
+              // which the hero already shows). Keep incomplete steps prominent.
+              if (stepId === "store" && step.ok) {
+                return null;
+              }
+              return (
+                <StepCard
+                  actionable={!step.ok}
+                  key={stepId}
+                  step={step}
+                  stepId={stepId}
+                  tenant={tenant}
+                />
+              );
+            })}
+            {!anyActionable && !allDone ? (
+              <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                ขั้นที่ยังไม่เสร็จเป็นขั้นที่ไม่มีหน้าตั้งค่าแยก ตรวจข้อมูลร้านในแท็บตั้งค่าขั้นสูง
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
     </section>
   );
 }
 
-function StepButton({
-  active,
-  onClick,
+/* ------------------------------------------------------------------ */
+/* Step card — the primary unit. Prominent when actionable.
+/* ------------------------------------------------------------------ */
+
+function StepCard({
+  actionable,
+  step,
+  stepId,
+  tenant,
+}: {
+  actionable: boolean;
+  step: OwnerV2SetupStep;
+  stepId: OwnerV2StepId;
+  tenant: OwnerV2Tenant;
+}) {
+  const href = setupHrefFor(tenant.id, stepId);
+  const ctaLabel = step.ok
+    ? "แก้ไข"
+    : stepActionLabel[stepId];
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  return (
+    <div
+      className={`overflow-hidden rounded-xl border ${
+        actionable
+          ? "border-warning-300 bg-warning-50/40 dark:border-warning-500/30 dark:bg-warning-500/[0.04]"
+          : "border-gray-200 bg-gray-50/50 dark:border-gray-800 dark:bg-white/[0.02]"
+      }`}
+    >
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+              step.ok
+                ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
+                : "bg-warning-100 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300"
+            }`}
+          >
+            {step.ok ? (
+              <CheckCircleIcon className="h-5 w-5" />
+            ) : (
+              <AlertIcon className="h-5 w-5" />
+            )}
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                {stepLabels[stepId]}
+              </p>
+              {actionable ? (
+                <Badge color="warning" size="sm">
+                  ต้องทำ
+                </Badge>
+              ) : (
+                <Badge color="success" size="sm">
+                  เสร็จแล้ว
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              {step.detail}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {href ? (
+            <Link className={actionable ? primaryActionClass : outlineActionClass} href={href}>
+              {ctaLabel}
+              <ArrowRightIcon className="h-4 w-4" />
+            </Link>
+          ) : null}
+          {stepId !== "store" ? (
+            <button
+              className={outlineActionClass}
+              onClick={() => setDetailOpen((v) => !v)}
+              type="button"
+            >
+              {detailOpen ? "ซ่อนสถานะ" : "ดูสถานะ"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {detailOpen && stepId !== "store" ? (
+        <div className="border-t border-gray-200 px-4 py-4 dark:border-gray-800 sm:px-6">
+          <StepDetailLazy stepId={stepId} tenantId={tenant.id} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Compact row — used when a store is fully ready (all steps done).
+/* ------------------------------------------------------------------ */
+
+function CompactStepRow({
+  href,
   step,
 }: {
-  active: boolean;
-  onClick: () => void;
+  href: string | null;
   step: OwnerV2SetupStep;
 }) {
   return (
-    <button
-      className={`flex w-full items-start gap-3 rounded-lg p-3 text-left transition ${
-        active
-          ? "bg-brand-50 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:ring-brand-500/20"
-          : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      <span
-        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
-          step.ok
-            ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
-            : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300"
-        }`}
-      >
-        {step.ok ? (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-4 py-3 dark:bg-white/[0.02]">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400">
           <CheckCircleIcon className="h-4 w-4" />
-        ) : (
-          <AlertIcon className="h-4 w-4" />
-        )}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">
-          {stepLabels[step.step]}
         </span>
-        <span className="mt-0.5 block text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-          {step.detail}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function StepDetail({
-  activeStep,
-  detailState,
-  tenant,
-}: {
-  activeStep: OwnerV2StepId;
-  detailState: DetailState;
-  tenant: OwnerV2Tenant;
-}) {
-  if (detailState.status === "loading") {
-    return <DetailSkeleton />;
-  }
-  if (detailState.status === "error") {
-    return (
-      <div className="p-5">
-        <InlineNotice
-          message={`${detailState.message} ลองรีเฟรช หรือเปิดขั้นตอนนี้อีกครั้ง`}
-          tone="error"
-          title="โหลดรายละเอียดไม่สำเร็จ"
-        />
-      </div>
-    );
-  }
-  if (activeStep === "store") {
-    return <StoreStep tenant={tenant} />;
-  }
-  if (detailState.status !== "success") {
-    return <DetailSkeleton />;
-  }
-  // Guard against a step-switch race: detailState may still hold the previous
-  // step's payload (e.g. store's data:null) right after the user clicks a new
-  // step but before its fetch resolves. Rendering the new step with stale/null
-  // data crashes (data.datasource / latest_runs / channels dereferenced on
-  // null). Show the skeleton until the loaded step matches the active step.
-  if (detailState.step !== activeStep) {
-    return <DetailSkeleton />;
-  }
-  if (activeStep === "sml") {
-    return (
-      <SmlStep
-        data={detailState.data as OwnerV2SmlSetupPayload}
-        tenantId={tenant.id}
-      />
-    );
-  }
-  if (activeStep === "reports") {
-    return (
-      <ReportStep
-        data={detailState.data as OwnerV2ReportSetupPayload}
-        tenantId={tenant.id}
-      />
-    );
-  }
-  if (activeStep === "line") {
-    return (
-      <LineStep
-        data={detailState.data as OwnerV2LineSetupPayload}
-        tenantId={tenant.id}
-      />
-    );
-  }
-  if (activeStep === "permissions") {
-    return (
-      <PermissionStep
-        data={detailState.data as OwnerV2PermissionSetupPayload}
-        tenantId={tenant.id}
-      />
-    );
-  }
-  return (
-    <NotificationStep
-      data={detailState.data as OwnerV2NotificationSetupPayload}
-      tenantId={tenant.id}
-    />
-  );
-}
-
-function StoreStep({ tenant }: { tenant: OwnerV2Tenant }) {
-  return (
-    <div className="space-y-4 p-5">
-      <div>
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-          ข้อมูลร้านและสถานะใช้งาน
-        </h3>
-        <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-          ใช้ตรวจว่าร้านเปิดใช้งานอยู่หรือไม่ ก่อนเริ่มตั้งค่า SML และ LINE
+        <p className="truncate text-sm font-medium text-gray-700 dark:text-gray-300">
+          {step.label}
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <Fact label="แพ็กเกจ" value={tenant.plan_code} />
-        <Fact label="สถานะร้าน" value={formatTenantStatus(tenant.status)} />
-        <Fact
-          label="ความพร้อม"
-          value={`${tenant.completed_steps}/${tenant.total_steps}`}
-        />
+      {href ? (
+        <Link
+          className="text-theme-xs font-medium text-brand-600 transition hover:text-brand-700 dark:text-brand-400"
+          href={href}
+        >
+          แก้ไข
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Done summary — collapsed view for fully-ready stores.
+/* ------------------------------------------------------------------ */
+
+function DoneSummary({
+  completedCount,
+  onShow,
+  tenant,
+}: {
+  completedCount: number;
+  onShow: () => void;
+  tenant: OwnerV2Tenant;
+}) {
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-success-300 bg-success-50/50 p-4 dark:border-success-500/30 dark:bg-success-500/[0.06] sm:flex-row sm:items-center sm:justify-between sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-500/15 text-success-600 dark:text-success-400">
+          <CheckCircleIcon className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            เตรียมร้านครบ {completedCount}/{stepOrder.length} ขั้นแล้ว
+          </p>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ระบบพร้อมส่งแจ้งเตือนตามแผน เปิดดู dashboard หรือแก้ขั้นใดก็ได้
+          </p>
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         {tenant.dashboard_path ? (
-          <Link className={primaryActionClass} href={tenant.dashboard_path}>
+          <Link className={outlineActionClass} href={tenant.dashboard_path}>
             เปิด dashboard ลูกค้า
           </Link>
         ) : null}
+        <button
+          className={outlineActionClass}
+          onClick={onShow}
+          type="button"
+        >
+          ดูทุกขั้น
+        </button>
       </div>
     </div>
   );
 }
 
-function SmlStep({
-  data,
+/* ------------------------------------------------------------------ */
+/* Lazy step detail — loads per-card (no shared state, no race).
+/* ------------------------------------------------------------------ */
+
+function StepDetailLazy({
+  stepId,
   tenantId,
 }: {
-  data: OwnerV2SmlSetupPayload | null;
+  stepId: OwnerV2StepId;
   tenantId: string;
 }) {
+  const [state, setState] = useState<StepDetailState>({ status: "loading" });
+
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setState({ status: "loading" });
+      try {
+        const data = await ownerV2Fetch<StepPayload>(
+          detailEndpointForStep(tenantId, stepId),
+          { signal },
+        );
+        if (signal?.aborted) {
+          return;
+        }
+        setState({ status: "success", data });
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        setState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "โหลดรายละเอียดขั้นนี้ไม่สำเร็จ",
+        });
+      }
+    },
+    [stepId, tenantId],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  if (state.status === "loading") {
+    return <DetailSkeleton />;
+  }
+  if (state.status === "error") {
+    return (
+      <InlineNotice
+        message={`${state.message} ลองปิดแล้วเปิด “ดูสถานะ” อีกครั้ง`}
+        tone="error"
+        title="โหลดสถานะไม่สำเร็จ"
+      />
+    );
+  }
+
+  switch (stepId) {
+    case "sml":
+      return (
+        <SmlStep data={state.data as OwnerV2SmlSetupPayload | null} />
+      );
+    case "reports":
+      return (
+        <ReportStep data={state.data as OwnerV2ReportSetupPayload | null} />
+      );
+    case "line":
+      return (
+        <LineStep data={state.data as OwnerV2LineSetupPayload | null} />
+      );
+    case "permissions":
+      return (
+        <PermissionStep data={state.data as OwnerV2PermissionSetupPayload | null} />
+      );
+    case "notifications":
+      return (
+        <NotificationStep data={state.data as OwnerV2NotificationSetupPayload | null} />
+      );
+    default:
+      return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-step detail content (renders the lazy-loaded summary facts).
+/* ------------------------------------------------------------------ */
+
+function SmlStep({ data }: { data: OwnerV2SmlSetupPayload | null }) {
   const datasource = data?.datasource ?? EMPTY_DATASOURCE;
   return (
-    <div className="space-y-4 p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            SML JavaWS
-          </h3>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            แสดงเฉพาะสถานะ config ที่ปลอดภัย ไม่แสดง password หรือ token
-          </p>
-        </div>
-        <Link
-          className={primaryActionClass}
-          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/sml`}
-        >
-          เปิดฟอร์ม SML
-        </Link>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Fact label="ชนิด datasource" value={datasource.kind ?? "ยังไม่ตั้ง"} />
         <Fact label="Database" value={datasource.database ?? "ยังไม่ระบุ"} />
         <Fact
@@ -382,33 +488,11 @@ function SmlStep({
   );
 }
 
-function ReportStep({
-  data,
-  tenantId,
-}: {
-  data: OwnerV2ReportSetupPayload | null;
-  tenantId: string;
-}) {
+function ReportStep({ data }: { data: OwnerV2ReportSetupPayload | null }) {
   const latestRun = data?.latest_runs?.[0] ?? null;
   return (
-    <div className="space-y-4 p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            ทดสอบรายงาน
-          </h3>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            ใช้ตรวจว่ารายงานรันสำเร็จจริงก่อนเปิดแจ้งเตือนประจำวัน
-          </p>
-        </div>
-        <Link
-          className={primaryActionClass}
-          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/reports`}
-        >
-          รันรายงานทดสอบ
-        </Link>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Fact label="รายงานทั้งหมด" value={`${data?.reports?.length ?? 0} รายงาน`} />
         <Fact
           label="Snapshot ล่าสุด"
@@ -434,35 +518,13 @@ function ReportStep({
   );
 }
 
-function LineStep({
-  data,
-  tenantId,
-}: {
-  data: OwnerV2LineSetupPayload | null;
-  tenantId: string;
-}) {
+function LineStep({ data }: { data: OwnerV2LineSetupPayload | null }) {
   const channels = data?.channels ?? [];
   const targets = data?.targets ?? [];
   const readiness = data?.readiness ?? EMPTY_READINESS;
   return (
-    <div className="space-y-4 p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            LINE OA และผู้รับ
-          </h3>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            เช็ค token, secret และผู้รับที่พร้อมส่งจริง
-          </p>
-        </div>
-        <Link
-          className={primaryActionClass}
-          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
-        >
-          จัดการ LINE
-        </Link>
-      </div>
-      <div className="grid gap-3 md:grid-cols-4">
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <Fact label="LINE OA" value={`${channels.length} ช่องทาง`} />
         <Fact
           label="พร้อมส่ง"
@@ -485,38 +547,26 @@ function LineStep({
   );
 }
 
-function PermissionStep({
-  data,
-  tenantId,
-}: {
-  data: OwnerV2PermissionSetupPayload | null;
-  tenantId: string;
-}) {
+function PermissionStep({ data }: { data: OwnerV2PermissionSetupPayload | null }) {
   const roles = data?.roles ?? [];
   const impacted = data?.impacted_notification_plans ?? [];
   return (
-    <div className="space-y-4 p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            สิทธิ์รายงาน
-          </h3>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            role ของผู้รับต้องดูรายงานที่อยู่ในแผนแจ้งเตือนได้ก่อนเปิดใช้งานจริง
-          </p>
+    <div className="space-y-3">
+      {roles.length ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {roles.map((role) => (
+            <Fact
+              key={role.access_profile_key}
+              label={role.label}
+              value={`${role.target_count} ผู้รับ`}
+            />
+          ))}
         </div>
-        <Link
-          className={primaryActionClass}
-          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
-        >
-          แก้สิทธิ์
-        </Link>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {roles.map((role) => (
-          <Fact key={role.access_profile_key} label={role.label} value={`${role.target_count} ผู้รับ`} />
-        ))}
-      </div>
+      ) : (
+        <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+          ยังไม่มี role สิทธิ์รายงาน
+        </p>
+      )}
       {impacted.length ? (
         <InlineNotice
           message={`${impacted.length} แผนมีผู้รับที่สิทธิ์ไม่พอ ให้แก้สิทธิ์ก่อนเปิดรอบจริง`}
@@ -534,35 +584,13 @@ function PermissionStep({
   );
 }
 
-function NotificationStep({
-  data,
-  tenantId,
-}: {
-  data: OwnerV2NotificationSetupPayload | null;
-  tenantId: string;
-}) {
+function NotificationStep({ data }: { data: OwnerV2NotificationSetupPayload | null }) {
   const rules = data?.rules ?? [];
   const enabledTargetCount = data?.enabled_target_count ?? 0;
   const targetCount = data?.target_count ?? 0;
   return (
-    <div className="space-y-4 p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-            แผนแจ้งเตือน
-          </h3>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            ตรวจแผนที่เปิดใช้งานและรอบล่าสุด โดยโหลดเฉพาะ tenant นี้
-          </p>
-        </div>
-        <Link
-          className={primaryActionClass}
-          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
-        >
-          ตั้งแผนแจ้งเตือน
-        </Link>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Fact label="แผนทั้งหมด" value={`${rules.length} แผน`} />
         <Fact
           label="แผนเปิดใช้งาน"
@@ -586,7 +614,7 @@ function NotificationStep({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+    <div className="rounded-lg bg-white p-3 dark:bg-white/[0.02]">
       <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
       <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">
         {value || "-"}
@@ -597,16 +625,24 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 function DetailSkeleton() {
   return (
-    <div className="space-y-4 p-5">
-      <div className="h-5 w-48 animate-pulse rounded bg-gray-100 dark:bg-white/[0.06]" />
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="h-20 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.06]" />
-        <div className="h-20 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.06]" />
-        <div className="h-20 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.06]" />
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="h-16 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
+        <div className="h-16 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
+        <div className="h-16 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.06]" />
       </div>
-      <div className="h-24 animate-pulse rounded-xl bg-gray-100 dark:bg-white/[0.06]" />
+      <div className="h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-white/[0.06]" />
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers
+/* ------------------------------------------------------------------ */
+
+function setupHrefFor(tenantId: string, stepId: OwnerV2StepId): string | null {
+  const factory = stepSetupHref[stepId];
+  return factory ? factory(tenantId) : null;
 }
 
 function fallbackStep(step: OwnerV2StepId): OwnerV2SetupStep {
@@ -635,17 +671,6 @@ function detailEndpointForStep(tenantId: string, step: OwnerV2StepId) {
     return `/api/owner/tenants/${encodedTenantId}/report-permissions`;
   }
   return `/api/owner/tenants/${encodedTenantId}/notification-setup`;
-}
-
-function formatTenantStatus(status: string) {
-  const labels: Record<string, string> = {
-    trial: "ทดลองใช้",
-    active: "ใช้งาน",
-    past_due: "ค้างชำระ",
-    suspended: "ระงับ",
-    cancelled: "ยกเลิก",
-  };
-  return labels[status] ?? status;
 }
 
 function formatReportRunStatus(status: string) {

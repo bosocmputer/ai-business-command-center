@@ -137,7 +137,6 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const activeTab = parseTab(searchParams.get("tab"));
-  const activeWizardStep = parseStep(searchParams.get("step"));
 
   // Hooks must run before any early return (Rules of Hooks). Use a nullable
   // view of the loaded data so the memos no-op while loading; we redeclare
@@ -328,7 +327,6 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
         <div className="space-y-5 sm:space-y-6">
           {wizardTenant ? (
             <OwnerV2SetupWizard
-              initialStep={activeWizardStep}
               steps={wizardSteps}
               tenant={wizardTenant}
             />
@@ -1159,21 +1157,6 @@ function buildWizardSteps(
     });
   }
   return steps;
-}
-
-const VALID_STEPS: OwnerV2StepId[] = [
-  "store",
-  "sml",
-  "reports",
-  "line",
-  "permissions",
-  "notifications",
-];
-
-function parseStep(value: string | null): OwnerV2StepId {
-  return value && VALID_STEPS.includes(value as OwnerV2StepId)
-    ? (value as OwnerV2StepId)
-    : "store";
 }
 
 function parseTab(value: string | null): StoreTab {
