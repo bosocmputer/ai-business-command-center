@@ -155,6 +155,54 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
     }
   }
 
+  const searchParams = useSearchParams();
+  // Hooks must run before any early return (Rules of Hooks). Use a nullable
+  // view of the loaded data so the memos no-op while loading; we redeclare
+  // narrowed consts after the guards below where TypeScript knows we are in
+  // the success branch.
+  const loadedData =
+    detailState.status === "success" ? detailState.data : null;
+  const wizardSteps = useMemo(
+    () =>
+      loadedData
+        ? buildWizardSteps(
+            loadedData.readiness.checks,
+            loadedData.summary.tenant.id,
+          )
+        : [],
+    [loadedData],
+  );
+  const initialWizardStep = parseStep(searchParams.get("step"));
+
+  const wizardTenant = useMemo(() => {
+    if (!loadedData) {
+      return null;
+    }
+    const t = loadedData.summary.tenant;
+    return {
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      plan_code: t.planCode,
+      dashboard_path: loadedData.summary.customer_dashboard_path,
+      ready: loadedData.readiness.ready,
+      completed_steps: loadedData.readiness.completed,
+      total_steps: loadedData.readiness.total,
+      next_action: null,
+      health: {
+        datasource_configured: loadedData.summary.health.datasource_configured,
+        line_targets_enabled: loadedData.summary.health.line_targets_enabled,
+        notification_rules_enabled:
+          loadedData.summary.health.notification_rules_enabled,
+        latest_report_status: loadedData.summary.health.latest_report_status,
+        latest_notification_run_status:
+          loadedData.summary.health.latest_notification_run_status,
+        critical_business_signals:
+          loadedData.summary.health.critical_business_signals,
+      },
+    };
+  }, [loadedData]);
+
   if (detailState.status === "loading" || !form) {
     return <StoreDetailSkeleton />;
   }
@@ -180,41 +228,12 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
     );
   }
 
+  // detailState.status === "success" past the guards, so these are non-null.
   const detail = detailState.data;
   const tenant = detail.summary.tenant;
   const readiness = detail.readiness;
   const nextAction = readiness.next_action;
-  const searchParams = useSearchParams();
-  const wizardSteps = useMemo(() => buildWizardSteps(readiness.checks, tenant.id), [readiness.checks, tenant.id]);
-  const initialWizardStep = parseStep(searchParams.get("step"));
   const showStoreForm = tenant.status !== "cancelled" || message;
-
-  const wizardTenant = useMemo(
-    () => ({
-      id: tenant.id,
-      name: tenant.name,
-      status: tenant.status,
-      plan_code: tenant.planCode,
-      dashboard_path: detail.summary.customer_dashboard_path,
-      ready: readiness.ready,
-      completed_steps: readiness.completed,
-      total_steps: readiness.total,
-      next_action: null,
-      health: {
-        datasource_configured: detail.summary.health.datasource_configured,
-        line_targets_enabled: detail.summary.health.line_targets_enabled,
-        notification_rules_enabled:
-          detail.summary.health.notification_rules_enabled,
-        latest_report_status: detail.summary.health.latest_report_status,
-        latest_notification_run_status:
-          detail.summary.health.latest_notification_run_status,
-        critical_business_signals:
-          detail.summary.health.critical_business_signals,
-      },
-    }),
-    [tenant, detail.summary, readiness],
-  );
-
   const verdict = deriveStoreVerdict(detail);
 
   return (
@@ -290,11 +309,13 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
         </PanelBody>
       </Panel>
 
-      <OwnerV2SetupWizard
-        initialStep={initialWizardStep}
-        steps={wizardSteps}
-        tenant={wizardTenant}
-      />
+      {wizardTenant ? (
+        <OwnerV2SetupWizard
+          initialStep={initialWizardStep}
+          steps={wizardSteps}
+          tenant={wizardTenant}
+        />
+      ) : null}
 
       <Panel>
         <PanelHeader title="สถานะระบบของร้าน" />
