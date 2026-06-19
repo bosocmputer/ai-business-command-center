@@ -57,6 +57,29 @@ const primaryActionClass =
 const secondaryActionClass =
   "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
 
+// Empty placeholders so a step component can render safely even if its setup
+// payload is null (e.g. during a step-switch race or when the API returns no
+// data for an unconfigured slice). Keeps the wizard from crashing on
+// data.datasource / data.latest_runs / data.channels dereferences.
+const EMPTY_DATASOURCE = {
+  source: "missing",
+  kind: null,
+  database: null,
+  config_file_name: null,
+  auth_mode: null,
+  auth_configured: false,
+  password_configured: false,
+  encryption_configured: false,
+  updated_at: null,
+} as const;
+
+const EMPTY_READINESS = {
+  send_ready_channels: 0,
+  total_channels: 0,
+  ready_targets: 0,
+  total_targets: 0,
+} as const;
+
 export default function OwnerV2SetupWizard({
   tenant,
   steps,
@@ -230,6 +253,14 @@ function StepDetail({
   if (detailState.status !== "success") {
     return <DetailSkeleton />;
   }
+  // Guard against a step-switch race: detailState may still hold the previous
+  // step's payload (e.g. store's data:null) right after the user clicks a new
+  // step but before its fetch resolves. Rendering the new step with stale/null
+  // data crashes (data.datasource / latest_runs / channels dereferenced on
+  // null). Show the skeleton until the loaded step matches the active step.
+  if (detailState.step !== activeStep) {
+    return <DetailSkeleton />;
+  }
   if (activeStep === "sml") {
     return (
       <SmlStep
@@ -304,10 +335,10 @@ function SmlStep({
   data,
   tenantId,
 }: {
-  data: OwnerV2SmlSetupPayload;
+  data: OwnerV2SmlSetupPayload | null;
   tenantId: string;
 }) {
-  const datasource = data.datasource;
+  const datasource = data?.datasource ?? EMPTY_DATASOURCE;
   return (
     <div className="space-y-4 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -334,7 +365,7 @@ function SmlStep({
           value={datasource.auth_configured ? "ตั้งค่าแล้ว" : "ไม่ใช้ auth"}
         />
       </div>
-      {data.latest_report_run ? (
+      {data?.latest_report_run ? (
         <InlineNotice
           message={`${data.latest_report_run.report_key} · ${data.latest_report_run.row_count.toLocaleString("th-TH")} แถว`}
           title={`รายงานล่าสุด: ${formatReportRunStatus(data.latest_report_run.status)}`}
@@ -355,10 +386,10 @@ function ReportStep({
   data,
   tenantId,
 }: {
-  data: OwnerV2ReportSetupPayload;
+  data: OwnerV2ReportSetupPayload | null;
   tenantId: string;
 }) {
-  const latestRun = data.latest_runs[0] ?? null;
+  const latestRun = data?.latest_runs?.[0] ?? null;
   return (
     <div className="space-y-4 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -378,10 +409,10 @@ function ReportStep({
         </Link>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        <Fact label="รายงานทั้งหมด" value={`${data.reports.length} รายงาน`} />
+        <Fact label="รายงานทั้งหมด" value={`${data?.reports?.length ?? 0} รายงาน`} />
         <Fact
           label="Snapshot ล่าสุด"
-          value={`${data.latest_snapshots.length} รายงาน`}
+          value={`${data?.latest_snapshots?.length ?? 0} รายงาน`}
         />
       </div>
       {latestRun ? (
@@ -407,9 +438,12 @@ function LineStep({
   data,
   tenantId,
 }: {
-  data: OwnerV2LineSetupPayload;
+  data: OwnerV2LineSetupPayload | null;
   tenantId: string;
 }) {
+  const channels = data?.channels ?? [];
+  const targets = data?.targets ?? [];
+  const readiness = data?.readiness ?? EMPTY_READINESS;
   return (
     <div className="space-y-4 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -429,18 +463,18 @@ function LineStep({
         </Link>
       </div>
       <div className="grid gap-3 md:grid-cols-4">
-        <Fact label="LINE OA" value={`${data.channels.length} ช่องทาง`} />
+        <Fact label="LINE OA" value={`${channels.length} ช่องทาง`} />
         <Fact
           label="พร้อมส่ง"
-          value={`${data.readiness.send_ready_channels}/${data.readiness.total_channels}`}
+          value={`${readiness.send_ready_channels}/${readiness.total_channels}`}
         />
-        <Fact label="ผู้รับทั้งหมด" value={`${data.targets.length} รายการ`} />
+        <Fact label="ผู้รับทั้งหมด" value={`${targets.length} รายการ`} />
         <Fact
           label="ผู้รับพร้อมส่ง"
-          value={`${data.readiness.ready_targets}/${data.readiness.total_targets}`}
+          value={`${readiness.ready_targets}/${readiness.total_targets}`}
         />
       </div>
-      {!data.channels.length ? (
+      {!channels.length ? (
         <InlineNotice
           message="ยังไม่มี LINE OA ให้เพิ่มช่องทางหรือใช้ OA กลางก่อน"
           title="ยังไม่มี LINE OA"
@@ -455,9 +489,11 @@ function PermissionStep({
   data,
   tenantId,
 }: {
-  data: OwnerV2PermissionSetupPayload;
+  data: OwnerV2PermissionSetupPayload | null;
   tenantId: string;
 }) {
+  const roles = data?.roles ?? [];
+  const impacted = data?.impacted_notification_plans ?? [];
   return (
     <div className="space-y-4 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -477,13 +513,13 @@ function PermissionStep({
         </Link>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        {data.roles.map((role) => (
+        {roles.map((role) => (
           <Fact key={role.access_profile_key} label={role.label} value={`${role.target_count} ผู้รับ`} />
         ))}
       </div>
-      {data.impacted_notification_plans.length ? (
+      {impacted.length ? (
         <InlineNotice
-          message={`${data.impacted_notification_plans.length} แผนมีผู้รับที่สิทธิ์ไม่พอ ให้แก้สิทธิ์ก่อนเปิดรอบจริง`}
+          message={`${impacted.length} แผนมีผู้รับที่สิทธิ์ไม่พอ ให้แก้สิทธิ์ก่อนเปิดรอบจริง`}
           title="มีสิทธิ์ที่ต้องแก้"
           tone="warning"
         />
@@ -502,9 +538,12 @@ function NotificationStep({
   data,
   tenantId,
 }: {
-  data: OwnerV2NotificationSetupPayload;
+  data: OwnerV2NotificationSetupPayload | null;
   tenantId: string;
 }) {
+  const rules = data?.rules ?? [];
+  const enabledTargetCount = data?.enabled_target_count ?? 0;
+  const targetCount = data?.target_count ?? 0;
   return (
     <div className="space-y-4 p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -524,17 +563,17 @@ function NotificationStep({
         </Link>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
-        <Fact label="แผนทั้งหมด" value={`${data.rules.length} แผน`} />
+        <Fact label="แผนทั้งหมด" value={`${rules.length} แผน`} />
         <Fact
           label="แผนเปิดใช้งาน"
-          value={`${data.rules.filter((rule) => rule.enabled).length} แผน`}
+          value={`${rules.filter((rule) => rule.enabled).length} แผน`}
         />
         <Fact
           label="ผู้รับพร้อมส่ง"
-          value={`${data.enabled_target_count}/${data.target_count}`}
+          value={`${enabledTargetCount}/${targetCount}`}
         />
       </div>
-      {!data.rules.length ? (
+      {!rules.length ? (
         <InlineNotice
           message="ยังไม่มีแผนแจ้งเตือน ตั้งแผนหลัง SML และ LINE พร้อม"
           title="ยังไม่มีแผนแจ้งเตือน"
