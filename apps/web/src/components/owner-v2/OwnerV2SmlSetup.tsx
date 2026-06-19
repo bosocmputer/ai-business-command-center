@@ -714,7 +714,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         </Link>
         <Link
           className="inline-flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600"
-          href={`/owner-v2?tenant=${encodeURIComponent(tenantId)}&step=reports`}
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}?step=reports`}
         >
           ไปทดสอบรายงาน
         </Link>

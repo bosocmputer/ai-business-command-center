@@ -146,7 +146,7 @@ export default function OwnerV2NewTenant() {
         method: "POST",
         body: buildPayload(),
       });
-      router.push(`/owner-v2?tenant=${encodeURIComponent(tenantId.trim())}`);
+      router.push(`/owner-v2/stores/${encodeURIComponent(tenantId.trim())}`);
     } catch (error) {
       setMessage({
         tone: "error",

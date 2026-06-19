@@ -3,14 +3,18 @@
 import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { findSensitiveTenantNoteHints, type Tenant } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon, CheckCircleIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
+import OwnerV2SetupWizard from "./OwnerV2SetupWizard";
 import type {
+  OwnerV2SetupStep,
   OwnerV2StoreSetupCheck,
   OwnerV2StoreSetupPayload,
+  OwnerV2StepId,
 } from "./types";
 
 type StoreFormState = {
@@ -180,6 +184,36 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
   const tenant = detail.summary.tenant;
   const readiness = detail.readiness;
   const nextAction = readiness.next_action;
+  const searchParams = useSearchParams();
+  const wizardSteps = useMemo(() => buildWizardSteps(readiness.checks, tenant.id), [readiness.checks, tenant.id]);
+  const initialWizardStep = parseStep(searchParams.get("step"));
+  const showStoreForm = tenant.status !== "cancelled" || message;
+
+  const wizardTenant = useMemo(
+    () => ({
+      id: tenant.id,
+      name: tenant.name,
+      status: tenant.status,
+      plan_code: tenant.planCode,
+      dashboard_path: detail.summary.customer_dashboard_path,
+      ready: readiness.ready,
+      completed_steps: readiness.completed,
+      total_steps: readiness.total,
+      next_action: null,
+      health: {
+        datasource_configured: detail.summary.health.datasource_configured,
+        line_targets_enabled: detail.summary.health.line_targets_enabled,
+        notification_rules_enabled:
+          detail.summary.health.notification_rules_enabled,
+        latest_report_status: detail.summary.health.latest_report_status,
+        latest_notification_run_status:
+          detail.summary.health.latest_notification_run_status,
+        critical_business_signals:
+          detail.summary.health.critical_business_signals,
+      },
+    }),
+    [tenant, detail.summary, readiness],
+  );
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -187,280 +221,74 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
         <Notice tone={message.tone} title="สถานะข้อมูลร้าน" text={message.text} />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Panel>
-          <PanelHeader
-            action={
-              tenant.status === "cancelled" ? (
-                <Badge color="error">ยกเลิกแล้ว</Badge>
-              ) : (
-                <Badge color={readiness.ready ? "success" : "warning"}>
-                  {readiness.ready
-                    ? "พร้อมใช้งาน"
-                    : `${readiness.completed}/${readiness.total} พร้อม`}
-                </Badge>
-              )
-            }
-            title="ข้อมูลร้าน"
-          />
-          <PanelBody>
-            <form className="space-y-5" onSubmit={saveStore}>
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                <Field label="ชื่อร้าน">
-                  <input
-                    className="owner-v2-input"
-                    disabled={tenant.status === "cancelled"}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? { ...current, name: event.target.value }
-                          : current,
-                      )
-                    }
-                    value={form.name}
-                  />
-                </Field>
-                <Field label="tenant_id">
-                  <input
-                    className="owner-v2-input font-mono"
-                    disabled
-                    value={tenant.id}
-                  />
-                </Field>
-                <Field label="Plan">
-                  <select
-                    className="owner-v2-input"
-                    disabled={tenant.status === "cancelled"}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              plan_code: event.target.value as Tenant["planCode"],
-                            }
-                          : current,
-                      )
-                    }
-                    value={form.plan_code}
+      <Panel>
+        <PanelHeader
+          action={
+            tenant.status === "cancelled" ? (
+              <Badge color="error">ยกเลิกแล้ว</Badge>
+            ) : (
+              <Badge color={readiness.ready ? "success" : "warning"}>
+                {readiness.ready
+                  ? "พร้อมใช้งาน"
+                  : `${readiness.completed}/${readiness.total} พร้อม`}
+              </Badge>
+            )
+          }
+          title="สิ่งที่ต้องทำ"
+        />
+        <PanelBody>
+          {nextAction ? (
+            <div className="rounded-xl border border-warning-500 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
+              <div className="flex items-start gap-3">
+                <AlertIcon className="mt-0.5 h-5 w-5 shrink-0 text-warning-600 dark:text-warning-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+                    ขั้นต่อไป: {nextAction.label}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                    {nextAction.detail}
+                  </p>
+                  <Link
+                    className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto"
+                    href={v2HrefForCheck(tenant.id, nextAction)}
                   >
-                    <option value="starter">starter</option>
-                    <option value="business">business</option>
-                    <option value="pro">pro</option>
-                  </select>
-                </Field>
-                <Field label="สถานะ">
-                  <select
-                    className="owner-v2-input"
-                    disabled={tenant.status === "cancelled"}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              status: event.target
-                                .value as StoreFormState["status"],
-                            }
-                          : current,
-                      )
-                    }
-                    value={form.status}
-                  >
-                    {editableStatuses.map((status) => (
-                      <option key={status} value={status}>
-                        {formatTenantStatus(status)}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field
-                  help="เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์"
-                  label="สิ้นสุดรอบใช้งาน"
-                >
-                  <input
-                    className="owner-v2-input"
-                    disabled={tenant.status === "cancelled"}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              current_period_end_date: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    type="date"
-                    value={form.current_period_end_date}
-                  />
-                </Field>
-                <Field
-                  help={
-                    form.status === "suspended"
-                      ? "ข้อความนี้ช่วยให้ admin คนถัดไปรู้เหตุผล"
-                      : "ใช้เมื่อสถานะเป็นระงับ"
-                  }
-                  label="เหตุผลระงับ"
-                >
-                  <input
-                    className="owner-v2-input"
-                    disabled={
-                      tenant.status === "cancelled" ||
-                      form.status !== "suspended"
-                    }
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              suspended_reason: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    value={form.suspended_reason}
-                  />
-                </Field>
-              </div>
-
-              <Field
-                help={
-                  sensitiveHints.length
-                    ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-                    : "ห้ามใส่ token/password/secret ในช่องนี้"
-                }
-                label="หมายเหตุ"
-              >
-                <textarea
-                  className="owner-v2-input min-h-28"
-                  disabled={tenant.status === "cancelled"}
-                  onChange={(event) =>
-                    setForm((current) =>
-                      current
-                        ? { ...current, description: event.target.value }
-                        : current,
-                    )
-                  }
-                  value={form.description}
-                />
-              </Field>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={saveDisabled}
-                  type="submit"
-                >
-                  {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
-                </Button>
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={busy !== null || !dirty}
-                  onClick={() => {
-                    setForm(initialForm);
-                    setMessage(null);
-                  }}
-                  type="button"
-                  variant="outline"
-                >
-                  คืนค่าล่าสุด
-                </Button>
-                <p className="w-full text-xs text-gray-500 dark:text-gray-400 sm:w-auto">
-                  ปุ่มบันทึกเปิดเมื่อข้อมูลเปลี่ยนและไม่มีข้อมูลลับในหมายเหตุ
-                </p>
-              </div>
-            </form>
-          </PanelBody>
-        </Panel>
-
-        <div className="space-y-6">
-          <Panel>
-            <PanelHeader
-              action={
-                <Badge color={readiness.ready ? "success" : "warning"}>
-                  {readiness.completed}/{readiness.total}
-                </Badge>
-              }
-              title="Readiness"
-            />
-            <PanelBody>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.06]">
-                <div
-                  className={`h-full rounded-full ${
-                    readiness.ready ? "bg-success-500" : "bg-brand-500"
-                  }`}
-                  style={{
-                    width: `${Math.round(
-                      (readiness.completed / Math.max(1, readiness.total)) *
-                        100,
-                    )}%`,
-                  }}
-                />
-              </div>
-              {nextAction ? (
-                <div className="mt-4 rounded-xl border border-warning-500 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
-                  <div className="flex items-start gap-3">
-                    <AlertIcon className="mt-0.5 h-5 w-5 shrink-0 text-warning-600 dark:text-warning-400" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
-                        ขั้นต่อไป: {nextAction.label}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                        {nextAction.detail}
-                      </p>
-                      <Link
-                        className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto"
-                        href={v2HrefForCheck(tenant.id, nextAction)}
-                      >
-                        เปิดขั้นนี้
-                      </Link>
-                    </div>
-                  </div>
+                    เปิดขั้นนี้
+                  </Link>
                 </div>
-              ) : (
-                <Notice
-                  tone="success"
-                  title="ร้านนี้พร้อมใช้งาน"
-                  text="ตรวจหน้าลูกค้าหรือรอบแจ้งเตือนได้จากหน้านี้"
-                />
-              )}
-              <div className="custom-scrollbar mt-5 flex max-h-[360px] flex-col gap-2 overflow-y-auto">
-                {readiness.checks.map((check) => (
-                  <ReadinessRow
-                    check={check}
-                    key={check.key}
-                    tenantId={tenant.id}
-                  />
-                ))}
               </div>
-            </PanelBody>
-          </Panel>
+            </div>
+          ) : (
+            <Notice
+              tone="success"
+              title="ร้านนี้พร้อมใช้งาน"
+              text="ตรวจหน้าลูกค้าหรือรอบแจ้งเตือนได้จากหน้านี้"
+            />
+          )}
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.06]">
+            <div
+              className={`h-full rounded-full ${
+                readiness.ready ? "bg-success-500" : "bg-brand-500"
+              }`}
+              style={{
+                width: `${Math.round(
+                  (readiness.completed / Math.max(1, readiness.total)) * 100,
+                )}%`,
+              }}
+            />
+          </div>
+          <div className="custom-scrollbar mt-4 flex max-h-[320px] flex-col gap-2 overflow-y-auto">
+            {readiness.checks.map((check) => (
+              <ReadinessRow check={check} key={check.key} tenantId={tenant.id} />
+            ))}
+          </div>
+        </PanelBody>
+      </Panel>
 
-          <Panel>
-            <PanelHeader title="ทางลัด" />
-            <PanelBody>
-              <div className="custom-scrollbar flex max-h-[300px] flex-col gap-2 overflow-y-auto">
-                {detail.summary.customer_dashboard_path ? (
-                  <QuickLink
-                    href={detail.summary.customer_dashboard_path}
-                    label="เปิด dashboard ลูกค้า"
-                    value={detail.summary.customer_dashboard_path}
-                  />
-                ) : null}
-                <QuickLink
-                  href={`/owner-v2?tenant=${encodeURIComponent(tenant.id)}`}
-                  label="เปิดในหน้าเริ่มงาน"
-                  value="ดูทุกขั้นตอนโดยโหลดเฉพาะส่วนที่เปิด"
-                />
-                <QuickLink
-                  href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}/sml`}
-                  label="ตั้งค่า SML"
-                  value={detail.datasource.database ?? "ยังไม่เลือก database"}
-                />
-              </div>
-            </PanelBody>
-          </Panel>
-        </div>
-      </div>
+      <OwnerV2SetupWizard
+        initialStep={initialWizardStep}
+        steps={wizardSteps}
+        tenant={wizardTenant}
+      />
 
       <Panel>
         <PanelHeader title="สถานะระบบของร้าน" />
@@ -551,6 +379,171 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
           ) : null}
         </PanelBody>
       </Panel>
+
+      {showStoreForm ? (
+        <details className="group rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+          <summary className="flex cursor-pointer list-none items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                แก้ข้อมูลร้าน
+              </h3>
+              <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+                ชื่อร้าน, แพ็กเกจ, สถานะ และหมายเหตุ (คลิกเพื่อขยาย)
+              </p>
+            </div>
+            <span className="text-theme-xs text-gray-400 transition group-open:rotate-180">
+              ▼
+            </span>
+          </summary>
+          <form className="mt-5 space-y-5" onSubmit={saveStore}>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <Field label="ชื่อร้าน">
+                <input
+                  className="owner-v2-input"
+                  disabled={tenant.status === "cancelled"}
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current
+                        ? { ...current, name: event.target.value }
+                        : current,
+                    )
+                  }
+                  value={form.name}
+                />
+              </Field>
+              <Field label="tenant_id">
+                <input className="owner-v2-input font-mono" disabled value={tenant.id} />
+              </Field>
+              <Field label="Plan">
+                <select
+                  className="owner-v2-input"
+                  disabled={tenant.status === "cancelled"}
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            plan_code: event.target.value as Tenant["planCode"],
+                          }
+                        : current,
+                    )
+                  }
+                  value={form.plan_code}
+                >
+                  <option value="starter">starter</option>
+                  <option value="business">business</option>
+                  <option value="pro">pro</option>
+                </select>
+              </Field>
+              <Field label="สถานะ">
+                <select
+                  className="owner-v2-input"
+                  disabled={tenant.status === "cancelled"}
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            status: event.target.value as StoreFormState["status"],
+                          }
+                        : current,
+                    )
+                  }
+                  value={form.status}
+                >
+                  {editableStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {formatTenantStatus(status)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field help="เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์" label="สิ้นสุดรอบใช้งาน">
+                <input
+                  className="owner-v2-input"
+                  disabled={tenant.status === "cancelled"}
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            current_period_end_date: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  type="date"
+                  value={form.current_period_end_date}
+                />
+              </Field>
+              <Field
+                help={
+                  form.status === "suspended"
+                    ? "ข้อความนี้ช่วยให้ admin คนถัดไปรู้เหตุผล"
+                    : "ใช้เมื่อสถานะเป็นระงับ"
+                }
+                label="เหตุผลระงับ"
+              >
+                <input
+                  className="owner-v2-input"
+                  disabled={
+                    tenant.status === "cancelled" || form.status !== "suspended"
+                  }
+                  onChange={(event) =>
+                    setForm((current) =>
+                      current
+                        ? { ...current, suspended_reason: event.target.value }
+                        : current,
+                    )
+                  }
+                  value={form.suspended_reason}
+                />
+              </Field>
+            </div>
+            <Field
+              help={
+                sensitiveHints.length
+                  ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
+                  : "ห้ามใส่ token/password/secret ในช่องนี้"
+              }
+              label="หมายเหตุ"
+            >
+              <textarea
+                className="owner-v2-input min-h-28"
+                disabled={tenant.status === "cancelled"}
+                onChange={(event) =>
+                  setForm((current) =>
+                    current
+                      ? { ...current, description: event.target.value }
+                      : current,
+                  )
+                }
+                value={form.description}
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button className="w-full sm:w-auto" disabled={saveDisabled} type="submit">
+                {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                disabled={busy !== null || !dirty}
+                onClick={() => {
+                  setForm(initialForm);
+                  setMessage(null);
+                }}
+                type="button"
+                variant="outline"
+              >
+                คืนค่าล่าสุด
+              </Button>
+              <p className="w-full text-xs text-gray-500 dark:text-gray-400 sm:w-auto">
+                ปุ่มบันทึกเปิดเมื่อข้อมูลเปลี่ยนและไม่มีข้อมูลลับในหมายเหตุ
+              </p>
+            </div>
+          </form>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -897,6 +890,83 @@ function v2HrefForCheck(tenantId: string, check: OwnerV2StoreSetupCheck) {
   }
   return `/owner-v2/stores/${encodedTenantId}`;
 }
+
+const CHECK_TO_STEP: Record<string, OwnerV2StepId> = {
+  store_active: "store",
+  sml_javaws: "sml",
+  report_test: "reports",
+  line_channel: "line",
+  line_target: "line",
+  report_permissions: "permissions",
+  notification_plan: "notifications",
+};
+
+const STEP_ACTION_LABEL: Record<OwnerV2StepId, string> = {
+  store: "ตรวจร้าน",
+  sml: "เชื่อม SML",
+  reports: "ทดสอบรายงาน",
+  line: "ตั้ง LINE",
+  permissions: "ตรวจสิทธิ์",
+  notifications: "ตั้งแผน",
+};
+
+/**
+ * Map the store-setup readiness checks into the wizard step shape, so the
+ * wizard nav mirrors the readiness checklist (deduped per step + in step
+ * order) instead of duplicating the readiness panel.
+ */
+function buildWizardSteps(
+  checks: OwnerV2StoreSetupCheck[],
+  tenantId: string,
+): OwnerV2SetupStep[] {
+  const seenSteps = new Set<OwnerV2StepId>();
+  const steps: OwnerV2SetupStep[] = [];
+  for (const check of checks) {
+    const step = CHECK_TO_STEP[check.key] ?? "store";
+    if (seenSteps.has(step)) {
+      continue;
+    }
+    seenSteps.add(step);
+    steps.push({
+      key: check.key,
+      ok: check.ok,
+      label: check.label,
+      detail: check.detail,
+      step,
+      action_label: STEP_ACTION_LABEL[step],
+      href: `/owner-v2/stores/${encodeURIComponent(tenantId)}?step=${step}`,
+    });
+  }
+  // Ensure the "store" step is always present (it maps to the tenant info view).
+  if (!seenSteps.has("store")) {
+    steps.unshift({
+      key: "store_active",
+      ok: true,
+      label: "ข้อมูลร้าน",
+      detail: "ข้อมูลพื้นฐานของร้าน",
+      step: "store",
+      action_label: "ดูร้าน",
+      href: `/owner-v2/stores/${encodeURIComponent(tenantId)}?step=store`,
+    });
+  }
+  return steps;
+}
+
+const VALID_STEPS: OwnerV2StepId[] = [
+  "store",
+  "sml",
+  "reports",
+  "line",
+  "permissions",
+  "notifications",
+];
+
+function parseStep(value: string | null): OwnerV2StepId {
+  return value && VALID_STEPS.includes(value as OwnerV2StepId)
+    ? (value as OwnerV2StepId)
+    : "store";
+}
+
 
 function formatTenantStatus(status: string) {
   const labels: Record<string, string> = {

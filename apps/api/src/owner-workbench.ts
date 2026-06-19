@@ -304,7 +304,7 @@ export function projectOwnerWorkbenchStep(
     detail: safeWorkbenchStepDetail({ key, ok: check.ok, detail: check.detail }),
     step,
     action_label: workbenchActionLabelForKey(key, check.ok),
-    href: `/owner-v2?tenant=${encodeURIComponent(tenantId)}&step=${step}`,
+    href: `/owner-v2/stores/${encodeURIComponent(tenantId)}?step=${step}`,
   };
 }
 

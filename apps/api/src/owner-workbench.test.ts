@@ -68,7 +68,7 @@ describe("owner workbench projection", () => {
         key: "notification_plan",
         step: "notifications",
         action_label: "ตั้งแผน",
-        href: "/owner-v2?tenant=tenant_krabi&step=notifications",
+        href: "/owner-v2/stores/tenant_krabi?step=notifications",
       },
     });
   });
