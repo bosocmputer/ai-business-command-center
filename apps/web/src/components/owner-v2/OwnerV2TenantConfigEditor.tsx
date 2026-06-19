@@ -53,6 +53,12 @@ const FLAG_FIELDS: Array<{
     description:
       "ใช้ติดป้ายข้อมูลตัวอย่างสำหรับงานขายหรือทดสอบ ห้ามใช้แทนข้อมูลร้านจริง",
   },
+  {
+    key: "telegram_operational_alerts_enabled",
+    title: "รับ Telegram ops alert",
+    description:
+      "ส่ง incident, JavaWS diagnostic และสรุปรอบแจ้งเตือนของร้านนี้ไปยัง Telegram ops ของระบบ",
+  },
 ];
 
 const THRESHOLD_FIELDS: Array<{

@@ -770,30 +770,6 @@ function ReadinessRow({
   );
 }
 
-function QuickLink({
-  href,
-  label,
-  value,
-}: {
-  href: string;
-  label: string;
-  value: string;
-}) {
-  return (
-    <Link
-      className="block rounded-lg p-3 transition hover:bg-gray-50 hover:text-brand-600 dark:hover:bg-white/[0.03] dark:hover:text-brand-400"
-      href={href}
-    >
-      <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">
-        {label}
-      </span>
-      <span className="mt-1 block break-words text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-        {value}
-      </span>
-    </Link>
-  );
-}
-
 function Fact({
   label,
   tone = "light",

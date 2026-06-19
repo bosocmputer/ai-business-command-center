@@ -1817,7 +1817,7 @@ function RecipientEstimateCell({
     setValue(target.recipient_count_estimate?.toString() ?? "");
   }, [target.recipient_count_estimate]);
   const parsed = Number(value);
-  const valid = value === "" || (!Number.isNaN(parsed) && parsed >= 0);
+  const valid = value === "" || (!Number.isNaN(parsed) && parsed >= 1);
   return (
     <div className="flex flex-col gap-1">
       <input

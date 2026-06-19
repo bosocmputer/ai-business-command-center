@@ -87,15 +87,14 @@ type AuditLogEntry = {
 };
 
 type AuditTenantEntry = {
-  tenant_id: string;
-  tenant_name: string;
-  tenant_status?: string;
+  id: string;
+  name: string;
+  status: string;
+  database_name?: string | null;
+  plan_code?: string;
   datasource_configured?: boolean;
   line_configured?: boolean;
   line_target_masked?: string | null;
-  latest_report_run_at?: string | null;
-  latest_line_delivery_at?: string | null;
-  latest_line_delivery_status?: string | null;
 };
 
 type TelegramChatPreview = {
@@ -719,10 +718,10 @@ function TelegramOpsManager({
 
   async function loadChats() {
     await runAction("chats", async () => {
-      const data = await ownerV2Fetch<{ chats: TelegramChatPreview[] }>(
+      const data = await ownerV2Fetch<TelegramChatPreview[]>(
         `/api/owner/operational-alerts/telegram/updates`,
       );
-      setChats(data.chats ?? []);
+      setChats(Array.isArray(data) ? data : []);
     });
   }
 
@@ -861,15 +860,23 @@ function PerTenantAudit({ tenants }: { tenants: AuditTenantEntry[] }) {
       </div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {tenants.map((tenant) => (
-          <div className="grid gap-2 py-3 lg:grid-cols-[minmax(180px,1fr)_170px_170px_140px] lg:items-center" key={tenant.tenant_id}>
+          <div className="grid gap-2 py-3 lg:grid-cols-[minmax(180px,1fr)_170px_170px_140px] lg:items-center" key={tenant.id}>
             <div className="min-w-0">
-              <p className="font-semibold text-gray-900 dark:text-white">{tenant.tenant_name}</p>
-              <p className="mt-1 truncate text-theme-xs text-gray-500 dark:text-gray-400">{tenant.tenant_id}</p>
+              <p className="font-semibold text-gray-900 dark:text-white">{tenant.name}</p>
+              <p className="mt-1 truncate text-theme-xs text-gray-500 dark:text-gray-400">{tenant.id}</p>
             </div>
-            <Fact label="รันรายงานล่าสุด" value={tenant.latest_report_run_at ? formatDateTime(tenant.latest_report_run_at) : "ยังไม่มี"} />
-            <Fact label="ส่ง LINE ล่าสุด" value={tenant.latest_line_delivery_at ? formatDateTime(tenant.latest_line_delivery_at) : "ยังไม่มี"} />
-            <Badge color={tenant.latest_line_delivery_status === "success" ? "success" : "light"} size="sm">
-              {formatLineDeliveryStatus(tenant.latest_line_delivery_status)}
+            <Fact
+              label="SML"
+              tone={tenant.datasource_configured ? "success" : "warning"}
+              value={tenant.datasource_configured ? (tenant.database_name ?? "พร้อม") : "ยังไม่พร้อม"}
+            />
+            <Fact
+              label="LINE"
+              tone={tenant.line_configured ? "success" : "warning"}
+              value={tenant.line_configured ? (tenant.line_target_masked ?? "พร้อม") : "ยังไม่พร้อม"}
+            />
+            <Badge color={tenant.status === "active" || tenant.status === "trial" ? "success" : "light"} size="sm">
+              {tenant.status === "active" ? "ใช้งาน" : tenant.status === "trial" ? "ทดลอง" : tenant.status}
             </Badge>
           </div>
         ))}
