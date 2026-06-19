@@ -3,13 +3,14 @@
 import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { findSensitiveTenantNoteHints, type Tenant } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon, CheckCircleIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import OwnerV2SetupWizard from "./OwnerV2SetupWizard";
+import OwnerV2TenantConfigEditor from "./OwnerV2TenantConfigEditor";
 import type {
   OwnerV2SetupStep,
   OwnerV2StoreSetupCheck,
@@ -234,6 +235,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
   const readiness = detail.readiness;
   const nextAction = readiness.next_action;
   const showStoreForm = tenant.status !== "cancelled" || message;
+  const router = useRouter();
   const verdict = deriveStoreVerdict(detail);
 
   return (
@@ -570,6 +572,16 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             </div>
           </form>
         </details>
+      ) : null}
+
+      {tenant.status !== "cancelled" ? (
+        <OwnerV2TenantConfigEditor
+          initialFlags={detail.summary.feature_flags}
+          initialThresholds={detail.summary.business_signal_thresholds}
+          onCancelled={() => router.push("/owner-v2/stores")}
+          tenantId={tenant.id}
+          tenantName={tenant.name}
+        />
       ) : null}
     </div>
   );

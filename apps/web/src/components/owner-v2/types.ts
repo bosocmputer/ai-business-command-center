@@ -1,5 +1,6 @@
 import type {
   BusinessSignalRecord,
+  BusinessSignalThresholdsConfig,
   LineAccessProfileKey,
   LineChannelRecord,
   LineTargetRecord,
@@ -9,6 +10,7 @@ import type {
   ReportKey,
   ReportRunRecord,
   Tenant,
+  TenantFeatureFlags,
   TenantId,
   TenantReportRolePermissionRecord,
 } from "@ai-bcc/shared";
@@ -328,6 +330,8 @@ export type OwnerV2StoreSetupTenantSummary = {
     status: string;
     message: string;
   };
+  feature_flags: TenantFeatureFlags;
+  business_signal_thresholds: BusinessSignalThresholdsConfig;
   health: OwnerV2Tenant["health"] & {
     line_channels: number;
     line_targets_total: number;
@@ -362,3 +366,30 @@ export type OwnerV2StoreSetupPayload = {
     safe_error_message: string | null;
   } | null;
 };
+
+export type OwnerV2TenantDeleteImpact = {
+  tenant_id: string;
+  tenant_name: string;
+  tenant_status: Tenant["status"];
+  dashboard_path: string | null;
+  notification_rules_total: number;
+  notification_rules_enabled: number;
+  notification_rule_runs_recent: number;
+  notification_rule_runs_running: number;
+  line_targets_total: number;
+  line_targets_enabled: number;
+  line_channels_total: number;
+  report_runs_recent: number;
+  latest_report_run_at: string | null;
+  latest_snapshot_at: string | null;
+  latest_line_delivery_at: string | null;
+  can_cancel: boolean;
+  blockers: Array<{
+    reason: string;
+    message: string;
+    count: number;
+  }>;
+};
+
+/** Re-export shared tenant config types so setup pages have one import. */
+export type { TenantFeatureFlags, BusinessSignalThresholdsConfig };
