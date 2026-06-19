@@ -310,6 +310,10 @@ function buildSystemChecks(data: SystemConfigStatus | null): SystemCheck[] {
 }
 
 function ActionPanel({ checks }: { checks: SystemCheck[] }) {
+  if (checks.length === 0) {
+    return null;
+  }
+  const failing = checks.filter((check) => !check.ok);
   return (
     <section className="rounded-xl border border-warning-500 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/15">
       <div className="flex items-start gap-3">
@@ -318,7 +322,9 @@ function ActionPanel({ checks }: { checks: SystemCheck[] }) {
         </div>
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-            มี {checks.length} จุดที่ควรตรวจระบบกลาง
+            {failing.length > 0
+              ? `มี ${failing.length} จุดที่ยังไม่พร้อม`
+              : "ทุกจุดพร้อมแล้ว"}
           </h2>
           <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">
             แก้จากค่าระบบบนเครื่องแม่ข่ายหรือแหล่งเก็บค่าลับแบบเข้ารหัสตามรายการด้านล่าง หน้านี้ใช้ดูสถานะเท่านั้น เพื่อไม่ให้แก้ค่าระบบผิดโดยไม่ตั้งใจ
