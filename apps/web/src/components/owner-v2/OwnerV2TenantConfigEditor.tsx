@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
-import { Fact, Notice, PanelBody, PanelHeader } from "./ui";
+import { Fact, Notice, Panel, PanelBody, PanelHeader } from "./ui";
 import type {
   BusinessSignalThresholdsConfig,
   OwnerV2TenantDeleteImpact,
@@ -196,64 +196,66 @@ export default function OwnerV2TenantConfigEditor({
 
   return (
     <div className="space-y-5">
-      <PanelHeader description="คุมพฤติกรรมร้านและค่าเตือนธุรกิจ" title="การตั้งค่าธุรกิจของร้าน" />
-      <PanelBody spaced>
-        <FeatureFlagsEditor
-          flags={flags}
-          onChange={(key, value) => setFlags((prev) => ({ ...prev, [key]: value }))}
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            disabled={!flagsDirty || flagsState === "saving"}
-            onClick={() => void saveFlags()}
-            size="sm"
-            type="button"
-          >
-            {flagsState === "saving" ? "กำลังบันทึก..." : "บันทึก feature flags"}
-          </Button>
-          {flagsMessage ? (
-            <span
-              className={`text-theme-xs ${
-                flagsState === "error" ? "text-error-600" : "text-success-600"
-              }`}
+      <Panel>
+        <PanelHeader description="คุมพฤติกรรมร้านและค่าเตือนธุรกิจ" title="การตั้งค่าธุรกิจของร้าน" />
+        <PanelBody spaced>
+          <FeatureFlagsEditor
+            flags={flags}
+            onChange={(key, value) => setFlags((prev) => ({ ...prev, [key]: value }))}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={!flagsDirty || flagsState === "saving"}
+              onClick={() => void saveFlags()}
+              size="sm"
+              type="button"
             >
-              {flagsMessage}
-            </span>
-          ) : null}
-        </div>
+              {flagsState === "saving" ? "กำลังบันทึก..." : "บันทึก feature flags"}
+            </Button>
+            {flagsMessage ? (
+              <span
+                className={`text-theme-xs ${
+                  flagsState === "error" ? "text-error-600" : "text-success-600"
+                }`}
+              >
+                {flagsMessage}
+              </span>
+            ) : null}
+          </div>
 
-        <ThresholdsEditor
-          thresholds={thresholds}
-          thresholdsEnabled={thresholdsEnabled}
-          onChange={(key, value) =>
-            setThresholds((prev) => ({ ...prev, [key]: value }))
-          }
-          onToggleEnabled={() => setThresholdsEnabled((prev) => !prev)}
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            disabled={!thresholdsDirty || thresholdsState === "saving"}
-            onClick={() => void saveThresholds()}
-            size="sm"
-            type="button"
-          >
-            {thresholdsState === "saving"
-              ? "กำลังบันทึก..."
-              : "บันทึกค่า threshold"}
-          </Button>
-          {thresholdsMessage ? (
-            <span
-              className={`text-theme-xs ${
-                thresholdsState === "error"
-                  ? "text-error-600"
-                  : "text-success-600"
-              }`}
+          <ThresholdsEditor
+            thresholds={thresholds}
+            thresholdsEnabled={thresholdsEnabled}
+            onChange={(key, value) =>
+              setThresholds((prev) => ({ ...prev, [key]: value }))
+            }
+            onToggleEnabled={() => setThresholdsEnabled((prev) => !prev)}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={!thresholdsDirty || thresholdsState === "saving"}
+              onClick={() => void saveThresholds()}
+              size="sm"
+              type="button"
             >
-              {thresholdsMessage}
-            </span>
-          ) : null}
-        </div>
-      </PanelBody>
+              {thresholdsState === "saving"
+                ? "กำลังบันทึก..."
+                : "บันทึกค่า threshold"}
+            </Button>
+            {thresholdsMessage ? (
+              <span
+                className={`text-theme-xs ${
+                  thresholdsState === "error"
+                    ? "text-error-600"
+                    : "text-success-600"
+                }`}
+              >
+                {thresholdsMessage}
+              </span>
+            ) : null}
+          </div>
+        </PanelBody>
+      </Panel>
 
       <DangerZone
         onCancelled={onCancelled}
