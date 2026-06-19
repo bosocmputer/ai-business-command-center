@@ -455,6 +455,43 @@ export default function OwnerV2NotificationSetup({
 
   const enabledRules = rules.filter((rule) => rule.enabled);
   const activeRuns = recentRuns.filter(isNotificationRunActive);
+  const failedRuns = recentRuns.filter((run) => run.status === "failed");
+  const defaultTargetIds = state.line.targets
+    .filter((target) => target.approved && target.enabled)
+    .slice(0, 1)
+    .map((target) => target.id);
+  const canOpenPreset = state.line.targets.some(
+    (target) => target.approved,
+  );
+
+  function applyPreset(preset: {
+    name: string;
+    digestMode: NotificationDigestMode;
+    enabled: boolean;
+    reportKeys: ReportKey[];
+    targetIds: string[];
+    times: string[];
+    weekdays: number[];
+  }) {
+    setSelectedRuleId(null);
+    setForm({
+      name: preset.name,
+      enabled: preset.enabled,
+      digestMode: preset.digestMode,
+      periodPreset: "yesterday",
+      reportKeys: preset.reportKeys,
+      targetIds: preset.targetIds,
+      times: preset.times,
+      weekdays: preset.weekdays,
+      timeInput: "",
+      manualDate: "",
+      manualTime: "",
+    });
+    setMessage({
+      tone: "warning",
+      text: `กรอก preset “${preset.name}” ให้แล้ว ตรวจรายละเอียดก่อนบันทึก`,
+    });
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -465,6 +502,87 @@ export default function OwnerV2NotificationSetup({
           tone={message.tone}
         />
       ) : null}
+
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <NotificationStat label="แผนทั้งหมด" value={rules.length} />
+        <NotificationStat label="เปิดใช้งาน" tone="success" value={enabledRules.length} />
+        <NotificationStat label="รอบล้มเหลว" tone={failedRuns.length ? "error" : "success"} value={failedRuns.length} />
+        <NotificationStat label="ผู้รับพร้อมส่ง" tone={canOpenPreset ? "success" : "warning"} value={state.notifications.enabled_target_count} />
+      </section>
+
+      <Panel>
+        <PanelHeader
+          description="คลิกเพื่อกรอกแผนให้พร้อมก่อนบันทึก"
+          title="เริ่มจากแผนแนะนำ"
+        />
+        <PanelBody>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <PresetCard
+              badge="แนะนำ"
+              description="ส่งเรื่องสำคัญตอนเช้าให้ผู้บริหารก่อนเปิดร้าน"
+              disabled={!canOpenPreset}
+              onClick={() =>
+                applyPreset({
+                  name: "Owner Daily Brief 08:00",
+                  digestMode: "action_only",
+                  enabled: canOpenPreset,
+                  reportKeys: ["sales_goods_services", "purchase_goods_payables"],
+                  targetIds: defaultTargetIds,
+                  times: ["08:00"],
+                  weekdays: [1, 2, 3, 4, 5, 6, 7],
+                })
+              }
+              title="Owner Daily Brief 08:00"
+            />
+            <PresetCard
+              badge="รอบเย็น"
+              description="ดูยอดระหว่างวันหลังปิดรอบงาน"
+              disabled={!canOpenPreset}
+              onClick={() =>
+                applyPreset({
+                  name: "Evening Sales Check 18:30",
+                  digestMode: "action_only",
+                  enabled: canOpenPreset,
+                  reportKeys: ["sales_goods_services", "purchase_goods_payables"],
+                  targetIds: defaultTargetIds,
+                  times: ["18:30"],
+                  weekdays: [1, 2, 3, 4, 5, 6, 7],
+                })
+              }
+              title="Evening Sales Check 18:30"
+            />
+            <PresetCard
+              badge="Proof"
+              description="เก็บหลักฐาน production proof แบบครบชุด"
+              disabled={!canOpenPreset}
+              onClick={() =>
+                applyPreset({
+                  name: "7-Day Proof Full Reports",
+                  digestMode: "all_reports",
+                  enabled: false,
+                  reportKeys: [
+                    "sales_goods_services",
+                    "purchase_goods_payables",
+                    "gross_profit_by_product",
+                    "gross_profit_by_ar_customer",
+                    "stock_balance",
+                    "ar_customer_movement",
+                  ],
+                  targetIds: defaultTargetIds,
+                  times: ["08:00"],
+                  weekdays: [1, 2, 3, 4, 5, 6, 7],
+                })
+              }
+              title="7-Day Proof Full Reports"
+            />
+          </div>
+          {!canOpenPreset ? (
+            <p className="mt-3 text-theme-xs text-warning-600">
+              ต้องอนุมัติผู้รับอย่างน้อย 1 รายก่อน จึงจะใช้ preset ได้
+            </p>
+          ) : null}
+        </PanelBody>
+      </Panel>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-5 sm:space-y-6">
@@ -686,6 +804,14 @@ export default function OwnerV2NotificationSetup({
                   }
                   selectedReportKeys={form.reportKeys}
                 />
+
+                <div className="mt-5">
+                  <PeriodPreviewTable
+                    periodPreset={form.periodPreset}
+                    times={form.times}
+                    weekdays={form.weekdays}
+                  />
+                </div>
 
                 <TargetSelector
                   channels={lineChannels}
@@ -1301,6 +1427,116 @@ function MiniSkeleton() {
       <div className="h-4 w-2/3 rounded bg-gray-100 dark:bg-gray-800" />
       <div className="h-11 rounded-lg bg-gray-100 dark:bg-gray-800" />
       <div className="h-11 rounded-lg bg-gray-100 dark:bg-gray-800" />
+    </div>
+  );
+}
+
+function NotificationStat({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone?: "success" | "warning" | "error";
+  value: number;
+}) {
+  const color =
+    tone === "error"
+      ? "text-error-600"
+      : tone === "warning"
+        ? "text-warning-600"
+        : tone === "success"
+          ? "text-success-600"
+          : "text-gray-800 dark:text-white/90";
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className={`mt-1 text-xl font-semibold ${color}`}>
+        {value.toLocaleString("th-TH")}
+      </p>
+    </div>
+  );
+}
+
+function PresetCard({
+  badge,
+  description,
+  disabled,
+  onClick,
+  title,
+}: {
+  badge: string;
+  description: string;
+  disabled?: boolean;
+  onClick: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      className={`flex min-h-[120px] flex-col rounded-xl border p-4 text-left transition ${
+        disabled
+          ? "cursor-not-allowed border-gray-100 bg-gray-50 opacity-60 dark:border-gray-800 dark:bg-white/[0.02]"
+          : "border-gray-200 bg-white hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:bg-brand-500/10"
+      }`}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-gray-800 dark:text-white/90">{title}</span>
+        {badge ? (
+          <span className="rounded-full bg-brand-100 px-2 py-0.5 text-theme-xs font-medium text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+        {description}
+      </p>
+    </button>
+  );
+}
+
+const PERIOD_PRESET_LABELS: Record<string, string> = {
+  yesterday: "เมื่อวาน (เต็มวัน)",
+  yesterday_until_now: "เมื่อวาน จนถึงตอนนี้",
+  last_7_days: "7 วันล่าสุด",
+  last_30_days: "30 วันล่าสุด",
+  month_to_date: "เดือนนี้ถึงปัจจุบัน",
+  last_month: "เดือนก่อน",
+};
+
+const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+
+function PeriodPreviewTable({
+  periodPreset,
+  times,
+  weekdays,
+}: {
+  periodPreset: string;
+  times: string[];
+  weekdays: number[];
+}) {
+  if (!times.length || !weekdays.length) {
+    return null;
+  }
+  const periodLabel = PERIOD_PRESET_LABELS[periodPreset] ?? periodPreset;
+  const weekdayText = weekdays
+    .slice()
+    .sort((a, b) => a - b)
+    .map((day) => WEEKDAY_LABELS[day - 1] ?? String(day))
+    .join(" ");
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-white/[0.02]">
+      <p className="text-theme-xs font-medium text-gray-700 dark:text-gray-300">
+        พรีวิวรอบถัดไป
+      </p>
+      <p className="mt-1 text-theme-sm text-gray-800 dark:text-white/90">
+        ช่วงข้อมูล: {periodLabel}
+      </p>
+      <p className="mt-0.5 text-theme-xs text-gray-500 dark:text-gray-400">
+        ส่ง {times.join(", ")} · {weekdayText}
+      </p>
     </div>
   );
 }
