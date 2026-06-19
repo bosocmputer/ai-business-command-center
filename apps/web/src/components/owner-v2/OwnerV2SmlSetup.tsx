@@ -294,6 +294,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
     discoveryValidation,
     validation,
   });
+  const draftComparison = buildDraftComparison(form, config);
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -552,6 +553,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   text={`กรอก: ${validation.missing.join(", ")}`}
                 />
               ) : null}
+              <DraftComparisonBanner comparison={draftComparison} />
             </form>
           </PanelBody>
         </Panel>
@@ -1195,3 +1197,97 @@ const SML_DATASOURCE_PRESETS = [
     database: "demo",
   },
 ] as const;
+
+type DraftComparison = {
+  changedFields: string[];
+  hasChanges: boolean;
+  nextAction: string;
+  summary: string;
+};
+
+const normalize = (value: string) => value.trim().toLowerCase();
+
+function buildDraftComparison(
+  form: SmlFormState,
+  config: OwnerV2DatasourceStatus,
+): DraftComparison {
+  const fieldComparisons = [
+    {
+      label: "Base URL",
+      draft: normalize(form.baseUrl),
+      saved: normalize(config.base_url ?? ""),
+    },
+    {
+      label: "Webapp path",
+      draft: normalize(form.webappPath || "/SMLJavaWebService"),
+      saved: normalize(config.webapp_path || "/SMLJavaWebService"),
+    },
+    {
+      label: "SMLConfig",
+      draft: normalize(form.configFileName),
+      saved: normalize(config.config_file_name ?? ""),
+    },
+    {
+      label: "Database",
+      draft: normalize(form.database),
+      saved: normalize(config.database ?? ""),
+    },
+    {
+      label: "Auth mode",
+      draft: form.authMode,
+      saved: (config.auth_mode ?? "none") as string,
+    },
+  ];
+  const changedFields = fieldComparisons
+    .filter((item) => item.draft !== item.saved)
+    .map((item) => item.label);
+  if (form.authMode !== "none" && form.authSecret.trim()) {
+    changedFields.push("Auth secret ใหม่");
+  }
+  const hasChanges = changedFields.length > 0;
+  const isSaved = Boolean(config.base_url);
+  const summary = hasChanges
+    ? `กำลังแก้: ${changedFields.join(", ")}`
+    : "ค่าที่กรอกตรงกับค่าที่บันทึกแล้ว";
+  const nextAction = !isSaved
+    ? "ยังไม่เคยบันทึก JavaWS ให้ทดสอบก่อนบันทึกแล้วกดบันทึก"
+    : hasChanges
+      ? "กดทดสอบก่อนบันทึกเพื่อยืนยันว่าเชื่อมต่อได้"
+      : "ค่าเดิมยังใช้ได้ — ไม่จำเป็นต้องบันทึก";
+  return { changedFields, hasChanges, nextAction, summary };
+}
+
+function DraftComparisonBanner({
+  comparison,
+}: {
+  comparison: DraftComparison;
+}) {
+  return (
+    <div
+      aria-live="polite"
+      className={`rounded-xl border p-3 ${
+        comparison.hasChanges
+          ? "border-warning-500/40 bg-warning-50 dark:bg-warning-500/10"
+          : "border-success-500/40 bg-success-50 dark:bg-success-500/10"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex rounded-full px-2 py-0.5 text-theme-xs font-medium ${
+            comparison.hasChanges
+              ? "bg-warning-100 text-warning-700 dark:bg-warning-500/20 dark:text-warning-300"
+              : "bg-success-100 text-success-700 dark:bg-success-500/20 dark:text-success-300"
+          }`}
+        >
+          {comparison.hasChanges ? "มีการแก้ไข" : "ตรงกับที่บันทึก"}
+        </span>
+        <span className="text-theme-sm text-gray-700 dark:text-gray-300">
+          {comparison.summary}
+        </span>
+      </div>
+      <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+        ควรทำต่อ: {comparison.nextAction}
+      </p>
+    </div>
+  );
+}

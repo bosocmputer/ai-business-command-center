@@ -182,6 +182,19 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     () => targets.filter((target) => target.approved),
     [targets],
   );
+  const quotaSummary = useMemo(() => calculateQuotaSummary(readyTargets), [readyTargets]);
+  const personalTargets = useMemo(
+    () => targets.filter((target) => target.target_type === "user" && target.approved),
+    [targets],
+  );
+  const teamTargets = useMemo(
+    () => targets.filter((target) => target.target_type !== "user" && target.approved),
+    [targets],
+  );
+  const pendingTargets = useMemo(
+    () => targets.filter((target) => !target.approved),
+    [targets],
+  );
   const secretReadyChannels = useMemo(
     () =>
       channels.filter(
@@ -531,6 +544,39 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
   }
 
+  async function updateRecipientEstimate(
+    target: LineTargetRecord,
+    estimate: number | null,
+  ) {
+    if (busy !== null) {
+      return;
+    }
+    setBusy(`estimate-${target.id}`);
+    setMessage(null);
+    try {
+      await ownerV2Fetch(
+        `/api/line-targets/${encodeURIComponent(target.id)}`,
+        {
+          method: "PATCH",
+          body: { recipient_count_estimate: estimate },
+        },
+      );
+      setMessage({
+        tone: "success",
+        text: `บันทึกจำนวนผู้รับโดยประมาณของ ${target.display_name} แล้ว`,
+      });
+      await load();
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error ? error.message : "บันทึก quota ไม่สำเร็จ",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function enableMorningBriefAction(target: LineTargetRecord) {
     const allowedActions = Array.from(
       new Set([...target.allowed_actions, "receive_morning_brief"]),
@@ -722,23 +768,85 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
             />
             <PanelBody className="space-y-5">
               {targets.length ? (
-                <TargetTable
-                  busy={busy}
-                  channels={channels}
-                  onApproveTarget={approveTarget}
-                  onEnableMorningBriefAction={enableMorningBriefAction}
-                  onTestSendTarget={testSendTarget}
-                  onTargetProfileChange={(targetId, profileKey) =>
-                    setTargetProfileDrafts((current) => ({
-                      ...current,
-                      [targetId]: profileKey,
-                    }))
-                  }
-                  onToggleTarget={toggleTarget}
-                  onUpdateTargetProfile={updateTargetProfile}
-                  targetProfileDrafts={targetProfileDrafts}
-                  targets={targets}
-                />
+                <>
+                <div className="mb-4 flex items-center gap-2">
+                  <Badge color="light" size="sm">
+                    Quota: {formatEstimatedMonthlyMessages(quotaSummary)}
+                  </Badge>
+                </div>
+                <TargetGroup
+
+                  targets={personalTargets}
+                  title="ผู้บริหารรายคน"
+                >
+                  <TargetTable
+                    busy={busy}
+                    channels={channels}
+                    onApproveTarget={approveTarget}
+                    onEnableMorningBriefAction={enableMorningBriefAction}
+                    onTestSendTarget={testSendTarget}
+                    onTargetProfileChange={(targetId, profileKey) =>
+                      setTargetProfileDrafts((current) => ({
+                        ...current,
+                        [targetId]: profileKey,
+                      }))
+                    }
+                    onToggleTarget={toggleTarget}
+                    onUpdateRecipientEstimate={updateRecipientEstimate}
+                    onUpdateTargetProfile={updateTargetProfile}
+                    targetProfileDrafts={targetProfileDrafts}
+                    targets={personalTargets}
+                  />
+                </TargetGroup>
+                <TargetGroup
+
+                  targets={teamTargets}
+                  title="กลุ่มทีมงาน"
+                >
+                  <TargetTable
+                    busy={busy}
+                    channels={channels}
+                    onApproveTarget={approveTarget}
+                    onEnableMorningBriefAction={enableMorningBriefAction}
+                    onTestSendTarget={testSendTarget}
+                    onTargetProfileChange={(targetId, profileKey) =>
+                      setTargetProfileDrafts((current) => ({
+                        ...current,
+                        [targetId]: profileKey,
+                      }))
+                    }
+                    onToggleTarget={toggleTarget}
+                    onUpdateRecipientEstimate={updateRecipientEstimate}
+                    onUpdateTargetProfile={updateTargetProfile}
+                    targetProfileDrafts={targetProfileDrafts}
+                    targets={teamTargets}
+                  />
+                </TargetGroup>
+                <TargetGroup
+
+                  targets={pendingTargets}
+                  title="รออนุมัติ"
+                >
+                  <TargetTable
+                    busy={busy}
+                    channels={channels}
+                    onApproveTarget={approveTarget}
+                    onEnableMorningBriefAction={enableMorningBriefAction}
+                    onTestSendTarget={testSendTarget}
+                    onTargetProfileChange={(targetId, profileKey) =>
+                      setTargetProfileDrafts((current) => ({
+                        ...current,
+                        [targetId]: profileKey,
+                      }))
+                    }
+                    onToggleTarget={toggleTarget}
+                    onUpdateRecipientEstimate={updateRecipientEstimate}
+                    onUpdateTargetProfile={updateTargetProfile}
+                    targetProfileDrafts={targetProfileDrafts}
+                    targets={pendingTargets}
+                  />
+                </TargetGroup>
+                </>
               ) : (
                 <EmptyState
                   action={
@@ -1087,6 +1195,7 @@ function TargetTable({
   onTargetProfileChange,
   onTestSendTarget,
   onToggleTarget,
+  onUpdateRecipientEstimate,
   onUpdateTargetProfile,
   targetProfileDrafts,
   targets,
@@ -1098,6 +1207,10 @@ function TargetTable({
   onTargetProfileChange: (targetId: string, profileKey: LineAccessProfileKey) => void;
   onTestSendTarget: (target: LineTargetRecord) => void;
   onToggleTarget: (target: LineTargetRecord) => void;
+  onUpdateRecipientEstimate: (
+    target: LineTargetRecord,
+    estimate: number | null,
+  ) => void;
   onUpdateTargetProfile: (target: LineTargetRecord) => void;
   targetProfileDrafts: Record<string, LineAccessProfileKey>;
   targets: LineTargetRecord[];
@@ -1211,6 +1324,15 @@ function TargetTable({
                           : "ยังไม่เคยส่ง"}
                       </p>
                     </div>
+                  </td>
+                  <td className="py-4 pr-5 sm:pr-6">
+                    <RecipientEstimateCell
+                      busy={busy}
+                      onSave={(estimate) =>
+                        onUpdateRecipientEstimate(target, estimate)
+                      }
+                      target={target}
+                    />
                   </td>
                   <td className="py-4 pr-5 sm:pr-6">
                     <div className="flex min-w-36 flex-col gap-2">
@@ -1624,4 +1746,121 @@ function formatDateTime(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Bangkok",
   }).format(date);
+}
+
+function TargetGroup({
+  children,
+  targets,
+  title,
+}: {
+  children: React.ReactNode;
+  targets: LineTargetRecord[];
+  title: string;
+}) {
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex items-center gap-2">
+        <h4 className="text-sm font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h4>
+        <Badge color="light" size="sm">
+          {targets.length} รายการ
+        </Badge>
+      </div>
+      {targets.length ? (
+        children
+      ) : (
+        <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-theme-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+          {title === "ผู้บริหารรายคน"
+            ? "ยังไม่มีผู้บริหารรายคนที่อนุมัติแล้ว"
+            : title === "กลุ่มทีมงาน"
+              ? "ยังไม่มีกลุ่มทีมงานที่อนุมัติแล้ว"
+              : "ไม่มีปลายทางรออนุมัติ"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function calculateQuotaSummary(targets: LineTargetRecord[]) {
+  return targets.reduce(
+    (summary, target) => {
+      const estimate = getRecipientEstimate(target);
+      if (estimate === null) {
+        return {
+          knownRecipients: summary.knownRecipients,
+          unknownTargets: summary.unknownTargets + 1,
+        };
+      }
+      return {
+        knownRecipients: summary.knownRecipients + estimate,
+        unknownTargets: summary.unknownTargets,
+      };
+    },
+    { knownRecipients: 0, unknownTargets: 0 },
+  );
+}
+
+function RecipientEstimateCell({
+  busy,
+  onSave,
+  target,
+}: {
+  busy: string | null;
+  onSave: (estimate: number | null) => void;
+  target: LineTargetRecord;
+}) {
+  const [value, setValue] = useState(
+    target.recipient_count_estimate?.toString() ?? "",
+  );
+  useEffect(() => {
+    setValue(target.recipient_count_estimate?.toString() ?? "");
+  }, [target.recipient_count_estimate]);
+  const parsed = Number(value);
+  const valid = value === "" || (!Number.isNaN(parsed) && parsed >= 0);
+  return (
+    <div className="flex flex-col gap-1">
+      <input
+        className="owner-v2-input w-24"
+        disabled={busy !== null}
+        inputMode="numeric"
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={target.target_type === "user" ? "1" : "เช่น 10"}
+        type="number"
+        value={value}
+      />
+      <button
+        className="text-theme-xs text-brand-600 hover:underline disabled:opacity-50"
+        disabled={
+          busy !== null ||
+          !valid ||
+          value === (target.recipient_count_estimate?.toString() ?? "")
+        }
+        onClick={() => onSave(value === "" ? null : parsed)}
+        type="button"
+      >
+        บันทึก quota
+      </button>
+    </div>
+  );
+}
+
+function getRecipientEstimate(target: LineTargetRecord) {
+  if (typeof target.recipient_count_estimate === "number") {
+    return target.recipient_count_estimate;
+  }
+  return target.target_type === "user" ? 1 : null;
+}
+
+function formatEstimatedMonthlyMessages(summary: {
+  knownRecipients: number;
+  unknownTargets: number;
+}) {
+  const knownMessages = summary.knownRecipients * 30;
+  if (summary.unknownTargets) {
+    return knownMessages === 0
+      ? "รอระบุจำนวนผู้รับ"
+      : `${knownMessages.toLocaleString("th-TH")}+ messages/เดือน`;
+  }
+  return `${knownMessages.toLocaleString("th-TH")} messages/เดือน`;
 }
