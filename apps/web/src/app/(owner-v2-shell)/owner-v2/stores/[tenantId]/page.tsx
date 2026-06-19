@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { OwnerV2Shell } from "@/components/owner-v2/OwnerV2Shell";
 import OwnerV2StoreDetail from "@/components/owner-v2/OwnerV2StoreDetail";
+import { OwnerV2StoreDetailFallback } from "@/components/owner-v2/OwnerV2StoreDetailFallback";
 
 export const metadata: Metadata = {
   title: "ข้อมูลร้าน | Owner Admin v2",
@@ -21,7 +23,12 @@ export default async function OwnerV2StorePage({
       subtitle="ข้อมูลร้านและสถานะ readiness ของ tenant นี้"
       title="ข้อมูลร้าน"
     >
-      <OwnerV2StoreDetail tenantId={tenantId} />
+      {/* OwnerV2StoreDetail reads useSearchParams (?step=) so it must sit inside
+          a Suspense boundary, otherwise Next.js cannot statically prerender the
+          page and some clients render a blank page after hydration. */}
+      <Suspense fallback={<OwnerV2StoreDetailFallback />}>
+        <OwnerV2StoreDetail tenantId={tenantId} />
+      </Suspense>
     </OwnerV2Shell>
   );
 }
