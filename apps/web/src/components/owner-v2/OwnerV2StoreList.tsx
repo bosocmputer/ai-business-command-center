@@ -15,7 +15,6 @@ import {
 } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type {
-  OwnerV2StepId,
   OwnerV2Tenant,
   OwnerV2WorkbenchPayload,
 } from "./types";
@@ -307,7 +306,6 @@ export default function OwnerV2StoreList() {
 }
 
 function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
-  const nextHref = hrefForTenantStep(tenant, tenant.next_action?.step ?? "store");
   return (
     <tr>
       <td className="py-4 pr-5 align-top">
@@ -338,28 +336,22 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
         </p>
       </td>
       <td className="px-3 py-4 align-top">
-        <HealthFacts tenant={tenant} />
+        <CriticalSignalBadge tenant={tenant} />
       </td>
       <td className="px-3 py-4 text-right align-top">
-        <div className="inline-flex flex-col gap-2">
-          <Link className={primaryActionClass} href={nextHref}>
-            ทำงานถัดไป
-            <ArrowRightIcon className="h-4 w-4" />
-          </Link>
-          <Link
-            className={secondaryActionClass}
-            href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}`}
-          >
-            เปิดข้อมูลร้าน
-          </Link>
-        </div>
+        <Link
+          className={primaryActionClass}
+          href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}`}
+        >
+          จัดการร้าน
+          <ArrowRightIcon className="h-4 w-4" />
+        </Link>
       </td>
     </tr>
   );
 }
 
 function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
-  const nextHref = hrefForTenantStep(tenant, tenant.next_action?.step ?? "store");
   return (
     <article className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
       <div className="flex flex-col gap-3">
@@ -377,10 +369,6 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
             {tenant.id}
           </p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Fact label="ความพร้อม" value={`${tenant.completed_steps}/${tenant.total_steps}`} />
-          <Fact label="รายงานล่าสุด" value={formatRunStatus(tenant.health.latest_report_status)} />
-        </div>
         <div className="rounded-lg bg-white p-3 dark:bg-gray-900">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -391,48 +379,32 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
           <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
             {tenant.next_action?.detail ?? "ตรวจรอบแจ้งเตือนหรือเปิดหน้าลูกค้าได้เลย"}
           </p>
+          {tenant.health.critical_business_signals > 0 ? (
+            <div className="mt-2">
+              <CriticalSignalBadge tenant={tenant} />
+            </div>
+          ) : null}
         </div>
-        <HealthFacts tenant={tenant} />
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Link className={primaryActionClass} href={nextHref}>
-            ทำงานถัดไป
-            <ArrowRightIcon className="h-4 w-4" />
-          </Link>
-          <Link
-            className={secondaryActionClass}
-            href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}`}
-          >
-            เปิดข้อมูลร้าน
-          </Link>
-        </div>
+        <Link
+          className={primaryActionClass}
+          href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}`}
+        >
+          จัดการร้าน
+          <ArrowRightIcon className="h-4 w-4" />
+        </Link>
       </div>
     </article>
   );
 }
 
-function HealthFacts({ tenant }: { tenant: OwnerV2Tenant }) {
-  const facts = [
-    tenant.health.datasource_configured ? "SML พร้อม" : "ต้องเชื่อม SML",
-    tenant.health.line_targets_enabled
-      ? `${tenant.health.line_targets_enabled} ผู้รับ LINE`
-      : "ยังไม่มีผู้รับ LINE",
-    tenant.health.notification_rules_enabled
-      ? `${tenant.health.notification_rules_enabled} แผนแจ้งเตือน`
-      : "ยังไม่มีแผนแจ้งเตือน",
-  ];
+function CriticalSignalBadge({ tenant }: { tenant: OwnerV2Tenant }) {
+  if (tenant.health.critical_business_signals <= 0) {
+    return <Badge color="light" size="sm">ไม่มีสัญญาณสำคัญ</Badge>;
+  }
   return (
-    <div className="flex flex-wrap gap-2">
-      {facts.map((fact) => (
-        <Badge color="light" key={fact} size="sm">
-          {fact}
-        </Badge>
-      ))}
-      {tenant.health.critical_business_signals > 0 ? (
-        <Badge color="warning" size="sm">
-          เตือน {tenant.health.critical_business_signals}
-        </Badge>
-      ) : null}
-    </div>
+    <Badge color="warning" size="sm">
+      เตือน {tenant.health.critical_business_signals}
+    </Badge>
   );
 }
 
@@ -581,19 +553,6 @@ function summarizeTenants(tenants: OwnerV2Tenant[]) {
     },
     { total: 0, ready: 0, needsAction: 0, signals: 0 },
   );
-}
-
-function hrefForTenantStep(tenant: OwnerV2Tenant, step: OwnerV2StepId) {
-  const tenantPath = `/owner-v2/stores/${encodeURIComponent(tenant.id)}`;
-  const stepPaths: Record<OwnerV2StepId, string> = {
-    store: tenantPath,
-    sml: `${tenantPath}/sml`,
-    reports: `${tenantPath}/reports`,
-    line: `${tenantPath}/line`,
-    permissions: `${tenantPath}/permissions`,
-    notifications: `${tenantPath}/notifications`,
-  };
-  return stepPaths[step];
 }
 
 function normalizeText(value: string) {

@@ -1199,7 +1199,7 @@ function TargetTable({
                           type="button"
                           variant="outline"
                         >
-                          เปิด brief
+                          เปิดรับสรุปประจำวัน
                         </Button>
                       ) : null}
                     </div>

@@ -353,7 +353,7 @@ export default function OwnerV2NotificationSetup({
       setSendConfirmRuleId(selectedRuleId);
       setMessage({
         tone: "warning",
-        text: "ตรวจแผนและผู้รับอีกครั้ง แล้วกดยืนยันส่งจริง ระบบจะส่ง LINE ไปยังผู้รับที่เลือก",
+        text: "ตรวจแผนและผู้รับอีกครั้ง แล้วกดปุ่มอีกครั้งเพื่อยืนยัน ระบบจะส่ง LINE ไปยังผู้รับที่เลือกทันที",
       });
       return;
     }
@@ -762,8 +762,8 @@ export default function OwnerV2NotificationSetup({
                       variant={sendConfirmRuleId === selectedRuleId ? "primary" : "outline"}
                     >
                       {sendConfirmRuleId === selectedRuleId
-                        ? "ยืนยันส่งจริง"
-                        : "เตรียมส่งจริง"}
+                        ? "กดอีกครั้งเพื่อส่งจริง"
+                        : "ส่งจริงตอนนี้"}
                     </Button>
                   </div>
                 </div>

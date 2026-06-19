@@ -304,7 +304,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           action={
             <div className="flex flex-wrap gap-2">
               <Badge color={chunkedEnabled ? "success" : "warning"}>
-                {chunkedEnabled ? "รายงานหนักพร้อม" : "รายงานหนักปิด"}
+                {chunkedEnabled ? "รายงานใหญ่พร้อม" : "รายงานใหญ่ปิด"}
               </Badge>
               <Badge color={activeRuns ? "info" : "light"}>
                 กำลังทำงาน {activeRuns}

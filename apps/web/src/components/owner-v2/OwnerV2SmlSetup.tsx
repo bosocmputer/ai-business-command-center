@@ -474,7 +474,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  {busy === "discover" ? "กำลังค้นหา..." : "ค้นหา database"}
+                  {busy === "discover" ? "กำลังค้นหา..." : "1 · ค้นหา database"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
@@ -484,7 +484,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  {busy === "test-draft" ? "กำลังทดสอบ..." : "ทดสอบก่อนบันทึก"}
+                  {busy === "test-draft" ? "กำลังทดสอบ..." : "2 · ทดสอบก่อนบันทึก"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
@@ -492,7 +492,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   size="sm"
                   type="submit"
                 >
-                  {busy === "save" ? "กำลังบันทึก..." : "บันทึกค่า SML"}
+                  {busy === "save" ? "กำลังบันทึก..." : "3 · บันทึก"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
@@ -502,13 +502,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  {busy === "test-saved"
-                    ? "กำลังทดสอบ..."
-                    : "ทดสอบค่าที่บันทึกแล้ว"}
+                  {busy === "test-saved" ? "กำลังทดสอบ..." : "4 · ทดสอบที่บันทึกแล้ว"}
                 </Button>
-                <p className="w-full text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  ลำดับที่แนะนำ: ค้นหา database, ทดสอบก่อนบันทึก, บันทึกค่า SML, แล้วทดสอบค่าที่บันทึกแล้ว
-                </p>
                 {actionHelp.length ? <ActionHelp items={actionHelp} /> : null}
               </div>
 

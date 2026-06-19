@@ -525,7 +525,14 @@ function formatWorker(worker?: OperationsStatus["worker"]) {
     return "ยังไม่ทราบ";
   }
   if (worker.status === "ok") {
-    return `ปกติ ${worker.age_seconds ?? "-"}s`;
+    const ageSeconds = worker.age_seconds;
+    if (typeof ageSeconds === "number" && ageSeconds >= 0) {
+      const minutes = Math.max(0, Math.round(ageSeconds / 60));
+      return minutes > 0
+        ? `ปกติ (heartbeat ${minutes} นาทีที่แล้ว)`
+        : "ปกติ (heartbeat อายุไม่ถึงนาที)";
+    }
+    return "ปกติ";
   }
   return worker.status;
 }
