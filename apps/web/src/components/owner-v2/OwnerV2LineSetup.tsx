@@ -610,6 +610,16 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         <Notice title="สถานะ LINE OA" tone={message.tone} text={message.text} />
       ) : null}
 
+      <Panel>
+        <PanelBody>
+          <Notice
+            tone="warning"
+            title="ตั้งค่า Webhook ใน LINE Developers"
+            text={`ตั้ง Webhook URL เป็น ${typeof window !== "undefined" ? window.location.origin : "{public-origin}"}/api/line/webhook แล้วเปิด "Use webhook" ใน LINE OA ของร้าน เพื่อให้ระบบรับ events ของผู้รับได้`}
+          />
+        </PanelBody>
+      </Panel>
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5 sm:space-y-6">
           <Panel>

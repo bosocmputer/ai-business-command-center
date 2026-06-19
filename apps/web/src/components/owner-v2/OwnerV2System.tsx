@@ -216,7 +216,224 @@ export default function OwnerV2System() {
           ) : null}
         </SystemPanel>
       </section>
+
+      <SystemConfigForm data={data} onSaved={() => void load()} />
     </div>
+  );
+}
+
+function SystemConfigForm({
+  data,
+  onSaved,
+}: {
+  data: SystemConfigStatus | null;
+  onSaved: () => void;
+}) {
+  const [appBaseUrl, setAppBaseUrl] = useState(data?.app_base_url ?? "");
+  const [publicApiBaseUrl, setPublicApiBaseUrl] = useState(
+    data?.public_api_base_url ?? "",
+  );
+  const [signingSecret, setSigningSecret] = useState("");
+  const [linkTtl, setLinkTtl] = useState(
+    String(data?.report_viewer_link_ttl_hours ?? ""),
+  );
+  const [workerId, setWorkerId] = useState(data?.worker_id ?? "");
+  const [heartbeatToken, setHeartbeatToken] = useState("");
+  const [backupConfigured, setBackupConfigured] = useState(
+    Boolean(data?.backup_configured),
+  );
+  const [lastBackupAt, setLastBackupAt] = useState(
+    data?.system_last_backup_at ?? "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<
+    { tone: "success" | "error"; text: string } | null
+  >(null);
+
+  useEffect(() => {
+    setAppBaseUrl(data?.app_base_url ?? "");
+    setPublicApiBaseUrl(data?.public_api_base_url ?? "");
+    setLinkTtl(String(data?.report_viewer_link_ttl_hours ?? ""));
+    setWorkerId(data?.worker_id ?? "");
+    setBackupConfigured(Boolean(data?.backup_configured));
+    setLastBackupAt(data?.system_last_backup_at ?? "");
+  }, [data]);
+
+  const dirty =
+    appBaseUrl !== (data?.app_base_url ?? "") ||
+    publicApiBaseUrl !== (data?.public_api_base_url ?? "") ||
+    signingSecret.trim().length > 0 ||
+    linkTtl !== String(data?.report_viewer_link_ttl_hours ?? "") ||
+    workerId !== (data?.worker_id ?? "") ||
+    heartbeatToken.trim().length > 0 ||
+    backupConfigured !== Boolean(data?.backup_configured) ||
+    lastBackupAt !== (data?.system_last_backup_at ?? "");
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy || !dirty) {
+      return;
+    }
+    setBusy(true);
+    setResult(null);
+    try {
+      const body: Record<string, unknown> = {
+        app_base_url: appBaseUrl.trim() || null,
+        public_api_base_url: publicApiBaseUrl.trim() || null,
+        report_viewer_link_ttl_hours: Number(linkTtl) || null,
+        worker_id: workerId.trim() || null,
+        backup_configured: backupConfigured,
+        system_last_backup_at: lastBackupAt.trim() || null,
+      };
+      if (signingSecret.trim()) {
+        body.report_viewer_signing_secret = signingSecret.trim();
+      }
+      if (heartbeatToken.trim()) {
+        body.worker_heartbeat_token = heartbeatToken.trim();
+      }
+      await ownerV2Fetch(`/api/owner/system/config`, {
+        method: "PUT",
+        body,
+      });
+      setSigningSecret("");
+      setHeartbeatToken("");
+      setResult({ tone: "success", text: "บันทึก System Config แล้ว" });
+      onSaved();
+    } catch (error) {
+      setResult({
+        tone: "error",
+        text: error instanceof Error ? error.message : "บันทึกไม่สำเร็จ",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          แก้ค่า System Config
+        </h3>
+        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
+          ค่าที่แก้ที่นี่มีผลทันที ระวังการแก้ signing secret หรือ worker token
+        </p>
+      </div>
+      <form className="space-y-4" onSubmit={save}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              App base URL
+            </span>
+            <input
+              className="owner-v2-input"
+              onChange={(event) => setAppBaseUrl(event.target.value)}
+              placeholder="https://..."
+              value={appBaseUrl}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              Public API base URL
+            </span>
+            <input
+              className="owner-v2-input"
+              onChange={(event) => setPublicApiBaseUrl(event.target.value)}
+              placeholder="https://..."
+              value={publicApiBaseUrl}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              Report signing secret (วางใหม่เพื่อหมุน)
+            </span>
+            <input
+              autoComplete="new-password"
+              className="owner-v2-input"
+              onChange={(event) => setSigningSecret(event.target.value)}
+              placeholder={data?.report_viewer_signing_secret_configured ? "ตั้งแล้ว — เว้นว่างเพื่อคงไว้" : "ยังไม่ตั้ง"}
+              type="password"
+              value={signingSecret}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              Report link TTL (ชั่วโมง)
+            </span>
+            <input
+              className="owner-v2-input"
+              inputMode="numeric"
+              onChange={(event) => setLinkTtl(event.target.value)}
+              placeholder="72"
+              type="number"
+              value={linkTtl}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              Worker ID
+            </span>
+            <input
+              className="owner-v2-input"
+              onChange={(event) => setWorkerId(event.target.value)}
+              placeholder="bcc-worker"
+              value={workerId}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              Worker heartbeat token (วางใหม่เพื่อหมุน)
+            </span>
+            <input
+              autoComplete="new-password"
+              className="owner-v2-input"
+              onChange={(event) => setHeartbeatToken(event.target.value)}
+              placeholder={data?.worker_heartbeat_token_configured ? "ตั้งแล้ว — เว้นว่างเพื่อคงไว้" : "ยังไม่ตั้ง"}
+              type="password"
+              value={heartbeatToken}
+            />
+          </label>
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={backupConfigured}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) => setBackupConfigured(event.target.checked)}
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                ตั้งค่า backup แล้ว
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ทำเครื่องหมายเมื่อ backup ระบบพร้อมใช้งานจริง
+              </span>
+            </span>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+              Last backup at
+            </span>
+            <input
+              className="owner-v2-input"
+              onChange={(event) => setLastBackupAt(event.target.value)}
+              placeholder="2026-06-19T01:00:00Z"
+              value={lastBackupAt}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={!dirty || busy} size="sm" type="submit">
+            {busy ? "กำลังบันทึก..." : "บันทึก System Config"}
+          </Button>
+          {result ? (
+            <span className={`text-theme-xs ${result.tone === "error" ? "text-error-600" : "text-success-600"}`}>
+              {result.text}
+            </span>
+          ) : null}
+        </div>
+      </form>
+    </section>
   );
 }
 
