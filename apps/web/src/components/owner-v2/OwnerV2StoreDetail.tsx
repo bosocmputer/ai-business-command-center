@@ -576,8 +576,10 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
       {tenant.status !== "cancelled" ? (
         <OwnerV2TenantConfigEditor
-          initialFlags={detail.summary.feature_flags}
-          initialThresholds={detail.summary.business_signal_thresholds}
+          initialFlags={detail.summary.feature_flags ?? DEFAULT_FEATURE_FLAGS}
+          initialThresholds={
+            detail.summary.business_signal_thresholds ?? DEFAULT_THRESHOLDS
+          }
           onCancelled={() => router.push("/owner-v2/stores")}
           tenantId={tenant.id}
           tenantName={tenant.name}
@@ -586,6 +588,26 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
     </div>
   );
 }
+
+const DEFAULT_FEATURE_FLAGS = {
+  business_signals_enabled: false,
+  line_action_digest_v2_enabled: false,
+  line_heavy_report_fallback_enabled: false,
+  line_report_failure_incident_enabled: false,
+  sml_chunked_heavy_reports_enabled: false,
+  demo_mode_enabled: false,
+  telegram_operational_alerts_enabled: false,
+} as const;
+
+const DEFAULT_THRESHOLDS = {
+  low_gross_margin_percent: 0,
+  sales_drop_percent: 0,
+  sales_drop_amount: 0,
+  purchase_concentration_percent: 0,
+  missing_branch_amount: 0,
+  negative_gross_profit_amount: 0,
+  no_sales_enabled: false,
+} as const;
 
 function StoreProofStrip({
   strip,
