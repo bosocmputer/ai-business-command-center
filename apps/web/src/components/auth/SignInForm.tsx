@@ -195,11 +195,16 @@ export default function SignInForm() {
 
 function normalizeNextPath(value: string | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/owner";
+    return "/owner-v2";
   }
 
   if (value.startsWith("/signin") || value.startsWith("/auth/")) {
-    return "/owner";
+    return "/owner-v2";
+  }
+
+  // Legacy /owner routes still work, but default new sessions to owner-v2.
+  if (value === "/owner") {
+    return "/owner-v2";
   }
 
   return value;

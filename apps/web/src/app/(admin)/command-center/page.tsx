@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function CommandCenterPage() {
-  redirect("/owner");
+  redirect("/owner-v2");
 }

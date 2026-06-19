@@ -234,7 +234,19 @@ import {
   type OwnerWorkbenchPayload,
   type OwnerWorkbenchReportSetupPayload,
   type OwnerWorkbenchSmlSetupPayload,
+  type OwnerWorkbenchCockpit,
 } from "./owner-workbench.js";
+import {
+  computeOwnerCockpitHealthMatrixRow,
+  computeOwnerCockpitNextAction,
+  deriveProductionProofStrip,
+  type CockpitJavaWsFailure,
+  type CockpitOperationsInput,
+  type CockpitTenantInput,
+  type OwnerCockpitHealthMatrixRow,
+  type OwnerCockpitNextAction,
+  type OwnerCockpitProofStrip,
+} from "./owner-cockpit.js";
 
 const app = Fastify({
   logger: {
@@ -782,6 +794,8 @@ app.get("/api/owner/workbench", async (request, reply) => {
       : false,
   });
 
+  const cockpit = await buildOwnerWorkbenchCockpit({ summaries, operations });
+
   return {
     data: {
       tenants: workbenchTenants,
@@ -799,9 +813,141 @@ app.get("/api/owner/workbench", async (request, reply) => {
             )
           : false,
       },
+      cockpit,
     } satisfies OwnerWorkbenchPayload,
   };
 });
+
+type OwnerWorkbenchCockpitSummary = {
+  tenant: { id: TenantId; name: string; status: string };
+  access: { enabled: boolean; message: string };
+  health: CockpitTenantInput["health"];
+};
+
+/**
+ * Build the cross-tenant cockpit payload (next action + health matrix +
+ * per-tenant proof strips) for the workbench. The summary list carries the
+ * health/access fields; operations status carries the system-wide JavaWS
+ * failure and heavy-run context. Per-tenant runs/deliveries are loaded here so
+ * the proof strip reflects the last 7 days per tenant.
+ */
+async function buildOwnerWorkbenchCockpit(input: {
+  summaries: OwnerWorkbenchCockpitSummary[];
+  operations: Awaited<ReturnType<typeof buildOperationsStatus>> | null;
+}): Promise<OwnerWorkbenchCockpit> {
+  const { summaries, operations } = input;
+  const activeTenantCount = summaries.filter(
+    (summary) => summary.tenant.status !== "cancelled",
+  ).length;
+
+  const tenantInputs: CockpitTenantInput[] = summaries.map((summary) => ({
+    tenant_id: summary.tenant.id,
+    tenant_name: summary.tenant.name,
+    status: summary.tenant.status,
+    access_enabled: summary.access.enabled,
+    access_message: summary.access.message,
+    health: summary.health,
+  }));
+
+  const latestJavaWsFailure = operations?.report_health?.latest_javaws_failure;
+  const cockpitOperations: CockpitOperationsInput = {
+    worker: { status: operations?.worker.status ?? "ok" },
+    telegram: operations?.operational_alerts?.telegram?.status
+      ? {
+          configured: operations.operational_alerts.telegram.status.configured,
+          targets: operations.operational_alerts.telegram.status.targets.map(
+            (target) => ({ enabled: target.enabled }),
+          ),
+        }
+      : null,
+    latest_javaws_failure: latestJavaWsFailure
+      ? {
+          id: latestJavaWsFailure.id,
+          tenant_id: latestJavaWsFailure.tenant_id,
+          report_key: latestJavaWsFailure.report_key,
+          status: latestJavaWsFailure.status,
+          finished_at: latestJavaWsFailure.finished_at,
+          failure_kind: latestJavaWsFailure.failure_kind,
+          failure_phase: latestJavaWsFailure.failure_phase,
+          safe_error_message: latestJavaWsFailure.safe_error_message,
+        }
+      : null,
+    heavy_report_runs:
+      operations?.report_health?.heavy_report_runs.map((run) => ({
+        id: run.id,
+        tenant_id: run.tenant_id,
+        report_key: run.report_key,
+        status: run.status,
+        started_at: run.started_at,
+        finished_at: run.finished_at,
+        duration_ms: run.duration_ms,
+        row_count: run.row_count,
+        failure_kind: run.failure_kind,
+        failure_phase: run.failure_phase,
+      })) ?? [],
+  };
+
+  const nextAction: OwnerCockpitNextAction = computeOwnerCockpitNextAction(
+    tenantInputs,
+    cockpitOperations,
+  );
+  const healthMatrix: OwnerCockpitHealthMatrixRow[] = tenantInputs.map(
+    (tenant) =>
+      computeOwnerCockpitHealthMatrixRow(
+        tenant,
+        cockpitOperations.latest_javaws_failure as CockpitJavaWsFailure | null,
+      ),
+  );
+
+  const proofStrips = await Promise.all(
+    tenantInputs
+      .filter((tenant) => tenant.status !== "cancelled")
+      .map(async (tenant) => {
+        const eligible = tenantIsProofEligible(tenant);
+        const [runs, deliveries] = await Promise.all([
+          systemStore.listNotificationRuleRuns({
+            tenantId: tenant.tenant_id,
+            limit: 50,
+          }),
+          systemStore.listLineDeliveries(tenant.tenant_id),
+        ]);
+        return deriveProductionProofStrip({
+          tenant_id: tenant.tenant_id,
+          eligible,
+          runs: runs.map((run) => ({
+            tenant_id: run.tenant_id,
+            status: run.status,
+            source: run.source ?? null,
+            mode: run.mode ?? null,
+            started_at: run.started_at ?? null,
+            finished_at: run.finished_at ?? null,
+          })),
+          deliveries: deliveries.map((delivery) => ({
+            tenant_id: delivery.tenant_id,
+            status: delivery.status,
+            delivery_type: delivery.delivery_type ?? null,
+            sent_at: delivery.sent_at ?? null,
+            created_at: delivery.created_at ?? null,
+          })),
+        });
+      }),
+  );
+
+  return {
+    next_action: nextAction,
+    health_matrix: healthMatrix,
+    proof_strips: proofStrips,
+    active_tenant_count: activeTenantCount,
+  };
+}
+
+function tenantIsProofEligible(tenant: CockpitTenantInput): boolean {
+  return (
+    tenant.status === "active" &&
+    tenant.health.datasource_configured &&
+    tenant.health.line_targets_enabled > 0
+  );
+}
 
 app.get(
   "/api/owner/tenants/:tenantId/sml-setup",
@@ -12641,6 +12787,8 @@ async function buildOwnerStoreSetupDetail(tenantId: TenantId) {
     notificationRules,
     runs,
     businessSignals,
+    notificationRuns,
+    deliveries,
   ] =
     await Promise.all([
       readDatasourceConfigStatus({
@@ -12653,6 +12801,8 @@ async function buildOwnerStoreSetupDetail(tenantId: TenantId) {
       systemStore.listNotificationRules(tenantId),
       systemStore.listRuns(tenantId),
       systemStore.listBusinessSignals({ tenantId, status: "open", limit: 10 }),
+      systemStore.listNotificationRuleRuns({ tenantId, limit: 50 }),
+      systemStore.listLineDeliveries(tenantId),
     ]);
   const safeTargets = lineTargets.map(toSafeLineTargetRecord);
   const checks = buildStoreSetupReadinessChecks({
@@ -12663,6 +12813,32 @@ async function buildOwnerStoreSetupDetail(tenantId: TenantId) {
     notificationRules,
     runs,
   });
+  const proofStrip = deriveProductionProofStrip({
+    tenant_id: tenantId,
+    eligible:
+      summary.tenant.status === "active" &&
+      summary.health.datasource_configured &&
+      summary.health.line_targets_enabled > 0,
+    runs: notificationRuns.map((run) => ({
+      tenant_id: run.tenant_id,
+      status: run.status,
+      source: run.source ?? null,
+      mode: run.mode ?? null,
+      started_at: run.started_at ?? null,
+      finished_at: run.finished_at ?? null,
+    })),
+    deliveries: deliveries.map((delivery) => ({
+      tenant_id: delivery.tenant_id,
+      status: delivery.status,
+      delivery_type: delivery.delivery_type ?? null,
+      sent_at: delivery.sent_at ?? null,
+      created_at: delivery.created_at ?? null,
+    })),
+  });
+  const latestJavaWsFailureRun = runs.find(
+    (run) =>
+      run.status === "failed" && run.failure_phase && run.failure_kind,
+  );
 
   return {
     summary,
@@ -12672,6 +12848,16 @@ async function buildOwnerStoreSetupDetail(tenantId: TenantId) {
     notification_rules: notificationRules.map(toOwnerNotificationRule),
     business_signals: businessSignals,
     readiness: summarizeStoreSetupReadiness(checks),
+    proof_strip: proofStrip,
+    latest_javaws_failure: latestJavaWsFailureRun
+      ? {
+          report_key: latestJavaWsFailureRun.report_key,
+          failure_kind: latestJavaWsFailureRun.failure_kind ?? null,
+          failure_phase: latestJavaWsFailureRun.failure_phase ?? null,
+          finished_at: latestJavaWsFailureRun.finished_at ?? null,
+          safe_error_message: latestJavaWsFailureRun.safe_error_message ?? null,
+        }
+      : null,
   };
 }
 

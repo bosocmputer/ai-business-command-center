@@ -13,6 +13,11 @@ import type {
   TenantId,
 } from "@ai-bcc/shared";
 import type { DatasourceConfigStatus } from "./tenant-secret-config.js";
+import type {
+  OwnerCockpitHealthMatrixRow,
+  OwnerCockpitNextAction,
+  OwnerCockpitProofStrip,
+} from "./owner-cockpit.js";
 
 export type OwnerWorkbenchStepKey =
   | "store_active"
@@ -70,6 +75,19 @@ export type OwnerWorkbenchPayload = {
     worker_status: string | null;
     telegram_ready: boolean;
   };
+  cockpit: OwnerWorkbenchCockpit;
+};
+
+/**
+ * Cross-tenant cockpit payload: a single highest-priority next action, a per-
+ * tenant health matrix row each, and a per-tenant 7-day proof strip for the
+ * tenants eligible for production proof.
+ */
+export type OwnerWorkbenchCockpit = {
+  next_action: OwnerCockpitNextAction;
+  health_matrix: OwnerCockpitHealthMatrixRow[];
+  proof_strips: OwnerCockpitProofStrip[];
+  active_tenant_count: number;
 };
 
 export type OwnerWorkbenchDatasourceStatus = Pick<

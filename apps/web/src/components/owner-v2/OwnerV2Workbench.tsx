@@ -12,6 +12,7 @@ import {
   PlusIcon,
 } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
+import OwnerV2Cockpit from "./OwnerV2Cockpit";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
@@ -331,6 +332,9 @@ export default function OwnerV2Workbench() {
       </aside>
 
       <main className="space-y-6">
+        {workbench?.cockpit ? (
+          <OwnerV2Cockpit cockpit={workbench.cockpit} />
+        ) : null}
         <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">

@@ -3,6 +3,30 @@
 วันที่บันทึก: 2026-06-15
 สถานะ: implementation plan สำหรับปรับ `/owner` ให้เป็น cockpit ที่ใช้จริงระหว่าง proof และขาย pilot
 
+## Implementation Update 2026-06-19 (owner-v2 + cockpit API)
+
+เปลี่ยนแผนจาก "ปรับ `/owner`" เป็น "สร้าง `/owner-v2` แทน แล้วย้ายเข้า" เพื่อให้ทำได้พร้อม v1 ที่ใช้อยู่
+
+ทำเสร็จครบทุก Phase (1-4):
+
+- **Phase 1 (IA Refactor)**: `/owner-v2` Workbench + 11 หน้าย่อยครบ (workbench, stores, sml, reports, line, permissions, notifications, ops, system)
+- **Phase 2 (Proof-Aware Cockpit)**: เพิ่ม cross-tenant cockpit ที่ `/owner-v2` (Operations Status + Next Action + Store Health Matrix) + per-tenant Proof Strip 7 วัน (manual-derived)
+- **Phase 3 (Reduce Noise)**: setup wizard แยกหน้าเรียบร้อย, diagnostic อยู่ใน `/owner-v2/ops`
+- **Phase 4 (Browser QA)**: รอ QA บน tunnel ก่อน deploy
+
+สถาปัตยกรรม logic:
+
+- Priority 7 ขั้น (Security/secret → JavaWS incident → worker → blocked access → datasource missing → LINE → schedule → failed round → critical signal → proof incomplete → ready) ย้ายไป API เป็น single source ที่ `apps/api/src/owner-cockpit.ts` (pure functions + 22 unit tests) — v1 และ v2 ใช้ logic เดียวกัน
+- API `/api/owner/workbench` คืน `cockpit` object (`next_action`, `health_matrix[]`, `proof_strips[]`, `active_tenant_count`)
+- API `/api/owner/tenants/:id/store-setup` คืน `proof_strip` + `latest_javaws_failure` เพิ่มเติม
+- web component `OwnerV2Cockpit.tsx` render 3 blocks + proof board; `OwnerV2StoreDetail` แสดง JavaWS incident + proof strip
+
+Cutover (2026-06-19):
+
+- root `/`, signin redirect, UserDropdown, command-center links ทั้งหมดชี้ `/owner-v2` แล้ว
+- `/owner` (v1) คงไว้ทำงานได้ (soft-deprecate, ไม่ลบ) เผื่อต้องย้อนกลับ
+- QA บน tunnel ก่อน deploy production
+
 ## Implementation Update 2026-06-15
 
 - Phase 1 เริ่มแล้วใน `apps/web/src/components/owner/OwnerPortal.tsx`

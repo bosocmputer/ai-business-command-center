@@ -467,7 +467,7 @@ export default function CommandCenterDashboard() {
           </div>
           <a
             className="inline-flex h-10 items-center justify-center rounded-lg border border-warning-300 bg-white px-4 text-sm font-semibold text-warning-800 hover:bg-warning-100 dark:border-warning-500/40 dark:bg-transparent dark:text-warning-100"
-            href="/owner"
+            href="/owner-v2"
           >
             ไปหน้า Owner Admin
           </a>

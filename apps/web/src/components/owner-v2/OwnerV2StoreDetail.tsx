@@ -535,10 +535,110 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
               }
             />
           </div>
+          {detail.latest_javaws_failure ? (
+            <div className="mt-5">
+              <Notice
+                tone="error"
+                title={`JavaWS incident ล่าสุด: ${detail.latest_javaws_failure.failure_phase ?? "unknown"}`}
+                text={`รายงาน ${detail.latest_javaws_failure.report_key} phase ${detail.latest_javaws_failure.failure_phase ?? "unknown"} · ${detail.latest_javaws_failure.safe_error_message ?? "ไม่มีรายละเอียดปลอดภัย"} · ${formatDateTime(detail.latest_javaws_failure.finished_at)}`}
+              />
+            </div>
+          ) : null}
+          {detail.proof_strip.eligible ? (
+            <div className="mt-5">
+              <StoreProofStrip strip={detail.proof_strip} />
+            </div>
+          ) : null}
         </PanelBody>
       </Panel>
     </div>
   );
+}
+
+function StoreProofStrip({
+  strip,
+}: {
+  strip: OwnerV2StoreSetupPayload["proof_strip"];
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            Proof 7 วัน
+          </p>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            วันที่มีรอบส่งจริงของร้านนี้ ย้อนหลัง 7 วัน
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge color="light" size="sm">
+            {strip.evidence_count}/7 วันสำเร็จ
+          </Badge>
+          {strip.missing_round_count > 0 ? (
+            <Badge color="warning" size="sm">
+              ขาด {strip.missing_round_count} รอบ
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {strip.days.map((day) => (
+          <span
+            className={`inline-flex h-9 min-w-9 items-center justify-center rounded-md px-2 text-theme-xs font-medium ${storeProofDayClass(
+              day.status,
+            )}`}
+            key={day.day}
+            title={`Day ${day.day} · ${day.date} · ${storeProofDayLabel(day.status)}`}
+          >
+            D{day.day}
+          </span>
+        ))}
+      </div>
+      {strip.latest_success_at || strip.latest_problem_at ? (
+        <p className="mt-3 text-theme-xs text-gray-500 dark:text-gray-400">
+          {strip.latest_success_at
+            ? `สำเร็จล่าสุด ${formatDateTime(strip.latest_success_at)}`
+            : "ยังไม่มีรอบสำเร็จ"}
+          {strip.latest_problem_at
+            ? ` · ปัญหาล่าสุด ${formatDateTime(strip.latest_problem_at)}`
+            : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function storeProofDayClass(status: OwnerV2StoreSetupPayload["proof_strip"]["days"][number]["status"]) {
+  switch (status) {
+    case "success":
+      return "bg-success-500/15 text-success-600 dark:text-success-400";
+    case "partial":
+      return "bg-blue-light-500/15 text-blue-light-600 dark:text-blue-light-400";
+    case "failed":
+      return "bg-error-500/15 text-error-600 dark:text-error-400";
+    case "missing":
+      return "bg-warning-500/15 text-warning-600 dark:text-warning-400";
+    default:
+      return "bg-gray-200 text-gray-500 dark:bg-white/[0.06] dark:text-gray-400";
+  }
+}
+
+function storeProofDayLabel(
+  status: OwnerV2StoreSetupPayload["proof_strip"]["days"][number]["status"],
+) {
+  switch (status) {
+    case "success":
+      return "สำเร็จ";
+    case "partial":
+      return "รันแล้ว ยังไม่ครบ";
+    case "failed":
+      return "ล้มเหลว";
+    case "missing":
+      return "ไม่มีรอบ";
+    default:
+      return "ยังไม่ทราบ";
+  }
 }
 
 function Panel({ children }: { children: ReactNode }) {

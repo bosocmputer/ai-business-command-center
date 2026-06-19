@@ -66,6 +66,68 @@ export type OwnerV2WorkbenchPayload = {
     worker_status: string | null;
     telegram_ready: boolean;
   };
+  cockpit: OwnerV2Cockpit;
+};
+
+export type OwnerV2CockpitTone = "error" | "warning" | "info" | "success";
+
+export type OwnerV2CockpitNextAction = {
+  title: string;
+  description: string;
+  action_label: string;
+  href: string;
+  tone: OwnerV2CockpitTone;
+  tenant_id: TenantId | null;
+  tenant_name: string | null;
+};
+
+export type OwnerV2CockpitHealthCell = {
+  label: string;
+  tone: OwnerV2CockpitTone | "light";
+};
+
+export type OwnerV2CockpitHealthMatrixRow = {
+  tenant_id: TenantId;
+  tenant_name: string;
+  status: Tenant["status"];
+  next_action_label: string;
+  sml: OwnerV2CockpitHealthCell;
+  line: OwnerV2CockpitHealthCell;
+  schedule: OwnerV2CockpitHealthCell;
+  latest_run: OwnerV2CockpitHealthCell;
+  incident: OwnerV2CockpitHealthCell;
+  signals: OwnerV2CockpitHealthCell;
+  proof: OwnerV2CockpitHealthCell;
+  href: string;
+};
+
+export type OwnerV2ProofDay = {
+  day: number;
+  date: string;
+  status: "success" | "partial" | "failed" | "missing" | "unknown";
+};
+
+export type OwnerV2ProofStrip = {
+  tenant_id: TenantId;
+  eligible: boolean;
+  days: OwnerV2ProofDay[];
+  scheduled_run_count: number;
+  scheduled_success_count: number;
+  scheduled_failed_count: number;
+  line_delivery_count: number;
+  line_delivery_success_count: number;
+  missing_round_count: number;
+  evidence_count: number;
+  latest_checked_at: string | null;
+  latest_success_at: string | null;
+  latest_problem_at: string | null;
+};
+
+export type OwnerV2Cockpit = {
+  next_action: OwnerV2CockpitNextAction;
+  health_matrix: OwnerV2CockpitHealthMatrixRow[];
+  proof_strips: OwnerV2ProofStrip[];
+  active_tenant_count: number;
 };
 
 export type OwnerV2DatasourceStatus = {
@@ -291,4 +353,12 @@ export type OwnerV2StoreSetupPayload = {
   notification_rules: OwnerV2NotificationSetupPayload["rules"];
   business_signals: BusinessSignalRecord[];
   readiness: OwnerV2StoreSetupReadiness;
+  proof_strip: OwnerV2ProofStrip;
+  latest_javaws_failure: {
+    report_key: ReportKey;
+    failure_kind: string | null;
+    failure_phase: string | null;
+    finished_at: string | null;
+    safe_error_message: string | null;
+  } | null;
 };

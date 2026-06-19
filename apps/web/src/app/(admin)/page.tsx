@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function DashboardHome() {
-  redirect("/owner");
+  redirect("/owner-v2");
 }
