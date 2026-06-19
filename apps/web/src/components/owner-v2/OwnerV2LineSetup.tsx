@@ -157,6 +157,20 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     return () => controller.abort();
   }, [load]);
 
+  // Auto-load the recipient library when the tenant has no targets yet, so the
+  // admin can immediately pick a recipient instead of hunting for the button.
+  // Keeps the manual lazy path for tenants that already have targets.
+  useEffect(() => {
+    if (
+      state.status === "success" &&
+      state.data.targets.length === 0 &&
+      recipientsState.status === "idle"
+    ) {
+      void loadRecipients();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status, state.status === "success" ? state.data.targets.length : 0]);
+
   const setup = state.status === "success" ? state.data : null;
   const channels = setup?.channels ?? emptyChannels;
   const targets = setup?.targets ?? emptyTargets;
@@ -580,25 +594,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               title={`LINE OA ของ ${state.data.tenant.name}`}
             />
             <PanelBody>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <Fact
-                  label="LINE OA ส่งได้"
-                  tone={state.data.readiness.send_ready_channels > 0 ? "success" : "warning"}
-                  value={`${state.data.readiness.send_ready_channels}/${state.data.readiness.total_channels}`}
-                />
-                <Fact
-                  label="ผู้รับพร้อมส่ง"
-                  tone={state.data.readiness.ready_targets > 0 ? "success" : "warning"}
-                  value={`${state.data.readiness.ready_targets}/${state.data.readiness.total_targets}`}
-                />
-                <Fact
-                  label="Token/secret พร้อม"
-                  tone={secretReadyChannels.length > 0 ? "success" : "warning"}
-                  value={`${secretReadyChannels.length}/${channels.length}`}
-                />
-              </div>
-
-              <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {readinessChecks.map((check) => (
                   <ReadinessItem check={check} key={check.label} />
                 ))}
@@ -914,34 +910,39 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
             </PanelBody>
           </Panel>
 
-          <Panel>
-            <PanelHeader
-              description="ไปต่อเมื่อมีผู้รับพร้อมส่งแล้ว"
-              title="ขั้นถัดไป"
-            />
-            <PanelBody className="space-y-3">
-              <NextAction
-                href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
-                ok={readyTargets.length > 0}
-                text={
-                  readyTargets.length
-                    ? "ตรวจสิทธิ์รายงานตาม role ของผู้รับ"
-                    : "อนุมัติผู้รับและเปิดรับแผนแจ้งเตือนก่อน"
-                }
-                title="สิทธิ์รายงาน"
+          {readyTargets.length > 0 ? (
+            <Panel>
+              <PanelHeader
+                description="ผู้รับพร้อมส่งแล้ว ไปตั้งค่าขั้นถัดไปได้"
+                title="พร้อมไปต่อ"
               />
-              <NextAction
-                href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
-                ok={readyTargets.length > 0}
-                text={
-                  readyTargets.length
-                    ? "ผูกผู้รับเข้ากับแผนแจ้งเตือนของร้าน"
-                    : "ยังตั้งแผนส่งจริงไม่ได้ เพราะไม่มีผู้รับพร้อมส่ง"
-                }
-                title="แผนแจ้งเตือน"
-              />
-            </PanelBody>
-          </Panel>
+              <PanelBody className="space-y-3">
+                <NextAction
+                  href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
+                  ok
+                  text="ตรวจสิทธิ์รายงานตาม role ของผู้รับ"
+                  title="สิทธิ์รายงาน"
+                />
+                <NextAction
+                  href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/notifications`}
+                  ok
+                  text="ผูกผู้รับเข้ากับแผนแจ้งเตือนของร้าน"
+                  title="แผนแจ้งเตือน"
+                />
+              </PanelBody>
+            </Panel>
+          ) : (
+            <Panel>
+              <PanelHeader title="ยังไปต่อไม่ได้" />
+              <PanelBody>
+                <Notice
+                  tone="warning"
+                  title="ยังไม่มีผู้รับพร้อมส่ง"
+                  text="อนุมัติผู้รับและเปิดรับสรุปประจำวันก่อน จึงจะตั้งสิทธิ์รายงานหรือแผนแจ้งเตือนได้"
+                />
+              </PanelBody>
+            </Panel>
+          )}
         </div>
       </div>
     </div>

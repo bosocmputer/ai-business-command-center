@@ -1491,11 +1491,8 @@ function getActionBlockedReason(input: {
   if (input.dirty) {
     return "มีการแก้ไขยังไม่บันทึก กรุณาบันทึกก่อนรัน";
   }
-  if (input.form.manualDate && !input.form.manualTime) {
-    return "เลือกเวลารอบส่งให้ครบ หรือเว้นวันที่และเวลาไว้เพื่อใช้เวลาปัจจุบัน";
-  }
-  if (!input.form.manualDate && input.form.manualTime) {
-    return "เลือกวันที่รอบส่งให้ครบ หรือเว้นวันที่และเวลาไว้เพื่อใช้เวลาปัจจุบัน";
+  if (Boolean(input.form.manualDate) !== Boolean(input.form.manualTime)) {
+    return "เลือกวันที่และเวลารอบส่งให้ครบคู่ หรือเว้นทั้งคู่ไว้เพื่อใช้เวลาปัจจุบัน";
   }
   if (input.selectedTargetBlockedReason) {
     return input.selectedTargetBlockedReason;
