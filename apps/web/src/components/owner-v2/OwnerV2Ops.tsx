@@ -27,13 +27,24 @@ type OperationsStatus = {
     configured?: boolean;
     last_backup_at?: string | null;
     recommendation?: string | null;
+    system_store?: string | null;
   };
   operational_alerts?: {
     telegram?: {
       status?: {
         configured?: boolean;
+        encryption_configured?: boolean;
+        verified?: boolean;
         bot_username?: string | null;
-        targets?: Array<{ enabled: boolean }>;
+        bot_first_name?: string | null;
+        updated_at?: string | null;
+        targets?: Array<{
+          id?: string;
+          display_name?: string | null;
+          target_id_masked?: string | null;
+          enabled: boolean;
+          updated_at?: string | null;
+        }>;
       };
       deliveries?: Array<{
         alert_type: string;
@@ -60,6 +71,66 @@ type OperationsStatus = {
       duration_ms: number | null;
     }>;
   };
+  audit_logs?: AuditLogEntry[];
+  tenants?: AuditTenantEntry[];
+};
+
+type AuditLogEntry = {
+  id?: number;
+  tenant_id: string | null;
+  actor_id: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+type AuditTenantEntry = {
+  tenant_id: string;
+  tenant_name: string;
+  tenant_status?: string;
+  datasource_configured?: boolean;
+  line_configured?: boolean;
+  line_target_masked?: string | null;
+  latest_report_run_at?: string | null;
+  latest_line_delivery_at?: string | null;
+  latest_line_delivery_status?: string | null;
+};
+
+type TelegramChatPreview = {
+  chat_id: string;
+  chat_id_masked: string;
+  display_name: string;
+  type: string;
+};
+
+const SMOKE_TEST_ALERTS: Array<{ alertType: string; label: string }> = [
+  { alertType: "incident_dry_run", label: "Incident dry-run" },
+  { alertType: "javaws_diagnostic", label: "JavaWS diagnostic" },
+  { alertType: "heavy_report_slow", label: "Slow heavy report" },
+  { alertType: "notification_summary", label: "Summary" },
+];
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  datasource_test_succeeded: "ทดสอบ SML สำเร็จ",
+  datasource_test_failed: "ทดสอบ SML ไม่สำเร็จ",
+  line_channel_created: "เพิ่ม LINE OA",
+  line_channel_updated: "แก้ไข LINE OA",
+  line_channel_secrets_updated: "บันทึก LINE secret",
+  line_target_assigned: "เพิ่มผู้รับเข้าร้าน",
+  line_target_assignment_updated: "อัปเดตผู้รับเข้าร้าน",
+  line_target_approved: "อนุมัติผู้รับ LINE",
+  line_target_updated: "แก้สิทธิ์ผู้รับ LINE",
+  line_delivery_succeeded: "ส่ง LINE สำเร็จ",
+  line_delivery_failed: "ส่ง LINE ไม่สำเร็จ",
+  morning_brief_report_run_requested: "รันแผนแจ้งเตือน",
+  report_run_requested: "รันรายงาน",
+  report_run_succeeded: "รันรายงานสำเร็จ",
+  report_run_failed: "รันรายงานไม่สำเร็จ",
+  report_validation_signed_off: "รับรองยอดรายงาน",
+  owner_tenant_created: "เพิ่มร้านค้า",
+  owner_tenant_updated: "แก้ไขร้านค้า",
 };
 
 export default function OwnerV2Ops() {
@@ -208,6 +279,22 @@ export default function OwnerV2Ops() {
           )}
         />
       </section>
+
+      {data?.backup && !data.backup.configured && data.backup.recommendation ? (
+        <OpsNotice
+          text={data.backup.recommendation}
+          title="แนะนำให้ตั้งค่า backup"
+          tone="warning"
+        />
+      ) : null}
+
+      <TelegramOpsManager status={data?.operational_alerts?.telegram?.status ?? null} />
+
+      {data?.tenants?.length ? (
+        <PerTenantAudit tenants={data.tenants} />
+      ) : null}
+
+      <AuditLogPanel auditLogs={data?.audit_logs ?? []} />
     </div>
   );
 }
@@ -518,6 +605,358 @@ function statusTone(status: string) {
     return "error";
   }
   return "warning";
+}
+
+function AuditLogPanel({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          Audit log ล่าสุด
+        </h3>
+        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
+          หลักฐานการรันรายงาน การส่ง LINE การอนุมัติผู้รับ และการรับรองยอด
+        </p>
+      </div>
+      {auditLogs.length ? (
+        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          {auditLogs.slice(0, 12).map((entry) => (
+            <div
+              className="grid gap-1 py-3 lg:grid-cols-[200px_minmax(0,1fr)]"
+              key={`${entry.id ?? entry.created_at}-${entry.action}-${entry.target_id ?? ""}`}
+            >
+              <div>
+                <p className="text-sm font-medium text-gray-800 dark:text-white/90">
+                  {formatAuditAction(entry.action)}
+                </p>
+                <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                  {formatDateTime(entry.created_at)}
+                </p>
+              </div>
+              <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+                <p>
+                  ร้าน: {entry.tenant_id ?? "-"}
+                  {entry.target_id ? ` · ${entry.target_type}: ${entry.target_id}` : ""}
+                </p>
+                <p className="mt-0.5">{formatAuditMetadata(entry.metadata_json)}</p>
+                <span
+                  className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-theme-xs font-medium ${auditActionToneClass(
+                    entry.action,
+                  )}`}
+                >
+                  {entry.action}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState text="ยังไม่มี audit log ล่าสุด" />
+      )}
+    </section>
+  );
+}
+
+function TelegramOpsManager({
+  status,
+}: {
+  status:
+    | {
+        configured?: boolean;
+        encryption_configured?: boolean;
+        verified?: boolean;
+        bot_username?: string | null;
+        bot_first_name?: string | null;
+        updated_at?: string | null;
+        targets?: Array<{
+          id?: string;
+          display_name?: string | null;
+          target_id_masked?: string | null;
+          enabled: boolean;
+          updated_at?: string | null;
+        }>;
+      }
+    | null
+    | undefined;
+}) {
+  const [botToken, setBotToken] = useState("");
+  const [chats, setChats] = useState<TelegramChatPreview[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [result, setResult] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+  const targets = status?.targets ?? [];
+  const hasTarget = targets.some((target) => target.enabled);
+
+  async function runAction(key: string, fn: () => Promise<void>) {
+    if (busy !== null) {
+      return;
+    }
+    setBusy(key);
+    setResult(null);
+    try {
+      await fn();
+    } catch (error) {
+      setResult({
+        tone: "error",
+        message: error instanceof Error ? error.message : "action ไม่สำเร็จ",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveToken(event: React.FormEvent) {
+    event.preventDefault();
+    await runAction("token", async () => {
+      await ownerV2Fetch(`/api/owner/operational-alerts/telegram/secrets`, {
+        method: "PUT",
+        body: { bot_token: botToken.trim() },
+      });
+      setBotToken("");
+      setResult({ tone: "success", message: "บันทึก bot token แล้ว" });
+    });
+  }
+
+  async function loadChats() {
+    await runAction("chats", async () => {
+      const data = await ownerV2Fetch<{ chats: TelegramChatPreview[] }>(
+        `/api/owner/operational-alerts/telegram/updates`,
+      );
+      setChats(data.chats ?? []);
+    });
+  }
+
+  async function saveTarget(chat: TelegramChatPreview) {
+    await runAction(`target-${chat.chat_id}`, async () => {
+      await ownerV2Fetch(`/api/owner/operational-alerts/telegram/targets`, {
+        method: "POST",
+        body: {
+          chat_id: chat.chat_id,
+          display_name: chat.display_name,
+          enabled: true,
+        },
+      });
+      setResult({ tone: "success", message: `เพิ่ม ${chat.display_name} เป็นผู้รับแล้ว` });
+    });
+  }
+
+  async function sendTest() {
+    await runAction("test", async () => {
+      await ownerV2Fetch(`/api/owner/operational-alerts/telegram/test`, {
+        method: "POST",
+        body: { message: "Owner UI test" },
+      });
+      setResult({ tone: "success", message: "ส่ง test alert แล้ว" });
+    });
+  }
+
+  async function runSmoke(alertType: string) {
+    await runAction(`smoke-${alertType}`, async () => {
+      await ownerV2Fetch(`/api/owner/operational-alerts/smoke-test`, {
+        method: "POST",
+        body: {
+          alert_type: alertType,
+          severity: alertType === "notification_summary" ? "info" : "warning",
+          scheduled_time: "08:00",
+          report_key:
+            alertType === "javaws_diagnostic" ? "sales_goods_services" : undefined,
+        },
+      });
+      setResult({ tone: "success", message: `ส่ง smoke test (${alertType}) แล้ว` });
+    });
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          Telegram ops alert
+        </h3>
+        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
+          ตั้ง bot token โหลด chat ที่จะรับแจ้งเตือน และทดสอบก่อนเปิดใช้จริง
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Fact label="Bot token" tone={status?.configured ? "success" : "warning"} value={status?.configured ? "ตั้งแล้ว" : "ยังไม่ตั้ง"} />
+        <Fact label="Encryption" tone={status?.encryption_configured ? "success" : "warning"} value={status?.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"} />
+        <Fact label="ผู้รับ" tone={hasTarget ? "success" : "warning"} value={`${targets.filter((t) => t.enabled).length}/${targets.length} เปิด`} />
+      </div>
+
+      <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={saveToken}>
+        <input
+          className="owner-v2-input"
+          onChange={(event) => setBotToken(event.target.value)}
+          placeholder="Telegram bot token (ไม่แสดงค่าที่บันทึกไว้)"
+          type="password"
+          value={botToken}
+        />
+        <Button disabled={busy === "token" || !botToken.trim()} type="submit" size="sm">
+          {busy === "token" ? "กำลังบันทึก..." : "บันทึก token"}
+        </Button>
+      </form>
+
+      <div className="mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Chat ที่จะรับแจ้งเตือน</p>
+          <Button disabled={busy === "chats"} onClick={() => void loadChats()} size="sm" type="button" variant="outline">
+            {busy === "chats" ? "กำลังโหลด..." : "โหลด chats"}
+          </Button>
+        </div>
+        {chats.length ? (
+          <div className="mt-2 divide-y divide-gray-100 dark:divide-gray-800">
+            {chats.slice(0, 8).map((chat) => (
+              <div className="flex items-center justify-between gap-2 py-2" key={chat.chat_id}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{chat.display_name}</p>
+                  <p className="truncate text-theme-xs text-gray-500 dark:text-gray-400">{chat.chat_id_masked} · {chat.type}</p>
+                </div>
+                <Button disabled={busy !== null} onClick={() => void saveTarget(chat)} size="sm" type="button" variant="outline">
+                  เลือก
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-theme-xs text-gray-500 dark:text-gray-400">กด “โหลด chats” เพื่อดึงรายการจาก Telegram</p>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button disabled={busy === "test"} onClick={() => void sendTest()} size="sm" type="button">
+          {busy === "test" ? "กำลังส่ง..." : "ส่ง test alert"}
+        </Button>
+        {SMOKE_TEST_ALERTS.map((smoke) => (
+          <Button
+            disabled={busy !== null}
+            key={smoke.alertType}
+            onClick={() => void runSmoke(smoke.alertType)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {busy === `smoke-${smoke.alertType}` ? "..." : smoke.label}
+          </Button>
+        ))}
+      </div>
+
+      {result ? (
+        <p className={`mt-3 text-theme-sm ${result.tone === "error" ? "text-error-600" : "text-success-600"}`}>
+          {result.message}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function PerTenantAudit({ tenants }: { tenants: AuditTenantEntry[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          สถานะร้านล่าสุด
+        </h3>
+        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
+          รอบรายงาน การส่ง LINE และสถานะ datasource ต่อร้าน
+        </p>
+      </div>
+      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+        {tenants.map((tenant) => (
+          <div className="grid gap-2 py-3 lg:grid-cols-[minmax(180px,1fr)_170px_170px_140px] lg:items-center" key={tenant.tenant_id}>
+            <div className="min-w-0">
+              <p className="font-semibold text-gray-900 dark:text-white">{tenant.tenant_name}</p>
+              <p className="mt-1 truncate text-theme-xs text-gray-500 dark:text-gray-400">{tenant.tenant_id}</p>
+            </div>
+            <Fact label="รันรายงานล่าสุด" value={tenant.latest_report_run_at ? formatDateTime(tenant.latest_report_run_at) : "ยังไม่มี"} />
+            <Fact label="ส่ง LINE ล่าสุด" value={tenant.latest_line_delivery_at ? formatDateTime(tenant.latest_line_delivery_at) : "ยังไม่มี"} />
+            <Badge color={tenant.latest_line_delivery_status === "success" ? "success" : "light"} size="sm">
+              {formatLineDeliveryStatus(tenant.latest_line_delivery_status)}
+            </Badge>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Fact({ label, tone, value }: { label: string; tone?: "success" | "warning" | "error"; value: string }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      {tone ? (
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+          <Badge color={tone} size="sm">
+            {tone === "success" ? "ปกติ" : tone === "warning" ? "ต้องดู" : "สำคัญ"}
+          </Badge>
+        </div>
+      ) : (
+        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      )}
+      <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">{value || "-"}</p>
+    </div>
+  );
+}
+
+function formatAuditAction(action: string) {
+  return AUDIT_ACTION_LABELS[action] ?? action;
+}
+
+function auditActionTone(action: string): "success" | "warning" | "error" | "light" {
+  if (action.includes("failed")) {
+    return "error";
+  }
+  if (action.includes("signed_off") || action.includes("succeeded")) {
+    return "success";
+  }
+  if (action.includes("updated") || action.includes("requested")) {
+    return "warning";
+  }
+  return "light";
+}
+
+function auditActionToneClass(action: string) {
+  const tone = auditActionTone(action);
+  const classes: Record<string, string> = {
+    error: "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500",
+    light: "bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-white/80",
+    success: "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500",
+    warning: "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400",
+  };
+  return classes[tone] ?? classes.light;
+}
+
+function formatAuditMetadata(metadata: Record<string, unknown>) {
+  const parts: string[] = [];
+  const entries: Array<[string, unknown]> = [
+    ["safe_error_message", metadata.safe_error_message],
+    ["date_from", metadata.date_from],
+    ["date_to", metadata.date_to],
+    ["difference_amount", metadata.difference_amount],
+    ["accepted", metadata.accepted],
+    ["access_profile_key", metadata.access_profile_key],
+    ["enabled", metadata.enabled],
+  ];
+  for (const [key, value] of entries) {
+    if (value !== null && value !== undefined && value !== "") {
+      parts.push(`${key}: ${String(value)}`);
+    }
+  }
+  return parts.length ? parts.join(" · ") : "ไม่มี metadata เพิ่มเติม";
+}
+
+function formatLineDeliveryStatus(status?: string | null) {
+  if (!status) {
+    return "ยังไม่ทราบสถานะ";
+  }
+  if (status === "success") {
+    return "ส่งสำเร็จ";
+  }
+  if (status === "failed") {
+    return "ส่งไม่สำเร็จ";
+  }
+  if (status === "skipped") {
+    return "ข้ามการส่ง";
+  }
+  return status;
 }
 
 function formatWorker(worker?: OperationsStatus["worker"]) {
