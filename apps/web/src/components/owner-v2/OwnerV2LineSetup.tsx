@@ -436,6 +436,35 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
   }
 
+  async function testSendTarget(target: LineTargetRecord) {
+    if (busy !== null) {
+      return;
+    }
+    setBusy(`test-send-${target.id}`);
+    setMessage(null);
+    try {
+      await ownerV2Fetch(
+        `/api/line-targets/${encodeURIComponent(target.id)}/test-send`,
+        {
+          method: "POST",
+          body: { mode: "send" },
+        },
+      );
+      setMessage({
+        tone: "success",
+        text: `ส่งข้อความทดสอบไปยัง ${target.display_name} แล้ว ตรวจ LINE ของผู้รับ`,
+      });
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error ? error.message : "ส่งข้อความทดสอบไม่สำเร็จ",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function updateTargetProfile(target: LineTargetRecord) {
     const profileKey = targetProfileDrafts[target.id] ?? target.access_profile_key;
     if (profileKey === target.access_profile_key) {
@@ -688,6 +717,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   channels={channels}
                   onApproveTarget={approveTarget}
                   onEnableMorningBriefAction={enableMorningBriefAction}
+                  onTestSendTarget={testSendTarget}
                   onTargetProfileChange={(targetId, profileKey) =>
                     setTargetProfileDrafts((current) => ({
                       ...current,
@@ -1045,6 +1075,7 @@ function TargetTable({
   onApproveTarget,
   onEnableMorningBriefAction,
   onTargetProfileChange,
+  onTestSendTarget,
   onToggleTarget,
   onUpdateTargetProfile,
   targetProfileDrafts,
@@ -1055,6 +1086,7 @@ function TargetTable({
   onApproveTarget: (target: LineTargetRecord) => void;
   onEnableMorningBriefAction: (target: LineTargetRecord) => void;
   onTargetProfileChange: (targetId: string, profileKey: LineAccessProfileKey) => void;
+  onTestSendTarget: (target: LineTargetRecord) => void;
   onToggleTarget: (target: LineTargetRecord) => void;
   onUpdateTargetProfile: (target: LineTargetRecord) => void;
   targetProfileDrafts: Record<string, LineAccessProfileKey>;
@@ -1201,6 +1233,17 @@ function TargetTable({
                           variant="outline"
                         >
                           เปิดรับสรุปประจำวัน
+                        </Button>
+                      ) : null}
+                      {target.approved && target.enabled ? (
+                        <Button
+                          disabled={busy !== null}
+                          onClick={() => onTestSendTarget(target)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          {busy === `test-send-${target.id}` ? "กำลังส่ง..." : "ส่งทดสอบ"}
                         </Button>
                       ) : null}
                     </div>

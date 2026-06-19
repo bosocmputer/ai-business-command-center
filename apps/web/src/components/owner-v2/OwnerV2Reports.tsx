@@ -429,7 +429,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           <PanelHeader title="ผลล่าสุดของรายงานที่เลือก" />
           <PanelBody>
             {selectedRun ? (
-              <RunDetail run={selectedRun} snapshot={selectedSnapshot ?? null} />
+              <RunDetail run={selectedRun} snapshot={selectedSnapshot ?? null} tenantId={tenantId} />
             ) : (
               <EmptyState
                 detail="ยังไม่มี report run ของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม"
@@ -517,9 +517,11 @@ function ReportRow({
 function RunDetail({
   run,
   snapshot,
+  tenantId,
 }: {
   run: ReportRunRecord;
   snapshot: OwnerV2ReportSetupPayload["latest_snapshots"][number] | null;
+  tenantId: string;
 }) {
   return (
     <div className="space-y-3">
@@ -569,7 +571,153 @@ function RunDetail({
           {run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจ SML JavaWS แล้วลองใหม่"}
         </Notice>
       ) : null}
+      {run.report_key === "sales_goods_services" && run.status === "success" ? (
+        <ReportSignoffPanel run={run} tenantId={tenantId} />
+      ) : null}
     </div>
+  );
+}
+
+function ReportSignoffPanel({
+  run,
+  tenantId,
+}: {
+  run: ReportRunRecord;
+  tenantId: string;
+}) {
+  const [signedBy, setSignedBy] = useState("");
+  const [systemTotal, setSystemTotal] = useState("");
+  const [referenceTotal, setReferenceTotal] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+
+  const system = Number(systemTotal || 0);
+  const reference = Number(referenceTotal || 0);
+  const difference = Number.isFinite(reference) && Number.isFinite(system) ? reference - system : 0;
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy) {
+      return;
+    }
+    if (signedBy.trim().length < 2) {
+      setResult({ tone: "error", text: "ระบุชื่อผู้รับรองอย่างน้อย 2 ตัวอักษร" });
+      return;
+    }
+    setBusy(true);
+    setResult(null);
+    try {
+      await ownerV2Fetch(
+        `/api/owner/tenants/${encodeURIComponent(tenantId)}/reports/sales_goods_services/validation-signoff`,
+        {
+          method: "POST",
+          body: {
+            run_id: run.id,
+            date_from: run.params.date_from,
+            date_to: run.params.date_to,
+            system_total: system,
+            reference_total: reference,
+            signed_by: signedBy.trim(),
+            note: note.trim() || undefined,
+          },
+        },
+      );
+      const verdict =
+        Math.abs(difference) < 1 ? "ตรง" : `ต่าง ${difference.toLocaleString("th-TH")} บาท`;
+      setResult({
+        tone: "success",
+        text: `บันทึกการรับรองแล้ว (${verdict})`,
+      });
+    } catch (error) {
+      setResult({
+        tone: "error",
+        text: error instanceof Error ? error.message : "บันทึกการรับรองไม่สำเร็จ",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+      onSubmit={submit}
+    >
+      <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+        รับรองยอดรายงาน (validation sign-off)
+      </p>
+      <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+        เทียบยอดขายกับระบบอื่นก่อนส่งผู้บริหาร
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            ชื่อผู้รับรอง
+          </span>
+          <input
+            className="owner-v2-input"
+            onChange={(event) => setSignedBy(event.target.value)}
+            placeholder="เช่น คุณสมชาย"
+            value={signedBy}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            ยอดในระบบ (บาท)
+          </span>
+          <input
+            className="owner-v2-input"
+            inputMode="numeric"
+            onChange={(event) => setSystemTotal(event.target.value)}
+            placeholder="0"
+            type="number"
+            value={systemTotal}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            ยอดอ้างอิง (บาท)
+          </span>
+          <input
+            className="owner-v2-input"
+            inputMode="numeric"
+            onChange={(event) => setReferenceTotal(event.target.value)}
+            placeholder="0"
+            type="number"
+            value={referenceTotal}
+          />
+        </label>
+      </div>
+      <label className="mt-3 block">
+        <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+          หมายเหตุ
+        </span>
+        <textarea
+          className="owner-v2-input min-h-20"
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="ถ้าต่างให้บอกสาเหตุ เช่น ยังไม่ปิดรอบ"
+          value={note}
+        />
+      </label>
+      {referenceTotal && systemTotal ? (
+        <p className={`mt-2 text-theme-xs ${Math.abs(difference) < 1 ? "text-success-600" : "text-warning-600"}`}>
+          {Math.abs(difference) < 1
+            ? "ยอดตรง"
+            : `ต่าง ${difference.toLocaleString("th-TH")} บาท`}
+        </p>
+      ) : null}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button disabled={busy} size="sm" type="submit">
+          {busy ? "กำลังบันทึก..." : "บันทึกการรับรอง"}
+        </Button>
+        {result ? (
+          <span className={`text-theme-xs ${result.tone === "error" ? "text-error-600" : "text-success-600"}`}>
+            {result.text}
+          </span>
+        ) : null}
+      </div>
+    </form>
   );
 }
 
