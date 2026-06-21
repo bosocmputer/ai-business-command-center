@@ -32,9 +32,6 @@ const emptyTenants: OwnerV2Tenant[] = [];
 const primaryActionClass =
   "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
 
-const secondaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
-
 export default function OwnerV2StoreList() {
   const [state, setState] = useState<StoreListState>({ status: "loading" });
   const [query, setQuery] = useState("");
@@ -441,17 +438,6 @@ function SummaryMetric({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-white p-3 dark:bg-gray-900">
-      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-gray-900 dark:text-white">
-        {value}
-      </p>
-    </div>
-  );
-}
-
 function EmptyState({
   action,
   detail,
@@ -583,14 +569,4 @@ function tenantStatusColor(
     return "error";
   }
   return "light";
-}
-
-function formatRunStatus(status?: string | null) {
-  const labels: Record<string, string> = {
-    failed: "ล้มเหลว",
-    queued: "รอรัน",
-    running: "กำลังรัน",
-    success: "สำเร็จ",
-  };
-  return status ? labels[status] ?? status : "ยังไม่มี";
 }

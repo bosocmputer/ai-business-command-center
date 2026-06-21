@@ -18,11 +18,26 @@ const secondaryActionClass =
   "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
 
 export default function OwnerV2Cockpit({ cockpit }: { cockpit: OwnerV2Cockpit }) {
+  // Defensive guard: if a future API change ever returns a cockpit without
+  // next_action (or the whole payload null), rendering the panels below would
+  // throw and blank the entire Workbench. Fail to a neutral fallback instead.
+  if (!cockpit || !cockpit.next_action) {
+    return (
+      <section className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03]">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          ยังไม่พร้อมแสดงสถานะ
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          ระบบกำลังคำนวณสถานะและลำดับความสำคัญ ลองรีเฟรชในอีกครู่
+        </p>
+      </section>
+    );
+  }
   return (
     <div className="space-y-5">
       <NextActionPanel cockpit={cockpit} />
       <StoreHealthMatrix cockpit={cockpit} />
-      <ProofStripBoard proofStrips={cockpit.proof_strips} />
+      <ProofStripBoard proofStrips={cockpit.proof_strips ?? []} />
     </div>
   );
 }
@@ -68,7 +83,7 @@ function NextActionPanel({ cockpit }: { cockpit: OwnerV2Cockpit }) {
 }
 
 function StoreHealthMatrix({ cockpit }: { cockpit: OwnerV2Cockpit }) {
-  if (!cockpit.health_matrix.length) {
+  if (!cockpit.health_matrix?.length) {
     return null;
   }
   return (
@@ -83,7 +98,7 @@ function StoreHealthMatrix({ cockpit }: { cockpit: OwnerV2Cockpit }) {
           </p>
         </div>
         <Badge color="light">
-          {cockpit.active_tenant_count.toLocaleString("th-TH")} ร้าน active
+          {(cockpit.active_tenant_count ?? 0).toLocaleString("th-TH")} ร้าน active
         </Badge>
       </div>
       <div className="overflow-x-auto">
@@ -214,7 +229,7 @@ function ProofStripRow({ strip }: { strip: OwnerV2ProofStrip }) {
           className="text-sm font-semibold text-gray-900 transition hover:text-brand-600 dark:text-white"
           href={`/owner-v2/stores/${encodeURIComponent(strip.tenant_id)}`}
         >
-          {strip.tenant_id}
+          {strip.tenant_name ?? strip.tenant_id}
         </Link>
         <div className="flex flex-wrap gap-2">
           <Badge color="light" size="sm">

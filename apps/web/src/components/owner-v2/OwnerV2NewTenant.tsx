@@ -112,12 +112,20 @@ export default function OwnerV2NewTenant() {
         { method: "POST", body: buildPayload() },
       );
       setPreview(data);
+      // Guard the dry-run response slices: the API could omit checks/warnings
+      // on edge cases (e.g. partial errors), and the unguarded .every would
+      // throw and leave the preview stuck.
+      const checks = data.checks ?? [];
+      const warnings = data.warnings ?? [];
       setMessage({
-        tone: data.checks.every((check) => check.ok) ? "success" : "warning",
-        text: data.checks.every((check) => check.ok)
+        tone: checks.every((check) => check.ok) ? "success" : "warning",
+        text: checks.every((check) => check.ok)
           ? "ตรวจแล้ว สร้างร้านจริงได้"
           : "ยังมีรายการที่ต้องแก้ก่อนสร้างร้านจริง",
       });
+      // Re-attach the guarded slices to the stored preview so downstream
+      // rendering (.map) is safe too.
+      setPreview({ ...data, checks, warnings });
     } catch (error) {
       setMessage({
         tone: "error",

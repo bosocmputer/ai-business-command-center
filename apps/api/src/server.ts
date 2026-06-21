@@ -913,6 +913,7 @@ async function buildOwnerWorkbenchCockpit(input: {
         ]);
         return deriveProductionProofStrip({
           tenant_id: tenant.tenant_id,
+          tenant_name: tenant.tenant_name,
           eligible,
           runs: runs.map((run) => ({
             tenant_id: run.tenant_id,

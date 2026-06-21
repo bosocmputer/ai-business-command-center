@@ -14,6 +14,7 @@ import Button from "@/components/ui/button/Button";
 import { AlertIcon, CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type { OwnerV2LineSetupPayload } from "./types";
+import { secondaryActionClass } from "./ui";
 
 type LineSetupState =
   | { status: "loading" }
@@ -113,12 +114,18 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           return;
         }
         setState({ status: "success", data });
+        // The API can return explicit null for channels/targets on tenants
+        // that have never been configured. Dereferencing null.channels /
+        // null.targets below would crash the load callback (and leave the
+        // page stuck on the skeleton). Guard both slices up front.
+        const dataChannels = data.channels ?? [];
+        const dataTargets = data.targets ?? [];
         setSecretForm((current) => ({
           ...current,
           channelId:
-            current.channelId && data.channels.some((item) => item.id === current.channelId)
+            current.channelId && dataChannels.some((item) => item.id === current.channelId)
               ? current.channelId
-              : data.channels[0]?.id ?? "",
+              : dataChannels[0]?.id ?? "",
           channelAccessToken: "",
           channelSecret: "",
         }));
@@ -126,13 +133,13 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           ...current,
           lineChannelId:
             current.lineChannelId &&
-            data.channels.some((item) => item.id === current.lineChannelId)
+            dataChannels.some((item) => item.id === current.lineChannelId)
               ? current.lineChannelId
-              : data.channels[0]?.id ?? "",
+              : dataChannels[0]?.id ?? "",
         }));
         setTargetProfileDrafts((current) => {
           const next = { ...current };
-          for (const target of data.targets) {
+          for (const target of dataTargets) {
             next[target.id] = next[target.id] ?? target.access_profile_key;
           }
           return next;
@@ -163,13 +170,13 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (
       state.status === "success" &&
-      state.data.targets.length === 0 &&
+      (state.data.targets ?? []).length === 0 &&
       recipientsState.status === "idle"
     ) {
       void loadRecipients();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, state.status === "success" ? state.data.targets.length : 0]);
+  }, [state.status, state.status === "success" ? (state.data.targets ?? []).length : 0]);
 
   const setup = state.status === "success" ? state.data : null;
   const channels = setup?.channels ?? emptyChannels;
@@ -652,6 +659,12 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      <Link
+        className={secondaryActionClass}
+        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
+      >
+        ← กลับหน้าร้าน
+      </Link>
       {message ? (
         <Notice title="สถานะ LINE OA" tone={message.tone} text={message.text} />
       ) : null}
@@ -1221,7 +1234,7 @@ function TargetTable({
         <table className="min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
-              {["ผู้รับ", "สิทธิ์", "ความพร้อม", "ส่งผ่าน", "จัดการ"].map(
+              {["ผู้รับ", "สิทธิ์", "ความพร้อม", "ส่งผ่าน", "ประมาณการ", "จัดการ"].map(
                 (label) => (
                   <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
                     <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">

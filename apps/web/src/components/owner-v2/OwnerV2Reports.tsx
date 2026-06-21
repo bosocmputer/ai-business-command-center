@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   BANGKOK_TIME_ZONE,
   type ReportKey,
@@ -19,6 +20,7 @@ import {
   type OwnerV2FetchErrorPayload,
 } from "./api";
 import type { OwnerV2ReportSetupPayload } from "./types";
+import { secondaryActionClass } from "./ui";
 
 type ReportSetupState =
   | { status: "loading" }
@@ -110,13 +112,27 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
 
   const setup = state.status === "success" ? state.data : null;
   const reports = setup?.reports ?? [];
-  const latestRunByReport = useMemo(
-    () => buildLatestRunByReport(setup?.latest_runs ?? []),
+  // Guard the array slices against null: the API can return explicit null for
+  // unconfigured tenants, and the old `setup?.X.method()` calls crashed on
+  // `null.method()`. The `?? []` only caught the result of `.method`, not the
+  // null input, so these are real crash bugs — fix by guarding the field first.
+  // Memoize the guarded arrays so the downstream useMemo deps stay stable
+  // (a raw `?? []` creates a new array each render and re-triggers the memos).
+  const latestRuns = useMemo(
+    () => setup?.latest_runs ?? [],
     [setup?.latest_runs],
   );
-  const latestSnapshotByReport = useMemo(
-    () => new Map(setup?.latest_snapshots.map((item) => [item.report_key, item]) ?? []),
+  const latestSnapshots = useMemo(
+    () => setup?.latest_snapshots ?? [],
     [setup?.latest_snapshots],
+  );
+  const latestRunByReport = useMemo(
+    () => buildLatestRunByReport(latestRuns),
+    [latestRuns],
+  );
+  const latestSnapshotByReport = useMemo(
+    () => new Map(latestSnapshots.map((item) => [item.report_key, item])),
+    [latestSnapshots],
   );
   const selectedReport =
     reports.find((report) => report.report_key === selectedReportKey) ??
@@ -129,7 +145,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     ? latestSnapshotByReport.get(selectedReport.report_key) ?? null
     : null;
   const activeRun =
-    setup?.latest_runs.find((run) => !isTerminalStatus(run.status)) ?? null;
+    latestRuns.find((run) => !isTerminalStatus(run.status)) ?? null;
   const dateInvalid = !dateFrom || !dateTo || dateFrom > dateTo;
   const chunkedEnabled = Boolean(
     setup?.tenant.feature_flags.sml_chunked_heavy_reports_enabled,
@@ -145,11 +161,11 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     (selectedIsAsync && !chunkedEnabled) ||
     Boolean(progress && !isTerminalStatus(progress.run.status));
   const successRuns =
-    setup?.latest_runs.filter((run) => run.status === "success").length ?? 0;
+    latestRuns.filter((run) => run.status === "success").length;
   const failedRuns =
-    setup?.latest_runs.filter((run) => run.status === "failed").length ?? 0;
+    latestRuns.filter((run) => run.status === "failed").length;
   const activeRuns =
-    setup?.latest_runs.filter((run) => !isTerminalStatus(run.status)).length ?? 0;
+    latestRuns.filter((run) => !isTerminalStatus(run.status)).length;
 
   const loadProgress = useCallback(
     async (run: Pick<ReportRunRecord, "id" | "tenant_id">) => {
@@ -301,7 +317,14 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+    <div className="space-y-5 sm:space-y-6">
+      <Link
+        className={secondaryActionClass}
+        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
+      >
+        ← กลับหน้าร้าน
+      </Link>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
       <Panel>
         <PanelHeader
           action={
@@ -448,6 +471,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           </Panel>
         ) : null}
       </div>
+    </div>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   type OwnerV2FetchError,
 } from "./api";
 import type { OwnerV2PermissionSetupPayload } from "./types";
+import { secondaryActionClass } from "./ui";
 
 type PermissionSetupState =
   | { status: "loading" }
@@ -242,7 +243,14 @@ export default function OwnerV2ReportPermissions({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="space-y-5 sm:space-y-6">
+      <Link
+        className={secondaryActionClass}
+        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
+      >
+        ← กลับหน้าร้าน
+      </Link>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <Panel>
         <PanelHeader
           action={
@@ -518,6 +526,7 @@ export default function OwnerV2ReportPermissions({
           </PanelBody>
         </Panel>
       </div>
+    </div>
     </div>
   );
 }
@@ -829,12 +838,20 @@ function MiniSkeleton({ rows }: { rows: number }) {
 function normalizePermissionMatrix(
   data: OwnerV2PermissionSetupPayload,
 ): PermissionMatrix {
-  const validReportKeys = new Set(data.reports.map((report) => report.report_key));
+  // Guard every slice against null: a freshly-created or unconfigured tenant
+  // can return explicit null for reports/roles/matrix/permissions, and the old
+  // unguarded .map/.find/index calls would throw inside load() and leave the
+  // page stuck on the skeleton.
+  const reports = data.reports ?? [];
+  const roles = data.roles ?? [];
+  const matrix = data.matrix ?? {};
+  const permissions = data.permissions ?? [];
+  const validReportKeys = new Set(reports.map((report) => report.report_key));
   return Object.fromEntries(
-    data.roles.map((role) => {
-      const matrixReports = data.matrix[role.access_profile_key] ?? [];
+    roles.map((role) => {
+      const matrixReports = matrix[role.access_profile_key] ?? [];
       const recordReports =
-        data.permissions.find(
+        permissions.find(
           (permission) =>
             permission.access_profile_key === role.access_profile_key,
         )?.allowed_report_keys ?? [];

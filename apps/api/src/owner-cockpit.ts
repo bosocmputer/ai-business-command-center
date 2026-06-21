@@ -128,6 +128,7 @@ export type OwnerCockpitProofDay = {
 
 export type OwnerCockpitProofStrip = {
   tenant_id: TenantId;
+  tenant_name: string;
   eligible: boolean;
   days: OwnerCockpitProofDay[];
   scheduled_run_count: number;
@@ -491,6 +492,7 @@ export function computeOwnerCockpitHealthMatrixRow(
  */
 export function deriveProductionProofStrip(input: {
   tenant_id: TenantId;
+  tenant_name?: string;
   eligible: boolean;
   runs: ProofRunLike[];
   deliveries: ProofDeliveryLike[];
@@ -579,6 +581,7 @@ export function deriveProductionProofStrip(input: {
 
   return {
     tenant_id: input.tenant_id,
+    tenant_name: input.tenant_name ?? input.tenant_id,
     eligible: input.eligible,
     days,
     scheduled_run_count: scheduledRunCount,

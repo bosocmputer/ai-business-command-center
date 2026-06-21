@@ -14,6 +14,7 @@ import {
   TimeIcon,
 } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
+import { formatLineDeliveryStatus, formatRunStatus } from "./ui";
 
 type OperationsStatus = {
   worker?: {
@@ -287,7 +288,10 @@ export default function OwnerV2Ops() {
         />
       ) : null}
 
-      <TelegramOpsManager status={data?.operational_alerts?.telegram?.status ?? null} />
+      <TelegramOpsManager
+        onChanged={() => void load()}
+        status={data?.operational_alerts?.telegram?.status ?? null}
+      />
 
       {data?.tenants?.length ? (
         <PerTenantAudit tenants={data.tenants} />
@@ -419,7 +423,7 @@ function HeavyReportTable({
                       {run.report_key}
                     </p>
                   </div>
-                  <Badge color={statusTone(run.status)}>{run.status}</Badge>
+                  <Badge color={statusTone(run.status)}>{formatRunStatus(run.status)}</Badge>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
                   <span className="text-theme-xs text-gray-500 dark:text-gray-400">
@@ -458,7 +462,7 @@ function HeavyReportTable({
                     </TableCell>
                     <TableCell>
                       <Badge color={statusTone(run.status)}>
-                        {run.status}
+                        {formatRunStatus(run.status)}
                       </Badge>
                     </TableCell>
                     <TableCell align="right">
@@ -524,7 +528,7 @@ function TelegramDeliveries({
               </div>
               <div className="shrink-0 text-right">
                 <Badge color={statusTone(delivery.status)}>
-                  {delivery.status}
+                  {formatLineDeliveryStatus(delivery.status)}
                 </Badge>
                 <span className="mt-2 block text-theme-xs font-medium text-gray-500 dark:text-gray-400">
                   {delivery.severity}
@@ -658,6 +662,7 @@ function AuditLogPanel({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
 
 function TelegramOpsManager({
   status,
+  onChanged,
 }: {
   status:
     | {
@@ -677,6 +682,7 @@ function TelegramOpsManager({
       }
     | null
     | undefined;
+  onChanged?: () => void;
 }) {
   const [botToken, setBotToken] = useState("");
   const [chats, setChats] = useState<TelegramChatPreview[]>([]);
@@ -713,6 +719,7 @@ function TelegramOpsManager({
       });
       setBotToken("");
       setResult({ tone: "success", message: "บันทึก bot token แล้ว" });
+      onChanged?.();
     });
   }
 
@@ -736,6 +743,7 @@ function TelegramOpsManager({
         },
       });
       setResult({ tone: "success", message: `เพิ่ม ${chat.display_name} เป็นผู้รับแล้ว` });
+      onChanged?.();
     });
   }
 
@@ -746,6 +754,9 @@ function TelegramOpsManager({
         body: { message: "Owner UI test" },
       });
       setResult({ tone: "success", message: "ส่ง test alert แล้ว" });
+      // A test send updates the "verified" status and delivery history, so
+      // refresh the parent so the page stops showing stale readiness.
+      onChanged?.();
     });
   }
 
@@ -762,6 +773,7 @@ function TelegramOpsManager({
         },
       });
       setResult({ tone: "success", message: `ส่ง smoke test (${alertType}) แล้ว` });
+      onChanged?.();
     });
   }
 
@@ -931,7 +943,10 @@ function auditActionToneClass(action: string) {
   return classes[tone] ?? classes.light;
 }
 
-function formatAuditMetadata(metadata: Record<string, unknown>) {
+function formatAuditMetadata(metadata: Record<string, unknown> | null | undefined) {
+  if (!metadata) {
+    return "ไม่มี metadata เพิ่มเติม";
+  }
   const parts: string[] = [];
   const entries: Array<[string, unknown]> = [
     ["safe_error_message", metadata.safe_error_message],
@@ -948,22 +963,6 @@ function formatAuditMetadata(metadata: Record<string, unknown>) {
     }
   }
   return parts.length ? parts.join(" · ") : "ไม่มี metadata เพิ่มเติม";
-}
-
-function formatLineDeliveryStatus(status?: string | null) {
-  if (!status) {
-    return "ยังไม่ทราบสถานะ";
-  }
-  if (status === "success") {
-    return "ส่งสำเร็จ";
-  }
-  if (status === "failed") {
-    return "ส่งไม่สำเร็จ";
-  }
-  if (status === "skipped") {
-    return "ข้ามการส่ง";
-  }
-  return status;
 }
 
 function formatWorker(worker?: OperationsStatus["worker"]) {

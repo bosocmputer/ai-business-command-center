@@ -111,6 +111,7 @@ export type OwnerV2ProofDay = {
 
 export type OwnerV2ProofStrip = {
   tenant_id: TenantId;
+  tenant_name: string | null;
   eligible: boolean;
   days: OwnerV2ProofDay[];
   scheduled_run_count: number;

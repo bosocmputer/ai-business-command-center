@@ -26,6 +26,7 @@ import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
 } from "./types";
+import { secondaryActionClass } from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
 
@@ -205,18 +206,25 @@ export default function OwnerV2NotificationSetup({
     return () => controller.abort();
   }, [load]);
 
+  // The success-branch reads below only check state.status, not whether the
+  // nested slices are non-null. The API can return explicit null for
+  // rules/recent_runs/targets on unconfigured tenants, which then crashes the
+  // .filter/.some/.slice calls below. Guard each slice with ?? empty* so the
+  // derived arrays are always real arrays.
   const rules =
     state.status === "success"
-      ? state.notifications.rules
+      ? state.notifications.rules ?? emptyNotificationRules
       : emptyNotificationRules;
   const recentRuns =
     state.status === "success"
-      ? state.notifications.recent_runs
+      ? state.notifications.recent_runs ?? emptyNotificationRuns
       : emptyNotificationRuns;
   const lineTargets =
-    state.status === "success" ? state.line.targets : emptyTargets;
+    state.status === "success"
+      ? state.line.targets ?? emptyTargets
+      : emptyTargets;
   const lineChannels =
-    state.status === "success" ? state.line.channels : emptyChannels;
+    state.status === "success" ? state.line.channels ?? emptyChannels : emptyChannels;
   const selectedRule = selectedRuleId
     ? rules.find((rule) => rule.id === selectedRuleId) ?? null
     : null;
@@ -456,11 +464,11 @@ export default function OwnerV2NotificationSetup({
   const enabledRules = rules.filter((rule) => rule.enabled);
   const activeRuns = recentRuns.filter(isNotificationRunActive);
   const failedRuns = recentRuns.filter((run) => run.status === "failed");
-  const defaultTargetIds = state.line.targets
+  const defaultTargetIds = lineTargets
     .filter((target) => target.approved && target.enabled)
     .slice(0, 1)
     .map((target) => target.id);
-  const canOpenPreset = state.line.targets.some(
+  const canOpenPreset = lineTargets.some(
     (target) => target.approved,
   );
 
@@ -495,6 +503,12 @@ export default function OwnerV2NotificationSetup({
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      <Link
+        className={secondaryActionClass}
+        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
+      >
+        ← กลับหน้าร้าน
+      </Link>
       {message ? (
         <Notice
           text={message.text}
@@ -821,6 +835,7 @@ export default function OwnerV2NotificationSetup({
                   reportKeys={form.reportKeys}
                   selectedTargetIds={form.targetIds}
                   targets={lineTargets}
+                  tenantId={tenantId}
                 />
 
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -1084,12 +1099,14 @@ function TargetSelector({
   reportKeys,
   selectedTargetIds,
   targets,
+  tenantId,
 }: {
   channels: LineChannelRecord[];
   onToggleTarget: (targetId: string) => void;
   reportKeys: ReportKey[];
   selectedTargetIds: string[];
   targets: LineTargetRecord[];
+  tenantId: string;
 }) {
   if (!targets.length) {
     return (
@@ -1097,7 +1114,7 @@ function TargetSelector({
         action={
           <Link
             className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
-            href="../line"
+            href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
           >
             ไปตั้งค่า LINE
           </Link>
