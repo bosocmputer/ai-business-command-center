@@ -4,7 +4,7 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { findSensitiveTenantNoteHints, type Tenant } from "@ai-bcc/shared";
+import { findSensitiveTenantNoteHints, type BusinessSignalRecord, type BusinessSignalStatus, type Tenant } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon, ArrowRightIcon, CheckCircleIcon } from "@/icons";
@@ -424,6 +424,11 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                 text={`รายงาน ${detail.latest_javaws_failure.report_key} phase ${detail.latest_javaws_failure.failure_phase ?? "unknown"} · ${detail.latest_javaws_failure.safe_error_message ?? "ไม่มีรายละเอียดปลอดภัย"} · ${formatDateTime(detail.latest_javaws_failure.finished_at)}`}
               />
             ) : null}
+            <BusinessSignalPanel
+              onReload={() => void load()}
+              signals={detail.business_signals ?? []}
+              tenantId={tenant.id}
+            />
             {detail.proof_strip.eligible ? (
               <StoreProofStrip strip={detail.proof_strip} />
             ) : null}
@@ -881,6 +886,181 @@ function StoreProofStrip({
             : ""}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* System tab — business signal status manager
+/* ------------------------------------------------------------------ */
+
+const BUSINESS_SIGNAL_STATUSES: BusinessSignalStatus[] = [
+  "open",
+  "acknowledged",
+  "resolved",
+  "dismissed",
+];
+
+const businessSignalStatusLabel: Record<BusinessSignalStatus, string> = {
+  open: "เปิดอยู่",
+  acknowledged: "รับทราบ",
+  resolved: "แก้แล้ว",
+  dismissed: "ซ่อนรอบนี้",
+};
+
+const businessSignalStatusTone: Record<
+  BusinessSignalStatus,
+  "light" | "warning" | "success" | "error"
+> = {
+  open: "warning",
+  acknowledged: "light",
+  resolved: "success",
+  dismissed: "light",
+};
+
+const businessSignalSeverityTone: Record<string, "error" | "warning" | "light"> = {
+  critical: "error",
+  warning: "warning",
+  info: "light",
+};
+
+function BusinessSignalPanel({
+  signals,
+  tenantId,
+  onReload,
+}: {
+  signals: BusinessSignalRecord[];
+  tenantId: string;
+  onReload: () => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  async function updateStatus(
+    signal: BusinessSignalRecord,
+    status: BusinessSignalStatus,
+  ) {
+    if (busyId !== null) {
+      return;
+    }
+    setBusyId(signal.id);
+    setMessage(null);
+    try {
+      await ownerV2Fetch(
+        `/api/owner/tenants/${encodeURIComponent(tenantId)}/business-signals/${encodeURIComponent(signal.id)}`,
+        {
+          method: "PATCH",
+          body: { status },
+        },
+      );
+      setMessage({
+        tone: "success",
+        text: `${businessSignalStatusLabel[status]} “${signal.title}” แล้ว`,
+      });
+      onReload();
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "เปลี่ยนสถานะ signal ไม่สำเร็จ",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!signals.length) {
+    return (
+      <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+        <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+          Business signals
+        </p>
+        <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+          ยังไม่มีสัญญาณเตือนธุรกิจสำหรับร้านนี้ในสแนปชอตล่าสุด
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            Business signals ({signals.length})
+          </p>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            จัดการสถานะเรื่องที่ต้องตรวจ — สถานะบันทึกลง audit log เพื่อให้ cockpit ตรงกัน
+          </p>
+        </div>
+      </div>
+      {message ? (
+        <p
+          className={`mb-3 text-theme-xs font-medium ${
+            message.tone === "error" ? "text-error-600" : "text-success-600"
+          }`}
+        >
+          {message.text}
+        </p>
+      ) : null}
+      <div className="custom-scrollbar max-h-[420px] space-y-2 overflow-y-auto">
+        {signals.map((signal) => (
+          <div
+            className="flex flex-col gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between"
+            key={signal.id}
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-theme-sm font-semibold text-gray-900 dark:text-white">
+                  {signal.title}
+                </p>
+                <Badge
+                  color={businessSignalSeverityTone[signal.severity] ?? "light"}
+                  size="sm"
+                >
+                  {signal.severity}
+                </Badge>
+                <Badge
+                  color={businessSignalStatusTone[signal.status]}
+                  size="sm"
+                >
+                  {businessSignalStatusLabel[signal.status]}
+                </Badge>
+              </div>
+              {signal.insight ? (
+                <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {signal.insight}
+                </p>
+              ) : null}
+              {signal.recommended_action ? (
+                <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                  แนะนำ: {signal.recommended_action}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              {BUSINESS_SIGNAL_STATUSES.filter((s) => s !== signal.status).map(
+                (status) => (
+                  <button
+                    className="inline-flex items-center rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-theme-xs font-medium text-gray-600 shadow-theme-xs transition hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+                    disabled={busyId !== null}
+                    key={status}
+                    onClick={() => void updateStatus(signal, status)}
+                    type="button"
+                  >
+                    {businessSignalStatusLabel[status]}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -25,6 +25,12 @@ type SystemConfigStatus = {
   worker_heartbeat_token_configured?: boolean;
   backup_configured?: boolean;
   system_last_backup_at?: string | null;
+  morning_brief_enabled?: boolean;
+  morning_brief_tenant_ids?: string[];
+  morning_brief_time?: string;
+  morning_brief_timezone?: string;
+  morning_brief_mode?: "dry_run" | "send";
+  morning_brief_force?: boolean;
   bootstrap?: {
     exists?: boolean;
     path?: string | null;
@@ -245,6 +251,24 @@ function SystemConfigForm({
   const [lastBackupAt, setLastBackupAt] = useState(
     data?.system_last_backup_at ?? "",
   );
+  const [morningBriefEnabled, setMorningBriefEnabled] = useState(
+    Boolean(data?.morning_brief_enabled),
+  );
+  const [morningBriefTenantIds, setMorningBriefTenantIds] = useState(
+    (data?.morning_brief_tenant_ids ?? []).join(", "),
+  );
+  const [morningBriefTime, setMorningBriefTime] = useState(
+    data?.morning_brief_time ?? "08:00",
+  );
+  const [morningBriefTimezone, setMorningBriefTimezone] = useState(
+    data?.morning_brief_timezone ?? "Asia/Bangkok",
+  );
+  const [morningBriefMode, setMorningBriefMode] = useState<
+    "dry_run" | "send"
+  >(data?.morning_brief_mode ?? "dry_run");
+  const [morningBriefForce, setMorningBriefForce] = useState(
+    Boolean(data?.morning_brief_force),
+  );
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<
     { tone: "success" | "error"; text: string } | null
@@ -257,6 +281,12 @@ function SystemConfigForm({
     setWorkerId(data?.worker_id ?? "");
     setBackupConfigured(Boolean(data?.backup_configured));
     setLastBackupAt(data?.system_last_backup_at ?? "");
+    setMorningBriefEnabled(Boolean(data?.morning_brief_enabled));
+    setMorningBriefTenantIds((data?.morning_brief_tenant_ids ?? []).join(", "));
+    setMorningBriefTime(data?.morning_brief_time ?? "08:00");
+    setMorningBriefTimezone(data?.morning_brief_timezone ?? "Asia/Bangkok");
+    setMorningBriefMode(data?.morning_brief_mode ?? "dry_run");
+    setMorningBriefForce(Boolean(data?.morning_brief_force));
   }, [data]);
 
   const dirty =
@@ -267,7 +297,14 @@ function SystemConfigForm({
     workerId !== (data?.worker_id ?? "") ||
     heartbeatToken.trim().length > 0 ||
     backupConfigured !== Boolean(data?.backup_configured) ||
-    lastBackupAt !== (data?.system_last_backup_at ?? "");
+    lastBackupAt !== (data?.system_last_backup_at ?? "") ||
+    morningBriefEnabled !== Boolean(data?.morning_brief_enabled) ||
+    morningBriefTenantIds !==
+      (data?.morning_brief_tenant_ids ?? []).join(", ") ||
+    morningBriefTime !== (data?.morning_brief_time ?? "08:00") ||
+    morningBriefTimezone !== (data?.morning_brief_timezone ?? "Asia/Bangkok") ||
+    morningBriefMode !== (data?.morning_brief_mode ?? "dry_run") ||
+    morningBriefForce !== Boolean(data?.morning_brief_force);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -284,6 +321,15 @@ function SystemConfigForm({
         worker_id: workerId.trim() || null,
         backup_configured: backupConfigured,
         system_last_backup_at: lastBackupAt.trim() || null,
+        morning_brief_enabled: morningBriefEnabled,
+        morning_brief_tenant_ids: morningBriefTenantIds
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        morning_brief_time: morningBriefTime.trim() || "08:00",
+        morning_brief_timezone: morningBriefTimezone.trim() || "Asia/Bangkok",
+        morning_brief_mode: morningBriefMode,
+        morning_brief_force: morningBriefForce,
       };
       if (signingSecret.trim()) {
         body.report_viewer_signing_secret = signingSecret.trim();
@@ -421,6 +467,107 @@ function SystemConfigForm({
             />
           </label>
         </div>
+
+        <fieldset className="space-y-4 rounded-xl border border-gray-100 p-4 dark:border-gray-800">
+          <legend className="px-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+            Morning brief — รอบสรุปเช้าข้ามร้าน
+          </legend>
+          <p className="-mt-2 text-theme-xs text-gray-500 dark:text-gray-400">
+            ตั้งเวลาและร้านที่จะส่งสรุปอัตโนมัติทุกเช้า (worker จะเริ่มรอบตามเวลานี้)
+          </p>
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={morningBriefEnabled}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) =>
+                setMorningBriefEnabled(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                เปิด morning brief
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ปิดแล้ว worker จะข้ามรอบสรุปเช้าทั้งหมด
+              </span>
+            </span>
+          </label>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+                เวลาส่ง (เฉพาะชั่วโมง:นาที)
+              </span>
+              <input
+                className="owner-v2-input"
+                onChange={(event) => setMorningBriefTime(event.target.value)}
+                placeholder="08:00"
+                value={morningBriefTime}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+                Timezone
+              </span>
+              <input
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setMorningBriefTimezone(event.target.value)
+                }
+                placeholder="Asia/Bangkok"
+                value={morningBriefTimezone}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+                tenant_ids (คั่นด้วยจุลภาค)
+              </span>
+              <input
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setMorningBriefTenantIds(event.target.value)
+                }
+                placeholder="tenant_demo_remote, seaandhill_demo"
+                value={morningBriefTenantIds}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+                โหมดการส่ง
+              </span>
+              <select
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setMorningBriefMode(
+                    event.target.value as "dry_run" | "send",
+                  )
+                }
+                value={morningBriefMode}
+              >
+                <option value="dry_run">dry_run (ทดลอง ไม่ส่งจริง)</option>
+                <option value="send">send (ส่งจริง)</option>
+              </select>
+            </label>
+          </div>
+          <label className="flex min-w-0 gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
+            <input
+              checked={morningBriefForce}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500"
+              onChange={(event) =>
+                setMorningBriefForce(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span className="min-w-0">
+              <span className="block font-medium text-gray-800 dark:text-gray-200">
+                บังคับส่งแม้ยังไม่ครบเงื่อนไข (force)
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้เฉพาะตอนทดสอบ — ปกติควรปิดเพื่อให้ worker เช็ค readiness ก่อนส่ง
+              </span>
+            </span>
+          </label>
+        </fieldset>
 
         <div className="flex flex-wrap items-center gap-3">
           <Button disabled={!dirty || busy} size="sm" type="submit">
