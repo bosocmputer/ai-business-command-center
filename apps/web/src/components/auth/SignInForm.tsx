@@ -4,7 +4,7 @@ import Checkbox from "@/components/form/input/Checkbox";
 import Input from "@/components/form/input/InputField";
 import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
-import { ChevronLeftIcon, EyeCloseIcon, EyeIcon } from "@/icons";
+import { EyeCloseIcon, EyeIcon } from "@/icons";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
@@ -64,16 +64,7 @@ export default function SignInForm() {
 
   return (
     <div className="flex w-full flex-1 flex-col lg:w-1/2">
-      <div className="mx-auto mb-5 w-full max-w-md sm:pt-10">
-        <Link
-          href="/app"
-          className="inline-flex items-center text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-        >
-          <ChevronLeftIcon />
-          กลับไปหน้า Customer Viewer
-        </Link>
-      </div>
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-10">
         <div>
           <div className="mb-5 sm:mb-8">
             <p className="mb-2 text-sm font-medium text-brand-500">
@@ -89,20 +80,16 @@ export default function SignInForm() {
             </p>
           </div>
 
-          <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-gray-300">
-            <p className="font-semibold text-gray-800 dark:text-white/90">
-              สำหรับผู้ดูแลระบบเท่านั้น
-            </p>
-            <p className="mt-1 leading-6">
-              กรอกบัญชีผู้ดูแลที่ได้รับจากเจ้าของระบบเพื่อจัดการร้านค้า รายงาน และ LINE OA
-            </p>
-          </div>
-
           <form onSubmit={submitLogin}>
             <div className="space-y-5">
               {setupMode ? (
                 <div>
-                  <Label htmlFor="owner-display-name">ชื่อที่แสดง</Label>
+                  <Label
+                    className="text-gray-800 font-semibold dark:text-gray-200"
+                    htmlFor="owner-display-name"
+                  >
+                    ชื่อที่แสดง
+                  </Label>
                   <Input
                     autoComplete="name"
                     id="owner-display-name"
@@ -114,7 +101,10 @@ export default function SignInForm() {
                 </div>
               ) : null}
               <div>
-                <Label htmlFor="owner-username">
+                <Label
+                  className="text-gray-800 font-semibold dark:text-gray-200"
+                  htmlFor="owner-username"
+                >
                   Username <span className="text-error-500">*</span>
                 </Label>
                 <Input
@@ -127,7 +117,10 @@ export default function SignInForm() {
                 />
               </div>
               <div>
-                <Label htmlFor="owner-password">
+                <Label
+                  className="text-gray-800 font-semibold dark:text-gray-200"
+                  htmlFor="owner-password"
+                >
                   Password <span className="text-error-500">*</span>
                 </Label>
                 <div className="relative">
@@ -161,12 +154,18 @@ export default function SignInForm() {
 
               {!setupMode ? (
                 <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Checkbox checked={remember} onChange={setRemember} />
-                  <span className="block font-normal text-gray-700 text-theme-sm dark:text-gray-400">
-                    จำการเข้าสู่ระบบไว้ 7 วัน
-                  </span>
-                </div>
+                  <div className="flex items-center gap-3">
+                    <Checkbox checked={remember} onChange={setRemember} />
+                    <span className="block font-normal text-gray-700 text-theme-sm dark:text-gray-400">
+                      จำการเข้าสู่ระบบไว้ 7 วัน
+                    </span>
+                  </div>
+                  <Link
+                    className="text-theme-sm font-medium text-brand-500 transition-colors hover:text-brand-600 dark:text-brand-400"
+                    href="/owner-v2"
+                  >
+                    ลืมรหัสผ่าน?
+                  </Link>
                 </div>
               ) : null}
 
