@@ -265,12 +265,33 @@ export default function OwnerV2NotificationSetup({
     selectedRuleId,
     selectedTargetBlockedReason,
   });
+  const activeScheduledSendRun = useMemo(
+    () =>
+      selectedRuleId && form.manualDate && form.manualTime
+        ? recentRuns.find(
+            (run) =>
+              isNotificationRunActive(run) &&
+              run.rule_id === selectedRuleId &&
+              run.mode === "send" &&
+              run.scheduled_local_date === form.manualDate &&
+              run.scheduled_local_time === form.manualTime,
+          ) ?? null
+        : null,
+    [form.manualDate, form.manualTime, recentRuns, selectedRuleId],
+  );
+  const activeRunBlockedReason = activeScheduledSendRun
+    ? `มีงานส่งจริงของรอบ ${activeScheduledSendRun.scheduled_local_date} ${activeScheduledSendRun.scheduled_local_time} กำลังทำงานอยู่ กรุณารอผลก่อนกดซ้ำ`
+    : null;
+  const effectiveSendBlockedReason =
+    activeRunBlockedReason ?? actionBlockedReason;
   const saveDisabled =
     busy !== null || state.status !== "success" || saveBlockedReason !== null;
   const dryRunDisabled =
     busy !== null || state.status !== "success" || actionBlockedReason !== null;
   const sendDisabled =
-    busy !== null || state.status !== "success" || actionBlockedReason !== null;
+    busy !== null ||
+    state.status !== "success" ||
+    effectiveSendBlockedReason !== null;
 
   function applyRule(rule: OwnerNotificationRule) {
     const nextForm = formFromRule(rule);
@@ -379,7 +400,7 @@ export default function OwnerV2NotificationSetup({
     if (mode === "send" && sendDisabled) {
       setMessage({
         tone: "warning",
-        text: actionBlockedReason ?? "ยังส่งจริงไม่ได้",
+        text: effectiveSendBlockedReason ?? "ยังส่งจริงไม่ได้",
       });
       return;
     }
@@ -876,7 +897,7 @@ export default function OwnerV2NotificationSetup({
                 <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
                     {saveBlockedReason ??
-                      actionBlockedReason ??
+                      effectiveSendBlockedReason ??
                       "บันทึกแผนก่อนทดสอบหรือส่งจริง เพื่อกันค่าฟอร์มไม่ตรงกับเวลาแจ้งเตือน"}
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
@@ -1210,6 +1231,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
     <div className="space-y-3">
       {runs.map((run) => {
         const progress = getProgressPercent(run);
+        const runBadges = getNotificationRunBadges(run);
         return (
           <div
             className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
@@ -1224,6 +1246,15 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
                   {run.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"} · ครั้งที่{" "}
                   {run.attempt} · {formatElapsed(run)}
                 </p>
+                {runBadges.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {runBadges.map((badge) => (
+                      <Badge color={badge.tone} key={badge.label} size="sm">
+                        {badge.label}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <Badge color={notificationRunTone(run.status)}>
                 {formatNotificationRunStatus(run.status)}
@@ -1840,6 +1871,37 @@ function isValidTime(value: string) {
 
 function isNotificationRunActive(run: NotificationRuleRunRecord) {
   return run.status === "queued" || run.status === "running";
+}
+
+function getNotificationRunBadges(run: NotificationRuleRunRecord) {
+  const badges: Array<{ label: string; tone: "success" | "warning" | "light" }> =
+    [];
+  if (isNotificationRunActive(run)) {
+    if (
+      !run.progress_stage ||
+      run.progress_stage === "queued" ||
+      run.progress_stage === "claimed" ||
+      run.progress_stage === "running_report" ||
+      run.progress_stage === "waiting_chunked_report"
+    ) {
+      badges.push({ label: "กำลังดึงรายงาน", tone: "warning" });
+    }
+    if (getNotificationRunElapsedMs(run) >= 15 * 60 * 1000) {
+      badges.push({ label: "รอนานกว่าปกติ", tone: "warning" });
+    }
+  }
+  if (run.status === "failed" && run.next_retry_at && run.delivery_ids.length) {
+    badges.push({ label: "retry LINE", tone: "warning" });
+  }
+  return badges;
+}
+
+function getNotificationRunElapsedMs(run: NotificationRuleRunRecord) {
+  const startedAt =
+    run.started_at ?? run.claimed_at ?? run.queued_at ?? run.created_at;
+  const finishedAt = run.finished_at ?? new Date().toISOString();
+  const elapsedMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  return Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
 }
 
 function notificationRunTone(status: NotificationRuleRunRecord["status"]) {

@@ -297,11 +297,9 @@ export function OwnerNotificationsContent({
       selectedRuns.find(
         (run) =>
           (run.status === "queued" || run.status === "running") &&
-          (lastNotificationRunResult?.run_id
-            ? run.id === lastNotificationRunResult.run_id
-            : run.scheduled_local_date === notificationManualScheduledDate &&
-              run.scheduled_local_time === notificationManualScheduledTime &&
-              (run.source === "manual_test" || run.source === "manual_run_now")),
+          (run.id === lastNotificationRunResult?.run_id ||
+            (run.scheduled_local_date === notificationManualScheduledDate &&
+              run.scheduled_local_time === notificationManualScheduledTime)),
       ) ?? null,
     [
       lastNotificationRunResult,
@@ -1488,58 +1486,70 @@ function RunHistoryPanel({
 
       <div className="mt-4 divide-y divide-gray-100 rounded-lg border border-gray-100 dark:divide-gray-800 dark:border-gray-800">
         {selectedRuns.length ? (
-          selectedRuns.slice(0, 6).map((run) => (
-            <div className="grid gap-3 p-3 text-sm lg:grid-cols-[minmax(0,1fr)_100px_90px_110px]" key={run.id}>
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-gray-900 dark:text-white">
-                  {formatNotificationPeriodWithTime(
-                    run.period_from,
-                    run.period_to,
-                    run.period_from_time,
-                    run.period_to_time,
-                  )}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  {run.scheduled_local_date} {run.scheduled_local_time} ·{" "}
-                  {formatNotificationPeriodStrategy()} · attempt{" "}
-                  {run.attempt}
-                  {" · "}ใช้เวลา {formatNotificationRunElapsed(run)}
-                  {run.unknown_doc_time_count
-                    ? ` · เวลาเอกสารว่าง ${run.unknown_doc_time_count} รายการ`
-                    : ""}
-                </p>
+          selectedRuns.slice(0, 6).map((run) => {
+            const runBadges = getNotificationRunBadges(run);
+            return (
+              <div className="grid gap-3 p-3 text-sm lg:grid-cols-[minmax(0,1fr)_100px_90px_110px]" key={run.id}>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-gray-900 dark:text-white">
+                    {formatNotificationPeriodWithTime(
+                      run.period_from,
+                      run.period_to,
+                      run.period_from_time,
+                      run.period_to_time,
+                    )}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {run.scheduled_local_date} {run.scheduled_local_time} ·{" "}
+                    {formatNotificationPeriodStrategy()} · attempt{" "}
+                    {run.attempt}
+                    {" · "}ใช้เวลา {formatNotificationRunElapsed(run)}
+                    {run.unknown_doc_time_count
+                      ? ` · เวลาเอกสารว่าง ${run.unknown_doc_time_count} รายการ`
+                      : ""}
+                  </p>
+                  {runBadges.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {runBadges.map((badge) => (
+                        <Badge color={badge.tone} key={badge.label} size="sm">
+                          {badge.label}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <Badge color={notificationRunTone(run.status)}>
+                  {formatNotificationRunStatus(run.status)}
+                </Badge>
+                <CompactFact
+                  label="Reports"
+                  value={getNotificationRunReportCount(run).toLocaleString("th-TH")}
+                />
+                <CompactFact
+                  label="Deliveries"
+                  value={run.delivery_ids.length.toLocaleString("th-TH")}
+                />
+                {run.safe_error_message ? (
+                  <p className="text-xs leading-5 text-warning-700 dark:text-warning-300 lg:col-span-4">
+                    {run.safe_error_message}
+                  </p>
+                ) : null}
+                {run.report_results?.length ? (
+                  <div className="lg:col-span-4">
+                    <NotificationReportResultsList
+                      compact
+                      results={run.report_results}
+                    />
+                  </div>
+                ) : null}
+                {isNotificationRunActive(run) ? (
+                  <div className="lg:col-span-4">
+                    <NotificationRunProgressCard compact run={run} />
+                  </div>
+                ) : null}
               </div>
-              <Badge color={notificationRunTone(run.status)}>
-                {formatNotificationRunStatus(run.status)}
-              </Badge>
-              <CompactFact
-                label="Reports"
-                value={getNotificationRunReportCount(run).toLocaleString("th-TH")}
-              />
-              <CompactFact
-                label="Deliveries"
-                value={run.delivery_ids.length.toLocaleString("th-TH")}
-              />
-              {run.safe_error_message ? (
-                <p className="text-xs leading-5 text-warning-700 dark:text-warning-300 lg:col-span-4">
-                  {run.safe_error_message}
-                </p>
-              ) : null}
-              {run.report_results?.length ? (
-                <div className="lg:col-span-4">
-                  <NotificationReportResultsList
-                    compact
-                    results={run.report_results}
-                  />
-                </div>
-              ) : null}
-              {isNotificationRunActive(run) ? (
-                <div className="lg:col-span-4">
-                  <NotificationRunProgressCard compact run={run} />
-                </div>
-              ) : null}
-            </div>
-          ))
+            );
+          })
         ) : (
           <p className="p-3 text-sm text-gray-500 dark:text-gray-400">
             ยังไม่มีประวัติรันของแผนนี้
@@ -2233,6 +2243,37 @@ function formatNotificationReportResultMeta(
 
 function isNotificationRunActive(run: NotificationRuleRunRecord) {
   return run.status === "queued" || run.status === "running";
+}
+
+function getNotificationRunBadges(run: NotificationRuleRunRecord) {
+  const badges: Array<{ label: string; tone: "success" | "warning" | "light" }> =
+    [];
+  if (isNotificationRunActive(run)) {
+    if (
+      !run.progress_stage ||
+      run.progress_stage === "queued" ||
+      run.progress_stage === "claimed" ||
+      run.progress_stage === "running_report" ||
+      run.progress_stage === "waiting_chunked_report"
+    ) {
+      badges.push({ label: "กำลังดึงรายงาน", tone: "warning" });
+    }
+    if (getNotificationRunElapsedMs(run) >= 15 * 60 * 1000) {
+      badges.push({ label: "รอนานกว่าปกติ", tone: "warning" });
+    }
+  }
+  if (run.status === "failed" && run.next_retry_at && run.delivery_ids.length) {
+    badges.push({ label: "retry LINE", tone: "warning" });
+  }
+  return badges;
+}
+
+function getNotificationRunElapsedMs(run: NotificationRuleRunRecord) {
+  const startedAt =
+    run.started_at ?? run.claimed_at ?? run.queued_at ?? run.created_at;
+  const finishedAt = run.finished_at ?? new Date().toISOString();
+  const elapsedMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  return Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
 }
 
 function getNotificationRunReportCount(run: NotificationRuleRunRecord) {

@@ -194,6 +194,11 @@ export type SystemStore = {
     reportKey?: ReportKey,
     limit?: number,
   ): Promise<ReportRunRecord[]>;
+  listRecentRuns(input?: {
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }): Promise<ReportRunRecord[]>;
   getRun(runId: string): Promise<ReportRunRecord | null>;
   findActiveReportRun(input: {
     tenantId: TenantId;
@@ -226,6 +231,12 @@ export type SystemStore = {
     deliveryKey: string;
   }): Promise<LineDeliveryRecord | null>;
   listLineDeliveries(tenantId: TenantId): Promise<LineDeliveryRecord[]>;
+  listRecentLineDeliveries(input?: {
+    deliveryType?: LineDeliveryRecord["delivery_type"];
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }): Promise<LineDeliveryRecord[]>;
   listNotificationRules(tenantId?: TenantId): Promise<NotificationRuleRecord[]>;
   getNotificationRule(id: string): Promise<NotificationRuleRecord | null>;
   upsertNotificationRule(
@@ -234,6 +245,11 @@ export type SystemStore = {
   listNotificationRuleRuns(input?: {
     tenantId?: TenantId;
     ruleId?: string;
+    limit?: number;
+  }): Promise<NotificationRuleRunRecord[]>;
+  listRecentNotificationRuleRuns(input?: {
+    tenantIds?: TenantId[];
+    since?: string;
     limit?: number;
   }): Promise<NotificationRuleRunRecord[]>;
   getNotificationRuleRun(id: string): Promise<NotificationRuleRunRecord | null>;
@@ -729,6 +745,32 @@ class LocalJsonSystemStore implements SystemStore {
       .slice(0, limit);
   }
 
+  async listRecentRuns(input?: {
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }) {
+    const tenantIds = input?.tenantIds?.length
+      ? new Set(input.tenantIds)
+      : null;
+    const since = input?.since ? new Date(input.since).getTime() : null;
+    return this.requireData().runs
+      .filter((run) => {
+        if (tenantIds && !tenantIds.has(run.tenant_id)) {
+          return false;
+        }
+        if (since === null) {
+          return true;
+        }
+        const timestamp = new Date(
+          run.finished_at ?? run.started_at ?? run.queued_at ?? "",
+        ).getTime();
+        return Number.isFinite(timestamp) && timestamp >= since;
+      })
+      .sort(compareReportRuns)
+      .slice(0, input?.limit ?? 500);
+  }
+
   async getRun(runId: string) {
     return this.requireData().runs.find((run) => run.id === runId) ?? null;
   }
@@ -941,6 +983,36 @@ class LocalJsonSystemStore implements SystemStore {
       .slice(0, 50);
   }
 
+  async listRecentLineDeliveries(input?: {
+    deliveryType?: LineDeliveryRecord["delivery_type"];
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }) {
+    const tenantIds = input?.tenantIds?.length
+      ? new Set(input.tenantIds)
+      : null;
+    const since = input?.since ? new Date(input.since).getTime() : null;
+    return this.requireData().lineDeliveries
+      .filter((delivery) => {
+        if (tenantIds && !tenantIds.has(delivery.tenant_id)) {
+          return false;
+        }
+        if (input?.deliveryType && delivery.delivery_type !== input.deliveryType) {
+          return false;
+        }
+        if (since === null) {
+          return true;
+        }
+        const timestamp = new Date(
+          delivery.sent_at ?? delivery.created_at,
+        ).getTime();
+        return Number.isFinite(timestamp) && timestamp >= since;
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, input?.limit ?? 500);
+  }
+
   async listNotificationRules(tenantId?: TenantId) {
     return this.requireData().notificationRules
       .filter((rule) => !tenantId || rule.tenant_id === tenantId)
@@ -977,6 +1049,30 @@ class LocalJsonSystemStore implements SystemStore {
       )
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, input?.limit ?? 50);
+  }
+
+  async listRecentNotificationRuleRuns(input?: {
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }) {
+    const tenantIds = input?.tenantIds?.length
+      ? new Set(input.tenantIds)
+      : null;
+    const since = input?.since ? new Date(input.since).getTime() : null;
+    return this.requireData().notificationRuleRuns
+      .filter((run) => {
+        if (tenantIds && !tenantIds.has(run.tenant_id)) {
+          return false;
+        }
+        if (since === null) {
+          return true;
+        }
+        const timestamp = new Date(run.created_at).getTime();
+        return Number.isFinite(timestamp) && timestamp >= since;
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, input?.limit ?? 500);
   }
 
   async getNotificationRuleRunByKey(idempotencyKey: string) {
@@ -2426,6 +2522,52 @@ limit $3
     return result.rows.map(mapReportRunRow);
   }
 
+  async listRecentRuns(input?: {
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_key,
+  params_json as params,
+  status,
+  queued_at,
+  claimed_at,
+  worker_id,
+  execution_strategy,
+  progress_stage,
+  progress_percent,
+  progress_updated_at,
+  started_at,
+  finished_at,
+  row_count,
+  safe_error_message,
+  failure_kind,
+  failure_phase,
+  failure_metadata_json
+from report_runs
+where ($1::text[] is null or tenant_id = any($1::text[]))
+  and (
+    $2::timestamptz is null
+    or coalesce(finished_at, started_at, queued_at) >= $2::timestamptz
+  )
+order by coalesce(finished_at, started_at, queued_at) desc nulls last, started_at desc
+limit $3
+`,
+      [
+        input?.tenantIds?.length ? input.tenantIds : null,
+        input?.since ?? null,
+        input?.limit ?? 500,
+      ],
+    );
+
+    return result.rows.map(mapReportRunRow);
+  }
+
   async getRun(runId: string) {
     const result = await this.pool.query(
       `
@@ -3004,6 +3146,51 @@ limit 50
     return result.rows.map(mapLineDeliveryRow);
   }
 
+  async listRecentLineDeliveries(input?: {
+    deliveryType?: LineDeliveryRecord["delivery_type"];
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  report_key,
+  report_run_id,
+  delivery_key,
+  delivery_type,
+  period_from,
+  period_to,
+  target_id_masked,
+  message_type,
+  status,
+  sent_at,
+  provider_response_json,
+  safe_error_message,
+  created_at
+from line_deliveries
+where ($1::text[] is null or tenant_id = any($1::text[]))
+  and ($2::text is null or delivery_type = $2)
+  and (
+    $3::timestamptz is null
+    or coalesce(sent_at, created_at) >= $3::timestamptz
+  )
+order by created_at desc
+limit $4
+`,
+      [
+        input?.tenantIds?.length ? input.tenantIds : null,
+        input?.deliveryType ?? null,
+        input?.since ?? null,
+        input?.limit ?? 500,
+      ],
+    );
+
+    return result.rows.map(mapLineDeliveryRow);
+  }
+
   async listNotificationRules(tenantId?: TenantId) {
     const result = await this.pool.query(
       `
@@ -3204,6 +3391,66 @@ order by created_at desc
 limit $3
 `,
       [input?.tenantId ?? null, input?.ruleId ?? null, input?.limit ?? 50],
+    );
+
+    return result.rows.map(mapNotificationRuleRunRow);
+  }
+
+  async listRecentNotificationRuleRuns(input?: {
+    tenantIds?: TenantId[];
+    since?: string;
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  rule_id,
+  tenant_id,
+  scheduled_local_date,
+  scheduled_local_time,
+  timezone,
+  period_from,
+  period_to,
+  period_from_time,
+  period_to_time,
+  period_strategy,
+  unknown_doc_time_count,
+  status,
+  mode,
+  source,
+  attempt,
+  idempotency_key,
+  report_run_ids_json,
+  report_results_json,
+  delivery_ids_json,
+  safe_error_message,
+  started_at,
+  finished_at,
+  queued_at,
+  claimed_at,
+  worker_id,
+  client_request_id,
+  next_retry_at,
+  progress_stage,
+  progress_percent,
+  progress_current_report_key,
+  progress_done_reports,
+  progress_total_reports,
+  progress_updated_at,
+  created_at,
+  updated_at
+from notification_rule_runs
+where ($1::text[] is null or tenant_id = any($1::text[]))
+  and ($2::timestamptz is null or created_at >= $2::timestamptz)
+order by created_at desc
+limit $3
+`,
+      [
+        input?.tenantIds?.length ? input.tenantIds : null,
+        input?.since ?? null,
+        input?.limit ?? 500,
+      ],
     );
 
     return result.rows.map(mapNotificationRuleRunRow);
@@ -7010,6 +7257,10 @@ create index if not exists line_deliveries_delivery_key_idx
 on line_deliveries (tenant_id, report_key, delivery_key, status)
 where delivery_key is not null;
 
+create index if not exists line_deliveries_retry_monitor_idx
+on line_deliveries (tenant_id, delivery_type, delivery_key, status, created_at desc)
+where delivery_key is not null;
+
 create table if not exists notification_rules (
   id text primary key,
   tenant_id text not null references tenants(id),
@@ -7098,6 +7349,12 @@ alter table notification_rule_runs
 
 create index if not exists notification_rule_runs_rule_idx
 on notification_rule_runs (rule_id, created_at desc);
+
+create index if not exists notification_rule_runs_schedule_idx
+on notification_rule_runs (tenant_id, rule_id, scheduled_local_date, scheduled_local_time, created_at desc);
+
+create index if not exists notification_rule_runs_status_created_idx
+on notification_rule_runs (status, created_at desc);
 
 create index if not exists notification_rule_runs_retry_idx
 on notification_rule_runs (status, next_retry_at)
@@ -7227,6 +7484,9 @@ create table if not exists worker_heartbeats (
 
 create index if not exists worker_heartbeats_latest_idx
 on worker_heartbeats (role, checked_at desc);
+
+create index if not exists worker_heartbeats_worker_role_checked_idx
+on worker_heartbeats (worker_id, role, checked_at desc);
 
 create table if not exists operational_alert_targets (
   id text primary key,

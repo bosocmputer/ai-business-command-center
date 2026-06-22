@@ -326,6 +326,12 @@ create index if not exists notification_rule_runs_queued_idx
 on notification_rule_runs (status, queued_at, created_at)
 where status = 'queued';
 
+create index if not exists notification_rule_runs_schedule_idx
+on notification_rule_runs (tenant_id, rule_id, scheduled_local_date, scheduled_local_time, created_at desc);
+
+create index if not exists notification_rule_runs_status_created_idx
+on notification_rule_runs (status, created_at desc);
+
 create index if not exists notification_rule_runs_active_manual_idx
 on notification_rule_runs (rule_id, scheduled_local_date, scheduled_local_time, mode, source, status, created_at desc)
 where status in ('queued', 'running');

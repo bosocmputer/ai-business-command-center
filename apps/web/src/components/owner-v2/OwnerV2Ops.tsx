@@ -72,6 +72,14 @@ type OperationsStatus = {
       duration_ms: number | null;
     }>;
   };
+  production_proof?: {
+    window_days?: number;
+    production_used_tenant_count?: number;
+    scheduled_run_count?: number;
+    scheduled_success_rate?: number | null;
+    scheduled_p95_duration_ms?: number | null;
+    scheduled_slow_count?: number;
+  };
   audit_logs?: AuditLogEntry[];
   tenants?: AuditTenantEntry[];
 };
@@ -96,6 +104,8 @@ type AuditTenantEntry = {
   datasource_configured?: boolean;
   line_configured?: boolean;
   line_target_masked?: string | null;
+  notification_rules_enabled?: number;
+  notification_usage_status?: "production_used" | "notifications_not_enabled";
 };
 
 type TelegramChatPreview = {
@@ -110,6 +120,9 @@ const SMOKE_TEST_ALERTS: Array<{ alertType: string; label: string }> = [
   { alertType: "javaws_diagnostic", label: "JavaWS diagnostic" },
   { alertType: "heavy_report_slow", label: "Slow heavy report" },
   { alertType: "notification_summary", label: "Summary" },
+  { alertType: "notification_run_slow", label: "Slow notification" },
+  { alertType: "line_delivery_failed", label: "LINE failed" },
+  { alertType: "heartbeat_stale", label: "Heartbeat stale" },
 ];
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -124,6 +137,10 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   line_target_updated: "แก้สิทธิ์ผู้รับ LINE",
   line_delivery_succeeded: "ส่ง LINE สำเร็จ",
   line_delivery_failed: "ส่ง LINE ไม่สำเร็จ",
+  notification_line_retry_overdue_alert_processed: "แจ้งเตือน LINE retry เกินกำหนด",
+  notification_ops_monitor_tick_alerted: "Ops monitor พบเหตุ",
+  notification_run_slow_alert_processed: "แจ้งเตือนรอบแจ้งเตือนช้า",
+  notification_worker_heartbeat_stale_alert_processed: "แจ้งเตือน worker heartbeat stale",
   morning_brief_report_run_requested: "รันแผนแจ้งเตือน",
   report_run_requested: "รันรายงาน",
   report_run_succeeded: "รันรายงานสำเร็จ",
@@ -216,6 +233,7 @@ export default function OwnerV2Ops() {
   );
   const latestJavaWs = data?.report_health?.latest_javaws_failure ?? null;
   const heavyRuns = data?.report_health?.heavy_report_runs ?? [];
+  const proof = data?.production_proof ?? null;
 
   return (
     <div className="space-y-6">
@@ -249,6 +267,41 @@ export default function OwnerV2Ops() {
           label="สำรองข้อมูล"
           tone={data?.backup?.configured ? "success" : "warning"}
           value={data?.backup?.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
+        />
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <OpsMetric
+          icon={<CheckCircleIcon className="h-6 w-6" />}
+          label="แจ้งเตือนสำเร็จ 7 วัน"
+          tone={
+            typeof proof?.scheduled_success_rate === "number" &&
+            proof.scheduled_success_rate >= 0.95
+              ? "success"
+              : "warning"
+          }
+          value={`${formatPercent(proof?.scheduled_success_rate)} · ${
+            proof?.scheduled_run_count ?? 0
+          } runs`}
+        />
+        <OpsMetric
+          icon={<TimeIcon className="h-6 w-6" />}
+          label="p95 รอบแจ้งเตือน"
+          tone={
+            typeof proof?.scheduled_p95_duration_ms === "number" &&
+            proof.scheduled_p95_duration_ms <= 15 * 60 * 1000
+              ? "success"
+              : "warning"
+          }
+          value={durationLabel(proof?.scheduled_p95_duration_ms ?? null)}
+        />
+        <OpsMetric
+          icon={<BellIcon className="h-6 w-6" />}
+          label="รอนานกว่าปกติ"
+          tone={proof?.scheduled_slow_count ? "warning" : "success"}
+          value={`${proof?.scheduled_slow_count ?? 0} runs · ${
+            proof?.production_used_tenant_count ?? 0
+          } ร้านใช้งานจริง`}
         />
       </section>
 
@@ -766,8 +819,13 @@ function TelegramOpsManager({
         method: "POST",
         body: {
           alert_type: alertType,
-          severity: alertType === "notification_summary" ? "info" : "warning",
-          scheduled_time: "08:00",
+          severity:
+            alertType === "notification_summary"
+              ? "info"
+              : alertType === "line_delivery_failed" ||
+                  alertType === "heartbeat_stale"
+                ? "critical"
+                : "warning",
           report_key:
             alertType === "javaws_diagnostic" ? "sales_goods_services" : undefined,
         },
@@ -860,6 +918,12 @@ function TelegramOpsManager({
 }
 
 function PerTenantAudit({ tenants }: { tenants: AuditTenantEntry[] }) {
+  const productionTenants = tenants.filter(
+    (tenant) => (tenant.notification_rules_enabled ?? 0) > 0,
+  );
+  const inactiveNotificationTenants = tenants.filter(
+    (tenant) => (tenant.notification_rules_enabled ?? 0) === 0,
+  );
   return (
     <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
       <div className="mb-4">
@@ -867,33 +931,76 @@ function PerTenantAudit({ tenants }: { tenants: AuditTenantEntry[] }) {
           สถานะร้านล่าสุด
         </h3>
         <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-          รอบรายงาน การส่ง LINE และสถานะ datasource ต่อร้าน
+          รอบรายงาน การส่ง LINE และสถานะ datasource ต่อร้าน แยกตามการเปิดใช้แจ้งเตือนจริง
         </p>
+      </div>
+      <div className="space-y-5">
+        <TenantAuditGroup
+          badge="ใช้งานจริง"
+          tenants={productionTenants}
+          title="ใช้งานจริง"
+        />
+        <TenantAuditGroup
+          badge="ยังไม่ได้เปิดแจ้งเตือน"
+          muted
+          tenants={inactiveNotificationTenants}
+          title="ยังไม่ได้เปิดแจ้งเตือน"
+        />
+      </div>
+    </section>
+  );
+}
+
+function TenantAuditGroup({
+  badge,
+  muted = false,
+  tenants,
+  title,
+}: {
+  badge: string;
+  muted?: boolean;
+  tenants: AuditTenantEntry[];
+  title: string;
+}) {
+  if (!tenants.length) {
+    return null;
+  }
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h4 className="text-sm font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </h4>
+        <Badge color={muted ? "light" : "success"} size="sm">
+          {tenants.length} ร้าน
+        </Badge>
       </div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {tenants.map((tenant) => (
-          <div className="grid gap-2 py-3 lg:grid-cols-[minmax(180px,1fr)_170px_170px_140px] lg:items-center" key={tenant.id}>
+          <div className="grid gap-2 py-3 lg:grid-cols-[minmax(180px,1fr)_170px_170px_170px] lg:items-center" key={tenant.id}>
             <div className="min-w-0">
               <p className="font-semibold text-gray-900 dark:text-white">{tenant.name}</p>
               <p className="mt-1 truncate text-theme-xs text-gray-500 dark:text-gray-400">{tenant.id}</p>
             </div>
             <Fact
               label="SML"
-              tone={tenant.datasource_configured ? "success" : "warning"}
+              tone={muted ? undefined : tenant.datasource_configured ? "success" : "warning"}
               value={tenant.datasource_configured ? (tenant.database_name ?? "พร้อม") : "ยังไม่พร้อม"}
             />
             <Fact
               label="LINE"
-              tone={tenant.line_configured ? "success" : "warning"}
+              tone={muted ? undefined : tenant.line_configured ? "success" : "warning"}
               value={tenant.line_configured ? (tenant.line_target_masked ?? "พร้อม") : "ยังไม่พร้อม"}
             />
-            <Badge color={tenant.status === "active" || tenant.status === "trial" ? "success" : "light"} size="sm">
-              {tenant.status === "active" ? "ใช้งาน" : tenant.status === "trial" ? "ทดลอง" : tenant.status}
+            <Badge color={muted ? "light" : "success"} size="sm">
+              {muted
+                ? badge
+                : `${badge} · ${tenant.notification_rules_enabled ?? 0} แผน`}
             </Badge>
           </div>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -986,7 +1093,20 @@ function durationLabel(durationMs: number | null) {
   if (durationMs === null) {
     return "-";
   }
-  return `${Math.round(durationMs / 1000)}s`;
+  const seconds = Math.max(0, Math.round(durationMs / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+}
+
+function formatPercent(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${Math.round(value * 100)}%`;
 }
 
 function formatDateTime(value?: string | null) {

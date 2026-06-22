@@ -141,6 +141,10 @@ import {
   buildNotificationDigestPreview,
 } from "./notification-flex-preview.js";
 import { selectDeliveryRetryReportResults } from "./notification-delivery-retry.js";
+import {
+  runNotificationOpsMonitor,
+  type NotificationOpsMonitorConfig,
+} from "./notification-ops-monitor.js";
 import { shouldSendReportFailureIncidentNotice } from "./notification-incident.js";
 import {
   normalizeLineWebhookEvents,
@@ -335,6 +339,40 @@ const NOTIFICATION_WAIT_POLL_MS =
     min: 10,
     max: 600,
   }) * 1000;
+const OPS_MONITOR_ENABLED = readBooleanEnv("OPS_MONITOR_ENABLED", true);
+const OPS_MONITOR_POLL_MS =
+  readBoundedIntegerEnv("OPS_MONITOR_POLL_SECONDS", 60, {
+    min: 10,
+    max: 3600,
+  }) * 1000;
+const NOTIFICATION_RUN_SLOW_WARNING_MS =
+  readBoundedIntegerEnv("NOTIFICATION_RUN_SLOW_WARNING_MINUTES", 15, {
+    min: 1,
+    max: 240,
+  }) *
+  60 *
+  1000;
+const NOTIFICATION_RUN_SLOW_CRITICAL_MS =
+  readBoundedIntegerEnv("NOTIFICATION_RUN_SLOW_CRITICAL_MINUTES", 30, {
+    min: 1,
+    max: 240,
+  }) *
+  60 *
+  1000;
+const WORKER_HEARTBEAT_STALE_MS =
+  readBoundedIntegerEnv("WORKER_HEARTBEAT_STALE_MINUTES", 3, {
+    min: 1,
+    max: 60,
+  }) *
+  60 *
+  1000;
+const LINE_RETRY_GRACE_MS =
+  readBoundedIntegerEnv("LINE_RETRY_GRACE_MINUTES", 2, {
+    min: 0,
+    max: 60,
+  }) *
+  60 *
+  1000;
 const DASHBOARD_TOKEN_TTL_HOURS = 24;
 const DASHBOARD_TOKEN_LOOKBACK_DAYS = 31;
 const DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS = 31;
@@ -3514,14 +3552,7 @@ app.post(
       ? await getTenantOrNull(body.data.tenant_id)
       : null;
     const alertType = body.data.alert_type;
-    const title =
-      alertType === "javaws_diagnostic"
-        ? "JavaWS ตอบข้อมูลอ่านไม่ได้"
-        : alertType === "heavy_report_slow"
-          ? "รายงานหนักใช้เวลานานผิดปกติ"
-          : alertType === "notification_summary"
-            ? "สรุปรอบแจ้งเตือนผู้บริหาร"
-            : "จำลอง incident notice";
+    const title = resolveSmokeTestAlertTitle(alertType);
     const message = buildOperationalAlertMessage({
       title,
       severity: body.data.severity,
@@ -6831,6 +6862,7 @@ await app.listen({
   host: config.host,
   port: config.port,
 });
+startOpsMonitorLoop();
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
@@ -6860,6 +6892,7 @@ function buildDashboardUrl(baseUrl: string | null) {
 
 function buildProductionProofMetrics(input: {
   lineDeliveries: LineDeliveryRecord[];
+  notificationRules: NotificationRuleRecord[];
   notificationRuns: NotificationRuleRunRecord[];
   now: Date;
   reportRuns: ReportRunRecord[];
@@ -6876,11 +6909,14 @@ function buildProductionProofMetrics(input: {
   const activeTenants = input.tenants.filter(
     (tenant) => tenant.status === "active",
   );
+  const enabledRuleTenantIds = new Set(
+    input.notificationRules
+      .filter((rule) => rule.enabled)
+      .map((rule) => rule.tenant_id),
+  );
   const eligibleTenantIds = new Set(
     activeTenants
-      .filter(
-        (tenant) => tenant.datasource_configured && tenant.line_configured,
-      )
+      .filter((tenant) => enabledRuleTenantIds.has(tenant.id))
       .map((tenant) => tenant.id),
   );
   const isInWindow = (value: string | null | undefined) => {
@@ -6964,6 +7000,28 @@ function buildProductionProofMetrics(input: {
   const lineSuccessCount = lineDeliveries.filter(
     (delivery) => delivery.status === "success",
   ).length;
+  const notificationDurations = proofRuns
+    .filter((run) => run.started_at && run.finished_at)
+    .map((run) =>
+      Math.max(
+        0,
+        new Date(run.finished_at ?? "").getTime() -
+          new Date(run.started_at ?? "").getTime(),
+      ),
+    )
+    .filter((value) => Number.isFinite(value));
+  const notificationSlowCount = proofRuns.filter((run) => {
+    const startedAt = run.started_at ?? run.claimed_at ?? run.queued_at;
+    if (!startedAt) {
+      return false;
+    }
+    const endAt = run.finished_at ?? input.now.toISOString();
+    const elapsedMs = new Date(endAt).getTime() - new Date(startedAt).getTime();
+    return (
+      Number.isFinite(elapsedMs) &&
+      elapsedMs >= NOTIFICATION_RUN_SLOW_WARNING_MS
+    );
+  }).length;
 
   return {
     window_days: windowDays,
@@ -6971,6 +7029,8 @@ function buildProductionProofMetrics(input: {
     generated_at: input.now.toISOString(),
     active_tenant_count: activeTenants.length,
     eligible_tenant_count: eligibleTenantIds.size,
+    production_used_tenant_count: eligibleTenantIds.size,
+    notification_rule_enabled_tenant_count: enabledRuleTenantIds.size,
     scheduled_run_count: proofRuns.length,
     scheduled_success_count: scheduledSuccessCount,
     scheduled_warning_count: proofRuns.filter(
@@ -6983,6 +7043,8 @@ function buildProductionProofMetrics(input: {
     ).length,
     scheduled_success_rate:
       proofRuns.length > 0 ? scheduledSuccessCount / proofRuns.length : null,
+    scheduled_p95_duration_ms: percentile(notificationDurations, 0.95),
+    scheduled_slow_count: notificationSlowCount,
     line_delivery_count: lineDeliveries.length,
     line_delivery_success_count: lineSuccessCount,
     line_delivery_failed_count: lineDeliveries.filter(
@@ -7006,12 +7068,27 @@ function buildProductionProofMetrics(input: {
 }
 
 async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
+  const generatedAt = new Date();
+  const proofWindowStartedAt = new Date(
+    generatedAt.getTime() - 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
   const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
   const runtimeStatus = await readSystemRuntimeConfigStatus(systemStore);
   const latestHeartbeat = await systemStore.getLatestWorkerHeartbeat(
     "notification_rule_worker",
   );
   const tenants = await systemStore.listTenants();
+  const notificationRules = await systemStore.listNotificationRules();
+  const enabledNotificationRuleCounts = new Map<string, number>();
+  for (const rule of notificationRules) {
+    if (!rule.enabled) {
+      continue;
+    }
+    enabledNotificationRuleCounts.set(
+      rule.tenant_id,
+      (enabledNotificationRuleCounts.get(rule.tenant_id) ?? 0) + 1,
+    );
+  }
   const auditLogs = input.includeAuditLogs
     ? await systemStore.listAuditLogs(30)
     : [];
@@ -7053,6 +7130,11 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
         line_target_masked:
           lineTargets.find((target) => target.enabled && target.approved)
             ?.target_id_masked ?? null,
+        notification_rules_enabled:
+          enabledNotificationRuleCounts.get(tenant.id) ?? 0,
+        notification_usage_status: enabledNotificationRuleCounts.get(tenant.id)
+          ? "production_used"
+          : "notifications_not_enabled",
       };
     }),
   );
@@ -7070,26 +7152,36 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
   const [
     telegramStatus,
     telegramDeliveries,
-    reportRunsByTenant,
+    recentReportRuns,
     notificationRuns,
-    lineDeliveriesByTenant,
+    recentLineDeliveries,
   ] = await Promise.all([
     readTelegramOperationalAlertStatus(systemStore),
     systemStore.listOperationalAlertDeliveries({
       channel: "telegram",
       limit: 30,
     }),
-    Promise.all(
-      tenants.map((tenant) => systemStore.listRuns(tenant.id, undefined, 200)),
-    ),
-    systemStore.listNotificationRuleRuns({ limit: 200 }),
-    Promise.all(tenants.map((tenant) => systemStore.listLineDeliveries(tenant.id))),
+    systemStore.listRecentRuns({
+      tenantIds: tenants.map((tenant) => tenant.id),
+      since: proofWindowStartedAt,
+      limit: 1000,
+    }),
+    systemStore.listRecentNotificationRuleRuns({
+      tenantIds: tenants.map((tenant) => tenant.id),
+      since: proofWindowStartedAt,
+      limit: 1000,
+    }),
+    systemStore.listRecentLineDeliveries({
+      tenantIds: tenants.map((tenant) => tenant.id),
+      since: proofWindowStartedAt,
+      limit: 1000,
+    }),
   ]);
-  const recentReportRuns = reportRunsByTenant.flat();
   const productionProof = buildProductionProofMetrics({
-    lineDeliveries: lineDeliveriesByTenant.flat(),
+    lineDeliveries: recentLineDeliveries,
+    notificationRules,
     notificationRuns,
-    now: new Date(),
+    now: generatedAt,
     reportRuns: recentReportRuns,
     tenants: tenantHealth,
   });
@@ -7661,7 +7753,15 @@ const NOTIFICATION_QUEUE_STALE_MS =
   NOTIFICATION_CHUNKED_WAIT_MS + NOTIFICATION_STALE_GRACE_MS;
 const NOTIFICATION_QUEUE_BACKGROUND_LIMIT = 1;
 const NOTIFICATION_QUEUE_PROCESSOR_LOCK_KEY = "notification_rule_queue_processor";
+const OPS_MONITOR_LOCK_KEY = "notification_ops_monitor";
+const OPS_MONITOR_CONFIG: NotificationOpsMonitorConfig = {
+  heartbeatStaleMs: WORKER_HEARTBEAT_STALE_MS,
+  lineRetryGraceMs: LINE_RETRY_GRACE_MS,
+  slowCriticalMs: NOTIFICATION_RUN_SLOW_CRITICAL_MS,
+  slowWarningMs: NOTIFICATION_RUN_SLOW_WARNING_MS,
+};
 let notificationQueueProcessorActive = false;
+let opsMonitorActive = false;
 
 type ChunkedHeavyReportKey = "stock_balance" | "ar_customer_movement";
 
@@ -9543,6 +9643,71 @@ function kickNotificationQueueProcessor(runId: string) {
       app.log.error({ err, runId }, "Manual notification queue processor failed");
     });
   }, 0);
+}
+
+function startOpsMonitorLoop() {
+  if (!OPS_MONITOR_ENABLED) {
+    app.log.info("Notification ops monitor disabled by OPS_MONITOR_ENABLED=false");
+    return;
+  }
+
+  const runTick = () => {
+    void runOpsMonitorTick().catch((error) => {
+      app.log.error({ error }, "Notification ops monitor tick failed");
+    });
+  };
+
+  const startupTimer = setTimeout(runTick, 1_000);
+  startupTimer.unref?.();
+  const interval = setInterval(runTick, OPS_MONITOR_POLL_MS);
+  interval.unref?.();
+}
+
+async function runOpsMonitorTick() {
+  if (opsMonitorActive) {
+    return { skipped: "processor_busy" };
+  }
+
+  const lockAcquired = await systemStore.tryAcquireLock({
+    lockKey: OPS_MONITOR_LOCK_KEY,
+  });
+  if (!lockAcquired) {
+    return { skipped: "db_lock_busy" };
+  }
+
+  opsMonitorActive = true;
+  try {
+    const result = await runNotificationOpsMonitor({
+      config: OPS_MONITOR_CONFIG,
+      now: new Date(),
+      sendAlert: (alert) =>
+        sendOperationalTelegramAlert({
+          store: systemStore,
+          ...alert,
+        }),
+      store: systemStore,
+    });
+    if (
+      result.active_run_alerts ||
+      result.heartbeat_alerts ||
+      result.line_retry_alerts
+    ) {
+      await systemStore.appendAuditLog({
+        tenant_id: null,
+        actor_id: null,
+        action: "notification_ops_monitor_tick_alerted",
+        target_type: "operational_monitor",
+        target_id: OPS_MONITOR_LOCK_KEY,
+        metadata_json: result,
+      });
+    }
+    return result;
+  } finally {
+    opsMonitorActive = false;
+    await systemStore.releaseLock({
+      lockKey: OPS_MONITOR_LOCK_KEY,
+    });
+  }
 }
 
 function kickExecutiveDashboardRunProcessor(runId: string) {
@@ -11651,6 +11816,41 @@ function readBoundedIntegerEnv(
     return fallback;
   }
   return Math.max(bounds.min, Math.min(bounds.max, Math.round(parsed)));
+}
+
+function readBooleanEnv(name: string, fallback: boolean) {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) {
+    return fallback;
+  }
+  if (["1", "true", "yes", "on"].includes(raw)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(raw)) {
+    return false;
+  }
+  return fallback;
+}
+
+function resolveSmokeTestAlertTitle(alertType: string) {
+  switch (alertType) {
+    case "javaws_diagnostic":
+      return "JavaWS ตอบข้อมูลอ่านไม่ได้";
+    case "heavy_report_slow":
+      return "รายงานหนักใช้เวลานานผิดปกติ";
+    case "notification_summary":
+      return "สรุปรอบแจ้งเตือนผู้บริหาร";
+    case "notification_run_slow":
+      return "งานแจ้งเตือนผู้บริหารใช้เวลานานกว่าปกติ";
+    case "line_delivery_failed":
+      return "ส่ง LINE executive notification ไม่สำเร็จ";
+    case "worker_tick_failed":
+      return "Worker tick ล้มเหลวต่อเนื่อง";
+    case "heartbeat_stale":
+      return "Worker heartbeat หายหรือเกิน SLA";
+    default:
+      return "จำลอง incident notice";
+  }
 }
 
 function validateManualNotificationSchedule(input: {
@@ -14732,6 +14932,10 @@ const operationalAlertSmokeTestSchema = z.object({
       "javaws_diagnostic",
       "heavy_report_slow",
       "notification_summary",
+      "notification_run_slow",
+      "line_delivery_failed",
+      "worker_tick_failed",
+      "heartbeat_stale",
     ])
     .default("incident_dry_run"),
   severity: operationalAlertSeveritySchema.default("warning"),
