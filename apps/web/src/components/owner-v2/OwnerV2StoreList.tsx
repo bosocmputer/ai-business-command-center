@@ -183,7 +183,7 @@ export default function OwnerV2StoreList() {
         />
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
+      <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
         <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
@@ -210,27 +210,34 @@ export default function OwnerV2StoreList() {
           </div>
         </div>
 
-        <div className="mb-5 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <input
-            className="owner-v2-input"
+            className="owner-v2-input xl:max-w-md"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="ค้นหาชื่อร้าน, tenant id หรือสิ่งที่ต้องทำต่อ"
             value={query}
           />
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {/* Segmented filter toggle — TailAdmin chart-03 pattern */}
+          <div className="inline-flex w-fit items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900">
             {filters.map((item) => (
               <button
-                className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition ${
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-theme-sm font-medium transition ${
                   filter === item.id
-                    ? "bg-brand-50 text-brand-600 ring-1 ring-brand-100 dark:bg-brand-500/10 dark:text-brand-400 dark:ring-brand-500/20"
-                    : "bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-white/[0.02] dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                    ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-800 dark:text-white"
+                    : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                 }`}
                 key={item.id}
                 onClick={() => setFilter(item.id)}
                 type="button"
               >
                 <span>{item.label}</span>
-                <span className="rounded-full bg-white px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${
+                    filter === item.id
+                      ? "bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
+                      : "bg-gray-200 text-gray-500 dark:bg-white/[0.05] dark:text-gray-400"
+                  }`}
+                >
                   {item.count.toLocaleString("th-TH")}
                 </span>
               </button>
@@ -240,45 +247,44 @@ export default function OwnerV2StoreList() {
 
         {filteredTenants.length ? (
           <>
-            <div className="hidden overflow-hidden rounded-lg bg-gray-50 px-4 pb-3 pt-4 dark:bg-white/[0.02] lg:block">
-              <div className="w-full overflow-x-auto">
-                <table className="w-full min-w-[960px]">
-                  <thead>
-                    <tr className="border-y border-gray-100 dark:border-gray-800">
-                      <th className="w-[28%] py-3 pr-5 text-left">
-                        <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-                          ร้าน
-                        </span>
-                      </th>
-                      <th className="w-[18%] px-3 py-3 text-left">
-                        <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-                          ความพร้อม
-                        </span>
-                      </th>
-                      <th className="w-[28%] px-3 py-3 text-left">
-                        <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-                          สิ่งที่ต้องทำ
-                        </span>
-                      </th>
-                      <th className="w-[18%] px-3 py-3 text-left">
-                        <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-                          สถานะหลัก
-                        </span>
-                      </th>
-                      <th className="px-3 py-3 text-right">
-                        <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-                          เปิดงาน
-                        </span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {filteredTenants.map((tenant) => (
-                      <StoreTableRow key={tenant.id} tenant={tenant} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {/* Desktop table — TailAdmin table-01 pattern (no inner gray wrapper) */}
+            <div className="hidden w-full overflow-x-auto lg:block">
+              <table className="min-w-[960px]">
+                <thead>
+                  <tr className="border-y border-gray-100 dark:border-gray-800">
+                    <th className="w-[28%] py-3 pr-5 text-left">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        ร้าน
+                      </span>
+                    </th>
+                    <th className="w-[18%] px-3 py-3 text-left">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        ความพร้อม
+                      </span>
+                    </th>
+                    <th className="w-[28%] px-3 py-3 text-left">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        สิ่งที่ต้องทำ
+                      </span>
+                    </th>
+                    <th className="w-[18%] px-3 py-3 text-left">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        สถานะหลัก
+                      </span>
+                    </th>
+                    <th className="px-3 py-3 text-right">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        เปิดงาน
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {filteredTenants.map((tenant) => (
+                    <StoreTableRow key={tenant.id} tenant={tenant} />
+                  ))}
+                </tbody>
+              </table>
             </div>
 
             <div className="space-y-3 lg:hidden">
@@ -416,24 +422,26 @@ function SummaryMetric({
   tone: "neutral" | "success" | "warning";
   value: string;
 }) {
+  // TailAdmin metric-group-01 pattern: h-12 w-12 icon tile (rounded-xl),
+  // label + value row, then text-title-sm font-bold value.
   const toneClass = {
-    neutral: "bg-gray-100 text-gray-700 dark:bg-white/[0.05] dark:text-gray-300",
+    neutral: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-white/90",
     success:
-      "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400",
+      "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500",
     warning:
-      "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300",
+      "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400",
   }[tone];
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${toneClass}`}>
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-xl ${toneClass}`}
+      >
         {icon}
       </div>
-      <p className="mt-4 text-theme-xs text-gray-500 dark:text-gray-400">
-        {label}
-      </p>
-      <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white">
+      <p className="mt-5 text-sm text-gray-500 dark:text-gray-400">{label}</p>
+      <h4 className="mt-2 text-title-sm font-bold text-gray-800 dark:text-white/90">
         {value}
-      </p>
+      </h4>
     </div>
   );
 }
