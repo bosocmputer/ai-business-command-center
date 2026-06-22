@@ -247,9 +247,11 @@ export default function OwnerV2StoreList() {
 
         {filteredTenants.length ? (
           <>
-            {/* Desktop table — TailAdmin table-01 pattern. Whole row is clickable. */}
+            {/* Desktop table — TailAdmin table-01 pattern. Whole row is clickable.
+                w-full on the table itself so columns fill the card width (the
+                min-w only kicks in on a very narrow lg viewport to allow scroll). */}
             <div className="hidden w-full overflow-x-auto lg:block">
-              <table className="min-w-[760px]">
+              <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="border-y border-gray-100 dark:border-gray-800">
                     <th className="w-[34%] py-3 pr-5 text-left">
