@@ -14,7 +14,12 @@ import {
   TimeIcon,
 } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
-import { formatLineDeliveryStatus, formatRunStatus } from "./ui";
+import {
+  Fact,
+  formatDateTime,
+  formatLineDeliveryStatus,
+  formatRunStatus,
+} from "./ui";
 
 type OperationsStatus = {
   worker?: {
@@ -236,74 +241,98 @@ export default function OwnerV2Ops() {
   const proof = data?.production_proof ?? null;
 
   return (
-    <div className="space-y-6">
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <OpsMetric
-          icon={<BoxCubeIcon className="h-6 w-6" />}
-          label="ตัวประมวลผลงาน"
-          tone={data?.worker?.status === "ok" ? "success" : "warning"}
-          value={formatWorker(data?.worker)}
-        />
-        <OpsMetric
-          icon={<TimeIcon className="h-6 w-6" />}
-          label="ตัวตั้งเวลา"
-          tone={data?.scheduler?.enabled ? "success" : "warning"}
-          value={data?.scheduler?.enabled ? "เปิดใช้งาน" : "ยังไม่พร้อม"}
-        />
-        <OpsMetric
-          icon={<BellIcon className="h-6 w-6" />}
-          label="Telegram แจ้งเตือน"
-          tone={telegramReady ? "success" : "warning"}
-          value={
-            telegramReady
-              ? telegram?.bot_username
-                ? `@${telegram.bot_username}`
-                : "พร้อม"
-              : "ยังไม่พร้อม"
-          }
-        />
-        <OpsMetric
-          icon={<PlugInIcon className="h-6 w-6" />}
-          label="สำรองข้อมูล"
-          tone={data?.backup?.configured ? "success" : "warning"}
-          value={data?.backup?.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
-        />
-      </section>
+    <div className="space-y-5 sm:space-y-6">
+      {/* Action toolbar — refresh always available */}
+      <div className="flex items-center justify-end">
+        <Button
+          onClick={() => void load()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          รีเฟรชสถานะ
+        </Button>
+      </div>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <OpsMetric
-          icon={<CheckCircleIcon className="h-6 w-6" />}
-          label="แจ้งเตือนสำเร็จ 7 วัน"
-          tone={
-            typeof proof?.scheduled_success_rate === "number" &&
-            proof.scheduled_success_rate >= 0.95
-              ? "success"
-              : "warning"
-          }
-          value={`${formatPercent(proof?.scheduled_success_rate)} · ${
-            proof?.scheduled_run_count ?? 0
-          } runs`}
-        />
-        <OpsMetric
-          icon={<TimeIcon className="h-6 w-6" />}
-          label="p95 รอบแจ้งเตือน"
-          tone={
-            typeof proof?.scheduled_p95_duration_ms === "number" &&
-            proof.scheduled_p95_duration_ms <= 15 * 60 * 1000
-              ? "success"
-              : "warning"
-          }
-          value={durationLabel(proof?.scheduled_p95_duration_ms ?? null)}
-        />
-        <OpsMetric
-          icon={<BellIcon className="h-6 w-6" />}
-          label="รอนานกว่าปกติ"
-          tone={proof?.scheduled_slow_count ? "warning" : "success"}
-          value={`${proof?.scheduled_slow_count ?? 0} runs · ${
-            proof?.production_used_tenant_count ?? 0
-          } ร้านใช้งานจริง`}
-        />
-      </section>
+      {/* Section 1 — โครงสร้างระบบ (worker / scheduler / telegram / backup) */}
+      <div>
+        <h2 className="mb-3 text-lg font-semibold text-gray-800 dark:text-white/90">
+          โครงสร้างระบบ
+        </h2>
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <OpsMetric
+            icon={<BoxCubeIcon className="h-6 w-6" />}
+            label="ตัวประมวลผลงาน"
+            tone={data?.worker?.status === "ok" ? "success" : "warning"}
+            value={formatWorker(data?.worker)}
+          />
+          <OpsMetric
+            icon={<TimeIcon className="h-6 w-6" />}
+            label="ตัวตั้งเวลา"
+            tone={data?.scheduler?.enabled ? "success" : "warning"}
+            value={data?.scheduler?.enabled ? "เปิดใช้งาน" : "ยังไม่พร้อม"}
+          />
+          <OpsMetric
+            icon={<BellIcon className="h-6 w-6" />}
+            label="Telegram แจ้งเตือน"
+            tone={telegramReady ? "success" : "warning"}
+            value={
+              telegramReady
+                ? telegram?.bot_username
+                  ? `@${telegram.bot_username}`
+                  : "พร้อม"
+                : "ยังไม่พร้อม"
+            }
+          />
+          <OpsMetric
+            icon={<PlugInIcon className="h-6 w-6" />}
+            label="สำรองข้อมูล"
+            tone={data?.backup?.configured ? "success" : "warning"}
+            value={data?.backup?.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
+          />
+        </section>
+      </div>
+
+      {/* Section 2 — หลักฐานการผลิต (proof metrics) */}
+      <div>
+        <h2 className="mb-3 text-lg font-semibold text-gray-800 dark:text-white/90">
+          หลักฐานการผลิต (7 วัน)
+        </h2>
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <OpsMetric
+            icon={<CheckCircleIcon className="h-6 w-6" />}
+            label="แจ้งเตือนสำเร็จ"
+            tone={
+              typeof proof?.scheduled_success_rate === "number" &&
+              proof.scheduled_success_rate >= 0.95
+                ? "success"
+                : "warning"
+            }
+            value={`${formatPercent(proof?.scheduled_success_rate)} · ${
+              proof?.scheduled_run_count ?? 0
+            } runs`}
+          />
+          <OpsMetric
+            icon={<TimeIcon className="h-6 w-6" />}
+            label="p95 รอบแจ้งเตือน"
+            tone={
+              typeof proof?.scheduled_p95_duration_ms === "number" &&
+              proof.scheduled_p95_duration_ms <= 15 * 60 * 1000
+                ? "success"
+                : "warning"
+            }
+            value={durationLabel(proof?.scheduled_p95_duration_ms ?? null)}
+          />
+          <OpsMetric
+            icon={<BellIcon className="h-6 w-6" />}
+            label="รอนานกว่าปกติ"
+            tone={proof?.scheduled_slow_count ? "warning" : "success"}
+            value={`${proof?.scheduled_slow_count ?? 0} runs · ${
+              proof?.production_used_tenant_count ?? 0
+            } ร้านใช้งานจริง`}
+          />
+        </section>
+      </div>
 
       {latestJavaWs ? (
         <OpsNotice
@@ -363,25 +392,35 @@ function OpsMetric({
 }: {
   icon: ReactNode;
   label: string;
-  tone: "success" | "warning";
+  tone: "success" | "warning" | "error";
   value: string;
 }) {
+  // TailAdmin metric-group-01 pattern: h-12 w-12 rounded-xl icon tile (tone-tinted),
+  // label + badge row, then text-title-sm font-bold value.
+  const tileClass =
+    tone === "success"
+      ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500"
+      : tone === "error"
+        ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
+        : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400";
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-white/90">
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-xl ${tileClass}`}
+      >
         {icon}
       </div>
       <div className="mt-5 flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <span className="text-theme-sm text-gray-500 dark:text-gray-400">
-            {label}
-          </span>
-          <h4 className="mt-2 break-words text-base font-bold text-gray-800 dark:text-white/90">
-            {value}
-          </h4>
-        </div>
-        <Badge color={tone}>{tone === "success" ? "ปกติ" : "ต้องดู"}</Badge>
+        <span className="text-sm text-gray-500 dark:text-gray-400">
+          {label}
+        </span>
+        <Badge color={tone}>
+          {tone === "success" ? "ปกติ" : tone === "error" ? "สำคัญ" : "ต้องดู"}
+        </Badge>
       </div>
+      <h4 className="mt-2 break-words text-title-sm font-bold text-gray-800 dark:text-white/90">
+        {value}
+      </h4>
     </div>
   );
 }
@@ -1004,24 +1043,6 @@ function TenantAuditGroup({
   );
 }
 
-function Fact({ label, tone, value }: { label: string; tone?: "success" | "warning" | "error"; value: string }) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      {tone ? (
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-          <Badge color={tone} size="sm">
-            {tone === "success" ? "ปกติ" : tone === "warning" ? "ต้องดู" : "สำคัญ"}
-          </Badge>
-        </div>
-      ) : (
-        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-      )}
-      <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">{value || "-"}</p>
-    </div>
-  );
-}
-
 function formatAuditAction(action: string) {
   return AUDIT_ACTION_LABELS[action] ?? action;
 }
@@ -1107,15 +1128,4 @@ function formatPercent(value?: number | null) {
     return "-";
   }
   return `${Math.round(value * 100)}%`;
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Bangkok",
-  }).format(new Date(value));
 }
