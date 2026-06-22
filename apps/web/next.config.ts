@@ -21,20 +21,52 @@ const nextConfig: NextConfig = {
   webpack(config) {
     config.module.rules.push({
       test: /\.svg$/,
-      use: ["@svgr/webpack"],
+      // Keep the viewBox attribute so icons sized via CSS (h-5 w-5, etc.)
+      // don't get clipped — SVGR's default SVGO removes viewBox when
+      // width/height are present, which breaks responsive sizing.
+      use: [
+        {
+          loader: "@svgr/webpack",
+          options: {
+            svgo: true,
+            svgoConfig: {
+              plugins: [
+                {
+                  name: "preset-default",
+                  params: { overrides: { removeViewBox: false } },
+                },
+              ],
+            },
+          },
+        },
+      ],
     });
     return config;
   },
-    
-    turbopack: {
-      rules: {
-        '*.svg': {
-          loaders: ['@svgr/webpack'],
-          as: '*.js',
-        },
+
+  turbopack: {
+    rules: {
+      "*.svg": {
+        loaders: [
+          {
+            loader: "@svgr/webpack",
+            options: {
+              svgo: true,
+              svgoConfig: {
+                plugins: [
+                  {
+                    name: "preset-default",
+                    params: { overrides: { removeViewBox: false } },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: "*.js",
       },
     },
-  
+  },
 };
 
 export default nextConfig;
