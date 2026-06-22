@@ -7,6 +7,7 @@ import { isAbortError, ownerV2Fetch } from "./api";
 import OwnerV2Cockpit from "./OwnerV2Cockpit";
 import { InlineNotice, primaryActionClass, secondaryActionClass } from "./ui";
 import type {
+  OwnerV2CockpitHealthMatrixRow,
   OwnerV2CockpitTone,
   OwnerV2WorkbenchPayload,
 } from "./types";
@@ -212,6 +213,10 @@ export default function OwnerV2Workbench() {
             </div>
           </section>
 
+          <StoresNeedingAttention
+            healthMatrix={workbench?.cockpit?.health_matrix ?? []}
+          />
+
           <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
               สถานะ worker
@@ -297,6 +302,100 @@ function MetricCard({
         {value}
       </h4>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Stores needing attention — right-rail card (balances cockpit height)
+/* ------------------------------------------------------------------ */
+
+const CELL_TONE_WEIGHT: Record<string, number> = {
+  error: 3,
+  warning: 2,
+  success: 0,
+  light: 0,
+  info: 0,
+};
+
+function StoresNeedingAttention({
+  healthMatrix,
+}: {
+  healthMatrix: OwnerV2CockpitHealthMatrixRow[];
+}) {
+  if (!healthMatrix.length) {
+    return null;
+  }
+  // Rank tenants by total "needs attention" weight across all 7 cells.
+  const ranked = healthMatrix
+    .map((row) => {
+      const cells = [row.sml, row.line, row.schedule, row.latest_run, row.incident, row.signals, row.proof];
+      const weight = cells.reduce(
+        (sum, cell) => sum + (CELL_TONE_WEIGHT[cell.tone] ?? 0),
+        0,
+      );
+      const worstTone = cells.reduce<(typeof row.sml)["tone"]>(
+        (worst, cell) =>
+          (CELL_TONE_WEIGHT[cell.tone] ?? 0) >
+          (CELL_TONE_WEIGHT[worst] ?? 0)
+            ? cell.tone
+            : worst,
+        "success",
+      );
+      return { row, weight, worstTone };
+    })
+    .filter((item) => item.weight > 0)
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 4);
+
+  if (!ranked.length) {
+    return (
+      <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+          ร้านที่ต้องดู
+        </h3>
+        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
+          ทุกร้านในสถานะปกติ ไม่มีร้านที่ต้องตรวจด่วน
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            ร้านที่ต้องดู
+          </h3>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            เรียงตามความเร่งด่วน — กดชื่อร้านเพื่อเปิดรายละเอียด
+          </p>
+        </div>
+      </div>
+      <div className="mt-5 space-y-3">
+        {ranked.map(({ row, worstTone }) => (
+          <Link
+            className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3 transition hover:border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-white/[0.03]"
+            href={row.href}
+            key={row.tenant_id}
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                {row.tenant_name}
+              </p>
+              <p className="mt-0.5 line-clamp-1 text-theme-xs text-gray-500 dark:text-gray-400">
+                {row.next_action_label}
+              </p>
+            </div>
+            <div
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${worstTone === "error" ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500" : worstTone === "warning" ? "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400" : "bg-gray-100 text-gray-500 dark:bg-white/[0.05] dark:text-gray-400"}`}
+            >
+              <ArrowRightIcon className="h-4 w-4" />
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 
