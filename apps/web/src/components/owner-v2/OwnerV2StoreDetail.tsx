@@ -345,9 +345,9 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
       {activeTab === "setup" ? (
         <div className="space-y-5 sm:space-y-6">
-          {/* Setup wizard — the primary setup path. Hide when fully ready so
-              the wizard's DoneSummary collapse isn't duplicated by the
-              checklist below; the checklist already shows the all-green state. */}
+          {/* Setup wizard — the primary setup path with per-step CTA cards.
+              Shown when not ready; hidden when fully ready (the checklist
+              below already confirms the all-green state compactly). */}
           {wizardTenant && !readiness.ready ? (
             <OwnerV2SetupWizard
               steps={wizardSteps}
@@ -355,22 +355,26 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             />
           ) : null}
 
-          {/* Readiness checklist — the compact per-check list. Always shown:
-              when not ready it's the actionable list; when ready it confirms
-              every check passed without needing to expand the wizard summary. */}
-          <Panel>
-            <PanelHeader
-              title="รายการตรวจสอบความพร้อม"
-              description="สถานะแต่ละข้อตั้งค่าของร้านนี้ กด “ทำต่อ” เพื่อเปิดขั้นนั้น"
-            />
-            <PanelBody>
-              <div className="custom-scrollbar flex max-h-[320px] flex-col gap-2 overflow-y-auto">
-                {readiness.checks.map((check) => (
-                  <ReadinessRow check={check} key={check.key} tenantId={tenant.id} />
-                ))}
-              </div>
-            </PanelBody>
-          </Panel>
+          {/* Readiness checklist — compact confirmation. When not ready this
+              is redundant with the wizard (which shows the same checks as
+              actionable cards), so hide it to avoid duplication. When ready
+              it's the only thing shown — a clean all-green list with no
+              fixed-height scroll container. */}
+          {readiness.ready ? (
+            <Panel>
+              <PanelHeader
+                title="รายการตรวจสอบความพร้อม"
+                description="ทุกข้อตั้งค่าครบแล้ว — กด “ดู” เพื่อเปิดหน้าตั้งค่าของขั้นนั้น"
+              />
+              <PanelBody>
+                <div className="flex flex-col gap-2">
+                  {readiness.checks.map((check) => (
+                    <ReadinessRow check={check} key={check.key} tenantId={tenant.id} />
+                  ))}
+                </div>
+              </PanelBody>
+            </Panel>
+          ) : null}
         </div>
       ) : null}
 
@@ -1105,7 +1109,7 @@ function BusinessSignalPanel({
           {message.text}
         </p>
       ) : null}
-      <div className="custom-scrollbar max-h-[420px] space-y-2 overflow-y-auto">
+      <div className="space-y-2">
         {signals.map((signal) => (
           <div
             className="flex flex-col gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800 sm:flex-row sm:items-start sm:justify-between"
