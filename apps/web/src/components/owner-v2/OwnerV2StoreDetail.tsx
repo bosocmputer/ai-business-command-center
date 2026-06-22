@@ -193,12 +193,14 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
       return;
     }
     const params = new URLSearchParams(searchParams.toString());
-    if (tab === "setup") {
-      params.delete("tab");
-    } else {
-      params.set("tab", tab);
-    }
-    // Switching tabs leaves the setup wizard, so drop the step query too.
+    // Always set ?tab= explicitly, even for the "setup" tab. The smart
+    // default (defaultTabForReadiness) only runs when the URL has NO ?tab=
+    // at all — i.e. on first page load. If we delete ?tab= when selecting
+    // setup, the smart default re-runs on the next render and bounces a
+    // ready store back to the system tab, making the setup tab feel
+    // unclickable.
+    params.set("tab", tab);
+    // Switching away from setup leaves the setup wizard, so drop the step.
     if (tab !== "setup") {
       params.delete("step");
     }
