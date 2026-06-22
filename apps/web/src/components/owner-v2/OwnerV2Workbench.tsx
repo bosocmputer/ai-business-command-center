@@ -7,9 +7,10 @@ import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch } from "./api";
 import OwnerV2Cockpit from "./OwnerV2Cockpit";
 import {
-  formatRunStatus,
+  Fact,
   InlineNotice,
   primaryActionClass,
+  secondaryActionClass,
 } from "./ui";
 import type {
   OwnerV2CockpitTone,
@@ -106,101 +107,85 @@ export default function OwnerV2Workbench() {
   }
 
   const ops = workbench?.ops;
+  const warningCount = ops?.warning_count ?? 0;
+  const criticalCount = ops?.critical_count ?? 0;
+  const activeTenantCount = workbench?.cockpit?.active_tenant_count ?? 0;
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
+      {/* Action toolbar — always visible so primary navigation is one click away */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link className={primaryActionClass} href="/owner-v2/stores/new">
+            <PlusIcon className="h-4 w-4" />
+            เพิ่มร้าน
+          </Link>
+          <Link className={secondaryActionClass} href="/owner-v2/stores">
+            จัดการร้านทั้งหมด
+          </Link>
+          <Link className={secondaryActionClass} href="/owner-v2/ops">
+            ตรวจระบบ
+          </Link>
+        </div>
+        <Button
+          className="w-full sm:w-auto"
+          onClick={() => void loadWorkbench()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          รีเฟรช
+        </Button>
+      </div>
+
+      {/* System metrics strip — compact stat row, tone-coded for scanability */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Fact
+          label="งานต้องตรวจ"
+          tone={warningCount > 0 ? "warning" : "success"}
+          value={`${warningCount} รายการ`}
+        />
+        <Fact
+          label="สัญญาณสำคัญ"
+          tone={criticalCount > 0 ? "error" : "success"}
+          value={`${criticalCount} เรื่อง`}
+        />
+        <Fact
+          label="Worker"
+          tone={ops?.worker_status === "ok" ? "success" : "warning"}
+          value={formatWorkerStatus(ops?.worker_status)}
+        />
+        <Fact
+          label="Telegram ops"
+          tone={ops?.telegram_ready ? "success" : "warning"}
+          value={ops?.telegram_ready ? "พร้อมแจ้งเตือน" : "ยังไม่พร้อม"}
+        />
+      </div>
+
+      {warningCount > 0 ? (
+        <InlineNotice
+          message={`มี ${warningCount} รายการที่ควรตรวจก่อนรอบแจ้งเตือนถัดไป ดูรายละเอียดในตารางสถานะร้านหรือหน้าตรวจระบบ`}
+          title="ต้องตรวจก่อนรอบถัดไป"
+          tone="warning"
+        />
+      ) : null}
+
       {workbench?.cockpit ? (
         <OwnerV2Cockpit cockpit={workbench.cockpit} />
       ) : null}
 
       <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-theme-lg font-semibold text-gray-800 dark:text-white/90">
-              ภาพรวมระบบ
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">
+              ร้านในระบบ
             </h2>
-            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              สถานะล่าสุดของ worker, แผนแจ้งเตือน และการแจ้งเตือน ops
-              สำหรับทุกร้านในระบบ
+            <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+              {activeTenantCount} ร้าน active — กด &quot;จัดการร้านทั้งหมด&quot;
+              ด้านบนเพื่อค้นหา/กรอง
             </p>
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => void loadWorkbench()}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              รีเฟรช
-            </Button>
-            <Link className={primaryActionClass} href="/owner-v2/stores/new">
-              <PlusIcon className="h-4 w-4" />
-              เพิ่มร้าน
-            </Link>
-          </div>
         </div>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <Fact
-            label="งานต้องตรวจ"
-            value={`${ops?.warning_count ?? 0} รายการ`}
-          />
-          <Fact
-            label="สัญญาณสำคัญ"
-            value={`${ops?.critical_count ?? 0} เรื่อง`}
-          />
-          <Fact
-            label="Worker"
-            value={formatWorkerStatus(ops?.worker_status)}
-          />
-          <Fact
-            label="Telegram ops"
-            value={ops?.telegram_ready ? "พร้อมแจ้งเตือน" : "ยังไม่พร้อม"}
-          />
-          <Fact
-            label="ร้าน active"
-            value={`${workbench?.cockpit?.active_tenant_count ?? 0} ร้าน`}
-          />
-          <Fact
-            label="ค้นหา/จัดการร้าน"
-            value={
-              <Link
-                className="text-brand-600 hover:underline dark:text-brand-400"
-                href="/owner-v2/stores"
-              >
-                เปิดหน้าร้านทั้งหมด →
-              </Link>
-            }
-          />
-        </div>
-
-        {ops && ops.warning_count > 0 ? (
-          <div className="mt-5">
-            <InlineNotice
-              message={`มี ${ops.warning_count} รายการที่ควรตรวจก่อนรอบแจ้งเตือนถัดไป ดูรายละเอียดในตารางสถานะร้านหรือหน้าตรวจระบบ`}
-              title="ต้องตรวจก่อนรอบถัดไป"
-              tone="warning"
-            />
-          </div>
-        ) : null}
       </section>
-    </div>
-  );
-}
-
-function Fact({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">
-        {value || "-"}
-      </p>
     </div>
   );
 }
