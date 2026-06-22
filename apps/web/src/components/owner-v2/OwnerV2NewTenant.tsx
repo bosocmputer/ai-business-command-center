@@ -1,7 +1,8 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   findSensitiveTenantNoteHints,
@@ -12,14 +13,17 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import {
-  AlertIcon,
-  CheckCircleIcon,
-  InfoIcon,
-  PlusIcon,
-  TaskIcon,
-} from "@/icons";
+import { ArrowRightIcon, PlusIcon, TaskIcon } from "@/icons";
 import { ownerV2Fetch } from "./api";
+import {
+  Fact,
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  primaryActionClass,
+  secondaryActionClass,
+} from "./ui";
 
 type TenantCreateDryRunPreview = {
   will_mutate: false;
@@ -53,6 +57,10 @@ type TenantCreateInput = {
   viewer_email?: string;
 };
 
+// Client-side format rules matching the server tenantId schema.
+const TENANT_ID_PATTERN = /^[a-z0-9_-]+$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function OwnerV2NewTenant() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -70,9 +78,16 @@ export default function OwnerV2NewTenant() {
 
   const suggestedTenantId = useMemo(() => suggestTenantIdFromName(name), [name]);
   const sensitiveHints = findSensitiveTenantNoteHints(description);
+
+  // Client-side validation gates — surfaces issues before the server round-trip.
+  const tenantIdFormatOk =
+    tenantId.trim().length >= 3 && TENANT_ID_PATTERN.test(tenantId.trim());
+  const viewerEmailFormatOk =
+    viewerEmail.trim().length === 0 || EMAIL_PATTERN.test(viewerEmail.trim());
   const canDryRun =
     name.trim().length >= 2 &&
-    tenantId.trim().length >= 3 &&
+    tenantIdFormatOk &&
+    viewerEmailFormatOk &&
     sensitiveHints.length === 0;
   const previewMatchesForm =
     preview?.tenant_id === tenantId.trim() &&
@@ -101,7 +116,11 @@ export default function OwnerV2NewTenant() {
         tone: "warning",
         text: sensitiveHints.length
           ? "คำอธิบายร้านเหมือนมีข้อมูลลับ กรุณาลบก่อนตรวจตัวอย่าง"
-          : "กรอกชื่อร้านและรหัสร้านให้ครบก่อนตรวจตัวอย่าง",
+          : !tenantIdFormatOk
+            ? "รหัสร้านต้องเป็น lowercase, ตัวเลข, _ หรือ - อย่างน้อย 3 ตัว"
+            : !viewerEmailFormatOk
+              ? "รูปแบบอีเมลผู้ดูแดชบอร์ดไม่ถูกต้อง"
+              : "กรอกชื่อร้านและรหัสร้านให้ครบก่อนตรวจตัวอย่าง",
       });
       return;
     }
@@ -111,21 +130,19 @@ export default function OwnerV2NewTenant() {
         "/api/owner/tenants/dry-run",
         { method: "POST", body: buildPayload() },
       );
-      setPreview(data);
       // Guard the dry-run response slices: the API could omit checks/warnings
       // on edge cases (e.g. partial errors), and the unguarded .every would
       // throw and leave the preview stuck.
       const checks = data.checks ?? [];
       const warnings = data.warnings ?? [];
+      const guarded: TenantCreateDryRunPreview = { ...data, checks, warnings };
+      setPreview(guarded);
       setMessage({
         tone: checks.every((check) => check.ok) ? "success" : "warning",
         text: checks.every((check) => check.ok)
           ? "ตรวจแล้ว สร้างร้านจริงได้"
           : "ยังมีรายการที่ต้องแก้ก่อนสร้างร้านจริง",
       });
-      // Re-attach the guarded slices to the stored preview so downstream
-      // rendering (.map) is safe too.
-      setPreview({ ...data, checks, warnings });
     } catch (error) {
       setMessage({
         tone: "error",
@@ -169,7 +186,8 @@ export default function OwnerV2NewTenant() {
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      {/* Left — create form */}
       <Panel>
         <PanelHeader
           action={
@@ -180,12 +198,18 @@ export default function OwnerV2NewTenant() {
           description="สร้างร้านและผู้ดูแดชบอร์ดเริ่มต้นเท่านั้น ยังไม่บันทึกค่าลับของ SML หรือ LINE"
           title="เพิ่มร้านใหม่"
         />
-
-        <PanelBody>
+        <PanelBody spaced>
           <form className="space-y-6" onSubmit={runDryRun}>
-            <Field label="ชื่อร้าน">
+            <div>
+              <label
+                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                htmlFor="new-tenant-name"
+              >
+                ชื่อร้าน
+              </label>
               <input
                 className="owner-v2-input"
+                id="new-tenant-name"
                 onChange={(event) => {
                   setName(event.target.value);
                   if (!tenantId.trim()) {
@@ -196,18 +220,22 @@ export default function OwnerV2NewTenant() {
                 placeholder="เช่น กระบี่ สาขาใหญ่"
                 value={name}
               />
-            </Field>
+            </div>
             <div className="grid gap-5 lg:grid-cols-2">
-              <Field
-                help={
-                  suggestedTenantId && suggestedTenantId !== tenantId
-                    ? `แนะนำ: ${suggestedTenantId}`
-                    : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"
-                }
-                label="รหัสร้าน"
-              >
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                  htmlFor="new-tenant-id"
+                >
+                  รหัสร้าน
+                </label>
                 <input
-                  className="owner-v2-input font-mono"
+                  className={`owner-v2-input font-mono ${
+                    tenantId.trim() && !tenantIdFormatOk
+                      ? "border-error-300 focus:border-error-300 focus:ring-error-500/10"
+                      : ""
+                  }`}
+                  id="new-tenant-id"
                   onChange={(event) => {
                     setTenantId(event.target.value);
                     setPreview(null);
@@ -215,13 +243,34 @@ export default function OwnerV2NewTenant() {
                   placeholder="tenant_krabi"
                   value={tenantId}
                 />
-              </Field>
-              <Field
-                help="ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแดชบอร์ดให้อัตโนมัติ"
-                label="อีเมลผู้ดูแดชบอร์ด"
-              >
+                <p
+                  className={`mt-1.5 block text-xs leading-5 ${
+                    tenantId.trim() && !tenantIdFormatOk
+                      ? "text-error-500"
+                      : "text-gray-500 dark:text-gray-400"
+                  }`}
+                >
+                  {tenantId.trim() && !tenantIdFormatOk
+                    ? "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น (อย่างน้อย 3 ตัว)"
+                    : suggestedTenantId && suggestedTenantId !== tenantId
+                      ? `แนะนำ: ${suggestedTenantId}`
+                      : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"}
+                </p>
+              </div>
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                  htmlFor="new-tenant-email"
+                >
+                  อีเมลผู้ดูแดชบอร์ด
+                </label>
                 <input
-                  className="owner-v2-input"
+                  className={`owner-v2-input ${
+                    viewerEmail.trim() && !viewerEmailFormatOk
+                      ? "border-error-300 focus:border-error-300 focus:ring-error-500/10"
+                      : ""
+                  }`}
+                  id="new-tenant-email"
                   onChange={(event) => {
                     setViewerEmail(event.target.value);
                     setPreview(null);
@@ -230,12 +279,30 @@ export default function OwnerV2NewTenant() {
                   type="email"
                   value={viewerEmail}
                 />
-              </Field>
+                <p
+                  className={`mt-1.5 block text-xs leading-5 ${
+                    viewerEmail.trim() && !viewerEmailFormatOk
+                      ? "text-error-500"
+                      : "text-gray-500 dark:text-gray-400"
+                  }`}
+                >
+                  {viewerEmail.trim() && !viewerEmailFormatOk
+                    ? "รูปแบบอีเมลไม่ถูกต้อง"
+                    : "ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแดชบอร์ดให้อัตโนมัติ"}
+                </p>
+              </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="แพ็กเกจ">
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                  htmlFor="new-tenant-plan"
+                >
+                  แพ็กเกจ
+                </label>
                 <select
                   className="owner-v2-input"
+                  id="new-tenant-plan"
                   onChange={(event) => {
                     setPlanCode(event.target.value as PlanCode);
                     setPreview(null);
@@ -246,10 +313,17 @@ export default function OwnerV2NewTenant() {
                   <option value="business">business</option>
                   <option value="pro">pro</option>
                 </select>
-              </Field>
-              <Field label="สถานะเริ่มต้น">
+              </div>
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                  htmlFor="new-tenant-status"
+                >
+                  สถานะเริ่มต้น
+                </label>
                 <select
                   className="owner-v2-input"
+                  id="new-tenant-status"
                   onChange={(event) => {
                     setStatus(event.target.value as Tenant["status"]);
                     setPreview(null);
@@ -261,18 +335,18 @@ export default function OwnerV2NewTenant() {
                   <option value="past_due">ค้างชำระ</option>
                   <option value="suspended">ระงับ</option>
                 </select>
-              </Field>
+              </div>
             </div>
-            <Field
-              help={
-                sensitiveHints.length
-                  ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-                  : "ห้ามใส่ข้อมูลลับ เช่น token, password หรือ secret ในช่องนี้"
-              }
-              label="หมายเหตุ"
-            >
+            <div>
+              <label
+                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                htmlFor="new-tenant-description"
+              >
+                หมายเหตุ
+              </label>
               <textarea
                 className="owner-v2-input min-h-24"
+                id="new-tenant-description"
                 onChange={(event) => {
                   setDescription(event.target.value);
                   setPreview(null);
@@ -280,21 +354,41 @@ export default function OwnerV2NewTenant() {
                 placeholder="บริบทสั้น ๆ ของร้าน"
                 value={description}
               />
-            </Field>
+              <p
+                className={`mt-1.5 block text-xs leading-5 ${
+                  sensitiveHints.length
+                    ? "text-error-500"
+                    : "text-gray-500 dark:text-gray-400"
+                }`}
+              >
+                {sensitiveHints.length
+                  ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
+                  : "ห้ามใส่ข้อมูลลับ เช่น token, password หรือ secret ในช่องนี้"}
+              </p>
+            </div>
 
-            {message ? <Notice tone={message.tone} text={message.text} /> : null}
+            {message ? (
+              <Notice
+                tone={message.tone}
+                title="สถานะการสร้างร้าน"
+                text={message.text}
+              />
+            ) : null}
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Secondary: dry-run first (a check, not the commit). */}
               <Button
                 className="w-full sm:w-auto"
                 disabled={busy !== null || !canDryRun}
                 startIcon={<TaskIcon className="h-4 w-4" />}
                 type="submit"
+                variant="outline"
               >
                 {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจตัวอย่างก่อนสร้าง"}
               </Button>
-              <Button
-                className="w-full sm:w-auto"
+              {/* Primary: the actual create, gated on a passing dry-run. */}
+              <button
+                className={primaryActionClass}
                 disabled={
                   busy !== null ||
                   !preview ||
@@ -302,12 +396,24 @@ export default function OwnerV2NewTenant() {
                   previewHasBlockingCheck
                 }
                 onClick={() => void createTenant()}
-                startIcon={<PlusIcon className="h-4 w-4" />}
                 type="button"
-                variant="outline"
               >
-                {busy === "create" ? "กำลังสร้าง..." : "สร้างร้านจริง"}
-              </Button>
+                {busy === "create" ? (
+                  "กำลังสร้าง..."
+                ) : (
+                  <>
+                    <PlusIcon className="h-4 w-4" />
+                    สร้างร้านจริง
+                  </>
+                )}
+              </button>
+              {/* Cancel — always available so the admin can back out. */}
+              <Link
+                className={secondaryActionClass}
+                href="/owner-v2/stores"
+              >
+                ยกเลิก
+              </Link>
             </div>
             <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
               ปุ่มสร้างร้านจะเปิดได้หลังตรวจตัวอย่างผ่าน และข้อมูลฟอร์มยังไม่เปลี่ยน
@@ -316,12 +422,17 @@ export default function OwnerV2NewTenant() {
         </PanelBody>
       </Panel>
 
+      {/* Right — dry-run preview / flow guide */}
       <Panel>
         <PanelHeader
           action={
             <Badge
               color={
-                preview ? (previewHasBlockingCheck ? "warning" : "success") : "light"
+                preview
+                  ? previewHasBlockingCheck
+                    ? "warning"
+                    : "success"
+                  : "light"
               }
             >
               {preview ? "มีตัวอย่าง" : "ยังไม่มี"}
@@ -331,14 +442,14 @@ export default function OwnerV2NewTenant() {
           title="ตัวอย่างก่อนสร้าง"
         />
         {preview ? (
-          <PanelBody>
+          <PanelBody spaced>
             <div className="grid grid-cols-1 gap-3">
               <Fact label="รหัสร้าน" value={preview.tenant_id} />
               <Fact label="หน้าแดชบอร์ด" value={preview.dashboard_path} />
               <Fact label="ผู้ดูแดชบอร์ด" value={preview.viewer_email} />
             </div>
             <div className="custom-scrollbar flex max-h-[360px] flex-col gap-2 overflow-y-auto">
-              {preview.checks.map((check) => (
+              {(preview.checks ?? []).map((check) => (
                 <div
                   className="flex items-start justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
                   key={check.key}
@@ -357,138 +468,57 @@ export default function OwnerV2NewTenant() {
                 </div>
               ))}
             </div>
-            {preview.warnings.length ? (
-              <Notice tone="warning" text={preview.warnings.join(" ")} />
+            {(preview.warnings ?? []).length ? (
+              <Notice
+                tone="warning"
+                title="คำเตือนจากการตรวจ"
+                text={(preview.warnings ?? []).join(" ")}
+              />
             ) : null}
           </PanelBody>
         ) : (
-          <PanelBody>
-            <Notice
-              text="กรอกข้อมูลร้านแล้วกดตรวจตัวอย่าง ระบบจะแสดงรหัสร้าน, แดชบอร์ด, ผู้ดู และรายการตรวจก่อนสร้างจริง"
-              tone="info"
-            />
+          <PanelBody spaced>
+            {/* Empty state — icon + heading + numbered flow (skill convention) */}
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400 dark:bg-white/[0.05] dark:text-gray-500">
+                <TaskIcon className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="text-base font-semibold text-gray-800 dark:text-white/90">
+                  ยังไม่มีตัวอย่าง
+                </p>
+                <p className="mx-auto mt-1 max-w-xs text-sm leading-6 text-gray-500 dark:text-gray-400">
+                  กรอกข้อมูลร้านทางซ้ายแล้วกดตรวจตัวอย่าง ระบบจะแสดงสิ่งที่จะถูกสร้างก่อนลงข้อมูลจริง
+                </p>
+              </div>
+            </div>
+            <ol className="space-y-3">
+              {[
+                "กรอกชื่อร้าน, รหัสร้าน, แพ็กเกจ และสถานะ",
+                "กด “ตรวจตัวอย่างก่อนสร้าง” เพื่อจำลองการสร้าง",
+                "ตรวจรายการตรวจและคำเตือนทางขวา",
+                "กด “สร้างร้านจริง” เมื่อทุกข้อผ่าน",
+              ].map((step, index) => (
+                <li className="flex items-start gap-3" key={step}>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
+                    {index + 1}
+                  </span>
+                  <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">
+                    {step}
+                  </p>
+                </li>
+              ))}
+            </ol>
+            <Link
+              className="inline-flex items-center gap-1 text-sm font-semibold text-brand-600 transition hover:text-brand-700 dark:text-brand-400"
+              href="/owner-v2/stores"
+            >
+              กลับหน้าร้านทั้งหมด
+              <ArrowRightIcon className="h-4 w-4" />
+            </Link>
           </PanelBody>
         )}
       </Panel>
-    </div>
-  );
-}
-
-function Panel({ children }: { children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      {children}
-    </section>
-  );
-}
-
-function PanelHeader({
-  action,
-  description,
-  title,
-}: {
-  action?: ReactNode;
-  description: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <h3 className="break-words text-lg font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h3>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-          {description}
-        </p>
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function PanelBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-5">{children}</div>;
-}
-
-function Field({
-  children,
-  help,
-  label,
-}: {
-  children: ReactNode;
-  help?: string;
-  label: string;
-}) {
-  return (
-    <label className="block min-w-0">
-      <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-        {label}
-      </span>
-      <span className="block">{children}</span>
-      {help ? (
-        <span className="mt-1.5 block text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-          {help}
-        </span>
-      ) : null}
-    </label>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Notice({
-  text,
-  tone,
-}: {
-  text: string;
-  tone: "success" | "warning" | "error" | "info";
-}) {
-  const Icon =
-    tone === "success" ? CheckCircleIcon : tone === "info" ? InfoIcon : AlertIcon;
-  const classes = {
-    success:
-      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-    warning:
-      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-    error:
-      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-    info: "border-blue-light-500 bg-blue-light-50 dark:border-blue-light-500/30 dark:bg-blue-light-500/15",
-  }[tone];
-  const iconClass = {
-    success: "text-success-500",
-    warning: "text-warning-500 dark:text-orange-400",
-    error: "text-error-500",
-    info: "text-blue-light-500 dark:text-blue-light-400",
-  }[tone];
-  const title = {
-    success: "พร้อมดำเนินการ",
-    warning: "ต้องตรวจข้อมูล",
-    error: "ดำเนินการไม่สำเร็จ",
-    info: "ก่อนสร้างร้าน",
-  }[tone];
-
-  return (
-    <div className={`rounded-xl border p-4 ${classes}`}>
-      <div className="flex items-start gap-3">
-        <Icon className={`-mt-0.5 h-6 w-6 shrink-0 ${iconClass}`} />
-        <div>
-          <h4 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
-            {title}
-          </h4>
-          <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {text}
-          </p>
-        </div>
-      </div>
     </div>
   );
 }
