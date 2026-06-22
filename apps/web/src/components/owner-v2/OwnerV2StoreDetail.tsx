@@ -13,7 +13,6 @@ import OwnerV2SetupWizard from "./OwnerV2SetupWizard";
 import OwnerV2TenantConfigEditor from "./OwnerV2TenantConfigEditor";
 import {
   Fact,
-  Field,
   Notice,
   Panel,
   PanelBody,
@@ -355,7 +354,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             description="การเชื่อมต่อ รอบรายงาน และการส่ง LINE ของร้านนี้"
           />
           <PanelBody spaced>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Fact
                 label="SML datasource"
                 tone={detail.datasource.kind === "sml_javaws" ? "success" : "warning"}
@@ -387,7 +386,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                 value={`${health.open_business_signals} เปิดอยู่`}
               />
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Fact
                 label="รายงานล่าสุด"
                 value={
@@ -684,12 +683,16 @@ function StoreEditForm({
 }) {
   const cancelled = tenant.status === "cancelled";
   return (
-    <form className="space-y-5" onSubmit={saveStore}>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Field label="ชื่อร้าน">
+    <form className="space-y-6" onSubmit={saveStore}>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
+        <label className="block min-w-0" htmlFor="edit-tenant-name">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            ชื่อร้าน
+          </span>
           <input
             className="owner-v2-input"
             disabled={cancelled}
+            id="edit-tenant-name"
             onChange={(event) =>
               setForm((current) =>
                 current
@@ -699,14 +702,26 @@ function StoreEditForm({
             }
             value={form.name}
           />
-        </Field>
-        <Field label="tenant_id">
-          <input className="owner-v2-input font-mono" disabled value={tenant.id} />
-        </Field>
-        <Field label="Plan">
+        </label>
+        <label className="block min-w-0" htmlFor="edit-tenant-id">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            tenant_id
+          </span>
+          <input
+            className="owner-v2-input font-mono"
+            disabled
+            id="edit-tenant-id"
+            value={tenant.id}
+          />
+        </label>
+        <label className="block min-w-0" htmlFor="edit-tenant-plan">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            Plan
+          </span>
           <select
             className="owner-v2-input"
             disabled={cancelled}
+            id="edit-tenant-plan"
             onChange={(event) =>
               setForm((current) =>
                 current
@@ -723,11 +738,15 @@ function StoreEditForm({
             <option value="business">business</option>
             <option value="pro">pro</option>
           </select>
-        </Field>
-        <Field label="สถานะ">
+        </label>
+        <label className="block min-w-0" htmlFor="edit-tenant-status">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            สถานะ
+          </span>
           <select
             className="owner-v2-input"
             disabled={cancelled}
+            id="edit-tenant-status"
             onChange={(event) =>
               setForm((current) =>
                 current
@@ -746,11 +765,15 @@ function StoreEditForm({
               </option>
             ))}
           </select>
-        </Field>
-        <Field help="เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์" label="สิ้นสุดรอบใช้งาน">
+        </label>
+        <label className="block min-w-0" htmlFor="edit-tenant-period-end">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            สิ้นสุดรอบใช้งาน
+          </span>
           <input
             className="owner-v2-input"
             disabled={cancelled}
+            id="edit-tenant-period-end"
             onChange={(event) =>
               setForm((current) =>
                 current
@@ -764,18 +787,18 @@ function StoreEditForm({
             type="date"
             value={form.current_period_end_date}
           />
-        </Field>
-        <Field
-          help={
-            form.status === "suspended"
-              ? "ข้อความนี้ช่วยให้ admin คนถัดไปรู้เหตุผล"
-              : "ใช้เมื่อสถานะเป็นระงับ"
-          }
-          label="เหตุผลระงับ"
-        >
+          <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+            เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์
+          </span>
+        </label>
+        <label className="block min-w-0" htmlFor="edit-tenant-suspended-reason">
+          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+            เหตุผลระงับ
+          </span>
           <input
             className="owner-v2-input"
             disabled={cancelled || form.status !== "suspended"}
+            id="edit-tenant-suspended-reason"
             onChange={(event) =>
               setForm((current) =>
                 current
@@ -785,19 +808,21 @@ function StoreEditForm({
             }
             value={form.suspended_reason}
           />
-        </Field>
+          <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+            {form.status === "suspended"
+              ? "ข้อความนี้ช่วยให้ admin คนถัดไปรู้เหตุผล"
+              : "ใช้เมื่อสถานะเป็นระงับ"}
+          </span>
+        </label>
       </div>
-      <Field
-        help={
-          sensitiveHints.length
-            ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-            : "ห้ามใส่ token/password/secret ในช่องนี้"
-        }
-        label="หมายเหตุ"
-      >
+      <label className="block min-w-0" htmlFor="edit-tenant-description">
+        <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+          หมายเหตุ
+        </span>
         <textarea
           className="owner-v2-input min-h-28"
           disabled={cancelled}
+          id="edit-tenant-description"
           onChange={(event) =>
             setForm((current) =>
               current
@@ -807,9 +832,24 @@ function StoreEditForm({
           }
           value={form.description}
         />
-      </Field>
+        <span
+          className={`mt-1.5 block text-xs leading-5 ${
+            sensitiveHints.length
+              ? "text-error-500"
+              : "text-gray-500 dark:text-gray-400"
+          }`}
+        >
+          {sensitiveHints.length
+            ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
+            : "ห้ามใส่ token/password/secret ในช่องนี้"}
+        </span>
+      </label>
       <div className="flex flex-wrap items-center gap-3">
-        <Button className="w-full sm:w-auto" disabled={saveDisabled} type="submit">
+        <Button
+          className="w-full sm:w-auto"
+          disabled={saveDisabled}
+          type="submit"
+        >
           {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลร้าน"}
         </Button>
         <Button
@@ -824,6 +864,9 @@ function StoreEditForm({
         >
           คืนค่าล่าสุด
         </Button>
+        <Link className={secondaryActionClass} href="/owner-v2/stores">
+          ยกเลิก
+        </Link>
         <p className="w-full text-xs text-gray-500 dark:text-gray-400 sm:w-auto">
           ปุ่มบันทึกเปิดเมื่อข้อมูลเปลี่ยนและไม่มีข้อมูลลับในหมายเหตุ
         </p>
