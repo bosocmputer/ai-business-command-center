@@ -343,10 +343,10 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
       </td>
       <td className="px-3 py-4 text-right align-top">
         <Link
-          className={primaryActionClass}
+          className="inline-flex items-center gap-1 text-sm font-semibold text-gray-900 transition hover:text-brand-600 dark:text-white dark:hover:text-brand-400"
           href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}`}
         >
-          จัดการร้าน
+          จัดการ
           <ArrowRightIcon className="h-4 w-4" />
         </Link>
       </td>
