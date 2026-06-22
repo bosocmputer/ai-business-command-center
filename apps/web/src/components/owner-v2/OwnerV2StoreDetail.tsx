@@ -133,9 +133,14 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
     !form.name.trim() ||
     sensitiveHints.length > 0;
 
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const activeTab = parseTab(searchParams.get("tab"));
+  const searchParams = useSearchParams();
+  const explicitTab = searchParams.get("tab");
+  const activeTab = explicitTab
+    ? parseTab(explicitTab)
+    : detailState.status === "success"
+      ? defaultTabForReadiness(detailState.data.readiness.ready)
+      : "setup";
 
   // Hooks must run before any early return (Rules of Hooks). Use a nullable
   // view of the loaded data so the memos no-op while loading; we redeclare
@@ -301,13 +306,20 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
         <Notice tone={message.tone} title="สถานะข้อมูลร้าน" text={message.text} />
       ) : null}
 
-      {/* Tab bar — TailAdmin underline style: border-b with active tab sitting on the border */}
+      {/* Tab bar — TailAdmin underline style with attention badges.
+          Badges surface problems without forcing the admin to click each tab. */}
       <div className="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-800">
         {VALID_TABS.map((tab) => {
           const isActive = tab === activeTab;
+          const badge = tabBadgeFor(tab, {
+            readiness,
+            hasJavaWsFailure: Boolean(detail.latest_javaws_failure),
+            openSignals: health.open_business_signals,
+            dirty,
+          });
           return (
             <button
-              className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition sm:px-5 ${
+              className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition sm:px-5 ${
                 isActive
                   ? "border-brand-500 text-brand-600 dark:border-brand-400 dark:text-brand-400"
                   : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-700 dark:hover:text-gray-200"
@@ -317,6 +329,13 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
               type="button"
             >
               {TAB_LABELS[tab]}
+              {badge ? (
+                <span
+                  className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold ${badge.className}`}
+                >
+                  {badge.label}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -324,13 +343,19 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
       {activeTab === "setup" ? (
         <div className="space-y-5 sm:space-y-6">
-          {wizardTenant ? (
+          {/* Setup wizard — the primary setup path. Hide when fully ready so
+              the wizard's DoneSummary collapse isn't duplicated by the
+              checklist below; the checklist already shows the all-green state. */}
+          {wizardTenant && !readiness.ready ? (
             <OwnerV2SetupWizard
               steps={wizardSteps}
               tenant={wizardTenant}
             />
           ) : null}
 
+          {/* Readiness checklist — the compact per-check list. Always shown:
+              when not ready it's the actionable list; when ready it confirms
+              every check passed without needing to expand the wizard summary. */}
           <Panel>
             <PanelHeader
               title="รายการตรวจสอบความพร้อม"
@@ -348,91 +373,118 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
       ) : null}
 
       {activeTab === "system" ? (
-        <Panel>
-          <PanelHeader
-            title="สถานะระบบของร้าน"
-            description="การเชื่อมต่อ รอบรายงาน และการส่ง LINE ของร้านนี้"
-          />
-          <PanelBody spaced>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Fact
-                label="SML datasource"
-                tone={detail.datasource.kind === "sml_javaws" ? "success" : "warning"}
-                value={
-                  detail.datasource.kind === "sml_javaws"
-                    ? detail.datasource.database ?? "ตั้งค่าแล้ว"
-                    : "ยังไม่พร้อม"
-                }
-              />
-              <Fact
-                label="LINE พร้อมส่ง"
-                tone={health.line_targets_enabled > 0 ? "success" : "warning"}
-                value={`${health.line_targets_enabled}/${health.line_targets_total} ผู้รับ`}
-              />
-              <Fact
-                label="แผนแจ้งเตือน"
-                tone={health.notification_rules_enabled > 0 ? "success" : "warning"}
-                value={`${health.notification_rules_enabled}/${health.notification_rules_total} แผนเปิด`}
-              />
-              <Fact
-                label="Business signals"
-                tone={
-                  health.critical_business_signals > 0
-                    ? "error"
-                    : health.open_business_signals > 0
-                      ? "warning"
-                      : "success"
-                }
-                value={`${health.open_business_signals} เปิดอยู่`}
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Fact
-                label="รายงานล่าสุด"
-                value={
-                  health.latest_report_run_at
-                    ? `${formatRunStatus(health.latest_report_status)} · ${formatDateTime(health.latest_report_run_at)}`
-                    : "ยังไม่มี run"
-                }
-              />
-              <Fact
-                label="Snapshot ล่าสุด"
-                value={formatDateTime(health.latest_snapshot_at)}
-              />
-              <Fact
-                label="LINE delivery ล่าสุด"
-                value={
-                  health.latest_line_delivery_at
-                    ? `${formatLineDeliveryStatus(health.latest_line_delivery_status)} · ${formatDateTime(health.latest_line_delivery_at)}`
-                    : "ยังไม่มี delivery"
-                }
-              />
-              <Fact
-                label="แจ้งเตือนล่าสุด"
-                value={
-                  health.latest_notification_run_at
-                    ? `${formatRunStatus(health.latest_notification_run_status)} · ${formatDateTime(health.latest_notification_run_at)}`
-                    : "ยังไม่มีรอบ"
-                }
-              />
-            </div>
-            {detail.latest_javaws_failure ? (
-              <Notice
-                tone="error"
-                title={`JavaWS incident ล่าสุด: ${detail.latest_javaws_failure.failure_phase ?? "unknown"}`}
-                text={`รายงาน ${detail.latest_javaws_failure.report_key} phase ${detail.latest_javaws_failure.failure_phase ?? "unknown"} · ${detail.latest_javaws_failure.safe_error_message ?? "ไม่มีรายละเอียดปลอดภัย"} · ${formatDateTime(detail.latest_javaws_failure.finished_at)}`}
-              />
-            ) : null}
-            <BusinessSignalPanel
-              onReload={() => void load()}
-              signals={detail.business_signals ?? []}
-              tenantId={tenant.id}
+        <div className="space-y-5 sm:space-y-6">
+          {/* Sub-panel 1 — การเชื่อมต่อ (SML / LINE / แผน / signals) */}
+          <Panel>
+            <PanelHeader
+              title="การเชื่อมต่อ"
+              description="สถานะ SML, LINE และแผนแจ้งเตือนของร้านนี้"
             />
-            {detail.proof_strip.eligible ? (
-              <StoreProofStrip strip={detail.proof_strip} />
-            ) : null}
-          </PanelBody>
-        </Panel>
+            <PanelBody>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Fact
+                  label="SML datasource"
+                  tone={detail.datasource.kind === "sml_javaws" ? "success" : "warning"}
+                  value={
+                    detail.datasource.kind === "sml_javaws"
+                      ? detail.datasource.database ?? "ตั้งค่าแล้ว"
+                      : "ยังไม่พร้อม"
+                  }
+                />
+                <Fact
+                  label="LINE พร้อมส่ง"
+                  tone={health.line_targets_enabled > 0 ? "success" : "warning"}
+                  value={`${health.line_targets_enabled}/${health.line_targets_total} ผู้รับ`}
+                />
+                <Fact
+                  label="แผนแจ้งเตือน"
+                  tone={health.notification_rules_enabled > 0 ? "success" : "warning"}
+                  value={`${health.notification_rules_enabled}/${health.notification_rules_total} แผนเปิด`}
+                />
+                <Fact
+                  label="Business signals"
+                  tone={
+                    health.critical_business_signals > 0
+                      ? "error"
+                      : health.open_business_signals > 0
+                        ? "warning"
+                        : "success"
+                  }
+                  value={`${health.open_business_signals} เปิดอยู่`}
+                />
+              </div>
+            </PanelBody>
+          </Panel>
+
+          {/* Sub-panel 2 — รอบล่าสุด (report / snapshot / delivery / notification) */}
+          <Panel>
+            <PanelHeader
+              title="รอบล่าสุด"
+              description="รายงาน, snapshot, LINE delivery และรอบแจ้งเตือนล่าสุด"
+            />
+            <PanelBody>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Fact
+                  label="รายงานล่าสุด"
+                  value={
+                    health.latest_report_run_at
+                      ? `${formatRunStatus(health.latest_report_status)} · ${formatDateTime(health.latest_report_run_at)}`
+                      : "ยังไม่มี run"
+                  }
+                />
+                <Fact
+                  label="Snapshot ล่าสุด"
+                  value={formatDateTime(health.latest_snapshot_at)}
+                />
+                <Fact
+                  label="LINE delivery ล่าสุด"
+                  value={
+                    health.latest_line_delivery_at
+                      ? `${formatLineDeliveryStatus(health.latest_line_delivery_status)} · ${formatDateTime(health.latest_line_delivery_at)}`
+                      : "ยังไม่มี delivery"
+                  }
+                />
+                <Fact
+                  label="แจ้งเตือนล่าสุด"
+                  value={
+                    health.latest_notification_run_at
+                      ? `${formatRunStatus(health.latest_notification_run_status)} · ${formatDateTime(health.latest_notification_run_at)}`
+                      : "ยังไม่มีรอบ"
+                  }
+                />
+              </div>
+            </PanelBody>
+          </Panel>
+
+          {/* Sub-panel 3 — Incidents & Proof (เฉพาะเมื่อมีเนื้อหา) */}
+          {detail.latest_javaws_failure ||
+          (detail.business_signals ?? []).length > 0 ||
+          detail.proof_strip.eligible ? (
+            <Panel>
+              <PanelHeader
+                title="Incidents & Proof"
+                description="incident ล่าสุด, สัญญาณธุรกิจ และหลักฐาน 7 วัน"
+              />
+              <PanelBody spaced>
+                {detail.latest_javaws_failure ? (
+                  <Notice
+                    tone="error"
+                    title={`JavaWS incident ล่าสุด: ${detail.latest_javaws_failure.failure_phase ?? "unknown"}`}
+                    text={`รายงาน ${detail.latest_javaws_failure.report_key} phase ${detail.latest_javaws_failure.failure_phase ?? "unknown"} · ${detail.latest_javaws_failure.safe_error_message ?? "ไม่มีรายละเอียดปลอดภัย"} · ${formatDateTime(detail.latest_javaws_failure.finished_at)}`}
+                  />
+                ) : null}
+                <BusinessSignalPanel
+                  onReload={() => void load()}
+                  signals={detail.business_signals ?? []}
+                  tenantId={tenant.id}
+                />
+                {detail.proof_strip.eligible ? (
+                  <StoreProofStrip strip={detail.proof_strip} />
+                ) : null}
+              </PanelBody>
+            </Panel>
+          ) : null}
+        </div>
       ) : null}
 
       {activeTab === "advanced" ? (
@@ -1386,6 +1438,60 @@ function parseTab(value: string | null): StoreTab {
   return value && VALID_TABS.includes(value as StoreTab)
     ? (value as StoreTab)
     : "setup";
+}
+
+/**
+ * Smart default tab: a fully-ready store has nothing to set up, so land on
+ * the system-monitoring tab instead of the setup tab. Only applies when the
+ * URL has no explicit ?tab= (the caller checks searchParams before calling).
+ */
+function defaultTabForReadiness(ready: boolean): StoreTab {
+  return ready ? "system" : "setup";
+}
+
+/**
+ * Per-tab attention badge. Returns null when there's nothing to surface so
+ * the tab stays clean. Tone follows the semantic families (warning/error).
+ */
+function tabBadgeFor(
+  tab: StoreTab,
+  ctx: {
+    readiness: OwnerV2StoreSetupPayload["readiness"];
+    hasJavaWsFailure: boolean;
+    openSignals: number;
+    dirty: boolean;
+  },
+): { label: string; className: string } | null {
+  if (tab === "setup") {
+    const remaining = ctx.readiness.total - ctx.readiness.completed;
+    if (remaining > 0) {
+      return {
+        label: String(remaining),
+        className: "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400",
+      };
+    }
+    return null;
+  }
+  if (tab === "system") {
+    const attention =
+      (ctx.hasJavaWsFailure ? 1 : 0) + ctx.openSignals;
+    if (attention > 0) {
+      return {
+        label: String(attention),
+        className: "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500",
+      };
+    }
+    return null;
+  }
+  if (tab === "advanced") {
+    return ctx.dirty
+      ? {
+          label: "•",
+          className: "bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400",
+        }
+      : null;
+  }
+  return null;
 }
 
 const DEFAULT_FEATURE_FLAGS = {
