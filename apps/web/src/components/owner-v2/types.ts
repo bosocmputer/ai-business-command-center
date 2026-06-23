@@ -169,6 +169,31 @@ export type OwnerV2DatasourceTestResult = {
   safe_error_message: string | null;
 };
 
+export type OwnerV2FlowAccountConfigStatus = {
+  environment: "sandbox";
+  auth_mode: "client_credentials";
+  status: "missing" | "configured_untested" | "connected" | "error";
+  credentials_configured: boolean;
+  company_id: string | null;
+  support_code: string | null;
+  access_token_expires_at: string | null;
+  last_tested_at: string | null;
+  last_error: string | null;
+  updated_at: string | null;
+  encryption_configured: boolean;
+};
+
+export type OwnerV2FlowAccountTestResult = {
+  ok: boolean;
+  checked_at: string;
+  environment: "sandbox";
+  latency_ms: number;
+  provider_status: number | null;
+  company_id: string | null;
+  support_code: string | null;
+  safe_error_message: string | null;
+};
+
 export type OwnerV2JavaWsDatabaseDiscoveryResult = {
   ok: boolean;
   checked_at: string;

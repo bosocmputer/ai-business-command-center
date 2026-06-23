@@ -419,6 +419,23 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                   value={`${health.open_business_signals} เปิดอยู่`}
                 />
               </div>
+              <div className="mt-5 flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                    FlowAccount sandbox
+                  </p>
+                  <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+                    ทดสอบ client credentials และ /company/info แยกจาก readiness หลัก
+                  </p>
+                </div>
+                <Link
+                  className={secondaryActionClass}
+                  href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}/flowaccount`}
+                >
+                  ตั้งค่า FlowAccount
+                  <ArrowRightIcon className="h-4 w-4" />
+                </Link>
+              </div>
             </PanelBody>
           </Panel>
 

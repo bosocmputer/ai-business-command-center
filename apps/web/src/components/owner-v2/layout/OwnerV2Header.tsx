@@ -73,10 +73,10 @@ const quickActions = [
     label: "แผนแจ้งเตือน",
   },
   {
-    detail: "ดู incidents, worker, LINE, Telegram",
+    detail: "ดู incidents, worker, Telegram และ audit log",
     href: "/owner-v2/ops",
-    keywords: "ops operations worker incident telegram line ตรวจระบบ แจ้งเตือน",
-    label: "ตรวจระบบ",
+    keywords: "ops operations worker incident telegram line audit ตรวจระบบ แจ้งเตือน",
+    label: "ตรวจระบบและ Audit",
   },
   {
     detail: "ดูความพร้อมของค่าระบบกลางแบบไม่แสดงค่าลับ",
@@ -131,6 +131,12 @@ export default function OwnerV2Header() {
         href: `${tenantPath}/line`,
         keywords: "line oa recipients targets ผู้รับ",
         label: "LINE ร้านนี้",
+      },
+      {
+        detail: "ตั้งค่า FlowAccount sandbox ของร้านนี้",
+        href: `${tenantPath}/flowaccount`,
+        keywords: "flowaccount finance openapi sandbox client credentials",
+        label: "FlowAccount ร้านนี้",
       },
       {
         detail: "ตรวจ role และ report permissions ของร้านนี้",
@@ -348,7 +354,9 @@ export default function OwnerV2Header() {
           <div className="flex w-full items-center gap-2 lg:w-auto">
             <OwnerV2MobileAction href="/owner-v2">เริ่มงาน</OwnerV2MobileAction>
             <OwnerV2MobileAction href="/owner-v2/stores">ร้านค้า</OwnerV2MobileAction>
-            <OwnerV2MobileAction href="/owner-v2/ops">ตรวจระบบ</OwnerV2MobileAction>
+            <OwnerV2MobileAction href="/owner-v2/ops">
+              ตรวจระบบและ Audit
+            </OwnerV2MobileAction>
           </div>
 
           <div className="flex items-center gap-2">
@@ -381,6 +389,7 @@ export default function OwnerV2Header() {
 
             <div className="relative">
               <button
+                aria-label="Open admin menu"
                 className="flex items-center text-gray-700 dark:text-gray-400"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -425,7 +434,7 @@ export default function OwnerV2Header() {
                     </li>
                     <li>
                       <OwnerV2UserMenuLink href="/owner-v2/ops">
-                        ตรวจระบบ
+                        ตรวจระบบและ Audit
                       </OwnerV2UserMenuLink>
                     </li>
                   </ul>
@@ -483,7 +492,7 @@ function OperationalNotificationDropdown({
 
         {state.status === "error" ? (
           <NotificationMessage
-            detail={`${state.message} กรุณาเปิดหน้าตรวจระบบเพื่อดูสถานะเต็ม`}
+            detail={`${state.message} กรุณาเปิดหน้าตรวจระบบและ Audit เพื่อดูสถานะเต็ม`}
             icon={<AlertIcon className="h-5 w-5" />}
             tone="error"
             title="โหลดสถานะไม่สำเร็จ"
@@ -529,7 +538,7 @@ function OperationalNotificationDropdown({
           className="flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600"
           href="/owner-v2/ops"
         >
-          เปิดหน้าตรวจระบบ
+          เปิดหน้าตรวจระบบและ Audit
         </Link>
       </div>
     </div>

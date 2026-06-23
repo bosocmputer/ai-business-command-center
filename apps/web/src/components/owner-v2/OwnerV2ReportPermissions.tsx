@@ -10,7 +10,7 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { AlertIcon, CheckCircleIcon, InfoIcon, LockIcon } from "@/icons";
+import { AlertIcon, InfoIcon, LockIcon } from "@/icons";
 import {
   isAbortError,
   ownerV2Fetch,

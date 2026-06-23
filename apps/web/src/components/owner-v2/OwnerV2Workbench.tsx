@@ -171,7 +171,7 @@ export default function OwnerV2Workbench() {
 
       {warningCount > 0 ? (
         <InlineNotice
-          message={`มี ${warningCount} รายการที่ควรตรวจก่อนรอบแจ้งเตือนถัดไป ดูรายละเอียดในตารางสถานะร้านหรือหน้าตรวจระบบ`}
+          message={`มี ${warningCount} รายการที่ควรตรวจก่อนรอบแจ้งเตือนถัดไป ดูรายละเอียดในตารางสถานะร้านหรือหน้าตรวจระบบและ Audit`}
           title="ต้องตรวจก่อนรอบถัดไป"
           tone="warning"
         />
@@ -192,7 +192,7 @@ export default function OwnerV2Workbench() {
               การจัดการร้าน
             </h3>
             <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-              เพิ่มร้านใหม่ ค้นหา หรือเปิดหน้าตรวจระบบ
+              เพิ่มร้านใหม่ ค้นหา หรือเปิดหน้าตรวจระบบและ Audit
             </p>
             <div className="mt-5 flex flex-col gap-3">
               <Link className={primaryActionClass} href="/owner-v2/stores/new">
@@ -207,7 +207,7 @@ export default function OwnerV2Workbench() {
                 <ArrowRightIcon className="h-4 w-4" />
               </Link>
               <Link className={secondaryActionClass} href="/owner-v2/ops">
-                ตรวจระบบ (worker, audit, Telegram)
+                ตรวจระบบและ Audit (worker, Telegram)
                 <ArrowRightIcon className="h-4 w-4" />
               </Link>
             </div>

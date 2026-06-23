@@ -64,7 +64,7 @@ export type ReportDefinitionSeed = {
 export type SecretRecord = {
   id: string;
   tenant_id: TenantId | null;
-  scope: "datasource" | "line_channel" | "system";
+  scope: "datasource" | "flowaccount" | "line_channel" | "system";
   secret_key: string;
   encrypted_value: string;
   encryption_key_id: string;
@@ -75,6 +75,28 @@ export type SecretRecord = {
 
 export type SecretMetadataRecord = Omit<SecretRecord, "encrypted_value"> & {
   has_encrypted_value: boolean;
+};
+
+export type FlowAccountEnvironment = "sandbox";
+export type FlowAccountAuthMode = "client_credentials";
+export type FlowAccountConnectionStatus =
+  | "missing"
+  | "configured_untested"
+  | "connected"
+  | "error";
+
+export type FlowAccountConnectionRecord = {
+  tenant_id: TenantId;
+  environment: FlowAccountEnvironment;
+  auth_mode: FlowAccountAuthMode;
+  status: FlowAccountConnectionStatus;
+  company_id: string | null;
+  support_code: string | null;
+  access_token_expires_at: string | null;
+  last_tested_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type DashboardViewerTokenRecord = {
@@ -160,6 +182,12 @@ export type SystemStore = {
   getSecretRecord(id: string): Promise<SecretRecord | null>;
   upsertSecretRecord(secret: SecretRecord): Promise<SecretRecord>;
   listSecretMetadata(tenantId?: TenantId): Promise<SecretMetadataRecord[]>;
+  getFlowAccountConnection(
+    tenantId: TenantId,
+  ): Promise<FlowAccountConnectionRecord | null>;
+  upsertFlowAccountConnection(
+    connection: FlowAccountConnectionRecord,
+  ): Promise<FlowAccountConnectionRecord>;
   getLatestSnapshot(
     tenantId: TenantId,
     reportKey?: ReportKey,
@@ -401,6 +429,7 @@ type StoreFile = {
   users: UserRecord[];
   lineChannels: LineChannelRecord[];
   secrets: SecretRecord[];
+  flowAccountConnections: FlowAccountConnectionRecord[];
   operationalAlertTargets: OperationalAlertTargetRecord[];
   operationalAlertDeliveries: OperationalAlertDeliveryRecord[];
   dashboardViewerTokens: DashboardViewerTokenRecord[];
@@ -597,6 +626,30 @@ class LocalJsonSystemStore implements SystemStore {
       .filter((secret) => !tenantId || secret.tenant_id === tenantId)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .map(toSecretMetadata);
+  }
+
+  async getFlowAccountConnection(tenantId: TenantId) {
+    return (
+      this.requireData().flowAccountConnections.find(
+        (connection) => connection.tenant_id === tenantId,
+      ) ?? null
+    );
+  }
+
+  async upsertFlowAccountConnection(connection: FlowAccountConnectionRecord) {
+    const data = this.requireData();
+    const normalized = normalizeFlowAccountConnection(connection);
+    if (!normalized) {
+      throw new Error("Invalid FlowAccount connection record.");
+    }
+    data.flowAccountConnections = [
+      normalized,
+      ...data.flowAccountConnections.filter(
+        (existing) => existing.tenant_id !== normalized.tenant_id,
+      ),
+    ];
+    await this.persist();
+    return normalized;
   }
 
   async getLatestSnapshot(
@@ -1644,6 +1697,9 @@ class LocalJsonSystemStore implements SystemStore {
         users: normalizeUsers(parsed.users),
         lineChannels: normalizeLineChannels(parsed.lineChannels),
         secrets: normalizeSecrets(parsed.secrets),
+        flowAccountConnections: normalizeFlowAccountConnections(
+          parsed.flowAccountConnections,
+        ),
         operationalAlertTargets: normalizeOperationalAlertTargets(
           parsed.operationalAlertTargets,
         ),
@@ -1676,6 +1732,7 @@ class LocalJsonSystemStore implements SystemStore {
         users: [],
         lineChannels: [],
         secrets: [],
+        flowAccountConnections: [],
         operationalAlertTargets: [],
         operationalAlertDeliveries: [],
         dashboardViewerTokens: [],
@@ -2193,6 +2250,93 @@ order by updated_at desc
     );
 
     return result.rows.map((row) => toSecretMetadata(mapSecretRow(row)));
+  }
+
+  async getFlowAccountConnection(tenantId: TenantId) {
+    const result = await this.pool.query(
+      `
+select
+  tenant_id,
+  environment,
+  auth_mode,
+  status,
+  company_id,
+  support_code,
+  access_token_expires_at,
+  last_tested_at,
+  last_error,
+  created_at,
+  updated_at
+from flowaccount_connections
+where tenant_id = $1
+limit 1
+`,
+      [tenantId],
+    );
+
+    return result.rows[0] ? mapFlowAccountConnectionRow(result.rows[0]) : null;
+  }
+
+  async upsertFlowAccountConnection(connection: FlowAccountConnectionRecord) {
+    const normalized = normalizeFlowAccountConnection(connection);
+    if (!normalized) {
+      throw new Error("Invalid FlowAccount connection record.");
+    }
+    const result = await this.pool.query(
+      `
+insert into flowaccount_connections (
+  tenant_id,
+  environment,
+  auth_mode,
+  status,
+  company_id,
+  support_code,
+  access_token_expires_at,
+  last_tested_at,
+  last_error,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz, $9, $10::timestamptz, $11::timestamptz)
+on conflict (tenant_id) do update
+set environment = excluded.environment,
+    auth_mode = excluded.auth_mode,
+    status = excluded.status,
+    company_id = excluded.company_id,
+    support_code = excluded.support_code,
+    access_token_expires_at = excluded.access_token_expires_at,
+    last_tested_at = excluded.last_tested_at,
+    last_error = excluded.last_error,
+    updated_at = excluded.updated_at
+returning
+  tenant_id,
+  environment,
+  auth_mode,
+  status,
+  company_id,
+  support_code,
+  access_token_expires_at,
+  last_tested_at,
+  last_error,
+  created_at,
+  updated_at
+`,
+      [
+        normalized.tenant_id,
+        normalized.environment,
+        normalized.auth_mode,
+        normalized.status,
+        normalized.company_id,
+        normalized.support_code,
+        normalized.access_token_expires_at,
+        normalized.last_tested_at,
+        normalized.last_error,
+        normalized.created_at,
+        normalized.updated_at,
+      ],
+    );
+
+    return mapFlowAccountConnectionRow(result.rows[0]);
   }
 
   async getLatestSnapshot(
@@ -5608,6 +5752,32 @@ function mapSecretRow(row: Record<string, unknown>): SecretRecord {
   };
 }
 
+function mapFlowAccountConnectionRow(
+  row: Record<string, unknown>,
+): FlowAccountConnectionRecord {
+  return normalizeFlowAccountConnection({
+    tenant_id: row.tenant_id,
+    environment: row.environment,
+    auth_mode: row.auth_mode,
+    status: row.status,
+    company_id: row.company_id,
+    support_code: row.support_code,
+    access_token_expires_at: row.access_token_expires_at
+      ? toIsoString(row.access_token_expires_at as string | Date)
+      : null,
+    last_tested_at: row.last_tested_at
+      ? toIsoString(row.last_tested_at as string | Date)
+      : null,
+    last_error: row.last_error,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  }) as FlowAccountConnectionRecord;
+}
+
 function toSecretMetadata(secret: SecretRecord): SecretMetadataRecord {
   const { encrypted_value: _encryptedValue, ...metadata } = secret;
   return {
@@ -7049,9 +7219,65 @@ function normalizeSecrets(value: unknown): SecretRecord[] {
     }));
 }
 
+function normalizeFlowAccountConnections(
+  value: unknown,
+): FlowAccountConnectionRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeFlowAccountConnection)
+    .filter(
+      (connection): connection is FlowAccountConnectionRecord =>
+        Boolean(connection),
+    );
+}
+
+function normalizeFlowAccountConnection(
+  value: unknown,
+): FlowAccountConnectionRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const connection = value as Partial<FlowAccountConnectionRecord>;
+  if (!connection.tenant_id) {
+    return null;
+  }
+
+  return {
+    tenant_id: String(connection.tenant_id) as TenantId,
+    environment: "sandbox",
+    auth_mode: "client_credentials",
+    status: normalizeFlowAccountConnectionStatus(connection.status),
+    company_id:
+      typeof connection.company_id === "string"
+        ? connection.company_id
+        : null,
+    support_code:
+      typeof connection.support_code === "string"
+        ? connection.support_code
+        : null,
+    access_token_expires_at:
+      typeof connection.access_token_expires_at === "string"
+        ? connection.access_token_expires_at
+        : null,
+    last_tested_at:
+      typeof connection.last_tested_at === "string"
+        ? connection.last_tested_at
+        : null,
+    last_error:
+      typeof connection.last_error === "string" ? connection.last_error : null,
+    created_at: connection.created_at ?? new Date().toISOString(),
+    updated_at: connection.updated_at ?? new Date().toISOString(),
+  };
+}
+
 function normalizeSecretScope(value: unknown): SecretRecord["scope"] {
   if (
     value === "datasource" ||
+    value === "flowaccount" ||
     value === "line_channel" ||
     value === "system"
   ) {
@@ -7059,6 +7285,21 @@ function normalizeSecretScope(value: unknown): SecretRecord["scope"] {
   }
 
   return "system";
+}
+
+function normalizeFlowAccountConnectionStatus(
+  value: unknown,
+): FlowAccountConnectionStatus {
+  if (
+    value === "missing" ||
+    value === "configured_untested" ||
+    value === "connected" ||
+    value === "error"
+  ) {
+    return value;
+  }
+
+  return "configured_untested";
 }
 
 const systemSchemaSql = `
@@ -7442,6 +7683,23 @@ create table if not exists secrets (
 
 create index if not exists secrets_tenant_idx
 on secrets (tenant_id, scope, updated_at desc);
+
+create table if not exists flowaccount_connections (
+  tenant_id text primary key references tenants(id) on delete cascade,
+  environment text not null default 'sandbox',
+  auth_mode text not null default 'client_credentials',
+  status text not null default 'configured_untested',
+  company_id text,
+  support_code text,
+  access_token_expires_at timestamptz,
+  last_tested_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists flowaccount_connections_status_idx
+on flowaccount_connections (status, updated_at desc);
 
 create index if not exists line_targets_tenant_idx
 on line_targets (tenant_id, updated_at desc);

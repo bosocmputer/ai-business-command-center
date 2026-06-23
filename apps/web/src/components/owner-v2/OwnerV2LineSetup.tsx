@@ -11,18 +11,16 @@ import type {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { AlertIcon, CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
+import { CheckCircleIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type { OwnerV2LineSetupPayload } from "./types";
 import {
-  Fact,
   Field,
   Notice,
   Panel,
   PanelBody,
   PanelHeader,
   formatDateTime,
-  primaryActionClass,
   secondaryActionClass,
 } from "./ui";
 
@@ -468,6 +466,13 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
 
   async function testSendTarget(target: LineTargetRecord) {
     if (busy !== null) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `ส่งข้อความทดสอบจริงไปยัง ${target.display_name}?`,
+      )
+    ) {
       return;
     }
     setBusy(`test-send-${target.id}`);
@@ -1140,7 +1145,69 @@ function ChannelTable({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="w-full overflow-x-auto">
+      <div className="space-y-3 md:hidden">
+        {channels.map((channel) => (
+          <div
+            className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
+            key={channel.id}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
+                  {channel.display_name}
+                </p>
+                <p className="mt-1 break-all font-mono text-theme-xs text-gray-500 dark:text-gray-400">
+                  {channel.source === "env"
+                    ? "ตั้งค่าจาก environment"
+                    : channel.id}
+                </p>
+              </div>
+              <Badge color={channel.enabled ? "success" : "warning"}>
+                {channel.enabled ? "เปิดใช้งาน" : "ปิดอยู่"}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div>
+                <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                  ขอบเขต
+                </p>
+                <div className="mt-1">
+                  <Badge
+                    color={channel.scope === "owner_shared" ? "info" : "light"}
+                  >
+                    {channel.scope === "owner_shared" ? "OA กลาง" : "ของร้านนี้"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                  ค่าลับ
+                </p>
+                <StatusText
+                  ok={channel.channel_access_token_configured}
+                  text="token ส่งข้อความ"
+                />
+                <StatusText
+                  ok={channel.channel_secret_configured}
+                  text="secret รับ webhook"
+                />
+              </div>
+            </div>
+            <Button
+              className="mt-4 w-full"
+              disabled={busy !== null || channel.source === "env"}
+              onClick={() => onToggleChannel(channel)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {channel.enabled ? "ปิด" : "เปิด"}
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden w-full overflow-x-auto md:block">
         <table className="min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
@@ -1240,7 +1307,167 @@ function TargetTable({
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="w-full overflow-x-auto">
+      <div className="space-y-3 lg:hidden">
+        {targets.map((target) => {
+          const channel = target.line_channel_id
+            ? channels.find((item) => item.id === target.line_channel_id)
+            : null;
+          const ready = isLineTargetReady(target, channels);
+          const missingBriefAction = !target.allowed_actions.includes(
+            "receive_morning_brief",
+          );
+          const profileDraft =
+            targetProfileDrafts[target.id] ?? target.access_profile_key;
+          return (
+            <div
+              className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
+              key={target.id}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
+                    {target.display_name}
+                  </p>
+                  <p className="mt-1 break-all text-theme-xs text-gray-500 dark:text-gray-400">
+                    {formatTargetType(target.target_type)} ·{" "}
+                    <span className="font-mono">{target.target_id_masked}</span>
+                  </p>
+                </div>
+                <Badge color={ready ? "success" : target.approved ? "warning" : "error"}>
+                  {ready
+                    ? "พร้อมส่ง"
+                    : target.approved
+                      ? "ยังไม่ครบ"
+                      : "รออนุมัติ"}
+                </Badge>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                    สิทธิ์
+                  </p>
+                  <select
+                    className="owner-v2-input"
+                    disabled={busy !== null}
+                    onChange={(event) =>
+                      onTargetProfileChange(
+                        target.id,
+                        event.target.value as LineAccessProfileKey,
+                      )
+                    }
+                    value={profileDraft}
+                  >
+                    {profileOptions.map((profile) => (
+                      <option key={profile.value} value={profile.value}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                  {target.approved && profileDraft !== target.access_profile_key ? (
+                    <Button
+                      className="w-full"
+                      disabled={busy !== null}
+                      onClick={() => onUpdateTargetProfile(target)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      บันทึกสิทธิ์
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                    ความพร้อม
+                  </p>
+                  <StatusText ok={target.approved} text="อนุมัติ" />
+                  <StatusText ok={target.enabled} text="เปิดรับ" />
+                  <StatusText ok={!missingBriefAction} text="รับแผนแจ้งเตือน" />
+                  <StatusText
+                    ok={target.allowed_report_keys.length > 0}
+                    text="มีสิทธิ์รายงาน"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+                    ส่งผ่าน
+                  </p>
+                  <p className="mt-1 text-theme-sm text-gray-700 dark:text-gray-300">
+                    {channel?.display_name ?? "ยังไม่ได้ผูก OA"}
+                  </p>
+                  <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+                    {target.source} · ล่าสุด{" "}
+                    {target.last_delivery_at
+                      ? formatDateTime(target.last_delivery_at)
+                      : "ยังไม่เคยส่ง"}
+                  </p>
+                </div>
+                <RecipientEstimateCell
+                  busy={busy}
+                  onSave={(estimate) =>
+                    onUpdateRecipientEstimate(target, estimate)
+                  }
+                  target={target}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {!target.approved ? (
+                  <Button
+                    disabled={busy !== null}
+                    onClick={() => onApproveTarget(target)}
+                    size="sm"
+                    type="button"
+                  >
+                    อนุมัติ
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={busy !== null}
+                    onClick={() => onToggleTarget(target)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {target.enabled ? "ปิดรับ" : "เปิดรับ"}
+                  </Button>
+                )}
+                {target.approved && missingBriefAction ? (
+                  <Button
+                    disabled={busy !== null}
+                    onClick={() => onEnableMorningBriefAction(target)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    เปิดรับสรุปประจำวัน
+                  </Button>
+                ) : null}
+                {target.approved && target.enabled ? (
+                  <Button
+                    disabled={busy !== null}
+                    onClick={() => onTestSendTarget(target)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {busy === `test-send-${target.id}`
+                      ? "กำลังส่ง..."
+                      : "ส่งทดสอบ"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden w-full overflow-x-auto lg:block">
         <table className="min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">

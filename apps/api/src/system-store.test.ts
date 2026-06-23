@@ -316,6 +316,33 @@ describe("local JSON system store", () => {
       created_at: "2026-05-19T01:00:04.000Z",
       updated_at: "2026-05-19T01:00:04.000Z",
     });
+    await firstStore.upsertSecretRecord({
+      id: "secret_flowaccount_client_credentials",
+      tenant_id: "tenant_demo_remote",
+      scope: "flowaccount",
+      secret_key: "client_credentials",
+      encrypted_value: "v1.flowaccount-encrypted-envelope",
+      encryption_key_id: "test-key",
+      metadata_json: {
+        environment: "sandbox",
+        auth_mode: "client_credentials",
+      },
+      created_at: "2026-05-19T01:00:05.000Z",
+      updated_at: "2026-05-19T01:00:05.000Z",
+    });
+    await firstStore.upsertFlowAccountConnection({
+      tenant_id: "tenant_demo_remote",
+      environment: "sandbox",
+      auth_mode: "client_credentials",
+      status: "connected",
+      company_id: "company-123",
+      support_code: null,
+      access_token_expires_at: "2026-05-20T01:00:00.000Z",
+      last_tested_at: "2026-05-19T01:00:05.000Z",
+      last_error: null,
+      created_at: "2026-05-19T01:00:05.000Z",
+      updated_at: "2026-05-19T01:00:05.000Z",
+    });
     await firstStore.appendAuditLog({
       tenant_id: "tenant_demo_remote",
       actor_id: null,
@@ -392,9 +419,28 @@ describe("local JSON system store", () => {
           id: "secret_datasource_password",
           has_encrypted_value: true,
         }),
+        expect.objectContaining({
+          id: "secret_flowaccount_client_credentials",
+          scope: "flowaccount",
+          secret_key: "client_credentials",
+          has_encrypted_value: true,
+        }),
       ]),
     );
     expect(JSON.stringify(secretMetadata)).not.toContain("v1.encrypted-envelope");
+    expect(JSON.stringify(secretMetadata)).not.toContain(
+      "v1.flowaccount-encrypted-envelope",
+    );
+    await expect(
+      secondStore.getFlowAccountConnection("tenant_demo_remote"),
+    ).resolves.toMatchObject({
+      tenant_id: "tenant_demo_remote",
+      environment: "sandbox",
+      auth_mode: "client_credentials",
+      status: "connected",
+      company_id: "company-123",
+      access_token_expires_at: "2026-05-20T01:00:00.000Z",
+    });
     await expect(
       secondStore.listNotificationRules("tenant_demo_remote"),
     ).resolves.toEqual(

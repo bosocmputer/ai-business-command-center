@@ -22,6 +22,9 @@ const retiredTemplatePaths = new Set([
   "/line-chart",
 ]);
 
+const ownerV2HomePath = "/owner-v2";
+const ownerV2CanonicalEnabled = process.env.OWNER_V2_CANONICAL === "true";
+
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const isSignedIn = Boolean(
@@ -33,16 +36,17 @@ export async function proxy(request: NextRequest) {
 
   if (pathname === "/signup" || retiredTemplatePaths.has(pathname)) {
     if (isSignedIn) {
-      return NextResponse.redirect(new URL("/owner", request.url));
+      return NextResponse.redirect(new URL(ownerV2HomePath, request.url));
     }
 
     const redirectUrl = new URL("/signin", request.url);
-    redirectUrl.searchParams.set("next", "/owner");
+    redirectUrl.searchParams.set("next", ownerV2HomePath);
     return NextResponse.redirect(redirectUrl);
   }
 
   if (pathname === "/signin" && isSignedIn) {
-    const nextPath = request.nextUrl.searchParams.get("next") || "/owner";
+    const nextPath =
+      request.nextUrl.searchParams.get("next") || ownerV2HomePath;
     return NextResponse.redirect(new URL(safeNextPath(nextPath), request.url));
   }
 
@@ -50,12 +54,25 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const canonicalOwnerPath =
+    ownerV2CanonicalEnabled && pathname.startsWith("/owner")
+      ? legacyOwnerV2Path(pathname, search)
+      : null;
+
   if (isSignedIn) {
+    if (canonicalOwnerPath) {
+      return withOwnerNoStoreHeaders(
+        NextResponse.redirect(new URL(canonicalOwnerPath, request.url)),
+      );
+    }
     return withOwnerNoStoreHeaders(NextResponse.next());
   }
 
   const redirectUrl = new URL("/signin", request.url);
-  redirectUrl.searchParams.set("next", `${pathname}${search}`);
+  redirectUrl.searchParams.set(
+    "next",
+    canonicalOwnerPath ?? `${pathname}${search}`,
+  );
   return withOwnerNoStoreHeaders(NextResponse.redirect(redirectUrl));
 }
 
@@ -88,14 +105,60 @@ function isProtectedOwnerPath(pathname: string) {
 
 function safeNextPath(value: string) {
   if (!value.startsWith("/") || value.startsWith("//")) {
-    return "/owner";
+    return ownerV2HomePath;
   }
 
   if (value.startsWith("/signin") || value.startsWith("/auth/")) {
-    return "/owner";
+    return ownerV2HomePath;
   }
 
-  return value;
+  const parsed = new URL(value, "http://owner.local");
+  const canonicalOwnerPath = ownerV2CanonicalEnabled
+    ? legacyOwnerV2Path(parsed.pathname, parsed.search)
+    : null;
+
+  return canonicalOwnerPath ?? value;
+}
+
+function legacyOwnerV2Path(pathname: string, search: string) {
+  if (pathname === ownerV2HomePath || pathname.startsWith(`${ownerV2HomePath}/`)) {
+    return null;
+  }
+
+  if (pathname !== "/owner" && !pathname.startsWith("/owner/")) {
+    return null;
+  }
+
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  );
+  const tenantId = params.get("tenant");
+  const tenantBasePath = tenantId
+    ? `${ownerV2HomePath}/stores/${encodeURIComponent(tenantId)}`
+    : `${ownerV2HomePath}/stores`;
+
+  switch (pathname) {
+    case "/owner":
+      return ownerV2HomePath;
+    case "/owner/tenants":
+      return `${ownerV2HomePath}/stores`;
+    case "/owner/audit":
+      return `${ownerV2HomePath}/ops`;
+    case "/owner/settings":
+      return `${ownerV2HomePath}/system`;
+    case "/owner/sml-connections":
+      return tenantId ? `${tenantBasePath}/sml` : tenantBasePath;
+    case "/owner/line":
+      return tenantId ? `${tenantBasePath}/line` : tenantBasePath;
+    case "/owner/reports":
+      return tenantId ? `${tenantBasePath}/reports` : tenantBasePath;
+    case "/owner/report-permissions":
+      return tenantId ? `${tenantBasePath}/permissions` : tenantBasePath;
+    case "/owner/notifications":
+      return tenantId ? `${tenantBasePath}/notifications` : tenantBasePath;
+    default:
+      return ownerV2HomePath;
+  }
 }
 
 function withOwnerNoStoreHeaders(response: NextResponse) {

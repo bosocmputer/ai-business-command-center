@@ -37,7 +37,7 @@ const navItems: OwnerV2NavItem[] = [
   },
   {
     icon: <BellIcon />,
-    name: "ตรวจระบบ",
+    name: "ตรวจระบบและ Audit",
     path: "/owner-v2/ops",
   },
   {
@@ -155,6 +155,8 @@ export default function OwnerV2Sidebar() {
                   <li key={nav.name}>
                     {nav.subItems ? (
                       <button
+                        aria-expanded={openSubmenu === index}
+                        aria-label={sidebarExpanded ? undefined : nav.name}
                         className={`menu-item group cursor-pointer ${
                           active ? "menu-item-active" : "menu-item-inactive"
                         } ${sidebarExpanded ? "lg:justify-start" : "lg:justify-center"}`}
@@ -163,6 +165,7 @@ export default function OwnerV2Sidebar() {
                             current === index ? null : index,
                           )
                         }
+                        title={sidebarExpanded ? undefined : nav.name}
                         type="button"
                       >
                         <span
@@ -190,10 +193,12 @@ export default function OwnerV2Sidebar() {
                     ) : nav.path ? (
                       <Link
                         aria-current={active ? "page" : undefined}
+                        aria-label={sidebarExpanded ? undefined : nav.name}
                         className={`menu-item group ${
                           active ? "menu-item-active" : "menu-item-inactive"
                         } ${sidebarExpanded ? "lg:justify-start" : "lg:justify-center"}`}
                         href={nav.path}
+                        title={sidebarExpanded ? undefined : nav.name}
                       >
                         <span
                           className={

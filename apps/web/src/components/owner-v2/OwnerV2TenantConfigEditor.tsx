@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon } from "@/icons";
-import { isAbortError, ownerV2Fetch } from "./api";
+import { ownerV2Fetch } from "./api";
 import { Fact, Notice, Panel, PanelBody, PanelHeader } from "./ui";
 import type {
   BusinessSignalThresholdsConfig,

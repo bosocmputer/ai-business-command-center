@@ -74,7 +74,7 @@ function NextActionPanel({ cockpit }: { cockpit: OwnerV2Cockpit }) {
             <ArrowRightIcon className="h-4 w-4" />
           </Link>
           <Link className={secondaryActionClass} href="/owner-v2/ops">
-            ดูสถานะระบบ
+            ตรวจระบบและ Audit
           </Link>
         </div>
       </div>

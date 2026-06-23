@@ -17,7 +17,6 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     // Log to console for ops; server-side logging is handled by Next.js.
-    // eslint-disable-next-line no-console
     console.error("owner-v2 render error:", error);
   }, [error]);
 

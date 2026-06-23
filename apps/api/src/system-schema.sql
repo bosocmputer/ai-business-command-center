@@ -230,6 +230,23 @@ create table if not exists secrets (
 create index if not exists secrets_tenant_idx
 on secrets (tenant_id, scope, updated_at desc);
 
+create table if not exists flowaccount_connections (
+  tenant_id text primary key references tenants(id) on delete cascade,
+  environment text not null default 'sandbox',
+  auth_mode text not null default 'client_credentials',
+  status text not null default 'configured_untested',
+  company_id text,
+  support_code text,
+  access_token_expires_at timestamptz,
+  last_tested_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists flowaccount_connections_status_idx
+on flowaccount_connections (status, updated_at desc);
+
 create table if not exists audit_logs (
   id bigserial primary key,
   tenant_id text,

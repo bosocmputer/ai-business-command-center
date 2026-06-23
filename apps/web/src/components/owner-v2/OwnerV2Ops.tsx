@@ -840,6 +840,14 @@ function TelegramOpsManager({
   }
 
   async function sendTest() {
+    if (
+      !window.confirm(
+        "ส่ง Telegram test alert ไปยังผู้รับ ops ที่เปิดใช้งานตอนนี้?",
+      )
+    ) {
+      return;
+    }
+
     await runAction("test", async () => {
       await ownerV2Fetch(`/api/owner/operational-alerts/telegram/test`, {
         method: "POST",
@@ -853,6 +861,14 @@ function TelegramOpsManager({
   }
 
   async function runSmoke(alertType: string) {
+    if (
+      !window.confirm(
+        `ส่ง Telegram smoke test ประเภท ${alertType} และบันทึก audit/delivery history?`,
+      )
+    ) {
+      return;
+    }
+
     await runAction(`smoke-${alertType}`, async () => {
       await ownerV2Fetch(`/api/owner/operational-alerts/smoke-test`, {
         method: "POST",

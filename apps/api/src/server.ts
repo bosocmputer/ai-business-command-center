@@ -182,6 +182,15 @@ import {
   saveTenantDatasourceConfig,
 } from "./tenant-secret-config.js";
 import {
+  buildFlowAccountConnectionRecord,
+  readFlowAccountConfigStatus,
+  saveFlowAccountClientCredentials,
+} from "./flowaccount-secret-config.js";
+import {
+  testStoredFlowAccountConnection,
+  type FlowAccountStoredTestResult,
+} from "./flowaccount-service.js";
+import {
   readEffectiveSystemRuntimeConfig,
   readSystemRuntimeConfigStatus,
   saveSystemRuntimeConfig,
@@ -2088,6 +2097,198 @@ app.put(
   },
 );
 
+app.get(
+  "/api/owner/tenants/:tenantId/flowaccount/config",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    if (!readSecretEncryptionSecret()) {
+      return reply.status(503).send({
+        error:
+          "AI_BCC_SECRET_KEY is not configured. Set it on the server before reading FlowAccount configuration.",
+      });
+    }
+
+    return {
+      data: await readFlowAccountConfigStatus({
+        store: systemStore,
+        tenantId: tenant.id,
+      }),
+    };
+  },
+);
+
+app.put(
+  "/api/owner/tenants/:tenantId/flowaccount/config",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = flowAccountConfigUpdateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid FlowAccount config request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    if (!readSecretEncryptionSecret()) {
+      return reply.status(503).send({
+        error:
+          "AI_BCC_SECRET_KEY is not configured. Set it on the server before saving FlowAccount secrets.",
+      });
+    }
+
+    const status = await saveFlowAccountClientCredentials({
+      store: systemStore,
+      tenantId: tenant.id,
+      environment: body.data.environment,
+      authMode: body.data.auth_mode,
+      clientId: body.data.client_id,
+      clientSecret: body.data.client_secret,
+    });
+
+    await systemStore.appendAuditLog({
+      tenant_id: tenant.id,
+      actor_id: adminAuth.subject,
+      action: "flowaccount_config_updated",
+      target_type: "flowaccount",
+      target_id: tenant.id,
+      metadata_json: {
+        environment: status.environment,
+        auth_mode: status.auth_mode,
+        credentials_configured: status.credentials_configured,
+        provider_status: null,
+        latency_ms: null,
+        company_id: null,
+        support_code_source: "missing",
+        safe_error_message: null,
+      },
+    });
+
+    return { data: status };
+  },
+);
+
+app.post(
+  "/api/owner/tenants/:tenantId/flowaccount/test",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    if (!readSecretEncryptionSecret()) {
+      return reply.status(503).send({
+        error:
+          "AI_BCC_SECRET_KEY is not configured. Set it on the server before testing FlowAccount.",
+      });
+    }
+
+    const result = await testStoredFlowAccountConnection({
+      store: systemStore,
+      tenantId: tenant.id,
+    });
+    const response = { data: toFlowAccountTestApiResponse(result) };
+
+    if (result.token_refreshed) {
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: adminAuth.subject,
+        action: "flowaccount_token_refreshed",
+        target_type: "flowaccount",
+        target_id: tenant.id,
+        metadata_json: {
+          environment: result.environment,
+          provider_status: result.token_provider_status,
+          latency_ms: null,
+          company_id: null,
+          support_code_source: result.support_code_source,
+          safe_error_message: null,
+        },
+      });
+    }
+
+    if (result.failure_reason !== "missing_config") {
+      const existing = await systemStore.getFlowAccountConnection(tenant.id);
+      await systemStore.upsertFlowAccountConnection(
+        buildFlowAccountConnectionRecord({
+          tenantId: tenant.id,
+          existing,
+          status: result.ok ? "connected" : "error",
+          companyId: result.company_id,
+          supportCode: result.support_code,
+          accessTokenExpiresAt: result.access_token_expires_at,
+          lastTestedAt: result.checked_at,
+          lastError: result.safe_error_message,
+        }),
+      );
+    }
+
+    await systemStore.appendAuditLog({
+      tenant_id: tenant.id,
+      actor_id: adminAuth.subject,
+      action: result.ok
+        ? "flowaccount_test_succeeded"
+        : "flowaccount_test_failed",
+      target_type: "flowaccount",
+      target_id: tenant.id,
+      metadata_json: {
+        environment: result.environment,
+        provider_status: result.provider_status,
+        latency_ms: result.latency_ms,
+        company_id: result.company_id,
+        support_code_source: result.support_code_source,
+        safe_error_message: result.safe_error_message,
+      },
+    });
+
+    if (result.failure_reason === "missing_config") {
+      return reply.status(424).send(response);
+    }
+    if (!result.ok) {
+      return reply.status(502).send(response);
+    }
+
+    return response;
+  },
+);
+
 app.post(
   "/api/owner/tenants/:tenantId/datasource/javaws/databases",
   async (request, reply) => {
@@ -3243,6 +3444,19 @@ app.get("/api/app/reports/sales_goods_services/latest", async (_request, reply) 
 app.post("/api/tenants/:tenantId/datasource/test", async (request, reply) => {
   return testTenantDatasource(request, reply);
 });
+
+function toFlowAccountTestApiResponse(result: FlowAccountStoredTestResult) {
+  return {
+    ok: result.ok,
+    checked_at: result.checked_at,
+    environment: result.environment,
+    latency_ms: result.latency_ms,
+    provider_status: result.provider_status,
+    company_id: result.company_id,
+    support_code: result.support_code,
+    safe_error_message: result.safe_error_message,
+  };
+}
 
 async function testTenantDatasource(
   request: FastifyRequest,
@@ -14982,6 +15196,13 @@ const javaWsDatabaseDiscoverySchema = javaWsDatasourceConfigUpdateSchema
   });
 
 const datasourceConfigUpdateSchema = javaWsDatasourceConfigUpdateSchema;
+
+const flowAccountConfigUpdateSchema = z.object({
+  environment: z.literal("sandbox"),
+  auth_mode: z.literal("client_credentials"),
+  client_id: z.string().trim().min(1).max(512),
+  client_secret: z.string().trim().min(1).max(2048),
+});
 
 const nullableUrlString = z
   .string()
