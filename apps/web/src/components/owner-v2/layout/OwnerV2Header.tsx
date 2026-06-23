@@ -270,7 +270,11 @@ export default function OwnerV2Header() {
             {isMobileOpen ? <CloseMenuIcon /> : <HamburgerIcon />}
           </button>
 
-          <Link className="lg:hidden" href="/owner-v2">
+          <Link
+            aria-label="กลับหน้าเริ่มงาน Owner"
+            className="inline-flex min-h-11 min-w-11 flex-col justify-center lg:hidden"
+            href="/owner-v2"
+          >
             <span className="block text-sm font-semibold text-gray-900 dark:text-white">
               AI Business
             </span>

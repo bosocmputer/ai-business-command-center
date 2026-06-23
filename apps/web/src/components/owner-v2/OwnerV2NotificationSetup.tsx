@@ -1108,7 +1108,7 @@ function ReportSelector({
                   >
                     <input
                       checked={checked}
-                      className="mt-1 size-4"
+                      className="mt-1 size-5"
                       onChange={() => onToggleReport(reportKey)}
                       type="checkbox"
                     />
@@ -1209,7 +1209,7 @@ function TargetSelector({
                   <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <input
                       checked={selectedTargetIds.includes(target.id)}
-                      className="size-4"
+                      className="size-5"
                       onChange={() => onToggleTarget(target.id)}
                       type="checkbox"
                     />
