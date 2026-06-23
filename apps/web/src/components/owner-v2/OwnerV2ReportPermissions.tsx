@@ -17,7 +17,13 @@ import {
   type OwnerV2FetchError,
 } from "./api";
 import type { OwnerV2PermissionSetupPayload } from "./types";
-import { secondaryActionClass } from "./ui";
+import {
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  secondaryActionClass,
+} from "./ui";
 
 type PermissionSetupState =
   | { status: "loading" }
@@ -222,7 +228,7 @@ export default function OwnerV2ReportPermissions({
   if (state.status === "error") {
     return (
       <Panel>
-        <PanelBody>
+        <PanelBody spaced>
           <EmptyState
             action={
               <Button
@@ -265,9 +271,9 @@ export default function OwnerV2ReportPermissions({
           description="กำหนดว่าผู้รับแต่ละกลุ่มเปิดดูรายงานใดได้บ้าง สิทธิ์นี้ใช้กับ LINE และหน้าดูรายงานของร้านนี้"
           title="สิทธิ์ดูรายงาน"
         />
-        <PanelBody>
+        <PanelBody spaced>
           {message ? (
-            <Notice tone={message.tone}>{message.text}</Notice>
+            <Notice tone={message.tone} title={message.text} />
           ) : null}
 
           {visibleImpacts.length ? (
@@ -422,7 +428,7 @@ export default function OwnerV2ReportPermissions({
             description="บันทึกแล้วระบบจะปรับสิทธิ์ผู้รับ LINE ของร้านนี้เท่านั้น"
             title={state.data.tenant.name}
           />
-          <PanelBody>
+          <PanelBody spaced>
             <div className="grid grid-cols-2 gap-3">
               <Metric label="ผู้รับ LINE" value={totalTargets.toString()} />
               <Metric label="สิทธิ์ที่เปิด" value={enabledCellCount.toString()} />
@@ -486,7 +492,7 @@ export default function OwnerV2ReportPermissions({
             description="ใช้เมื่อเริ่มตั้งร้านใหม่หรือแก้หลายกลุ่มในครั้งเดียว"
             title="ตั้งเร็วตามกลุ่มผู้รับ"
           />
-          <PanelBody>
+          <PanelBody spaced>
             <div className="space-y-3">
               {roles.map((role) => (
                 <RoleShortcut
@@ -506,7 +512,7 @@ export default function OwnerV2ReportPermissions({
 
         <Panel>
           <PanelHeader title="ทางลัดแก้ปัญหา" />
-          <PanelBody>
+          <PanelBody spaced>
             <div className="grid gap-3">
               <ActionLink
                 href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
@@ -527,94 +533,6 @@ export default function OwnerV2ReportPermissions({
         </Panel>
       </div>
     </div>
-    </div>
-  );
-}
-
-function Panel({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 ${className}`}
-    >
-      {children}
-    </section>
-  );
-}
-
-function PanelHeader({
-  action,
-  description,
-  title,
-}: {
-  action?: ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <h3 className="break-words text-lg font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h3>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function PanelBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-5">{children}</div>;
-}
-
-function Notice({
-  children,
-  tone,
-}: {
-  children: ReactNode;
-  tone: "success" | "warning" | "error";
-}) {
-  const toneConfig = {
-    error: {
-      className:
-        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-      icon: <AlertIcon className="size-6 fill-current" />,
-      iconClassName: "text-error-500",
-    },
-    success: {
-      className:
-        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-      icon: <CheckCircleIcon className="size-6 fill-current" />,
-      iconClassName: "text-success-500",
-    },
-    warning: {
-      className:
-        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-      icon: <InfoIcon className="size-6 fill-current" />,
-      iconClassName: "text-warning-500 dark:text-orange-400",
-    },
-  }[tone];
-
-  return (
-    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
-      <div className="flex items-start gap-3">
-        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
-          {toneConfig.icon}
-        </div>
-        <div className="min-w-0 text-sm leading-6 text-gray-500 dark:text-gray-400">
-          {children}
-        </div>
-      </div>
     </div>
   );
 }
@@ -808,13 +726,13 @@ function PermissionsSkeleton() {
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <Panel>
         <PanelHeader title="กำลังโหลดสิทธิ์รายงาน" />
-        <PanelBody>
+        <PanelBody spaced>
           <MiniSkeleton rows={6} />
         </PanelBody>
       </Panel>
       <Panel>
         <PanelHeader title="กำลังโหลดสถานะ" />
-        <PanelBody>
+        <PanelBody spaced>
           <MiniSkeleton rows={4} />
         </PanelBody>
       </Panel>

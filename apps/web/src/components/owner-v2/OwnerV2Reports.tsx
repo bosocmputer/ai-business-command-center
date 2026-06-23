@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -20,7 +19,16 @@ import {
   type OwnerV2FetchErrorPayload,
 } from "./api";
 import type { OwnerV2ReportSetupPayload } from "./types";
-import { secondaryActionClass } from "./ui";
+import {
+  Fact,
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  formatDateTime,
+  formatRunStatus,
+  secondaryActionClass,
+} from "./ui";
 
 type ReportSetupState =
   | { status: "loading" }
@@ -296,9 +304,20 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <Panel>
-        <PanelBody>
-          <EmptyState
-            action={
+        <PanelBody spaced>
+          <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              <InfoIcon className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                โหลดสถานะรายงานไม่สำเร็จ
+              </p>
+              <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+                {`${state.message} กรุณาตรวจ session ผู้ดูแลหรือเลือกร้านใหม่`}
+              </p>
+            </div>
+            <div className="mt-1 flex justify-center">
               <Button
                 onClick={() => void load()}
                 size="sm"
@@ -307,10 +326,8 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
               >
                 โหลดใหม่
               </Button>
-            }
-            detail={`${state.message} กรุณาตรวจ session ผู้ดูแลหรือเลือกร้านใหม่`}
-            title="โหลดสถานะรายงานไม่สำเร็จ"
-          />
+            </div>
+          </div>
         </PanelBody>
       </Panel>
     );
@@ -340,13 +357,13 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           description="เลือก report, ช่วงวันที่ แล้วรันทดสอบเฉพาะร้านนี้ก่อนนำไปใช้กับ dashboard หรือ LINE"
           title={`รายงานของ ${state.data.tenant.name}`}
         />
-        <PanelBody>
-          {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+        <PanelBody spaced>
+          {message ? <Notice tone={message.tone} title={message.text} /> : null}
 
           <div className="grid gap-3 md:grid-cols-3">
-            <Metric label="รายงานที่รองรับ" value={reports.length.toString()} />
-            <Metric label="สำเร็จล่าสุด" value={successRuns.toString()} />
-            <Metric label="ไม่สำเร็จล่าสุด" value={failedRuns.toString()} />
+            <Fact label="รายงานที่รองรับ" value={reports.length.toString()} />
+            <Fact label="สำเร็จล่าสุด" value={successRuns.toString()} />
+            <Fact label="ไม่สำเร็จล่าสุด" value={failedRuns.toString()} />
           </div>
 
           <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
@@ -370,7 +387,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
             description="กดรันเมื่อพร้อมเท่านั้น รายงานหนักจะรันเบื้องหลังและปิดหน้าได้"
             title="ควบคุมการรัน"
           />
-          <PanelBody>
+          <PanelBody spaced>
             {selectedReport ? (
               <>
                 <div className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]">
@@ -411,15 +428,17 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 </div>
 
                 {dateInvalid ? (
-                  <Notice tone="warning">
-                    ช่วงวันที่ไม่ถูกต้อง กรุณาเลือกวันที่เริ่มต้นไม่เกินวันที่สิ้นสุด
-                  </Notice>
+                  <Notice
+                    tone="warning"
+                    title="ช่วงวันที่ไม่ถูกต้อง กรุณาเลือกวันที่เริ่มต้นไม่เกินวันที่สิ้นสุด"
+                  />
                 ) : null}
 
                 {selectedIsAsync && !chunkedEnabled ? (
-                  <Notice tone="warning">
-                    ร้านนี้ยังไม่ได้เปิด chunked heavy reports จึงยังไม่ควรรันรายงานหนักจากหน้านี้
-                  </Notice>
+                  <Notice
+                    tone="warning"
+                    title="ร้านนี้ยังไม่ได้เปิด chunked heavy reports จึงยังไม่ควรรันรายงานหนักจากหน้านี้"
+                  />
                 ) : null}
 
                 <Button
@@ -440,24 +459,43 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 </p>
               </>
             ) : (
-              <EmptyState
-                detail="ยังไม่มี report catalog สำหรับร้านนี้ กรุณาตรวจ API report setup"
-                title="ยังเลือกรายงานไม่ได้"
-              />
+              <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                  <InfoIcon className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                    ยังเลือกรายงานไม่ได้
+                  </p>
+                  <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+                    ยังไม่มี report catalog สำหรับร้านนี้ กรุณาตรวจ API report
+                    setup
+                  </p>
+                </div>
+              </div>
             )}
           </PanelBody>
         </Panel>
 
         <Panel>
           <PanelHeader title="ผลล่าสุดของรายงานที่เลือก" />
-          <PanelBody>
+          <PanelBody spaced>
             {selectedRun ? (
               <RunDetail run={selectedRun} snapshot={selectedSnapshot ?? null} tenantId={tenantId} />
             ) : (
-              <EmptyState
-                detail="ยังไม่มี report run ของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม"
-                title="ยังไม่มี run"
-              />
+              <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                  <InfoIcon className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                    ยังไม่มี run
+                  </p>
+                  <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+                    ยังไม่มี report run ของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม
+                  </p>
+                </div>
+              </div>
             )}
           </PanelBody>
         </Panel>
@@ -465,7 +503,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
         {progress ? (
           <Panel>
             <PanelHeader title="ความคืบหน้าการรันเบื้องหลัง" />
-            <PanelBody>
+            <PanelBody spaced>
               <ProgressCard progress={progress} />
             </PanelBody>
           </Panel>
@@ -522,11 +560,11 @@ function ReportRow({
           </p>
         </div>
         <div className="grid shrink-0 grid-cols-2 gap-2 text-xs sm:min-w-72">
-          <SmallFact
+          <Fact
             label="Run"
             value={latestRun ? formatRunStatus(latestRun.status) : "ยังไม่มี"}
           />
-          <SmallFact
+          <Fact
             label="Snapshot"
             value={
               latestSnapshot ? formatDateTime(latestSnapshot.generated_at) : "ยังไม่มี"
@@ -577,23 +615,28 @@ function RunDetail({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Metric label="Rows" value={run.row_count.toLocaleString("th-TH")} />
-        <Metric label="Duration" value={formatRunDuration(run)} />
-        <Metric
+        <Fact label="Rows" value={run.row_count.toLocaleString("th-TH")} />
+        <Fact label="Duration" value={formatRunDuration(run)} />
+        <Fact
           label="Period"
           value={formatReportPeriod(run.params.date_from, run.params.date_to)}
         />
-        <Metric
+        <Fact
           label="Snapshot"
           value={snapshot ? formatDateTime(snapshot.generated_at) : "ยังไม่มี"}
         />
       </div>
       {run.failure_phase || run.failure_kind || run.safe_error_message ? (
-        <Notice tone="error">
-          {run.failure_phase ? `ขั้นตอนที่ผิดพลาด: ${run.failure_phase}. ` : ""}
-          {run.failure_kind ? `ประเภทปัญหา: ${run.failure_kind}. ` : ""}
-          {run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจ SML JavaWS แล้วลองใหม่"}
-        </Notice>
+        <Notice
+          tone="error"
+          title={run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจ SML JavaWS แล้วลองใหม่"}
+          text={[
+            run.failure_phase ? `ขั้นตอนที่ผิดพลาด: ${run.failure_phase}` : null,
+            run.failure_kind ? `ประเภทปัญหา: ${run.failure_kind}` : null,
+          ]
+            .filter(Boolean)
+            .join(". ")}
+        />
       ) : null}
       {run.report_key === "sales_goods_services" && run.status === "success" ? (
         <ReportSignoffPanel run={run} tenantId={tenantId} />
@@ -772,11 +815,11 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
         />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <SmallFact
+        <Fact
           label="Chunks"
           value={`${progress.chunk_summary.done}/${progress.chunk_summary.total}`}
         />
-        <SmallFact
+        <Fact
           label="Rows"
           value={progress.chunk_summary.rows_processed.toLocaleString("th-TH")}
         />
@@ -788,138 +831,19 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
   );
 }
 
-function Panel({ children }: { children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      {children}
-    </section>
-  );
-}
-
-function PanelHeader({
-  action,
-  description,
-  title,
-}: {
-  action?: ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h2>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function PanelBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-5">{children}</div>;
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function SmallFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-white/[0.02]">
-      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 truncate text-theme-xs font-semibold text-gray-800 dark:text-white/90">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Notice({
-  children,
-  tone,
-}: {
-  children: ReactNode;
-  tone: "success" | "warning" | "error";
-}) {
-  const classes = {
-    error:
-      "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-    success:
-      "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-    warning:
-      "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-  }[tone];
-  const Icon =
-    tone === "success" ? CheckCircleIcon : tone === "warning" ? InfoIcon : AlertIcon;
-  const iconClass =
-    tone === "success"
-      ? "text-success-500"
-      : tone === "warning"
-        ? "text-warning-500 dark:text-orange-400"
-        : "text-error-500";
-  return (
-    <div className={`rounded-xl border p-4 ${classes}`}>
-      <div className="flex items-start gap-3">
-        <Icon className={`-mt-0.5 h-6 w-6 shrink-0 ${iconClass}`} />
-        <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({
-  action,
-  detail,
-  title,
-}: {
-  action?: ReactNode;
-  detail: string;
-  title: string;
-}) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-        <InfoIcon className="h-5 w-5" />
-      </div>
-      <p className="mt-3 text-theme-sm font-semibold text-gray-800 dark:text-white/90">
-        {title}
-      </p>
-      <p className="mx-auto mt-2 max-w-md text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-        {detail}
-      </p>
-      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
-    </div>
-  );
-}
 
 function ReportsSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
       <Panel>
         <PanelHeader title="กำลังโหลดรายการรายงาน" />
-        <PanelBody>
+        <PanelBody spaced>
           <MiniSkeleton rows={6} />
         </PanelBody>
       </Panel>
       <Panel>
         <PanelHeader title="กำลังโหลด run control" />
-        <PanelBody>
+        <PanelBody spaced>
           <MiniSkeleton rows={4} />
         </PanelBody>
       </Panel>
@@ -959,19 +883,6 @@ function isTerminalStatus(status: ReportRunStatus) {
   return terminalStatuses.includes(status);
 }
 
-function formatRunStatus(status: ReportRunStatus | null) {
-  if (!status) {
-    return "ยังไม่มี";
-  }
-  const labels: Record<ReportRunStatus, string> = {
-    failed: "ไม่สำเร็จ",
-    queued: "รอคิว",
-    running: "กำลังรัน",
-    success: "สำเร็จ",
-  };
-  return labels[status] ?? status;
-}
-
 function formatProgressStage(stage: string | null) {
   if (!stage) {
     return "กำลังเตรียมงาน";
@@ -994,21 +905,6 @@ function formatReportPeriod(dateFrom: string, dateTo: string) {
     return dateFrom;
   }
   return `${dateFrom} ถึง ${dateTo}`;
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "ยังไม่มี";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: BANGKOK_TIME_ZONE,
-  }).format(date);
 }
 
 function formatRunDuration(run: ReportRunRecord) {

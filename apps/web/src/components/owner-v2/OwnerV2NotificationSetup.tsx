@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -20,13 +20,21 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { AlertIcon, CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
+import { BellIcon, InfoIcon, PlusIcon, TimeIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
 } from "./types";
-import { secondaryActionClass } from "./ui";
+import {
+  Fact,
+  Field,
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  secondaryActionClass,
+} from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
 
@@ -463,7 +471,7 @@ export default function OwnerV2NotificationSetup({
   if (state.status === "error") {
     return (
       <Panel>
-        <PanelBody>
+        <PanelBody spaced>
           <Notice
             text={`${state.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
             title="โหลดแผนแจ้งเตือนไม่สำเร็จ"
@@ -550,7 +558,7 @@ export default function OwnerV2NotificationSetup({
           description="คลิกเพื่อกรอกแผนให้พร้อมก่อนบันทึก"
           title="เริ่มจากแผนแนะนำ"
         />
-        <PanelBody>
+        <PanelBody spaced>
           <div className="grid gap-3 lg:grid-cols-3">
             <PresetCard
               badge="แนะนำ"
@@ -638,7 +646,7 @@ export default function OwnerV2NotificationSetup({
               description="เลือกแผนรอบเช้า/เย็น หรือสร้างแผนใหม่ให้ร้านนี้"
               title="แผนของร้านนี้"
             />
-            <PanelBody className="space-y-4">
+            <PanelBody spaced>
               <div className="grid grid-cols-2 gap-3">
                 <Fact
                   label="แผนเปิดอยู่"
@@ -666,7 +674,7 @@ export default function OwnerV2NotificationSetup({
               description="ผลรันล่าสุดช่วยบอกว่ารอบไหนส่งสำเร็จหรือควรตรวจต่อ"
               title="งานล่าสุด"
             />
-            <PanelBody>
+            <PanelBody spaced>
               <RunList runs={recentRuns.slice(0, 6)} />
             </PanelBody>
           </Panel>
@@ -687,7 +695,7 @@ export default function OwnerV2NotificationSetup({
               description="ตั้งเวลา เลือกรายงาน และเลือกผู้รับ LINE ก่อนบันทึกหรือทดสอบ"
               title={selectedRule ? selectedRule.name : "สร้างแผนแจ้งเตือน"}
             />
-            <PanelBody>
+            <PanelBody spaced>
               <form className="space-y-6" onSubmit={saveRule}>
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                   <Field label="ชื่อแผน">
@@ -955,7 +963,7 @@ export default function OwnerV2NotificationSetup({
                 description="ระบบรันต่อได้แม้ปิดหน้านี้ กลับมาดูสถานะได้ภายหลัง"
                 title="งานที่กำลังทำ"
               />
-              <PanelBody>
+              <PanelBody spaced>
                 <RunList runs={activeRuns} />
               </PanelBody>
             </Panel>
@@ -977,10 +985,19 @@ function RuleList({
 }) {
   if (!rules.length) {
     return (
-      <EmptyState
-        detail="เริ่มจากสร้างแผน 08:00 หรือ 18:30 แล้วเลือกผู้รับ LINE"
-        title="ยังไม่มีแผนแจ้งเตือน"
-      />
+      <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+          <BellIcon className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            ยังไม่มีแผนแจ้งเตือน
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+            เริ่มจากสร้างแผน 08:00 หรือ 18:30 แล้วเลือกผู้รับ LINE
+          </p>
+        </div>
+      </div>
     );
   }
   return (
@@ -1131,18 +1148,25 @@ function TargetSelector({
 }) {
   if (!targets.length) {
     return (
-      <EmptyState
-        action={
-          <Link
-            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
-            href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
-          >
-            ไปตั้งค่า LINE
-          </Link>
-        }
-        detail="ต้องมีผู้รับ LINE ก่อนจึงเปิดแผนแจ้งเตือนได้"
-        title="ยังไม่มีผู้รับ LINE"
-      />
+      <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+          <InfoIcon className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            ยังไม่มีผู้รับ LINE
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ต้องมีผู้รับ LINE ก่อนจึงเปิดแผนแจ้งเตือนได้
+          </p>
+        </div>
+        <Link
+          className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
+        >
+          ไปตั้งค่า LINE
+        </Link>
+      </div>
     );
   }
   return (
@@ -1221,10 +1245,19 @@ function TargetSelector({
 function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
   if (!runs.length) {
     return (
-      <EmptyState
-        detail="หลังทดสอบหรือรอบ worker ทำงาน ผลล่าสุดจะแสดงตรงนี้"
-        title="ยังไม่มีประวัติรัน"
-      />
+      <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+          <TimeIcon className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+            ยังไม่มีประวัติรัน
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+            หลังทดสอบหรือรอบ worker ทำงาน ผลล่าสุดจะแสดงตรงนี้
+          </p>
+        </div>
+      </div>
     );
   }
   return (
@@ -1285,199 +1318,6 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
   );
 }
 
-function Panel({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 ${className}`}
-    >
-      {children}
-    </section>
-  );
-}
-
-function PanelHeader({
-  action,
-  description,
-  title,
-}: {
-  action?: ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <h3 className="break-words text-lg font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h3>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function PanelBody({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <div className={`space-y-5 ${className}`}>{children}</div>;
-}
-
-function Field({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function Fact({
-  label,
-  tone = "light",
-  value,
-}: {
-  label: string;
-  tone?: "success" | "warning" | "error" | "light";
-  value: string;
-}) {
-  const toneLabel = {
-    error: "ผิดพลาด",
-    light: null,
-    success: "ปกติ",
-    warning: "ต้องดู",
-  }[tone];
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-        {toneLabel ? (
-          <Badge color={tone} size="sm">
-            {toneLabel}
-          </Badge>
-        ) : null}
-      </div>
-      <p className="mt-2 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Notice({
-  text,
-  title,
-  tone,
-}: {
-  text: string;
-  title: string;
-  tone: "success" | "warning" | "error";
-}) {
-  const toneConfig = {
-    error: {
-      className:
-        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-      icon: <AlertIcon className="size-6 fill-current" />,
-      iconClassName: "text-error-500",
-    },
-    success: {
-      className:
-        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-      icon: <CheckCircleIcon className="size-6 fill-current" />,
-      iconClassName: "text-success-500",
-    },
-    warning: {
-      className:
-        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-      icon: <InfoIcon className="size-6 fill-current" />,
-      iconClassName: "text-warning-500 dark:text-orange-400",
-    },
-  }[tone];
-  return (
-    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
-      <div className="flex items-start gap-3">
-        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
-          {toneConfig.icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-            {title}
-          </p>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {text}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({
-  action,
-  detail,
-  title,
-}: {
-  action?: ReactNode;
-  detail: string;
-  title: string;
-}) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
-      <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-        {title}
-      </p>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-        {detail}
-      </p>
-      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
-    </div>
-  );
-}
-
-function NotificationSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <Panel>
-        <PanelHeader title="กำลังโหลดแผน" />
-        <PanelBody>
-          <MiniSkeleton />
-        </PanelBody>
-      </Panel>
-      <Panel>
-        <PanelHeader title="กำลังโหลดฟอร์ม" />
-        <PanelBody>
-          <MiniSkeleton />
-        </PanelBody>
-      </Panel>
-    </div>
-  );
-}
-
-function MiniSkeleton() {
-  return (
-    <div className="animate-pulse space-y-3">
-      <div className="h-4 w-2/3 rounded bg-gray-100 dark:bg-gray-800" />
-      <div className="h-11 rounded-lg bg-gray-100 dark:bg-gray-800" />
-      <div className="h-11 rounded-lg bg-gray-100 dark:bg-gray-800" />
-    </div>
-  );
-}
 
 function NotificationStat({
   label,
@@ -2029,4 +1869,13 @@ function createClientRequestId() {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function NotificationSkeleton() {
+  return (
+    <div className="space-y-5 sm:space-y-6">
+      <div className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+      <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
+    </div>
+  );
 }

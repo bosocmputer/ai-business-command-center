@@ -1,11 +1,11 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { AlertIcon, CheckCircleIcon, InfoIcon } from "@/icons";
+// removed icons from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type {
   OwnerV2DatasourceStatus,
@@ -13,6 +13,16 @@ import type {
   OwnerV2JavaWsDatabaseDiscoveryResult,
   OwnerV2SmlSetupPayload,
 } from "./types";
+import {
+  Fact,
+  Field,
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  formatDateTime,
+  formatRunStatus,
+} from "./ui";
 
 type JavaWsAuthMode = "none" | "basic" | "bearer";
 
@@ -266,7 +276,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <Panel>
-        <PanelBody>
+        <PanelBody spaced>
           <Notice
             tone="error"
             title="โหลด SML ไม่สำเร็จ"
@@ -321,7 +331,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             description="ตั้งค่า URL, SMLConfig และ database ของร้านนี้ แล้วทดสอบก่อนเปิดใช้รายงานหรือแจ้งเตือน"
             title="SML JavaWS"
           />
-          <PanelBody>
+          <PanelBody spaced>
             <form className="space-y-5" onSubmit={save}>
               <div>
                 <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -564,7 +574,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               description="ดูว่าร้านนี้พร้อมใช้รายงานจาก SML แล้วหรือยัง"
               title="สถานะปัจจุบัน"
             />
-            <PanelBody>
+            <PanelBody spaced>
               <div className="grid grid-cols-1 gap-3">
                 <Fact
                   label="การเชื่อมต่อ"
@@ -603,7 +613,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               description="ใช้ตรวจเร็วว่าการเชื่อม SML เคยสร้างรายงานสำเร็จหรือไม่"
               title="รายงานล่าสุด"
             />
-            <PanelBody>
+            <PanelBody spaced>
               {setup.latest_report_run ? (
                 <div className="space-y-3">
                   <Fact
@@ -650,7 +660,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             description="เลือกชื่อ database ที่พบเพื่อเติมลงฟอร์มโดยไม่ต้องพิมพ์เอง"
             title="ผลค้นหา database"
           />
-          <PanelBody>
+          <PanelBody spaced>
             {discovery.safe_error_message ? (
               <Notice
                 tone="warning"
@@ -701,7 +711,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             description="ผลนี้ใช้ยืนยันว่า JavaWS ตอบกลับและอ่านข้อมูลพื้นฐานได้"
             title="ผลทดสอบ SML"
           />
-          <PanelBody>
+          <PanelBody spaced>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Fact label="เวลาตอบกลับ" value={`${testResult.latency_ms} ms`} />
               <Fact
@@ -749,44 +759,6 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       </div>
     </div>
   );
-}
-
-function Panel({ children }: { children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      {children}
-    </section>
-  );
-}
-
-function PanelHeader({
-  action,
-  description,
-  title,
-}: {
-  action?: ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h3>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function PanelBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-5">{children}</div>;
 }
 
 function SmlActionGuide({
@@ -890,108 +862,6 @@ function ActionHelp({ items }: { items: string[] }) {
           <li key={item}>{item}</li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function Field({
-  children,
-  help,
-  label,
-}: {
-  children: ReactNode;
-  help?: string;
-  label: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-        {label}
-      </span>
-      {children}
-      {help ? (
-        <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-          {help}
-        </span>
-      ) : null}
-    </label>
-  );
-}
-
-function Fact({
-  label,
-  tone = "light",
-  value,
-}: {
-  label: string;
-  tone?: "success" | "warning" | "error" | "light";
-  value: string;
-}) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-        {tone !== "light" ? (
-          <Badge color={tone} size="sm">
-            {tone === "success"
-              ? "ปกติ"
-              : tone === "warning"
-                ? "ต้องดู"
-                : "ผิดพลาด"}
-          </Badge>
-        ) : null}
-      </div>
-      <p className="mt-2 break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
-        {value || "-"}
-      </p>
-    </div>
-  );
-}
-
-function Notice({
-  text,
-  title,
-  tone,
-}: {
-  text: string;
-  title: string;
-  tone: "success" | "warning" | "error";
-}) {
-  const toneConfig = {
-    success: {
-      className:
-        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-      icon: <CheckCircleIcon className="size-6 fill-current" />,
-      iconClassName: "text-success-500",
-    },
-    warning: {
-      className:
-        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-      icon: <InfoIcon className="size-6 fill-current" />,
-      iconClassName: "text-warning-500",
-    },
-    error: {
-      className:
-        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-      icon: <AlertIcon className="size-6 fill-current" />,
-      iconClassName: "text-error-500",
-    },
-  }[tone];
-  return (
-    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
-      <div className="flex items-start gap-3">
-        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
-          {toneConfig.icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-            {title}
-          </p>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {text}
-          </p>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1153,29 +1023,6 @@ function formatDatasourceSource(value: string) {
   return "ยังไม่ตั้ง";
 }
 
-function formatRunStatus(status?: string | null) {
-  if (!status) {
-    return "ยังไม่ทราบ";
-  }
-  const labels: Record<string, string> = {
-    queued: "รอรัน",
-    running: "กำลังรัน",
-    success: "สำเร็จ",
-    failed: "ไม่สำเร็จ",
-  };
-  return labels[status] ?? status;
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) {
-    return "ยังไม่มีเวลา";
-  }
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Bangkok",
-  }).format(new Date(value));
-}
 
 const SML_DATASOURCE_PRESETS = [
   {

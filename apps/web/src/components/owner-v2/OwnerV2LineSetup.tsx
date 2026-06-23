@@ -14,7 +14,17 @@ import Button from "@/components/ui/button/Button";
 import { AlertIcon, CheckCircleIcon, InfoIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type { OwnerV2LineSetupPayload } from "./types";
-import { secondaryActionClass } from "./ui";
+import {
+  Fact,
+  Field,
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  formatDateTime,
+  primaryActionClass,
+  secondaryActionClass,
+} from "./ui";
 
 type LineSetupState =
   | { status: "loading" }
@@ -623,7 +633,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <Panel>
-        <PanelBody>
+        <PanelBody spaced>
           <Notice
             text={`${state.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
             title="โหลด LINE OA ไม่สำเร็จ"
@@ -670,7 +680,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       ) : null}
 
       <Panel>
-        <PanelBody>
+        <PanelBody spaced>
           <Notice
             tone="warning"
             title="ตั้งค่า Webhook ใน LINE Developers"
@@ -691,7 +701,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               description="ตั้งค่า LINE OA, บันทึก token/secret, แล้วเพิ่มผู้รับเข้าร้านก่อนเปิดแผนแจ้งเตือน"
               title={`LINE OA ของ ${state.data.tenant.name}`}
             />
-            <PanelBody>
+            <PanelBody spaced>
               <div className="grid gap-3 lg:grid-cols-2">
                 {readinessChecks.map((check) => (
                   <ReadinessItem check={check} key={check.label} />
@@ -705,7 +715,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               description="เพิ่ม OA ของร้านหรือ OA กลาง แล้วเปิดใช้งานเฉพาะช่องทางที่พร้อมส่ง"
               title="ช่องทาง LINE OA"
             />
-            <PanelBody className="space-y-5">
+            <PanelBody spaced>
               <form
                 className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_180px_120px_auto]"
                 onSubmit={createChannel}
@@ -779,7 +789,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               description="อนุมัติผู้รับ, เลือกสิทธิ์เริ่มต้น และตรวจว่าผู้รับพร้อมรับรายงาน"
               title="ผู้รับ LINE ของร้าน"
             />
-            <PanelBody className="space-y-5">
+            <PanelBody spaced>
               {targets.length ? (
                 <>
                 <div className="mb-4 flex items-center gap-2">
@@ -886,7 +896,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               description="ระบบไม่แสดง token หรือ secret ที่บันทึกไว้กลับมาบนหน้าจอ"
               title="บันทึก token/secret"
             />
-            <PanelBody>
+            <PanelBody spaced>
               <form className="space-y-4" onSubmit={saveChannelSecrets}>
                 <Field label="เลือก LINE OA">
                   <select
@@ -965,7 +975,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               description="โหลดเฉพาะตอนต้องเพิ่มผู้รับ เพื่อลดเวลาเปิดหน้า LINE"
               title="เพิ่มผู้รับจากคลัง"
             />
-            <PanelBody>
+            <PanelBody spaced>
               {recipientsState.status === "idle" ? (
                 <EmptyState
                   action={
@@ -1077,7 +1087,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                 description="ผู้รับพร้อมส่งแล้ว ไปตั้งค่าขั้นถัดไปได้"
                 title="พร้อมไปต่อ"
               />
-              <PanelBody className="space-y-3">
+              <PanelBody spaced>
                 <NextAction
                   href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/permissions`}
                   ok
@@ -1095,7 +1105,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           ) : (
             <Panel>
               <PanelHeader title="ยังไปต่อไม่ได้" />
-              <PanelBody>
+              <PanelBody spaced>
                 <Notice
                   tone="warning"
                   title="ยังไม่มีผู้รับพร้อมส่ง"
@@ -1403,146 +1413,6 @@ function TargetTable({
   );
 }
 
-function Panel({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 ${className}`}
-    >
-      {children}
-    </section>
-  );
-}
-
-function PanelHeader({
-  action,
-  description,
-  title,
-}: {
-  action?: ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h3>
-        {description ? (
-          <p className="mt-1 max-w-2xl text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function PanelBody({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <div className={className || "space-y-5"}>{children}</div>;
-}
-
-function Field({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function Fact({
-  label,
-  tone = "light",
-  value,
-}: {
-  label: string;
-  tone?: "success" | "warning" | "error" | "light";
-  value: string;
-}) {
-  return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
-        {tone !== "light" ? (
-          <Badge color={tone} size="sm">
-            {tone === "success"
-              ? "ปกติ"
-              : tone === "warning"
-                ? "ต้องดู"
-                : "ผิดพลาด"}
-          </Badge>
-        ) : null}
-      </div>
-      <p className="mt-2 break-words text-theme-xl font-semibold text-gray-800 dark:text-white/90">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Notice({
-  text,
-  title,
-  tone,
-}: {
-  text: string;
-  title: string;
-  tone: "success" | "warning" | "error";
-}) {
-  const toneConfig = {
-    success: {
-      className:
-        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-      icon: <CheckCircleIcon className="size-6 fill-current" />,
-      iconClassName: "text-success-500",
-    },
-    warning: {
-      className:
-        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-      icon: <InfoIcon className="size-6 fill-current" />,
-      iconClassName: "text-warning-500 dark:text-orange-400",
-    },
-    error: {
-      className:
-        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-      icon: <AlertIcon className="size-6 fill-current" />,
-      iconClassName: "text-error-500",
-    },
-  }[tone];
-  return (
-    <div className={`rounded-xl border p-4 ${toneConfig.className}`}>
-      <div className="flex items-start gap-3">
-        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
-          {toneConfig.icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-            {title}
-          </p>
-          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {text}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function EmptyState({
   action,
@@ -1644,13 +1514,13 @@ function LineSetupSkeleton() {
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <Panel>
         <PanelHeader title="กำลังโหลด LINE OA" />
-        <PanelBody>
+        <PanelBody spaced>
           <MiniSkeleton />
         </PanelBody>
       </Panel>
       <Panel>
         <PanelHeader title="กำลังโหลดสถานะ" />
-        <PanelBody>
+        <PanelBody spaced>
           <MiniSkeleton />
         </PanelBody>
       </Panel>
@@ -1749,17 +1619,6 @@ function formatTargetType(targetType: LineTargetRecord["target_type"]) {
   return "รายคน";
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Bangkok",
-  }).format(date);
-}
 
 function TargetGroup({
   children,
