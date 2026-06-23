@@ -305,7 +305,8 @@ export default function OwnerV2Header() {
                   value={searchQuery}
                 />
                 <button
-                  className="absolute right-2.5 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 px-[7px] py-[4.5px] text-xs text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400"
+                  aria-label="ไปเมนูแรกจากผลค้นหา"
+                  className="absolute right-2 top-1/2 inline-flex h-9 min-w-10 -translate-y-1/2 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400"
                   type="submit"
                 >
                   <span>ไป</span>
