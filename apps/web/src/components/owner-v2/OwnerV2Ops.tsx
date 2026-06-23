@@ -418,7 +418,7 @@ function OpsMetric({
           {tone === "success" ? "ปกติ" : tone === "error" ? "สำคัญ" : "ต้องดู"}
         </Badge>
       </div>
-      <h4 className="mt-2 break-words text-title-sm font-bold text-gray-800 dark:text-white/90">
+      <h4 className="mt-2 max-w-full break-words text-theme-xl font-semibold leading-7 text-gray-800 dark:text-white/90">
         {value}
       </h4>
     </div>
@@ -467,7 +467,7 @@ function OpsNotice({
           <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </h3>
-          <p className="text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+          <p className="break-words text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
             {text}
           </p>
           {action}
@@ -606,7 +606,7 @@ function TelegramDeliveries({
               key={`${delivery.alert_type}-${delivery.created_at}`}
             >
               <div className="min-w-0">
-                <h4 className="truncate text-base font-semibold text-gray-800 dark:text-white/90">
+                <h4 className="break-words text-sm font-semibold leading-5 text-gray-800 dark:text-white/90">
                   {delivery.alert_type}
                 </h4>
                 <span className="mt-1 block text-theme-xs text-gray-500 dark:text-gray-400">
@@ -717,25 +717,25 @@ function AuditLogPanel({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
         <div className="divide-y divide-gray-100 dark:divide-gray-800">
           {auditLogs.slice(0, 12).map((entry) => (
             <div
-              className="grid gap-1 py-3 lg:grid-cols-[200px_minmax(0,1fr)]"
+              className="grid min-w-0 gap-1 py-3 lg:grid-cols-[200px_minmax(0,1fr)]"
               key={`${entry.id ?? entry.created_at}-${entry.action}-${entry.target_id ?? ""}`}
             >
-              <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-white/90">
+              <div className="min-w-0">
+                <p className="break-words text-sm font-medium text-gray-800 dark:text-white/90">
                   {formatAuditAction(entry.action)}
                 </p>
                 <p className="text-theme-xs text-gray-500 dark:text-gray-400">
                   {formatDateTime(entry.created_at)}
                 </p>
               </div>
-              <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
-                <p>
+              <div className="min-w-0 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                <p className="break-words">
                   ร้าน: {entry.tenant_id ?? "-"}
                   {entry.target_id ? ` · ${entry.target_type}: ${entry.target_id}` : ""}
                 </p>
-                <p className="mt-0.5">{formatAuditMetadata(entry.metadata_json)}</p>
+                <p className="mt-0.5 break-words">{formatAuditMetadata(entry.metadata_json)}</p>
                 <span
-                  className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-theme-xs font-medium ${auditActionToneClass(
+                  className={`mt-1 inline-flex max-w-full break-all rounded-full px-2 py-0.5 text-theme-xs font-medium ${auditActionToneClass(
                     entry.action,
                   )}`}
                 >
@@ -1118,8 +1118,8 @@ function formatWorker(worker?: OperationsStatus["worker"]) {
     if (typeof ageSeconds === "number" && ageSeconds >= 0) {
       const minutes = Math.max(0, Math.round(ageSeconds / 60));
       return minutes > 0
-        ? `ปกติ (heartbeat ${minutes} นาทีที่แล้ว)`
-        : "ปกติ (heartbeat อายุไม่ถึงนาที)";
+        ? `ปกติ · ${minutes} นาทีที่แล้ว`
+        : "ปกติ · < 1 นาที";
     }
     return "ปกติ";
   }

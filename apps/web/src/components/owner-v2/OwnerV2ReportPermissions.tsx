@@ -340,7 +340,7 @@ export default function OwnerV2ReportPermissions({
                               </span>
                               <input
                                 checked={checked}
-                                className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                className="h-5 w-5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                                 disabled={busy !== null}
                                 onChange={() =>
                                   togglePermission(
@@ -402,7 +402,7 @@ export default function OwnerV2ReportPermissions({
                         </span>
                         <input
                           checked={checked}
-                          className="h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                          className="h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                           disabled={busy !== null}
                           onChange={() =>
                             togglePermission(

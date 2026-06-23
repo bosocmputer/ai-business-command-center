@@ -100,7 +100,7 @@ export function Notice({
             {title}
           </p>
           {text ? (
-            <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+            <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
               {text}
             </p>
           ) : null}
@@ -133,7 +133,7 @@ export function InlineNotice({
           <p className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
             {title}
           </p>
-          <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+          <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
             {message}
           </p>
         </div>

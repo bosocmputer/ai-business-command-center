@@ -25,7 +25,7 @@ export function OwnerV2Shell({
           <ol className="flex items-center gap-1.5">
             <li>
               <Link
-                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white/90"
+                className="inline-flex min-h-10 items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white/90"
                 href="/owner-v2"
               >
                 หน้าแรก
@@ -48,7 +48,7 @@ export function OwnerV2Shell({
             </li>
             <li
               aria-current="page"
-              className="text-sm text-gray-800 dark:text-white/90"
+              className="inline-flex min-h-10 items-center text-sm text-gray-800 dark:text-white/90"
             >
               {title}
             </li>

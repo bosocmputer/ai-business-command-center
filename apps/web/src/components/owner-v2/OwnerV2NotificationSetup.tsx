@@ -793,7 +793,7 @@ export default function OwnerV2NotificationSetup({
                     <div className="mt-3 flex flex-wrap gap-2">
                       {form.times.map((time) => (
                         <button
-                          className="rounded-full bg-brand-50 px-3 py-1 text-theme-xs font-medium text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300"
+                          className="min-h-11 rounded-full bg-brand-50 px-3 py-2 text-theme-xs font-medium text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300"
                           key={time}
                           onClick={() =>
                             setForm((current) => ({
@@ -811,12 +811,12 @@ export default function OwnerV2NotificationSetup({
                   </Field>
 
                   <Field label="วันที่ส่ง">
-                    <div className="grid grid-cols-7 gap-1">
+                    <div className="flex flex-wrap gap-2">
                       {weekdays.map((weekday) => {
                         const checked = form.weekdays.includes(weekday.value);
                         return (
                           <button
-                            className={`h-10 rounded-lg text-sm font-medium ${
+                            className={`min-h-11 min-w-11 rounded-lg px-3 text-sm font-medium ${
                               checked
                                 ? "bg-brand-500 text-white"
                                 : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"

@@ -689,7 +689,19 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           <Notice
             tone="warning"
             title="ตั้งค่า Webhook ใน LINE Developers"
-            text={`ตั้ง Webhook URL เป็น ${typeof window !== "undefined" ? window.location.origin : "{public-origin}"}/api/line/webhook แล้วเปิด "Use webhook" ใน LINE OA ของร้าน เพื่อให้ระบบรับ events ของผู้รับได้`}
+            text={
+              <>
+                ตั้ง Webhook URL เป็น{" "}
+                <span className="break-all font-mono">
+                  {typeof window !== "undefined"
+                    ? window.location.origin
+                    : "{public-origin}"}
+                  /api/line/webhook
+                </span>{" "}
+                แล้วเปิด "Use webhook" ใน LINE OA ของร้าน เพื่อให้ระบบรับ
+                events ของผู้รับได้
+              </>
+            }
           />
         </PanelBody>
       </Panel>
