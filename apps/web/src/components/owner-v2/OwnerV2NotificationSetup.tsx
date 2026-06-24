@@ -160,23 +160,33 @@ export default function OwnerV2NotificationSetup({
   );
 
   const load = useCallback(
-    async (signal?: AbortSignal) => {
-      setState({ status: "loading" });
-      setMessage(null);
+    async (
+      options: {
+        preserveMessage?: boolean;
+        signal?: AbortSignal;
+        silent?: boolean;
+      } = {},
+    ) => {
+      if (!options.silent) {
+        setState({ status: "loading" });
+      }
+      if (!options.preserveMessage) {
+        setMessage(null);
+      }
       try {
         const [notifications, line] = await Promise.all([
           ownerV2Fetch<OwnerV2NotificationSetupPayload>(
             `/api/owner/tenants/${encodeURIComponent(
               tenantId,
             )}/notification-setup`,
-            { signal },
+            { signal: options.signal },
           ),
           ownerV2Fetch<OwnerV2LineSetupPayload>(
             `/api/owner/tenants/${encodeURIComponent(tenantId)}/line-setup`,
-            { signal },
+            { signal: options.signal },
           ),
         ]);
-        if (signal?.aborted) {
+        if (options.signal?.aborted) {
           return;
         }
         setState({ status: "success", notifications, line });
@@ -196,6 +206,9 @@ export default function OwnerV2NotificationSetup({
         if (isAbortError(error)) {
           return;
         }
+        if (options.silent) {
+          return;
+        }
         setState({
           status: "error",
           message:
@@ -210,7 +223,7 @@ export default function OwnerV2NotificationSetup({
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    void load({ signal: controller.signal });
     return () => controller.abort();
   }, [load]);
 
@@ -236,6 +249,24 @@ export default function OwnerV2NotificationSetup({
   const selectedRule = selectedRuleId
     ? rules.find((rule) => rule.id === selectedRuleId) ?? null
     : null;
+  const activeRuns = recentRuns.filter(isNotificationRunActive);
+  const latestRunResultRun = runResult
+    ? recentRuns.find(
+        (run) => run.id === (runResult.run_id ?? runResult.run?.id ?? ""),
+      ) ?? null
+    : null;
+
+  useEffect(() => {
+    if (state.status !== "success" || activeRuns.length === 0) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void load({ preserveMessage: true, silent: true });
+    }, 2500);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeRuns.length, load, state.status]);
 
   const selectedTargetReadiness = useMemo(
     () =>
@@ -362,7 +393,10 @@ export default function OwnerV2NotificationSetup({
             : payload,
         },
       );
-      const nextForm = formFromRule(saved);
+      const nextForm = mergeManualRunFields({
+        currentForm: form,
+        nextForm: formFromRule(saved),
+      });
       setSelectedRuleId(saved.id);
       setForm(nextForm);
       setInitialForm(nextForm);
@@ -371,7 +405,7 @@ export default function OwnerV2NotificationSetup({
         tone: "success",
         text: `${saved.name}: บันทึกแผนแจ้งเตือนแล้ว`,
       });
-      await load();
+      await load({ preserveMessage: true, silent: true });
     } catch (error) {
       setMessage({
         tone: "error",
@@ -450,7 +484,7 @@ export default function OwnerV2NotificationSetup({
             ? "รับงานส่งจริงแล้ว ระบบกำลังรันรายงานและส่ง LINE"
             : "รับงานทดสอบแล้ว ระบบกำลังรันรายงานโดยไม่ส่ง LINE จริง",
       });
-      await load();
+      await load({ preserveMessage: true, silent: true });
     } catch (error) {
       setMessage({
         tone: "error",
@@ -491,7 +525,6 @@ export default function OwnerV2NotificationSetup({
   }
 
   const enabledRules = rules.filter((rule) => rule.enabled);
-  const activeRuns = recentRuns.filter(isNotificationRunActive);
   const failedRuns = recentRuns.filter((run) => run.status === "failed");
   const defaultTargetIds = lineTargets
     .filter((target) => target.approved && target.enabled)
@@ -871,12 +904,13 @@ export default function OwnerV2NotificationSetup({
                   <Field label="จำลองวันที่รอบส่ง">
                     <input
                       className="owner-v2-input"
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        setSendConfirmRuleId(null);
                         setForm((current) => ({
                           ...current,
                           manualDate: event.target.value,
-                        }))
-                      }
+                        }));
+                      }}
                       type="date"
                       value={form.manualDate}
                     />
@@ -884,12 +918,13 @@ export default function OwnerV2NotificationSetup({
                   <Field label="จำลองเวลารอบส่ง">
                     <select
                       className="owner-v2-input"
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        setSendConfirmRuleId(null);
                         setForm((current) => ({
                           ...current,
                           manualTime: event.target.value,
-                        }))
-                      }
+                        }));
+                      }}
                       value={form.manualTime}
                     >
                       <option value="">ใช้เวลาปัจจุบัน</option>
@@ -950,7 +985,10 @@ export default function OwnerV2NotificationSetup({
               text={`รหัสงาน ${runResult.run_id ?? runResult.run?.id ?? "-"} · ${
                 runResult.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"
               } · ${formatNotificationRunStatus(
-                runResult.run?.status ?? (runResult.status as NotificationRuleRunRecord["status"]) ?? "queued",
+                latestRunResultRun?.status ??
+                  runResult.run?.status ??
+                  (runResult.status as NotificationRuleRunRecord["status"]) ??
+                  "queued",
               )}`}
               title="รับงานรันแผนแล้ว"
               tone="success"
@@ -1491,6 +1529,25 @@ function formFromRule(rule: OwnerNotificationRule): NotificationFormState {
   };
 }
 
+function mergeManualRunFields({
+  currentForm,
+  nextForm,
+}: {
+  currentForm: NotificationFormState;
+  nextForm: NotificationFormState;
+}) {
+  const manualTime =
+    currentForm.manualTime === "" ||
+    nextForm.times.includes(currentForm.manualTime)
+      ? currentForm.manualTime
+      : nextForm.manualTime;
+  return {
+    ...nextForm,
+    manualDate: currentForm.manualDate,
+    manualTime,
+  };
+}
+
 function buildRulePayload({
   form,
   tenantId,
@@ -1523,8 +1580,10 @@ function sameForm(left: NotificationFormState, right: NotificationFormState) {
 
 function normalizeForm(form: NotificationFormState) {
   return {
-    ...form,
+    digestMode: form.digestMode,
+    enabled: form.enabled,
     name: form.name.trim(),
+    periodPreset: form.periodPreset,
     reportKeys: sortReportKeys(form.reportKeys),
     targetIds: [...new Set(form.targetIds)].sort(),
     times: [...new Set(form.times)].sort(),
@@ -1622,10 +1681,24 @@ function getActionBlockedReason(input: {
   if (Boolean(input.form.manualDate) !== Boolean(input.form.manualTime)) {
     return "เลือกวันที่และเวลารอบส่งให้ครบคู่ หรือเว้นทั้งคู่ไว้เพื่อใช้เวลาปัจจุบัน";
   }
+  if (
+    input.form.manualDate &&
+    input.form.manualTime &&
+    !isManualScheduleAllowed(input.form)
+  ) {
+    return "รอบจำลองที่เลือกไม่อยู่ในตารางแจ้งเตือนของแผนนี้";
+  }
   if (input.selectedTargetBlockedReason) {
     return input.selectedTargetBlockedReason;
   }
   return null;
+}
+
+function isManualScheduleAllowed(form: NotificationFormState) {
+  return (
+    form.weekdays.includes(isoWeekdayFromYmd(form.manualDate)) &&
+    form.times.includes(form.manualTime)
+  );
 }
 
 type LineTargetDeliveryReadiness =
@@ -1861,6 +1934,13 @@ function nextDateForWeekday(isoWeekday: number) {
 
 function toIsoWeekday(date: Date) {
   const weekday = date.getDay();
+  return weekday === 0 ? 7 : weekday;
+}
+
+function isoWeekdayFromYmd(ymd: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1));
+  const weekday = date.getUTCDay();
   return weekday === 0 ? 7 : weekday;
 }
 
