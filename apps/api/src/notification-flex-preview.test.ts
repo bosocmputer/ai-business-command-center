@@ -7,7 +7,7 @@ import {
 import { buildNotificationDigestPreview } from "./notification-flex-preview.js";
 
 describe("buildNotificationDigestPreview", () => {
-  it("labels the full executive report carousel with 8 bubbles", () => {
+  it("labels the full executive report carousel with every catalog report", () => {
     const preview = buildNotificationDigestPreview(
       reportKeyValues.map((reportKey) => mockPreview(reportKey)),
     );
@@ -17,10 +17,10 @@ describe("buildNotificationDigestPreview", () => {
 
     expect(preview.line_message_type).toBe("flex");
     expect(preview.flex_message?.altText).toBe(
-      "AI Business: รายงานผู้บริหารครบ 8 ใบ",
+      `AI Business: รายงานผู้บริหารครบ ${reportKeyValues.length} ใบ`,
     );
     expect(contents?.type).toBe("carousel");
-    expect(contents?.contents).toHaveLength(8);
+    expect(contents?.contents).toHaveLength(reportKeyValues.length);
     expect(Buffer.byteLength(JSON.stringify(preview.flex_message), "utf8")).toBeLessThan(
       50_000,
     );

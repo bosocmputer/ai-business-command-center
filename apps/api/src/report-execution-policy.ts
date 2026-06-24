@@ -29,6 +29,8 @@ export const reportExecutionPolicies = {
   ar_customer_movement:
     freshFirstWithReferenceFallback("ar_customer_movement"),
   ar_debt_receipt: freshRequired("ar_debt_receipt"),
+  cash_bank_receipts: freshRequired("cash_bank_receipts"),
+  cash_bank_payments: freshRequired("cash_bank_payments"),
 } satisfies Record<ReportKey, ReportExecutionPolicy>;
 
 export function getReportExecutionPolicy(reportKey: ReportKey) {

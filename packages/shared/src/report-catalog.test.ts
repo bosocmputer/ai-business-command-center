@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 
 describe("report catalog", () => {
-  it("keeps the report key schema and catalog on the same eight keys", () => {
+  it("keeps the report key schema and catalog on the same ten keys", () => {
     expect(reportKeyValues).toEqual([
       "sales_goods_services",
       "purchase_goods_payables",
@@ -24,6 +24,8 @@ describe("report catalog", () => {
       "stock_reorder",
       "ar_customer_movement",
       "ar_debt_receipt",
+      "cash_bank_receipts",
+      "cash_bank_payments",
     ]);
     expect(reportKeySchema.options).toEqual([...reportKeyValues]);
     expect(Object.keys(reportCatalog)).toEqual([...reportKeyValues]);
@@ -121,12 +123,41 @@ describe("report catalog", () => {
     });
   });
 
+  it("adds cash bank reports as sensitive cash/bank reports", () => {
+    expect(getReportCatalogEntry("cash_bank_receipts")).toMatchObject({
+      label: "รายงานรับเงิน",
+      shortLabel: "รับเงิน",
+      category: "cash_bank",
+      sensitive: true,
+      capabilities: {
+        lineCard: true,
+        signedViewer: true,
+        pdf: false,
+        businessSignals: false,
+      },
+    });
+    expect(getReportCatalogEntry("cash_bank_payments")).toMatchObject({
+      label: "รายงานจ่ายเงิน",
+      shortLabel: "จ่ายเงิน",
+      category: "cash_bank",
+      sensitive: true,
+      capabilities: {
+        lineCard: true,
+        signedViewer: true,
+        pdf: false,
+        businessSignals: false,
+      },
+    });
+  });
+
   it("validates report keys through one shared helper", () => {
     expect(isReportKey("purchase_goods_payables")).toBe(true);
     expect(isReportKey("stock_balance")).toBe(true);
     expect(isReportKey("stock_reorder")).toBe(true);
     expect(isReportKey("ar_customer_movement")).toBe(true);
     expect(isReportKey("ar_debt_receipt")).toBe(true);
+    expect(isReportKey("cash_bank_receipts")).toBe(true);
+    expect(isReportKey("cash_bank_payments")).toBe(true);
     expect(isReportKey("unknown_report")).toBe(false);
   });
 
@@ -145,9 +176,7 @@ describe("report catalog", () => {
     expect(getReportPresetEntry("executive_full").description).toBe(
       "ส่งรายงานครบทุกใบ เหมาะกับผู้บริหารที่ต้องการเห็นตัวเลขครบทุกเช้า",
     );
-    expect(getReportPresetEntry("executive_full").reportKeys.length).toBeLessThanOrEqual(
-      10,
-    );
+    expect(getReportPresetEntry("executive_full").reportKeys.length).toBe(10);
   });
 
   it("matches report presets independent of duplicate or unsorted report keys", () => {

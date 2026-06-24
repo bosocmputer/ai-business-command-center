@@ -1147,6 +1147,8 @@ function formatReportKey(reportKey: ReportKey) {
     stock_reorder: "ถึงจุดสั่งซื้อ",
     ar_customer_movement: "เคลื่อนไหวลูกหนี้",
     ar_debt_receipt: "รับชำระหนี้",
+    cash_bank_receipts: "รับเงิน",
+    cash_bank_payments: "จ่ายเงิน",
   };
   return labels[reportKey];
 }

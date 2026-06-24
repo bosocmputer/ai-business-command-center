@@ -124,6 +124,7 @@ const periodPresets: Array<{
 
 const categoryLabels: Record<string, string> = {
   ar: "ลูกหนี้",
+  cash_bank: "เงินสด/ธนาคาร",
   gross_profit: "กำไร",
   inventory: "สต็อก",
   purchase: "ซื้อ",

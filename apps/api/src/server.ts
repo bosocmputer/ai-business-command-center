@@ -29,6 +29,8 @@ import {
   type LineRecipientRecord,
   type LineSendMode,
   type ArDebtReceiptSnapshot,
+  type CashBankReportKey,
+  type CashBankSnapshot,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductSnapshot,
   type ArCustomerMovementSnapshot,
@@ -94,6 +96,8 @@ import {
   runSalesGoodsServicesReport,
   runArDebtReceiptReport,
   runArCustomerMovementReport,
+  runCashBankPaymentsReport,
+  runCashBankReceiptsReport,
   runStockBalanceReport,
   runStockReorderReport,
   testDatasourceConnection,
@@ -313,6 +317,16 @@ const reportRuntimeRegistry = createReportRuntimeRegistry({
   runStockReorderReport: runAndPersistStockReorderReport,
   runArCustomerMovementReport: runAndPersistArCustomerMovementReport,
   runArDebtReceiptReport: runAndPersistArDebtReceiptReport,
+  runCashBankReceiptsReport: (input) =>
+    runAndPersistCashBankReport({
+      ...input,
+      reportKey: "cash_bank_receipts",
+    }),
+  runCashBankPaymentsReport: (input) =>
+    runAndPersistCashBankReport({
+      ...input,
+      reportKey: "cash_bank_payments",
+    }),
 });
 const notificationHeavyReportCoalescer =
   createHeavyReportCoalescer<Awaited<ReturnType<typeof runAndPersistReportByKey>>>();
@@ -6976,6 +6990,153 @@ async function runAndPersistArDebtReceiptReport(input: {
   }
 }
 
+async function runAndPersistCashBankReport(input: {
+  tenantId: TenantId;
+  reportKey: CashBankReportKey;
+  params: SalesGoodsServicesParams;
+  requestAction: string;
+}): Promise<
+  | {
+      ok: true;
+      snapshot: CashBankSnapshot;
+      runRecord: ReportRunRecord;
+    }
+  | {
+      ok: false;
+      statusCode: 424 | 500;
+      error: string;
+      runRecord: ReportRunRecord;
+    }
+> {
+  const datasource = await resolveTenantDatasourceConfig(input.tenantId);
+  const sourceBasis = getCashBankSourceBasis(input.reportKey);
+  const runRecord: ReportRunRecord = {
+    id: createRunId(input.tenantId, input.reportKey),
+    tenant_id: input.tenantId,
+    report_key: input.reportKey,
+    params: input.params,
+    status: "running",
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    row_count: 0,
+    safe_error_message: null,
+  };
+
+  await systemStore.upsertRun(runRecord);
+  await systemStore.appendAuditLog({
+    tenant_id: input.tenantId,
+    actor_id: null,
+    action: input.requestAction,
+    target_type: "report_run",
+    target_id: runRecord.id,
+    metadata_json: {
+      report_key: input.reportKey,
+      params: input.params,
+      source_basis: sourceBasis,
+      contains_cash_bank_data: true,
+    },
+  });
+
+  if (!datasource) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message =
+      "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาเชื่อม SML และทดสอบให้ผ่านก่อนรันรายงาน";
+    await systemStore.upsertRun(runRecord);
+    return {
+      ok: false,
+      statusCode: 424,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+
+  try {
+    const runner =
+      input.reportKey === "cash_bank_receipts"
+        ? runCashBankReceiptsReport
+        : runCashBankPaymentsReport;
+    const snapshot = await runner({
+      tenant_id: input.tenantId,
+      run_id: runRecord.id,
+      params: input.params,
+      datasource,
+    });
+
+    runRecord.status = "success";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.row_count = snapshot.summary.document_count;
+    await systemStore.upsertRun(runRecord);
+    await systemStore.saveSnapshot(snapshot);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: `${input.reportKey}_report_run_succeeded`,
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: input.reportKey,
+        row_count: runRecord.row_count,
+        total_amount: snapshot.summary.total_amount,
+        channel_total_amount: snapshot.summary.channel_total_amount,
+        unallocated_amount: snapshot.summary.unallocated_amount,
+        mismatch_document_count: snapshot.summary.mismatch_document_count,
+        quality_status: snapshot.quality_status,
+        source_basis: snapshot.source_basis,
+        contains_cash_bank_data: true,
+      },
+    });
+
+    return { ok: true, snapshot, runRecord };
+  } catch (error) {
+    runRecord.status = "failed";
+    runRecord.finished_at = new Date().toISOString();
+    runRecord.safe_error_message = toSafeCashBankErrorMessage(error, input.reportKey);
+    applyJavaWsFailureDiagnostics(runRecord, error);
+    await systemStore.upsertRun(runRecord);
+    await systemStore.appendAuditLog({
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: `${input.reportKey}_report_run_failed`,
+      target_type: "report_run",
+      target_id: runRecord.id,
+      metadata_json: {
+        report_key: input.reportKey,
+        safe_error_message: runRecord.safe_error_message,
+        source_basis: sourceBasis,
+        contains_cash_bank_data: true,
+      },
+    });
+    return {
+      ok: false,
+      statusCode: 500,
+      error: runRecord.safe_error_message,
+      runRecord,
+    };
+  }
+}
+
+function getCashBankSourceBasis(reportKey: CashBankReportKey) {
+  return reportKey === "cash_bank_receipts"
+    ? "cash_bank_receipts_doc_date"
+    : "cash_bank_payments_doc_date";
+}
+
+function toSafeCashBankErrorMessage(
+  error: unknown,
+  reportKey: CashBankReportKey,
+) {
+  if (
+    error instanceof Error &&
+    /timeout|timed out|canceling statement/i.test(error.message)
+  ) {
+    const title =
+      reportKey === "cash_bank_receipts" ? "รายงานรับเงิน" : "รายงานจ่ายเงิน";
+    return `${title}ใช้เวลานานเกินไป กรุณาลองช่วงวันที่สั้นลงหรือตรวจประสิทธิภาพ query`;
+  }
+  return toSafeErrorMessage(error);
+}
+
 function toSafeArDebtReceiptErrorMessage(error: unknown) {
   if (
     error instanceof Error &&
@@ -12286,25 +12447,24 @@ function buildDegradedNotificationReportResult(input: {
 }
 
 function getSnapshotRowCount(snapshot: ReportSnapshot) {
-  if (snapshot.report_key === "stock_balance") {
-    return snapshot.summary.sku_count;
+  switch (snapshot.report_key) {
+    case "stock_balance":
+      return snapshot.summary.sku_count;
+    case "stock_reorder":
+      return snapshot.summary.reorder_count;
+    case "ar_customer_movement":
+    case "cash_bank_receipts":
+    case "cash_bank_payments":
+      return snapshot.summary.document_count;
+    case "ar_debt_receipt":
+      return snapshot.summary.receipt_count;
+    case "gross_profit_by_product":
+    case "gross_profit_by_ar_customer":
+      return snapshot.summary.row_count;
+    case "sales_goods_services":
+    case "purchase_goods_payables":
+      return snapshot.summary.document_count + snapshot.summary.line_count;
   }
-  if (snapshot.report_key === "stock_reorder") {
-    return snapshot.summary.reorder_count;
-  }
-  if (snapshot.report_key === "ar_customer_movement") {
-    return snapshot.summary.document_count;
-  }
-  if (snapshot.report_key === "ar_debt_receipt") {
-    return snapshot.summary.receipt_count;
-  }
-  if (
-    snapshot.report_key === "gross_profit_by_product" ||
-    snapshot.report_key === "gross_profit_by_ar_customer"
-  ) {
-    return snapshot.summary.row_count;
-  }
-  return snapshot.summary.document_count + snapshot.summary.line_count;
 }
 
 async function runAndPersistReportByKey(input: {

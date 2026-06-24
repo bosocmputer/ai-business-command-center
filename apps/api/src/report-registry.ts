@@ -3,6 +3,7 @@ import {
   reportKeyValues,
   type ArDebtReceiptSnapshot,
   type ArCustomerMovementSnapshot,
+  type CashBankSnapshot,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductSnapshot,
   type PurchaseGoodsPayablesSnapshot,
@@ -21,6 +22,7 @@ import {
   renderGrossProfitLinePreview,
   renderArDebtReceiptLinePreview,
   renderArCustomerMovementLinePreview,
+  renderCashBankLinePreview,
   renderPurchaseGoodsPayablesLinePreview,
   renderSalesGoodsServicesLinePreview,
   renderStockBalanceLinePreview,
@@ -68,6 +70,12 @@ export type ReportRuntimeRegistryDependencies = {
     input: ReportRuntimeRunInput,
   ) => Promise<ReportRuntimeRunOutcome>;
   runArDebtReceiptReport: (
+    input: ReportRuntimeRunInput,
+  ) => Promise<ReportRuntimeRunOutcome>;
+  runCashBankReceiptsReport: (
+    input: ReportRuntimeRunInput,
+  ) => Promise<ReportRuntimeRunOutcome>;
+  runCashBankPaymentsReport: (
     input: ReportRuntimeRunInput,
   ) => Promise<ReportRuntimeRunOutcome>;
 };
@@ -176,6 +184,26 @@ export function createReportRuntimeRegistry(
       renderLinePreview: (input) =>
         renderArDebtReceiptLinePreview({
           snapshot: input.snapshot as ArDebtReceiptSnapshot,
+          dashboardUrl: input.dashboardUrl,
+          tenantName: input.tenantName,
+        }),
+    }),
+    cash_bank_receipts: buildRuntimeEntry({
+      key: "cash_bank_receipts",
+      run: dependencies.runCashBankReceiptsReport,
+      renderLinePreview: (input) =>
+        renderCashBankLinePreview({
+          snapshot: input.snapshot as CashBankSnapshot,
+          dashboardUrl: input.dashboardUrl,
+          tenantName: input.tenantName,
+        }),
+    }),
+    cash_bank_payments: buildRuntimeEntry({
+      key: "cash_bank_payments",
+      run: dependencies.runCashBankPaymentsReport,
+      renderLinePreview: (input) =>
+        renderCashBankLinePreview({
+          snapshot: input.snapshot as CashBankSnapshot,
           dashboardUrl: input.dashboardUrl,
           tenantName: input.tenantName,
         }),

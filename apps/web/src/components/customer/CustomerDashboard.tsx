@@ -2840,6 +2840,8 @@ function formatCustomerReportLabel(reportKey: ReportKey) {
     stock_reorder: "รายงานสินค้าถึงจุดสั่งซื้อ",
     ar_customer_movement: "รายงานเคลื่อนไหวลูกหนี้",
     ar_debt_receipt: "รายงานรับชำระหนี้",
+    cash_bank_receipts: "รายงานรับเงิน",
+    cash_bank_payments: "รายงานจ่ายเงิน",
   };
   return labels[reportKey];
 }

@@ -30,6 +30,8 @@ describe("report execution policy", () => {
       stock_reorder: "fresh_required",
       ar_customer_movement: "fresh_first_with_reference_fallback",
       ar_debt_receipt: "fresh_required",
+      cash_bank_receipts: "fresh_required",
+      cash_bank_payments: "fresh_required",
     });
     expect(getReportExecutionPolicy("stock_balance")).toMatchObject({
       cooldownMs: 10 * 60 * 1000,

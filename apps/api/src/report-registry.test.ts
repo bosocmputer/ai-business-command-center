@@ -60,6 +60,14 @@ describe("report runtime registry", () => {
         runnerCalls += 1;
         return fakeRunOutcome("ar_debt_receipt");
       },
+      runCashBankReceiptsReport: async () => {
+        runnerCalls += 1;
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        runnerCalls += 1;
+        return fakeRunOutcome("cash_bank_payments");
+      },
     });
 
     expect(runnerCalls).toBe(0);
@@ -97,6 +105,14 @@ describe("report runtime registry", () => {
       runArDebtReceiptReport: async () => {
         calls.push("receipt");
         return fakeRunOutcome("ar_debt_receipt");
+      },
+      runCashBankReceiptsReport: async () => {
+        calls.push("cash_receipts");
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        calls.push("cash_payments");
+        return fakeRunOutcome("cash_bank_payments");
       },
     });
 
@@ -140,6 +156,14 @@ describe("report runtime registry", () => {
         calls.push("receipt");
         return fakeRunOutcome("ar_debt_receipt");
       },
+      runCashBankReceiptsReport: async () => {
+        calls.push("cash_receipts");
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        calls.push("cash_payments");
+        return fakeRunOutcome("cash_bank_payments");
+      },
     });
 
     await runReportRuntimeEntry(registry, "stock_balance", runInput);
@@ -177,6 +201,14 @@ describe("report runtime registry", () => {
       runArDebtReceiptReport: async () => {
         calls.push("receipt");
         return fakeRunOutcome("ar_debt_receipt");
+      },
+      runCashBankReceiptsReport: async () => {
+        calls.push("cash_receipts");
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        calls.push("cash_payments");
+        return fakeRunOutcome("cash_bank_payments");
       },
     });
 
@@ -216,6 +248,14 @@ describe("report runtime registry", () => {
         calls.push("receipt");
         return fakeRunOutcome("ar_debt_receipt");
       },
+      runCashBankReceiptsReport: async () => {
+        calls.push("cash_receipts");
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        calls.push("cash_payments");
+        return fakeRunOutcome("cash_bank_payments");
+      },
     });
 
     await runReportRuntimeEntry(registry, "ar_customer_movement", runInput);
@@ -254,11 +294,66 @@ describe("report runtime registry", () => {
         calls.push("receipt");
         return fakeRunOutcome("ar_debt_receipt");
       },
+      runCashBankReceiptsReport: async () => {
+        calls.push("cash_receipts");
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        calls.push("cash_payments");
+        return fakeRunOutcome("cash_bank_payments");
+      },
     });
 
     await runReportRuntimeEntry(registry, "ar_debt_receipt", runInput);
 
     expect(calls).toEqual(["receipt"]);
+  });
+
+  it("routes cash bank reports through their dedicated runners", async () => {
+    const calls: string[] = [];
+    const registry = createReportRuntimeRegistry({
+      runSalesGoodsServicesReport: async () => {
+        calls.push("sales");
+        return fakeRunOutcome("sales_goods_services");
+      },
+      runPurchaseGoodsPayablesReport: async () => {
+        calls.push("purchase");
+        return fakeRunOutcome("purchase_goods_payables");
+      },
+      runGrossProfitReport: async (input) => {
+        calls.push(`gross:${input.reportKey}`);
+        return fakeRunOutcome(input.reportKey);
+      },
+      runStockBalanceReport: async () => {
+        calls.push("stock");
+        return fakeRunOutcome("stock_balance");
+      },
+      runStockReorderReport: async () => {
+        calls.push("reorder");
+        return fakeRunOutcome("stock_reorder");
+      },
+      runArCustomerMovementReport: async () => {
+        calls.push("ar");
+        return fakeRunOutcome("ar_customer_movement");
+      },
+      runArDebtReceiptReport: async () => {
+        calls.push("receipt");
+        return fakeRunOutcome("ar_debt_receipt");
+      },
+      runCashBankReceiptsReport: async () => {
+        calls.push("cash_receipts");
+        return fakeRunOutcome("cash_bank_receipts");
+      },
+      runCashBankPaymentsReport: async () => {
+        calls.push("cash_payments");
+        return fakeRunOutcome("cash_bank_payments");
+      },
+    });
+
+    await runReportRuntimeEntry(registry, "cash_bank_receipts", runInput);
+    await runReportRuntimeEntry(registry, "cash_bank_payments", runInput);
+
+    expect(calls).toEqual(["cash_receipts", "cash_payments"]);
   });
 
   it("does not silently fallback to another report when a handler is missing", async () => {
@@ -284,6 +379,8 @@ describe("report runtime registry", () => {
       "Stock Reorder",
       "AR Customer Movement",
       "AR Debt Receipt",
+      "Cash Bank Receipts",
+      "Cash Bank Payments",
     ]);
   });
 });

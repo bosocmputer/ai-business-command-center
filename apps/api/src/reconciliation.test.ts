@@ -219,6 +219,40 @@ function fakeSnapshot(
         top_receipts: [],
         data_quality_notes: [],
       } as unknown as ReportSnapshot;
+    case "cash_bank_receipts":
+    case "cash_bank_payments":
+      return {
+        ...base,
+        report_key: reportKey,
+        source_basis:
+          reportKey === "cash_bank_receipts"
+            ? "cash_bank_receipts_doc_date"
+            : "cash_bank_payments_doc_date",
+        direction: reportKey === "cash_bank_receipts" ? "receipt" : "payment",
+        summary: {
+          document_count: 4,
+          party_count: 3,
+          total_amount: 5000,
+          cash_amount: 1000,
+          card_amount: 500,
+          chq_amount: 0,
+          transfer_amount: 3000,
+          total_income_amount: 0,
+          coupon_amount: 0,
+          petty_cash_amount: 0,
+          channel_total_amount: 4500,
+          unallocated_amount: 500,
+          mismatch_document_count: 1,
+          top_party_name: "คู่ค้า A",
+          first_doc_time: "08:00",
+          last_doc_time: "12:00",
+        },
+        channel_summary: [],
+        trans_flag_summary: [],
+        top_documents: [],
+        mismatch_documents: [],
+        data_quality_notes: [],
+      } as unknown as ReportSnapshot;
   }
 }
 

@@ -18,6 +18,8 @@ export const reportKeyValues = [
   "stock_reorder",
   "ar_customer_movement",
   "ar_debt_receipt",
+  "cash_bank_receipts",
+  "cash_bank_payments",
 ] as const;
 
 export const reportKeySchema = z.enum(reportKeyValues);
@@ -193,7 +195,8 @@ export type ReportCategory =
   | "purchase"
   | "gross_profit"
   | "inventory"
-  | "ar";
+  | "ar"
+  | "cash_bank";
 export type ReportCatalogEntryFor<K extends ReportKey = ReportKey> = {
   key: K;
   definitionName: string;
@@ -354,6 +357,40 @@ export const reportCatalog = {
       businessSignals: false,
     },
   },
+  cash_bank_receipts: {
+    key: "cash_bank_receipts",
+    definitionName: "Cash Bank Receipts",
+    label: "รายงานรับเงิน",
+    shortLabel: "รับเงิน",
+    category: "cash_bank",
+    permissionLabel: "รายงานรับเงิน",
+    permissionDescription:
+      "เอกสารรับเงินและยอดตามช่องทางจาก SML มีข้อมูลลูกค้าและหมายเหตุ",
+    sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: false,
+    },
+  },
+  cash_bank_payments: {
+    key: "cash_bank_payments",
+    definitionName: "Cash Bank Payments",
+    label: "รายงานจ่ายเงิน",
+    shortLabel: "จ่ายเงิน",
+    category: "cash_bank",
+    permissionLabel: "รายงานจ่ายเงิน",
+    permissionDescription:
+      "เอกสารจ่ายเงินและยอดตามช่องทางจาก SML มีข้อมูลผู้รับเงินและหมายเหตุ",
+    sensitive: true,
+    capabilities: {
+      lineCard: true,
+      signedViewer: true,
+      pdf: false,
+      businessSignals: false,
+    },
+  },
 } satisfies { [K in ReportKey]: ReportCatalogEntryFor<K> };
 
 export type ReportCatalogEntry = (typeof reportCatalog)[ReportKey];
@@ -378,7 +415,7 @@ export type ReportPresetCatalogEntry = {
 export const reportPresetCatalog = {
   executive_full: {
     key: "executive_full",
-    label: "ผู้บริหารครบ 8 รายงาน",
+    label: "ผู้บริหารครบ 10 รายงาน",
     description: "ส่งรายงานครบทุกใบ เหมาะกับผู้บริหารที่ต้องการเห็นตัวเลขครบทุกเช้า",
     reportKeys: [...reportKeyValues],
   },
@@ -1013,6 +1050,111 @@ export type ArDebtReceiptSnapshot = {
   };
 };
 
+export type CashBankReportKey = "cash_bank_receipts" | "cash_bank_payments";
+export type CashBankDirection = "receipt" | "payment";
+export type CashBankChannelKey =
+  | "cash"
+  | "card"
+  | "cheque"
+  | "transfer"
+  | "income"
+  | "coupon"
+  | "petty_cash"
+  | "unallocated";
+export type CashBankDocumentStatus =
+  | "matched"
+  | "unallocated_amount"
+  | "channel_over_total";
+export type CashBankSourceBasis =
+  | "cash_bank_receipts_doc_date"
+  | "cash_bank_payments_doc_date";
+
+export type CashBankDocumentRow = {
+  doc_date: string;
+  doc_no: string;
+  doc_time: string | null;
+  trans_flag_code: number | null;
+  trans_flag_label: string;
+  ap_ar_code: string;
+  ap_ar_name: string;
+  cash_amount: number;
+  card_amount: number;
+  chq_amount: number;
+  transfer_amount: number;
+  total_income_amount: number;
+  coupon_amount: number;
+  petty_cash_amount: number;
+  total_amount: number;
+  channel_total_amount: number;
+  unallocated_amount: number;
+  channel_status: CashBankDocumentStatus;
+};
+
+export type CashBankChannelSummary = {
+  channel_key: CashBankChannelKey;
+  label: string;
+  amount: number;
+  document_count: number;
+};
+
+export type CashBankTransFlagSummary = {
+  trans_flag_code: number | null;
+  trans_flag_label: string;
+  document_count: number;
+  total_amount: number;
+  cash_amount: number;
+  card_amount: number;
+  chq_amount: number;
+  transfer_amount: number;
+  total_income_amount: number;
+  coupon_amount: number;
+  petty_cash_amount: number;
+  channel_total_amount: number;
+  unallocated_amount: number;
+  mismatch_document_count: number;
+};
+
+export type CashBankSummary = {
+  document_count: number;
+  party_count: number;
+  total_amount: number;
+  cash_amount: number;
+  card_amount: number;
+  chq_amount: number;
+  transfer_amount: number;
+  total_income_amount: number;
+  coupon_amount: number;
+  petty_cash_amount: number;
+  channel_total_amount: number;
+  unallocated_amount: number;
+  mismatch_document_count: number;
+  top_party_name: string | null;
+  first_doc_time: string | null;
+  last_doc_time: string | null;
+};
+
+export type CashBankSnapshot = {
+  tenant_id: TenantId;
+  report_key: CashBankReportKey;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  generated_at: string;
+  source: "sml_postgres" | "sml_javaws" | "sample_snapshot";
+  quality_status: DataQualityStatus;
+  source_basis: CashBankSourceBasis;
+  direction: CashBankDirection;
+  summary: CashBankSummary;
+  channel_summary: CashBankChannelSummary[];
+  trans_flag_summary: CashBankTransFlagSummary[];
+  top_documents: CashBankDocumentRow[];
+  mismatch_documents: CashBankDocumentRow[];
+  data_quality_notes: string[];
+  line_template: {
+    title: string;
+    body: string[];
+  };
+};
+
 export type ReportSnapshot =
   | SalesGoodsServicesSnapshot
   | PurchaseGoodsPayablesSnapshot
@@ -1021,7 +1163,8 @@ export type ReportSnapshot =
   | StockBalanceSnapshot
   | StockReorderSnapshot
   | ArCustomerMovementSnapshot
-  | ArDebtReceiptSnapshot;
+  | ArDebtReceiptSnapshot
+  | CashBankSnapshot;
 
 export const businessSignalSeveritySchema = z.enum([
   "info",
@@ -1366,6 +1509,21 @@ export type ArDebtReceiptLinePreview = {
   dashboard_url: string | null;
 };
 
+export type CashBankLinePreview = {
+  tenant_id: TenantId;
+  report_key: CashBankReportKey;
+  run_id: string;
+  generated_at: string;
+  source: CashBankSnapshot["source"];
+  line_message_type: LineMessageType;
+  title: string;
+  text: string;
+  lines: string[];
+  flex_message?: LineFlexMessage;
+  warnings: string[];
+  dashboard_url: string | null;
+};
+
 export type DegradedReportLinePreview = {
   tenant_id: TenantId;
   report_key: ReportKey;
@@ -1408,6 +1566,7 @@ export type ReportLinePreview =
   | StockReorderLinePreview
   | ArCustomerMovementLinePreview
   | ArDebtReceiptLinePreview
+  | CashBankLinePreview
   | DegradedReportLinePreview
   | OperationalIncidentLinePreview;
 

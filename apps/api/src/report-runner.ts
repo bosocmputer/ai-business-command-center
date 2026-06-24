@@ -14,10 +14,14 @@ import {
   buildGrossProfitByProductQuery,
   buildArDebtReceiptQuery,
   buildArCustomerMovementQuery,
+  buildCashBankPaymentsQuery,
+  buildCashBankReceiptsQuery,
   buildStockBalanceQuery,
   buildStockReorderQuery,
   summarizeArDebtReceipt,
   summarizeArCustomerMovement,
+  summarizeCashBankPayments,
+  summarizeCashBankReceipts,
   summarizePurchaseGoodsPayables,
   summarizeGrossProfitByArCustomer,
   summarizeGrossProfitByProduct,
@@ -27,6 +31,7 @@ import {
   validateGrossProfitParams,
   validateArDebtReceiptParams,
   validateArCustomerMovementParams,
+  validateCashBankParams,
   validatePurchaseGoodsPayablesParams,
   validateSalesGoodsServicesParams,
   validateStockBalanceParams,
@@ -36,6 +41,7 @@ import {
   getSmlBranchMeaning,
   type ArDebtReceiptSnapshot,
   type ArCustomerMovementSnapshot,
+  type CashBankSnapshot,
   type GrossProfitByArCustomerRow,
   type GrossProfitByArCustomerSnapshot,
   type GrossProfitByProductRow,
@@ -576,6 +582,74 @@ export async function runArDebtReceiptReport(input: {
       );
 
       return summarizeArDebtReceipt({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows,
+      });
+    },
+  );
+}
+
+export async function runCashBankReceiptsReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<CashBankSnapshot> {
+  const params = validateCashBankParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
+      const query = buildCashBankReceiptsQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeCashBankReceipts({
+        tenant_id: input.tenant_id,
+        run_id: input.run_id,
+        params,
+        generated_at: new Date().toISOString(),
+        source: client.source,
+        rows: result.rows,
+      });
+    },
+  );
+}
+
+export async function runCashBankPaymentsReport(input: {
+  tenant_id: TenantId;
+  run_id: string;
+  params: SalesGoodsServicesParams;
+  datasource: JavaWsDatasourceConfig;
+}): Promise<CashBankSnapshot> {
+  const params = validateCashBankParams(input.params);
+  return withDatasourceClient(
+    input.datasource,
+    {
+      connectionTimeoutMs: 5000,
+      idleTimeoutMs: 1000,
+      statementTimeoutMs: 30000,
+      queryTimeoutMs: 35000,
+    },
+    async (client) => {
+      const query = buildCashBankPaymentsQuery(params);
+      const result = await client.query<Record<string, unknown>>(
+        query.text,
+        query.values,
+      );
+
+      return summarizeCashBankPayments({
         tenant_id: input.tenant_id,
         run_id: input.run_id,
         params,

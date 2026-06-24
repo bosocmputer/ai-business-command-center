@@ -191,6 +191,27 @@ function getMetricDefinitions(snapshot: ReportSnapshot): Array<{
           snapshot.summary.unmatched_payment_count,
         ),
       ];
+    case "cash_bank_receipts":
+    case "cash_bank_payments":
+      return [
+        countMetric("document_count", "เอกสาร", snapshot.summary.document_count),
+        moneyMetric("total_amount", "ยอดรวม", snapshot.summary.total_amount),
+        moneyMetric(
+          "channel_total_amount",
+          "ยอดรวมตามช่องทาง",
+          snapshot.summary.channel_total_amount,
+        ),
+        moneyMetric(
+          "unallocated_amount",
+          "ไม่ระบุช่องทาง/ส่วนต่าง",
+          snapshot.summary.unallocated_amount,
+        ),
+        countMetric(
+          "mismatch_document_count",
+          "เอกสารที่ควรตรวจ",
+          snapshot.summary.mismatch_document_count,
+        ),
+      ];
   }
 }
 
@@ -281,6 +302,13 @@ function getSnapshotWarnings(snapshot: ReportSnapshot) {
     snapshot.summary.unmatched_payment_count > 0
   ) {
     warnings.push("unmatched_payment_split");
+  }
+  if (
+    (snapshot.report_key === "cash_bank_receipts" ||
+      snapshot.report_key === "cash_bank_payments") &&
+    snapshot.summary.mismatch_document_count > 0
+  ) {
+    warnings.push("cash_bank_channel_reconciliation_difference");
   }
   return warnings;
 }

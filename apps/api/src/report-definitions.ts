@@ -110,4 +110,36 @@ export const reportDefinitionSeeds: ReportDefinitionSeed[] = [
       sensitivity: "contains_customer_ar_receipts",
     },
   },
+  {
+    report_key: "cash_bank_receipts",
+    name: getReportCatalogEntry("cash_bank_receipts").definitionName,
+    version: "0.1.0",
+    contract_json: {
+      report_key: "cash_bank_receipts",
+      params: ["date_from", "date_to"],
+      receipt_truth: "cb_trans.total_amount where pay_type = 1",
+      channel_truth:
+        "cb_trans cash_amount/card_amount/chq_amount/tranfer_amount/total_income_amount/coupon_amount",
+      reconciliation:
+        "total_amount - channel totals is reported as unallocated_amount",
+      source_basis: "cash_bank_receipts_doc_date",
+      sensitivity: "contains_cash_bank_customer_receipts",
+    },
+  },
+  {
+    report_key: "cash_bank_payments",
+    name: getReportCatalogEntry("cash_bank_payments").definitionName,
+    version: "0.1.0",
+    contract_json: {
+      report_key: "cash_bank_payments",
+      params: ["date_from", "date_to"],
+      payment_truth: "cb_trans.total_amount where pay_type = 2",
+      channel_truth:
+        "cb_trans cash_amount/(card_amount + total_credit_charge)/chq_amount/tranfer_amount/total_income_amount/petty_cash_amount",
+      reconciliation:
+        "total_amount - channel totals is reported as unallocated_amount",
+      source_basis: "cash_bank_payments_doc_date",
+      sensitivity: "contains_cash_bank_supplier_payments",
+    },
+  },
 ];

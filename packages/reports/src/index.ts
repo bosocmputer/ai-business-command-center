@@ -5,4 +5,5 @@ export * from "./stock-balance.js";
 export * from "./stock-reorder.js";
 export * from "./ar-customer-movement.js";
 export * from "./ar-debt-receipt.js";
+export * from "./cash-bank.js";
 export * from "./business-signals.js";

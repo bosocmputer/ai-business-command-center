@@ -5240,25 +5240,24 @@ function snapshotToRunRecord(snapshot: ReportSnapshot): ReportRunRecord {
 }
 
 function getSnapshotRowCount(snapshot: ReportSnapshot) {
-  if (snapshot.report_key === "stock_balance") {
-    return snapshot.summary.sku_count;
+  switch (snapshot.report_key) {
+    case "stock_balance":
+      return snapshot.summary.sku_count;
+    case "stock_reorder":
+      return snapshot.summary.reorder_count;
+    case "ar_customer_movement":
+    case "cash_bank_receipts":
+    case "cash_bank_payments":
+      return snapshot.summary.document_count;
+    case "ar_debt_receipt":
+      return snapshot.summary.receipt_count;
+    case "gross_profit_by_product":
+    case "gross_profit_by_ar_customer":
+      return snapshot.summary.row_count;
+    case "sales_goods_services":
+    case "purchase_goods_payables":
+      return snapshot.summary.document_count + snapshot.summary.line_count;
   }
-  if (snapshot.report_key === "stock_reorder") {
-    return snapshot.summary.reorder_count;
-  }
-  if (snapshot.report_key === "ar_customer_movement") {
-    return snapshot.summary.document_count;
-  }
-  if (snapshot.report_key === "ar_debt_receipt") {
-    return snapshot.summary.receipt_count;
-  }
-  if (
-    snapshot.report_key === "gross_profit_by_product" ||
-    snapshot.report_key === "gross_profit_by_ar_customer"
-  ) {
-    return snapshot.summary.row_count;
-  }
-  return snapshot.summary.document_count + snapshot.summary.line_count;
 }
 
 function sameReportParams(

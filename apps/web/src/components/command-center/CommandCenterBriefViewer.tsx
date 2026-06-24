@@ -14,6 +14,10 @@ import {
   type ArCustomerMovementRow,
   type ArCustomerMovementSnapshot,
   type BranchSales,
+  type CashBankChannelSummary,
+  type CashBankDocumentRow,
+  type CashBankSnapshot,
+  type CashBankTransFlagSummary,
   type GrossProfitBaseRow,
   type GrossProfitByArCustomerRow,
   type GrossProfitByArCustomerSnapshot,
@@ -135,6 +139,10 @@ type ArCustomerMovementViewerReportKey = Extract<
   "ar_customer_movement"
 >;
 type ArDebtReceiptViewerReportKey = Extract<ReportKey, "ar_debt_receipt">;
+type CashBankViewerReportKey = Extract<
+  ReportKey,
+  "cash_bank_receipts" | "cash_bank_payments"
+>;
 
 type ViewerReportKey =
   | ClassicViewerReportKey
@@ -142,7 +150,8 @@ type ViewerReportKey =
   | StockBalanceViewerReportKey
   | StockReorderViewerReportKey
   | ArCustomerMovementViewerReportKey
-  | ArDebtReceiptViewerReportKey;
+  | ArDebtReceiptViewerReportKey
+  | CashBankViewerReportKey;
 
 type ViewerReportSnapshot = Extract<
   ReportSnapshot,
@@ -162,6 +171,7 @@ type StockBalanceViewerReportSnapshot = StockBalanceSnapshot;
 type StockReorderViewerReportSnapshot = StockReorderSnapshot;
 type ArCustomerMovementViewerReportSnapshot = ArCustomerMovementSnapshot;
 type ArDebtReceiptViewerReportSnapshot = ArDebtReceiptSnapshot;
+type CashBankViewerReportSnapshot = CashBankSnapshot;
 
 const REPORT_PDF_LAYOUT_VERSION = "sml-row-v5";
 const PDF_PROGRESS_STAGES = [
@@ -676,6 +686,16 @@ function PremiumReportViewer({
   if (isArDebtReceiptSnapshot(snapshot)) {
     return (
       <ArDebtReceiptReportViewer
+        generatedAt={generatedAt}
+        snapshot={snapshot}
+        tenantName={tenantName}
+      />
+    );
+  }
+
+  if (isCashBankSnapshot(snapshot)) {
+    return (
+      <CashBankReportViewer
         generatedAt={generatedAt}
         snapshot={snapshot}
         tenantName={tenantName}
@@ -1934,6 +1954,412 @@ function ArCustomerDocumentRowsTable({
   );
 }
 
+function CashBankReportViewer({
+  snapshot,
+  tenantName,
+  generatedAt,
+}: {
+  snapshot: CashBankViewerReportSnapshot;
+  tenantName: string;
+  generatedAt: string;
+}) {
+  const title = getCashBankTitle(snapshot.report_key);
+  const directionLabel =
+    snapshot.report_key === "cash_bank_receipts" ? "รับเงิน" : "จ่ายเงิน";
+  const hasWarning = snapshot.summary.mismatch_document_count > 0;
+  const topDocuments = snapshot.top_documents.slice(0, 20);
+  const mismatchDocuments = snapshot.mismatch_documents.slice(0, 20);
+
+  return (
+    <main className="min-h-screen bg-[#F6F7F9] text-[#101828]">
+      <div className="screen-report-viewer">
+        <div className="border-b border-[#E4E7EC] bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium leading-[18px] text-[#667085]">
+                  <span className="rounded-full border border-[#D0D5DD] bg-white px-2.5 py-1 text-[#344054]">
+                    รายงานเงินสด/ธนาคาร
+                  </span>
+                  <span className="rounded-full border border-[#D0D5DD] bg-[#F9FAFB] px-2.5 py-1 text-[#475467]">
+                    {formatSource(snapshot.source)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 ${
+                      hasWarning
+                        ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                        : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                    }`}
+                  >
+                    {hasWarning ? "ควรตรวจช่องทาง" : "พร้อมใช้"}
+                  </span>
+                  <span className="rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2.5 py-1 text-[#B54708]">
+                    ข้อมูลการเงิน
+                  </span>
+                </div>
+                <h1 className="mt-3 text-[24px] font-semibold leading-8 tracking-normal text-[#101828] sm:text-[28px] sm:leading-9">
+                  {title}
+                </h1>
+                <p className="mt-2 text-[14px] leading-[22px] text-[#667085]">
+                  {tenantName} · วันที่เอกสาร{directionLabel}{" "}
+                  {formatReportPeriod(
+                    snapshot.params.date_from,
+                    snapshot.params.date_to,
+                  )}{" "}
+                  จาก SML · อัปเดต {generatedAt}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 print:hidden">
+                {hasWarning && (
+                  <a
+                    href="#cash-bank-mismatch"
+                    className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#B54708] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#93370D]"
+                  >
+                    ดูบิลที่ควรตรวจ
+                  </a>
+                )}
+                <a
+                  href="#cash-bank-documents"
+                  className="inline-flex h-10 w-fit items-center justify-center rounded-lg bg-[#2563EB] px-4 text-[14px] font-semibold leading-[22px] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                >
+                  ดูเอกสาร
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PremiumKpi
+                label="ยอดรวม"
+                value={`${formatMoney(snapshot.summary.total_amount)} บาท`}
+                emphasis
+              />
+              <PremiumKpi
+                label="เอกสาร"
+                value={`${formatInteger(snapshot.summary.document_count)} ใบ`}
+              />
+              <PremiumKpi
+                label="เงินสด/โอน"
+                value={`${formatMoney(snapshot.summary.cash_amount)} / ${formatMoney(
+                  snapshot.summary.transfer_amount,
+                )} บาท`}
+              />
+              <PremiumKpi
+                danger={hasWarning}
+                label="ไม่ระบุช่องทาง"
+                value={`${formatMoney(snapshot.summary.unallocated_amount)} บาท`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:space-y-5 lg:py-6">
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                  สรุปผู้บริหาร
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  ช่องทางเงินและการ reconcile
+                </h2>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[12px] font-semibold leading-[18px] ${
+                  hasWarning
+                    ? "border-[#FEDF89] bg-[#FFFAEB] text-[#B54708]"
+                    : "border-[#ABEFC6] bg-[#ECFDF3] text-[#027A48]"
+                }`}
+              >
+                {hasWarning ? "มีข้อสังเกต" : "ยอดตรงช่องทาง"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <InsightCard
+                index={1}
+                title="ยอดรวมเอกสาร"
+                body={`${formatMoney(
+                  snapshot.summary.total_amount,
+                )} บาท จาก ${formatInteger(snapshot.summary.document_count)} เอกสาร`}
+              />
+              <InsightCard
+                index={2}
+                title="ยอดตามช่องทาง"
+                body={`${formatMoney(
+                  snapshot.summary.channel_total_amount,
+                )} บาท ส่วนต่าง ${formatMoney(
+                  snapshot.summary.unallocated_amount,
+                )} บาท`}
+              />
+              <InsightCard
+                index={3}
+                title="เอกสารที่ควรตรวจ"
+                body={
+                  hasWarning
+                    ? `${formatInteger(
+                        snapshot.summary.mismatch_document_count,
+                      )} ใบที่ยอดรวมไม่ตรงกับยอดตามช่องทาง`
+                    : "ไม่พบเอกสารที่ยอดรวมต่างจากยอดตามช่องทาง"
+                }
+              />
+            </div>
+
+            {snapshot.data_quality_notes.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {snapshot.data_quality_notes.map((note) => (
+                  <p
+                    className="rounded-lg border border-[#FEDF89] bg-[#FFFAEB] px-3 py-2 text-[14px] leading-[22px] text-[#B54708]"
+                    key={note}
+                  >
+                    {note}
+                  </p>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                ช่องทาง
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                สรุปตามช่องทางเงิน
+              </h2>
+              <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                ช่องไม่ระบุคือส่วนต่างระหว่างยอดรวมเอกสารกับยอดตามช่องทาง
+              </p>
+            </div>
+            <CashBankChannelTable rows={snapshot.channel_summary} />
+          </section>
+
+          <section className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4">
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                ประเภทเอกสาร
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                สรุปตาม trans_flag
+              </h2>
+            </div>
+            <CashBankTransFlagTable rows={snapshot.trans_flag_summary} />
+          </section>
+
+          {hasWarning && (
+            <section
+              id="cash-bank-mismatch"
+              className="rounded-xl border border-[#FEDF89] bg-white p-3 shadow-sm sm:p-4"
+            >
+              <div>
+                <p className="text-[12px] font-medium leading-[18px] text-[#B54708]">
+                  ควรตรวจ
+                </p>
+                <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                  เอกสารที่ยอดรวมไม่ตรงกับช่องทาง
+                </h2>
+                <p className="mt-1 text-[14px] leading-[22px] text-[#667085]">
+                  แสดงเฉพาะรายการที่มีส่วนต่างสูงสุดเพื่อช่วยปิดยอดเร็วขึ้น
+                </p>
+              </div>
+              <CashBankDocumentsTable rows={mismatchDocuments} showDifference />
+            </section>
+          )}
+
+          <section
+            id="cash-bank-documents"
+            className="rounded-xl border border-[#E4E7EC] bg-white p-3 shadow-sm sm:p-4"
+          >
+            <div>
+              <p className="text-[12px] font-medium leading-[18px] text-[#2563EB]">
+                เอกสาร
+              </p>
+              <h2 className="mt-1 text-[18px] font-semibold leading-7 text-[#101828]">
+                เอกสารมูลค่าสูงสุด
+              </h2>
+            </div>
+            <CashBankDocumentsTable rows={topDocuments} showDifference={hasWarning} />
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function CashBankChannelTable({ rows }: { rows: CashBankChannelSummary[] }) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีช่องทางเงินในช่วงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_120px_150px] md:gap-3">
+        <span>ช่องทาง</span>
+        <span className="text-right">เอกสาร</span>
+        <span className="text-right">ยอดเงิน</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row) => (
+          <div
+            key={row.channel_key}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_120px_150px] md:items-center"
+          >
+            <p className="font-semibold text-[#101828]">{row.label}</p>
+            <MobileFact
+              label="เอกสาร"
+              value={`${formatInteger(row.document_count)} ใบ`}
+            />
+            <MobileFact
+              danger={row.channel_key === "unallocated" && Math.abs(row.amount) > 0.01}
+              label="ยอดเงิน"
+              value={`${formatMoney(row.amount)} บาท`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CashBankTransFlagTable({
+  rows,
+}: {
+  rows: CashBankTransFlagSummary[];
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีประเภทเอกสารในช่วงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[minmax(0,1fr)_90px_150px_150px_130px] md:gap-3">
+        <span>ประเภทเอกสาร</span>
+        <span className="text-right">เอกสาร</span>
+        <span className="text-right">ยอดรวม</span>
+        <span className="text-right">ไม่ระบุช่องทาง</span>
+        <span className="text-right">ควรตรวจ</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row) => (
+          <div
+            key={`${row.trans_flag_code ?? "none"}-${row.trans_flag_label}`}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[minmax(0,1fr)_90px_150px_150px_130px] md:items-center"
+          >
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.trans_flag_label || "ไม่ระบุประเภทเอกสาร"}
+              </p>
+              <p className="mt-0.5 text-[12px] leading-[18px] text-[#667085]">
+                รหัส {row.trans_flag_code ?? "-"}
+              </p>
+            </div>
+            <MobileFact
+              label="เอกสาร"
+              value={`${formatInteger(row.document_count)} ใบ`}
+            />
+            <MobileFact
+              label="ยอดรวม"
+              value={`${formatMoney(row.total_amount)} บาท`}
+            />
+            <MobileFact
+              danger={Math.abs(row.unallocated_amount) > 0.01}
+              label="ไม่ระบุช่องทาง"
+              value={`${formatMoney(row.unallocated_amount)} บาท`}
+            />
+            <MobileFact
+              danger={row.mismatch_document_count > 0}
+              label="ควรตรวจ"
+              value={`${formatInteger(row.mismatch_document_count)} ใบ`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CashBankDocumentsTable({
+  rows,
+  showDifference,
+}: {
+  rows: CashBankDocumentRow[];
+  showDifference: boolean;
+}) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-lg border border-[#E4E7EC] bg-[#F9FAFB] px-4 py-8 text-center text-[14px] leading-[22px] text-[#667085]">
+        ยังไม่มีเอกสารในช่วงวันที่นี้
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-[#E4E7EC]">
+      <div className="hidden bg-[#F9FAFB] px-3 py-2 text-[12px] font-semibold leading-[18px] text-[#667085] md:grid md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_150px_150px_130px] md:gap-3">
+        <span>วันที่</span>
+        <span>เอกสาร</span>
+        <span>ชื่อ/หมายเหตุ</span>
+        <span>เงินสด/โอน</span>
+        <span className="text-right">ยอดรวม</span>
+        <span className="text-right">{showDifference ? "ส่วนต่าง" : "สถานะ"}</span>
+      </div>
+      <div className="divide-y divide-[#EAECF0] bg-white">
+        {rows.map((row, index) => (
+          <div
+            key={`${row.doc_no}-${row.doc_date}-${index}`}
+            className="grid gap-3 px-3 py-3 text-[14px] leading-[22px] md:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_150px_150px_130px] md:items-center"
+          >
+            <MobileFact label="วันที่" value={formatThaiDate(row.doc_date)} />
+            <div className="min-w-0">
+              <p className="break-all font-semibold text-[#101828]">
+                {row.doc_no || "-"}
+              </p>
+              <p className="mt-0.5 break-words text-[12px] leading-[18px] text-[#667085]">
+                {row.trans_flag_label || "ไม่ระบุประเภท"} ·{" "}
+                {row.doc_time || "-"}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-[#101828]">
+                {row.ap_ar_name || "ไม่ระบุชื่อ"}
+              </p>
+              <p className="mt-0.5 break-all text-[12px] leading-[18px] text-[#667085]">
+                รหัส {row.ap_ar_code || "-"}
+              </p>
+            </div>
+            <MobileFact
+              label="เงินสด/โอน"
+              value={`${formatMoney(row.cash_amount)} / ${formatMoney(
+                row.transfer_amount,
+              )} บาท`}
+            />
+            <MobileFact
+              label="ยอดรวม"
+              value={`${formatMoney(row.total_amount)} บาท`}
+            />
+            <MobileFact
+              danger={row.channel_status !== "matched"}
+              label={showDifference ? "ส่วนต่าง" : "สถานะ"}
+              value={
+                showDifference
+                  ? `${formatMoney(row.unallocated_amount)} บาท`
+                  : formatCashBankStatus(row)
+              }
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ArDebtReceiptReportViewer({
   snapshot,
   tenantName,
@@ -3019,10 +3445,12 @@ function PremiumKpi({
   label,
   value,
   emphasis,
+  danger,
 }: {
   label: string;
   value: string;
   emphasis?: boolean;
+  danger?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-[#E4E7EC] bg-[#F9FAFB] p-3">
@@ -3030,7 +3458,9 @@ function PremiumKpi({
         {label}
       </p>
       <p
-        className={`mt-2 break-words font-semibold tracking-normal text-[#101828] ${
+        className={`mt-2 break-words font-semibold tracking-normal ${
+          danger ? "text-[#B42318]" : "text-[#101828]"
+        } ${
           emphasis
             ? "text-[clamp(22px,6vw,32px)] leading-[1.15]"
             : "text-[18px] leading-7"
@@ -3243,6 +3673,9 @@ function BriefErrorState({ message }: { message: string }) {
 }
 
 function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
+  if (isCashBankSnapshot(snapshot)) {
+    return getCashBankTitle(snapshot.report_key);
+  }
   if (isArDebtReceiptSnapshot(snapshot)) {
     return "รายงานรับชำระหนี้";
   }
@@ -3301,6 +3734,31 @@ function isArDebtReceiptSnapshot(
   snapshot: ViewerReportSnapshot,
 ): snapshot is ArDebtReceiptViewerReportSnapshot {
   return snapshot.report_key === "ar_debt_receipt";
+}
+
+function isCashBankSnapshot(
+  snapshot: ViewerReportSnapshot,
+): snapshot is CashBankViewerReportSnapshot {
+  return (
+    snapshot.report_key === "cash_bank_receipts" ||
+    snapshot.report_key === "cash_bank_payments"
+  );
+}
+
+function getCashBankTitle(reportKey: CashBankViewerReportKey) {
+  return reportKey === "cash_bank_receipts"
+    ? "รายงานรับเงิน"
+    : "รายงานจ่ายเงิน";
+}
+
+function formatCashBankStatus(row: CashBankDocumentRow) {
+  if (row.channel_status === "matched") {
+    return "ตรงช่องทาง";
+  }
+  if (row.channel_status === "channel_over_total") {
+    return `ช่องทางเกิน ${formatMoney(Math.abs(row.unallocated_amount))} บาท`;
+  }
+  return `ไม่ระบุ ${formatMoney(row.unallocated_amount)} บาท`;
 }
 
 function getGrossProfitTitle(reportKey: GrossProfitViewerReportKey) {

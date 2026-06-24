@@ -62,7 +62,7 @@ export function buildNotificationDigestPreview(
       ? {
           type: "flex" as const,
           altText: isExecutiveFullReportDigest(previews)
-            ? "AI Business: รายงานผู้บริหารครบ 8 ใบ"
+            ? `AI Business: รายงานผู้บริหารครบ ${reportKeyValues.length} ใบ`
             : "AI Business: สรุปรายงานจาก SML",
           contents: {
             type: "carousel",
