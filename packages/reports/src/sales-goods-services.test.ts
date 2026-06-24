@@ -94,7 +94,7 @@ describe("sales_goods_services contract", () => {
     expect(query.text).toContain("inner join filtered_headers h");
     expect(query.text).toContain("h.doc_date = d.doc_date");
     expect(query.text).toContain("and d.last_status = 0");
-    expect(query.text).toContain("coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch')");
+    expect(query.text).toContain("coalesce(nullif(h.branch_code, ''), 'no_branch')");
     expect(query.text).toContain("left join ic_inventory");
     expect(query.text).toContain("left join ic_unit");
   });
@@ -181,10 +181,11 @@ describe("sales_goods_services contract", () => {
     expect(snapshot.reconciliation.status).toBe("stale");
   });
 
-  it("falls back from detail branch to header branch to no_branch", () => {
-    expect(normalizeBranchCode("", "0000")).toBe("0000");
-    expect(normalizeBranchCode(null, "")).toBe("no_branch");
-    expect(normalizeBranchCode("001", "0000")).toBe("001");
+  it("resolves branch from header branch only", () => {
+    expect(normalizeBranchCode("0000")).toBe("0000");
+    expect(normalizeBranchCode("")).toBe("no_branch");
+    expect(normalizeBranchCode(null)).toBe("no_branch");
+    expect(normalizeBranchCode(" 001 ")).toBe("001");
   });
 
   it("keeps header financial truth and detail analytics separate", () => {
@@ -322,7 +323,7 @@ describe("sales_goods_services contract", () => {
     });
   });
 
-  it("assigns document sales to detail branch when header branch is blank", () => {
+  it("keeps document sales in no_branch when header branch is blank", () => {
     const snapshot = summarizeSalesGoodsServices({
       tenant_id: "tenant_office_sml1_2026",
       run_id: "run_branch_fallback",
@@ -374,8 +375,8 @@ describe("sales_goods_services contract", () => {
     });
 
     expect(snapshot.branch_sales[0]).toMatchObject({
-      branch_code: "000",
-      branch_label: "สาขาหลัก (000)",
+      branch_code: "no_branch",
+      branch_label: "ไม่ระบุสาขา",
       total_amount: 107,
       document_count: 1,
       line_count: 1,

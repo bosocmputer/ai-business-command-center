@@ -45,14 +45,14 @@ ic_trans_detail.item_name
 Branch fallback:
 
 ```text
-detail.branch_code -> header.branch_code -> no_branch
+header.branch_code -> no_branch
 ```
 
 Branch meaning for business UI:
 
 - ระบบพยายามอ่าน `erp_branch_list.code` + `erp_branch_list.name_1` ก่อน เพื่อแสดงชื่อสาขาจริงของแต่ละ tenant เช่น `0000 = สำนักงาน`
 - `0000`, `000`, `00`, `0` แสดงเป็น `สาขาหลัก (รหัส)` เพื่อไม่ให้ผู้บริหารเห็นรหัสลอย ๆ
-- `no_branch` แสดงเป็น `ไม่ระบุสาขา` และถือเป็น data-quality signal ว่าหัวบิล/รายการสินค้าไม่มีรหัสสาขา
+- `no_branch` แสดงเป็น `ไม่ระบุสาขา` และถือเป็น data-quality signal ว่าหัวบิลไม่มีรหัสสาขา
 - รหัสอื่นยังแสดงเป็น `สาขา <code>` ถ้าไม่มีชื่อใน `erp_branch_list`
 - ทุก label ต้องยังเก็บรหัสเดิมไว้เพื่อ trace กลับ SML ได้
 
@@ -148,7 +148,7 @@ select
   h.doc_time,
   h.cust_code,
   h.cust_name,
-  coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as branch_code,
+  coalesce(nullif(h.branch_code, ''), 'no_branch') as branch_code,
   d.item_code,
   d.barcode,
   coalesce(i.name_1, d.item_name) as item_name,

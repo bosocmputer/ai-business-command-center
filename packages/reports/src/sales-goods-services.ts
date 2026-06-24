@@ -23,13 +23,12 @@ import {
 export const salesGoodsServicesContract = {
   report_key: "sales_goods_services",
   name: "Sales Goods and Services",
-  version: "0.2.0",
+  version: "0.3.0",
   params_schema: salesGoodsServicesParamsSchema,
   metric_truth: {
     financial_total: "ic_trans.total_amount",
     detail_analytics: "ic_trans_detail.sum_amount, ic_trans_detail.qty",
-    branch_fallback:
-      "detail.branch_code -> header.branch_code -> no_branch",
+    branch_fallback: "header.branch_code -> no_branch",
   },
 } as const;
 
@@ -138,7 +137,7 @@ select
   h.doc_time,
   h.cust_code,
   h.cust_name,
-  coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as branch_code,
+  coalesce(nullif(h.branch_code, ''), 'no_branch') as branch_code,
   d.item_code,
   d.barcode,
   coalesce(i.name_1, d.item_name) as item_name,
@@ -306,7 +305,7 @@ select
   d.price,
   d.sum_amount,
   d.line_number,
-  coalesce(nullif(d.branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as detail_branch_code
+  coalesce(nullif(h.branch_code, ''), 'no_branch') as detail_branch_code
 from filtered_headers h
 left join ic_trans_detail d on d.doc_no = h.doc_no
   and d.doc_date = h.doc_date
@@ -422,15 +421,14 @@ select
   coalesce(detail_stats.detail_line_count, 0) as detail_line_count,
   coalesce(detail_stats.detail_total_amount, 0) as detail_total_amount,
   coalesce(detail_stats.detail_total_qty, 0) as detail_total_qty,
-  coalesce(nullif(detail_stats.detail_branch_code, ''), nullif(h.branch_code, ''), 'no_branch') as resolved_branch_code,
+  coalesce(nullif(h.branch_code, ''), 'no_branch') as resolved_branch_code,
   h.total_count
 from paged_headers h
 left join lateral (
   select
     count(*)::int as detail_line_count,
     sum(d.sum_amount) as detail_total_amount,
-    sum(d.qty) as detail_total_qty,
-    min(nullif(d.branch_code, '')) as detail_branch_code
+    sum(d.qty) as detail_total_qty
   from ic_trans_detail d
   where d.doc_no = h.doc_no
     and d.doc_date = h.doc_date
@@ -465,30 +463,9 @@ order by code
 }
 
 export function normalizeBranchCode(
-  detailBranch: string | null | undefined,
-  headerBranch?: string | null,
+  headerBranch: string | null | undefined,
 ) {
-  return detailBranch?.trim() || headerBranch?.trim() || "no_branch";
-}
-
-function resolveDocumentBranch(
-  header: SalesHeaderRow,
-  detailsByDoc: Map<string, SalesDetailRow[]>,
-) {
-  const headerBranch = header.branch_code?.trim();
-  const detailBranches = [
-    ...new Set(
-      (detailsByDoc.get(header.doc_no) ?? [])
-        .map((detail) => detail.branch_code?.trim())
-        .filter((branch): branch is string => Boolean(branch)),
-    ),
-  ];
-
-  if (detailBranches.length === 1) {
-    return detailBranches[0];
-  }
-
-  return headerBranch || detailBranches[0] || "no_branch";
+  return headerBranch?.trim() || "no_branch";
 }
 
 function buildBranchNameMap(branches: SmlBranchRecord[] | undefined) {
@@ -582,19 +559,12 @@ export function summarizeSalesGoodsServices(input: {
     headerTotal,
   );
 
-  const detailsByDoc = new Map<string, SalesDetailRow[]>();
-  for (const detail of input.details) {
-    const current = detailsByDoc.get(detail.doc_no) ?? [];
-    current.push(detail);
-    detailsByDoc.set(detail.doc_no, current);
-  }
-
   const branchMap = new Map<string, BranchSales>();
   const headerBranchByDoc = new Map<string, string>();
   const branchNameByCode = buildBranchNameMap(input.branches);
 
   for (const header of input.headers) {
-    const branchCode = resolveDocumentBranch(header, detailsByDoc);
+    const branchCode = normalizeBranchCode(header.branch_code);
     const branchMeaning = getSmlBranchMeaning(
       branchCode,
       branchNameByCode.get(branchCode),
@@ -620,7 +590,6 @@ export function summarizeSalesGoodsServices(input: {
 
   for (const detail of input.details) {
     const branchCode = normalizeBranchCode(
-      detail.branch_code,
       headerBranchByDoc.get(detail.doc_no),
     );
     const branchMeaning = getSmlBranchMeaning(

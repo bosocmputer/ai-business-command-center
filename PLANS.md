@@ -116,7 +116,7 @@ Tasks:
 4. สร้าง report contract สำหรับ `sales_goods_services`
 5. นิยาม summary rules สำหรับ dashboard/LINE จาก header truth และ detail analytics
 6. นิยาม edge cases:
-   - ไม่มี `branch_code` โดย fallback `detail.branch_code -> header.branch_code -> no_branch`
+   - ไม่มี `branch_code` โดย fallback `header.branch_code -> no_branch`
    - หัวบิลต้องผ่าน filter SML sales report: `trans_flag in (44)`, `last_status = 0`, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
    - detail ต้อง join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag`
    - ไม่มีข้อมูลในช่วงวันที่

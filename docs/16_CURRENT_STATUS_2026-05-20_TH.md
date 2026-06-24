@@ -96,7 +96,7 @@ API: https://bibliography-numbers-lite-motion.trycloudflare.com
 - Query ใช้ parameter binding ไม่ใช้ string replace
 - Summary ใช้ `ic_trans.total_amount` เป็น financial truth
 - Detail analytics ใช้ `ic_trans_detail.sum_amount`, `qty`, product fields
-- Branch display ใช้ `erp_branch_list.name_1` ก่อน ถ้าไม่มีชื่อสาขาจึง fallback เป็น `detail.branch_code -> header.branch_code -> no_branch`
+- Branch display ใช้ `erp_branch_list.name_1` ก่อน ถ้าไม่มีชื่อสาขาจึง fallback เป็น `header.branch_code -> no_branch`
 - Header query ใช้ SML sales report filter รุ่นใหม่: `trans_flag in (44)`, `last_status = 0`, date range, `(coalesce(doc_ref,'') = '' or is_pos = 0)`, `is_doc_copy <> 1`
 - Detail query join ผ่านหัวบิลที่ผ่าน filter แล้วด้วย `doc_no + doc_date + trans_flag` และ enrich ด้วย `ic_inventory`, `ic_unit`
 - Customer bill table ใช้ server-side pagination/search จาก SML ผ่าน approved SQL และ bill drilldown ดึงรายละเอียดสินค้าในบิลแบบ on-demand ไม่ยัด detail ทุกแถวของช่วงใหญ่ลง snapshot
