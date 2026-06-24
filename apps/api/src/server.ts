@@ -140,6 +140,10 @@ import {
   buildMorningBriefCarouselPreview,
   buildNotificationDigestPreview,
 } from "./notification-flex-preview.js";
+import {
+  buildNotificationRuleDeliveryKey,
+  buildNotificationRuleIncidentDeliveryKey,
+} from "./notification-delivery-key.js";
 import { selectDeliveryRetryReportResults } from "./notification-delivery-retry.js";
 import {
   runNotificationOpsMonitor,
@@ -10907,14 +10911,15 @@ async function executeNotificationRule(input: {
         continue;
       }
 
-      const deliveryKey = [
-        "notification_rule_incident",
-        input.rule.id,
-        zoned.date,
-        zoned.time,
-        incident.reportKey,
-        target.target_id_hash.slice(0, 16),
-      ].join(":");
+      const deliveryKey = buildNotificationRuleIncidentDeliveryKey({
+        ruleId: input.rule.id,
+        scheduledLocalDate: zoned.date,
+        scheduledLocalTime: zoned.time,
+        reportKey: incident.reportKey,
+        targetIdHash: target.target_id_hash,
+        source: input.source,
+        notificationRunId: run.id,
+      });
       if (input.mode === "send") {
         const existingDelivery =
           await systemStore.findSuccessfulLineDeliveryByKey({
@@ -11694,13 +11699,14 @@ async function executeNotificationRule(input: {
         raw_signal_ids: issue.raw_signal_ids,
         raw_signal_keys: issue.raw_signal_keys,
       })) ?? [];
-    const deliveryKey = [
-      "notification_rule",
-      input.rule.id,
-      zoned.date,
-      zoned.time,
-      target.target_id_hash.slice(0, 16),
-    ].join(":");
+    const deliveryKey = buildNotificationRuleDeliveryKey({
+      ruleId: input.rule.id,
+      scheduledLocalDate: zoned.date,
+      scheduledLocalTime: zoned.time,
+      targetIdHash: target.target_id_hash,
+      source: input.source,
+      notificationRunId: run.id,
+    });
     if (input.mode === "send") {
       const existingDelivery = await systemStore.findSuccessfulLineDeliveryByKey({
         tenantId: input.rule.tenant_id,
