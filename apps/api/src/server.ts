@@ -37,6 +37,7 @@ import {
   morningBriefRequestSchema,
   notificationPeriodPresetSchema,
   notificationRulePayloadSchema,
+  uniqueReportKeysInOrder,
   planCodeSchema,
   getReportCatalogEntry,
   reportKeyValues,
@@ -12944,7 +12945,7 @@ function normalizeNotificationSchedulePayload(
 }
 
 function uniqueReportKeys(reportKeys: ReportKey[]) {
-  return [...new Set(reportKeys)];
+  return uniqueReportKeysInOrder(reportKeys);
 }
 
 function uniqueStrings(values: string[]) {

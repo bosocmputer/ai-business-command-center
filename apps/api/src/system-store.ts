@@ -36,6 +36,7 @@ import {
   notificationDigestModeSchema,
   notificationRunProgressStageSchema,
   notificationPeriodStrategySchema,
+  normalizeReportKeysInOrder,
   reportKeySchema,
   tenantFeatureFlagsSchema,
 } from "@ai-bcc/shared";
@@ -7051,13 +7052,7 @@ function normalizeRecipientCountEstimate(
 }
 
 function normalizeReportKeys(value: unknown): LineTargetRecord["allowed_report_keys"] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is ReportKey =>
-    reportKeySchema.safeParse(item).success,
-  );
+  return normalizeReportKeysInOrder(value);
 }
 
 function normalizeLineActions(value: unknown): LineTargetRecord["allowed_actions"] {

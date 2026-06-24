@@ -11,6 +11,8 @@ import {
   reportPresetCatalog,
   reportPresetKeyValues,
   tenantFeatureFlagsSchema,
+  uniqueReportKeysInOrder,
+  normalizeReportKeysInOrder,
 } from "./index.js";
 
 describe("report catalog", () => {
@@ -159,6 +161,33 @@ describe("report catalog", () => {
     expect(isReportKey("cash_bank_receipts")).toBe(true);
     expect(isReportKey("cash_bank_payments")).toBe(true);
     expect(isReportKey("unknown_report")).toBe(false);
+  });
+
+  it("preserves user report order while removing duplicates", () => {
+    expect(
+      uniqueReportKeysInOrder([
+        "stock_balance",
+        "sales_goods_services",
+        "stock_balance",
+        "cash_bank_receipts",
+      ]),
+    ).toEqual([
+      "stock_balance",
+      "sales_goods_services",
+      "cash_bank_receipts",
+    ]);
+  });
+
+  it("normalizes unknown report key arrays without catalog sorting", () => {
+    expect(
+      normalizeReportKeysInOrder([
+        "cash_bank_payments",
+        "unknown_report",
+        "purchase_goods_payables",
+        "cash_bank_payments",
+        null,
+      ]),
+    ).toEqual(["cash_bank_payments", "purchase_goods_payables"]);
   });
 
   it("keeps report presets stable for owner notification shortcuts", () => {

@@ -34,6 +34,28 @@ describe("buildNotificationDigestPreview", () => {
 
     expect(preview.flex_message?.altText).toBe("AI Business: สรุปรายงานจาก SML");
   });
+
+  it("preserves the supplied report order in digest text and carousel", () => {
+    const preview = buildNotificationDigestPreview([
+      mockPreview("cash_bank_payments"),
+      mockPreview("sales_goods_services"),
+      mockPreview("purchase_goods_payables"),
+    ]);
+    const contents = preview.flex_message?.contents as
+      | { type?: string; contents?: Array<{ body?: { contents?: Array<{ text?: string }> } }> }
+      | undefined;
+
+    expect(preview.text.split("\n\n---\n\n")).toEqual([
+      "cash_bank_payments fallback",
+      "sales_goods_services fallback",
+      "purchase_goods_payables fallback",
+    ]);
+    expect(contents?.contents?.map((bubble) => bubble.body?.contents?.[0]?.text)).toEqual([
+      "cash_bank_payments",
+      "sales_goods_services",
+      "purchase_goods_payables",
+    ]);
+  });
 });
 
 function mockPreview(reportKey: ReportKey): ReportLinePreview {

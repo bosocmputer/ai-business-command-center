@@ -136,11 +136,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const explicitTab = searchParams.get("tab");
-  const activeTab = explicitTab
-    ? parseTab(explicitTab)
-    : detailState.status === "success"
-      ? defaultTabForReadiness(detailState.data.readiness.ready)
-      : "setup";
+  const activeTab = explicitTab ? parseTab(explicitTab) : "setup";
 
   // Hooks must run before any early return (Rules of Hooks). Use a nullable
   // view of the loaded data so the memos no-op while loading; we redeclare
@@ -193,12 +189,8 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
       return;
     }
     const params = new URLSearchParams(searchParams.toString());
-    // Always set ?tab= explicitly, even for the "setup" tab. The smart
-    // default (defaultTabForReadiness) only runs when the URL has NO ?tab=
-    // at all — i.e. on first page load. If we delete ?tab= when selecting
-    // setup, the smart default re-runs on the next render and bounces a
-    // ready store back to the system tab, making the setup tab feel
-    // unclickable.
+    // Always set ?tab= explicitly, even for the "setup" tab, so copied links
+    // preserve the admin's current view.
     params.set("tab", tab);
     // Switching away from setup leaves the setup wizard, so drop the step.
     if (tab !== "setup") {
@@ -1461,15 +1453,6 @@ function parseTab(value: string | null): StoreTab {
   return value && VALID_TABS.includes(value as StoreTab)
     ? (value as StoreTab)
     : "setup";
-}
-
-/**
- * Smart default tab: a fully-ready store has nothing to set up, so land on
- * the system-monitoring tab instead of the setup tab. Only applies when the
- * URL has no explicit ?tab= (the caller checks searchParams before calling).
- */
-function defaultTabForReadiness(ready: boolean): StoreTab {
-  return ready ? "system" : "setup";
 }
 
 /**

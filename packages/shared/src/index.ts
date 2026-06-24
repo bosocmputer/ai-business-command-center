@@ -483,11 +483,34 @@ export function matchReportPreset(reportKeys: ReportKey[]): ReportPresetKey | nu
   return null;
 }
 
+export function uniqueReportKeysInOrder(reportKeys: readonly ReportKey[]) {
+  const seen = new Set<ReportKey>();
+  const ordered: ReportKey[] = [];
+  for (const reportKey of reportKeys) {
+    if (!seen.has(reportKey)) {
+      seen.add(reportKey);
+      ordered.push(reportKey);
+    }
+  }
+  return ordered;
+}
+
+export function normalizeReportKeysInOrder(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueReportKeysInOrder(
+    value.filter((item): item is ReportKey =>
+      reportKeySchema.safeParse(item).success,
+    ),
+  );
+}
+
 function normalizeReportKeySet(reportKeys: ReportKey[]) {
   const order = new Map<ReportKey, number>(
     reportKeyValues.map((reportKey, index) => [reportKey, index]),
   );
-  return [...new Set(reportKeys)].sort(
+  return uniqueReportKeysInOrder(reportKeys).sort(
     (left, right) => (order.get(left) ?? 999) - (order.get(right) ?? 999),
   );
 }

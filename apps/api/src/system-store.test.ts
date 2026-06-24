@@ -78,6 +78,94 @@ describe("local JSON system store", () => {
     await secondStore.close();
   });
 
+  it("preserves notification report order across JSON store restarts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+
+    const tenant: Tenant = {
+      id: "tenant_demo_remote",
+      name: "Demo Remote",
+      databaseName: "demo",
+      description: "seed description",
+      datasourceConfigured: false,
+      status: "active",
+      planCode: "business",
+      suspendedReason: null,
+      currentPeriodEnd: null,
+    };
+    const reportDefinitions = [
+      {
+        report_key: "sales_goods_services",
+        name: "Sales Goods and Services",
+        version: "0.1.0",
+        contract_json: {},
+      },
+      {
+        report_key: "purchase_goods_payables",
+        name: "Purchase Goods and Payables",
+        version: "0.1.0",
+        contract_json: {},
+      },
+      {
+        report_key: "cash_bank_payments",
+        name: "Cash Bank Payments",
+        version: "0.1.0",
+        contract_json: {},
+      },
+    ] as const;
+
+    const firstStore = createSystemStore();
+    await firstStore.initialize({
+      tenants: [tenant],
+      reportDefinitions: [...reportDefinitions],
+    });
+    await firstStore.upsertNotificationRule({
+      id: "notification_rule_ordered",
+      tenant_id: tenant.id,
+      name: "Ordered digest",
+      enabled: true,
+      timezone: "Asia/Bangkok",
+      period_preset: "yesterday",
+      period_strategy: "executive_checkpoints",
+      schedule: [{ weekdays: [1], times: ["08:00"] }],
+      report_keys: [
+        "cash_bank_payments",
+        "sales_goods_services",
+        "cash_bank_payments",
+        "purchase_goods_payables",
+      ],
+      target_ids: ["line_target_demo"],
+      message_packaging: "digest",
+      digest_mode: "all_reports",
+      retry_policy: { max_attempts: 2, retry_delay_minutes: 3 },
+      last_run_at: null,
+      last_run_status: null,
+      last_safe_error_message: null,
+      created_at: "2026-06-24T01:00:00.000Z",
+      updated_at: "2026-06-24T01:00:00.000Z",
+    });
+    await firstStore.close();
+
+    const secondStore = createSystemStore();
+    await secondStore.initialize({
+      tenants: [tenant],
+      reportDefinitions: [...reportDefinitions],
+    });
+
+    await expect(
+      secondStore.getNotificationRule("notification_rule_ordered"),
+    ).resolves.toMatchObject({
+      report_keys: [
+        "cash_bank_payments",
+        "sales_goods_services",
+        "purchase_goods_payables",
+      ],
+    });
+
+    await secondStore.close();
+  });
+
   it("persists report runs, snapshots, and audit logs across restarts", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
     tempDirs.push(dir);

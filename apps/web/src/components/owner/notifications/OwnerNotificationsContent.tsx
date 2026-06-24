@@ -8,6 +8,7 @@ import {
   matchReportPreset,
   reportKeyValues,
   reportPresetKeyValues,
+  uniqueReportKeysInOrder,
   type LineChannelRecord,
   type LineTargetRecord,
   type NotificationDigestMode,
@@ -1737,7 +1738,7 @@ function normalizeNotificationRuleDraft(input: {
     name: input.name.trim(),
     period_preset: input.periodPreset,
     period_strategy: input.periodStrategy,
-    report_keys: sortReportKeys(input.reportKeys),
+    report_keys: uniqueReportKeysInOrder(input.reportKeys),
     schedule: [
       {
         times: [...new Set(input.times)].sort(),
@@ -1766,15 +1767,6 @@ function normalizeNotificationRuleRecord(
     times: schedule.times,
     weekdays: schedule.weekdays,
   });
-}
-
-function sortReportKeys(reportKeys: ReportKey[]) {
-  const order = new Map<ReportKey, number>(
-    reportKeyValues.map((reportKey, index) => [reportKey, index]),
-  );
-  return [...new Set(reportKeys)].sort(
-    (left, right) => (order.get(left) ?? 999) - (order.get(right) ?? 999),
-  );
 }
 
 function getDefaultNotificationTargetIds(sendReadyTargets: LineTargetRecord[]) {

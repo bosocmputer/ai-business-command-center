@@ -9,6 +9,7 @@ import {
   getReportPresetEntry,
   reportKeyValues,
   reportPresetKeyValues,
+  uniqueReportKeysInOrder,
   type LineChannelRecord,
   type LineTargetRecord,
   type NotificationDigestMode,
@@ -20,7 +21,14 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { BellIcon, InfoIcon, PlusIcon, TimeIcon } from "@/icons";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  BellIcon,
+  InfoIcon,
+  PlusIcon,
+  TimeIcon,
+} from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import type {
   OwnerV2LineSetupPayload,
@@ -870,15 +878,26 @@ export default function OwnerV2NotificationSetup({
                 </div>
 
                 <ReportSelector
-                  onApplyPreset={(presetKey) =>
+                  disabled={busy !== null}
+                  onApplyPreset={(presetKey) => {
+                    setSendConfirmRuleId(null);
                     setForm((current) => ({
                       ...current,
-                      reportKeys: [...getReportPresetEntry(presetKey).reportKeys],
-                    }))
-                  }
-                  onToggleReport={(reportKey) =>
-                    setForm((current) => toggleReport(current, reportKey))
-                  }
+                      reportKeys: uniqueReportKeysInOrder(
+                        getReportPresetEntry(presetKey).reportKeys,
+                      ),
+                    }));
+                  }}
+                  onMoveReport={(reportKey, direction) => {
+                    setSendConfirmRuleId(null);
+                    setForm((current) =>
+                      moveReportKey(current, reportKey, direction),
+                    );
+                  }}
+                  onToggleReport={(reportKey) => {
+                    setSendConfirmRuleId(null);
+                    setForm((current) => toggleReport(current, reportKey));
+                  }}
                   selectedReportKeys={form.reportKeys}
                 />
 
@@ -1077,11 +1096,18 @@ function RuleList({
 }
 
 function ReportSelector({
+  disabled,
   onApplyPreset,
+  onMoveReport,
   onToggleReport,
   selectedReportKeys,
 }: {
+  disabled: boolean;
   onApplyPreset: (presetKey: ReportPresetKey) => void;
+  onMoveReport: (
+    reportKey: ReportKey,
+    direction: "up" | "down",
+  ) => void;
   onToggleReport: (reportKey: ReportKey) => void;
   selectedReportKeys: ReportKey[];
 }) {
@@ -1114,6 +1140,7 @@ function ReportSelector({
           return (
             <button
               className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-theme-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.03]"
+              disabled={disabled}
               key={preset.key}
               onClick={() => onApplyPreset(preset.key)}
               type="button"
@@ -1122,6 +1149,75 @@ function ReportSelector({
             </button>
           );
         })}
+      </div>
+      <div className="mt-4 rounded-lg bg-white p-3 dark:bg-gray-900">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+              ลำดับที่จะแสดงใน LINE
+            </p>
+            <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+              ระบบใช้ลำดับนี้กับรายงานแบบ digest และ fallback ของ action-only
+            </p>
+          </div>
+          <Badge color={selectedReportKeys.length > 1 ? "info" : "light"}>
+            {selectedReportKeys.length > 1 ? "เรียงได้" : "ยังเรียงไม่ได้"}
+          </Badge>
+        </div>
+        {selectedReportKeys.length > 1 ? (
+          <div className="mt-3 space-y-2">
+            {selectedReportKeys.map((reportKey, index) => {
+              const report = getReportCatalogEntry(reportKey);
+              const category = categoryLabels[report.category] ?? report.category;
+              return (
+                <div
+                  className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+                  key={reportKey}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-theme-xs font-semibold text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-gray-800 dark:text-white/90">
+                      {report.shortLabel}
+                    </span>
+                    <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
+                      {category}
+                    </span>
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      aria-label={`เลื่อน ${report.shortLabel} ขึ้น`}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+                      disabled={disabled || index === 0}
+                      onClick={() => onMoveReport(reportKey, "up")}
+                      title={`เลื่อน ${report.shortLabel} ขึ้น`}
+                      type="button"
+                    >
+                      <ArrowUpIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      aria-label={`เลื่อน ${report.shortLabel} ลง`}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+                      disabled={disabled || index === selectedReportKeys.length - 1}
+                      onClick={() => onMoveReport(reportKey, "down")}
+                      title={`เลื่อน ${report.shortLabel} ลง`}
+                      type="button"
+                    >
+                      <ArrowDownIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-theme-xs leading-5 text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+            {selectedReportKeys.length
+              ? "เลือกเพิ่มอีก 1 รายงานเพื่อเปิดการจัดลำดับ"
+              : "เลือกอย่างน้อย 2 รายงานเพื่อจัดลำดับการแสดงใน LINE"}
+          </p>
+        )}
       </div>
       <div className="mt-5 space-y-4">
         {Object.entries(grouped).map(([category, reportKeys]) => (
@@ -1148,6 +1244,7 @@ function ReportSelector({
                     <input
                       checked={checked}
                       className="mt-1 size-5"
+                      disabled={disabled}
                       onChange={() => onToggleReport(reportKey)}
                       type="checkbox"
                     />
@@ -1562,7 +1659,7 @@ function buildRulePayload({
     name: form.name.trim(),
     period_preset: form.periodPreset,
     period_strategy: ownerPeriodStrategy,
-    report_keys: sortReportKeys(form.reportKeys),
+    report_keys: uniqueReportKeysInOrder(form.reportKeys),
     schedule: [
       {
         times: [...new Set(form.times)].sort(),
@@ -1585,20 +1682,11 @@ function normalizeForm(form: NotificationFormState) {
     enabled: form.enabled,
     name: form.name.trim(),
     periodPreset: form.periodPreset,
-    reportKeys: sortReportKeys(form.reportKeys),
+    reportKeys: uniqueReportKeysInOrder(form.reportKeys),
     targetIds: [...new Set(form.targetIds)].sort(),
     times: [...new Set(form.times)].sort(),
     weekdays: [...new Set(form.weekdays)].sort((left, right) => left - right),
   };
-}
-
-function sortReportKeys(reportKeys: ReportKey[]) {
-  const order = new Map<ReportKey, number>(
-    reportKeyValues.map((reportKey, index) => [reportKey, index]),
-  );
-  return [...new Set(reportKeys)].sort(
-    (left, right) => (order.get(left) ?? 999) - (order.get(right) ?? 999),
-  );
 }
 
 function addNotificationTime(form: NotificationFormState) {
@@ -1627,8 +1715,30 @@ function toggleWeekday(form: NotificationFormState, weekday: number) {
 function toggleReport(form: NotificationFormState, reportKey: ReportKey) {
   const reportKeys = form.reportKeys.includes(reportKey)
     ? form.reportKeys.filter((item) => item !== reportKey)
-    : sortReportKeys([...form.reportKeys, reportKey]);
+    : uniqueReportKeysInOrder([...form.reportKeys, reportKey]);
   return { ...form, reportKeys };
+}
+
+function moveReportKey(
+  form: NotificationFormState,
+  reportKey: ReportKey,
+  direction: "up" | "down",
+) {
+  const reportKeys = uniqueReportKeysInOrder(form.reportKeys);
+  const index = reportKeys.indexOf(reportKey);
+  if (index < 0) {
+    return form;
+  }
+  const nextIndex = direction === "up" ? index - 1 : index + 1;
+  if (nextIndex < 0 || nextIndex >= reportKeys.length) {
+    return form;
+  }
+  const nextReportKeys = [...reportKeys];
+  [nextReportKeys[index], nextReportKeys[nextIndex]] = [
+    nextReportKeys[nextIndex]!,
+    nextReportKeys[index]!,
+  ];
+  return { ...form, reportKeys: nextReportKeys };
 }
 
 function toggleTarget(form: NotificationFormState, targetId: string) {
