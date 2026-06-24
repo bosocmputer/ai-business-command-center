@@ -1090,7 +1090,7 @@ export function getSmlBranchMeaning(
       code,
       label: "ไม่ระบุสาขา",
       name: "ไม่ระบุสาขา",
-      note: "ไม่พบรหัสสาขาในหัวบิลหรือรายการสินค้า",
+      note: "ไม่พบรหัสสาขาตามกฎสาขาของรายงาน",
       is_unmapped: true,
     };
   }
