@@ -15148,7 +15148,7 @@ const notificationRulePatchSchema = z.object({
     .min(1)
     .max(7)
     .optional(),
-  report_keys: z.array(reportKeySchema).min(1).max(8).optional(),
+  report_keys: z.array(reportKeySchema).min(1).max(reportKeyValues.length).optional(),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).optional(),
 });
 

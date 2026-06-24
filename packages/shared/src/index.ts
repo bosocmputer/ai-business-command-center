@@ -1716,7 +1716,7 @@ export const notificationRulePayloadSchema = z.object({
   period_preset: notificationPeriodPresetSchema.default("yesterday"),
   period_strategy: notificationPeriodStrategySchema.default("executive_checkpoints"),
   schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
-  report_keys: z.array(reportKeySchema).min(1).max(8),
+  report_keys: z.array(reportKeySchema).min(1).max(reportKeyValues.length),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),
   digest_mode: notificationDigestModeSchema.default("action_only"),
 });
