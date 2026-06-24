@@ -2698,11 +2698,25 @@ app.put(
     });
 
     const tenants = await systemStore.listTenants();
+    const response = await buildTenantReportPermissionsResponse(
+      tenant.id,
+      tenants,
+    );
     return {
       data: {
-        ...(await buildTenantReportPermissionsResponse(tenant.id, tenants)),
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          status: tenant.status,
+        },
+        reports: response.reports,
+        roles: response.roles,
+        permissions: response.permissions,
+        matrix: response.matrix,
+        target_counts: response.target_counts,
+        impacted_notification_plans: response.impacted_notification_plans,
         updated_line_targets: saved.updatedTargetCount,
-      },
+      } satisfies OwnerWorkbenchPermissionSetupPayload,
     };
   },
 );
