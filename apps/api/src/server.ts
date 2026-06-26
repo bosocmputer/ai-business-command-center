@@ -13735,9 +13735,7 @@ function buildStoreSetupReadinessChecks(input: {
       ok: input.summary.access.enabled,
       label: "เปิดใช้งานร้าน",
       detail: input.summary.access.message,
-      href: `/owner/tenants?tenant=${encodeURIComponent(
-        input.summary.tenant.id,
-      )}`,
+      href: `/owner-v2/stores/${encodeURIComponent(input.summary.tenant.id)}?tab=advanced`,
     },
     {
       key: "sml_javaws",

@@ -55,7 +55,20 @@ type TenantCreateInput = {
   status: Tenant["status"];
   plan_code: PlanCode;
   viewer_email?: string;
+  current_period_end?: string;
 };
+
+const BANGKOK_TZ = "Asia/Bangkok";
+
+function formatTrialEndDate(days: number): string {
+  const end = new Date(Date.now() + days * 86_400_000);
+  return new Intl.DateTimeFormat("th-TH", {
+    timeZone: BANGKOK_TZ,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(end);
+}
 
 // Client-side format rules matching the server tenantId schema.
 const TENANT_ID_PATTERN = /^[a-z0-9_-]+$/;
@@ -69,6 +82,7 @@ export default function OwnerV2NewTenant() {
   const [viewerEmail, setViewerEmail] = useState("");
   const [planCode, setPlanCode] = useState<PlanCode>("starter");
   const [status, setStatus] = useState<Tenant["status"]>("trial");
+  const [trialDays, setTrialDays] = useState<number>(14);
   const [preview, setPreview] = useState<TenantCreateDryRunPreview | null>(null);
   const [busy, setBusy] = useState<"dry-run" | "create" | null>(null);
   const [message, setMessage] = useState<{
@@ -106,6 +120,10 @@ export default function OwnerV2NewTenant() {
     status,
     plan_code: planCode,
     viewer_email: viewerEmail.trim() || undefined,
+    current_period_end:
+      status === "trial" && trialDays > 0
+        ? new Date(Date.now() + trialDays * 86_400_000).toISOString()
+        : undefined,
   });
 
   const runDryRun = async (event?: FormEvent) => {
@@ -326,6 +344,7 @@ export default function OwnerV2NewTenant() {
                   id="new-tenant-status"
                   onChange={(event) => {
                     setStatus(event.target.value as Tenant["status"]);
+                    setTrialDays(14);
                     setPreview(null);
                   }}
                   value={status}
@@ -337,6 +356,32 @@ export default function OwnerV2NewTenant() {
                 </select>
               </div>
             </div>
+            {status === "trial" ? (
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                  htmlFor="new-tenant-trial-days"
+                >
+                  ระยะเวลาทดลองใช้
+                </label>
+                <select
+                  className="owner-v2-input"
+                  id="new-tenant-trial-days"
+                  onChange={(event) => {
+                    setTrialDays(Number(event.target.value));
+                    setPreview(null);
+                  }}
+                  value={trialDays}
+                >
+                  <option value={7}>7 วัน</option>
+                  <option value={14}>14 วัน</option>
+                  <option value={30}>30 วัน</option>
+                </select>
+                <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  หมดวันที่ {formatTrialEndDate(trialDays)}
+                </p>
+              </div>
+            ) : null}
             <div>
               <label
                 className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"

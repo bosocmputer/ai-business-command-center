@@ -604,6 +604,13 @@ function StoreHero({
                 <span className="hidden h-3.5 w-px bg-gray-300 dark:bg-gray-700 sm:block" />
                 <span>สิ้นสุดรอบ {formatDate(tenant.currentPeriodEnd)}</span>
               </>
+            ) : tenant.status === "trial" ? (
+              <>
+                <span className="hidden h-3.5 w-px bg-gray-300 dark:bg-gray-700 sm:block" />
+                <span className="text-warning-600 dark:text-warning-400">
+                  ยังไม่กำหนดวันหมด trial — ตั้งที่แท็บ &ldquo;ตั้งค่าขั้นสูง&rdquo;
+                </span>
+              </>
             ) : null}
           </div>
         </div>
@@ -833,12 +840,20 @@ function StoreEditForm({
             ))}
           </select>
         </label>
-        <label className="block min-w-0" htmlFor="edit-tenant-period-end">
-          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+        <div className="block min-w-0">
+          <label
+            className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+            htmlFor="edit-tenant-period-end"
+          >
             สิ้นสุดรอบใช้งาน
-          </span>
+          </label>
           <input
-            className="owner-v2-input"
+            className={`owner-v2-input ${
+              form.current_period_end_date &&
+              form.current_period_end_date < todayDateString()
+                ? "border-warning-300 focus:border-warning-300 focus:ring-warning-500/10"
+                : ""
+            }`}
             disabled={cancelled}
             id="edit-tenant-period-end"
             onChange={(event) =>
@@ -854,10 +869,46 @@ function StoreEditForm({
             type="date"
             value={form.current_period_end_date}
           />
-          <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-            เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์
-          </span>
-        </label>
+          {form.current_period_end_date &&
+          form.current_period_end_date < todayDateString() ? (
+            <span className="mt-1.5 block text-xs leading-5 text-warning-600 dark:text-warning-400">
+              วันที่อยู่ในอดีต — ถ้าตั้งใจให้หมดแล้ว ระบบจะ suspend อัตโนมัติในรอบถัดไป
+            </span>
+          ) : (
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              เว้นว่างได้ถ้ายังไม่ต้องกำหนดรอบสิทธิ์
+            </span>
+          )}
+          {!cancelled ? (
+            <div className="mt-2 flex gap-2">
+              {([14, 30] as const).map((days) => (
+                <button
+                  className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                  key={days}
+                  onClick={() => {
+                    const base =
+                      form.current_period_end_date &&
+                      form.current_period_end_date >= todayDateString()
+                        ? new Date(`${form.current_period_end_date}T00:00:00+07:00`)
+                        : new Date();
+                    const next = new Date(base.getTime() + days * 86_400_000);
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            current_period_end_date: dateToDateInput(next),
+                          }
+                        : current,
+                    );
+                  }}
+                  type="button"
+                >
+                  +{days} วัน
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <label className="block min-w-0" htmlFor="edit-tenant-suspended-reason">
           <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
             เหตุผลระงับ
@@ -1237,6 +1288,14 @@ function toStoreFormState(tenant: Tenant): StoreFormState {
     current_period_end_date: isoToDateInput(tenant.currentPeriodEnd),
     suspended_reason: tenant.suspendedReason ?? "",
   };
+}
+
+function todayDateString() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+}
+
+function dateToDateInput(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(date);
 }
 
 function isoToDateInput(value?: string | null) {
