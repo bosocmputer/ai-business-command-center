@@ -86,6 +86,7 @@ export function listTenants(): Tenant[] {
     planCode: tenant.id === "tenant_demo_remote" ? "business" : "starter",
     suspendedReason: null,
     currentPeriodEnd: null,
+    billingCycle: null,
   }));
 }
 

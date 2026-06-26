@@ -19,7 +19,8 @@ alter table tenants
   add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
   add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
-  add column if not exists current_period_end timestamptz;
+  add column if not exists current_period_end timestamptz,
+  add column if not exists billing_cycle text;
 
 create table if not exists datasources (
   id text primary key,

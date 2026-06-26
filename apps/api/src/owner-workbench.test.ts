@@ -23,6 +23,7 @@ const tenant: Tenant = {
   featureFlags: tenantFeatureFlagsSchema.parse({}),
   businessSignalThresholds: businessSignalThresholdsSchema.parse({}),
   currentPeriodEnd: null,
+      billingCycle: null,
   suspendedReason: null,
 };
 

@@ -34,6 +34,7 @@ function buildTenant(id: string, name: string, telegramEnabled = true): Tenant {
     planCode: "pro",
     suspendedReason: null,
     currentPeriodEnd: null,
+      billingCycle: null,
     featureFlags: {
       business_signals_enabled: true,
       demo_mode_enabled: false,

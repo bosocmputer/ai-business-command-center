@@ -1,6 +1,7 @@
 import {
   callNotificationRulesTick,
   callReportRunsTick,
+  callSubscriptionDueTick,
   callTrialExpiryTick,
   callWorkerHeartbeat,
   readNotificationRulesWorkerConfig,
@@ -192,6 +193,30 @@ async function tick(now = new Date()) {
     console.error(
       JSON.stringify({
         event: "trial_expiry_tick_failed",
+        checkedAt: now.toISOString(),
+        safeError: error instanceof Error ? error.message : "Unknown worker error",
+      }),
+    );
+  }
+
+  // Subscription due check — non-fatal, ไม่นับใน consecutiveFailures หลัก
+  try {
+    const result = await callSubscriptionDueTick({ config });
+    if (!("skipped" in result)) {
+      console.log(
+        JSON.stringify({
+          event: "subscription_due_tick_completed",
+          checkedAt: now.toISOString(),
+          flippedPastDue: (result.data as { flipped_past_due?: unknown[] } | undefined)?.flipped_past_due?.length ?? 0,
+          suspended: (result.data as { suspended?: unknown[] } | undefined)?.suspended?.length ?? 0,
+          remindedAdmin: (result.data as { reminded_admin?: unknown[] } | undefined)?.reminded_admin?.length ?? 0,
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "subscription_due_tick_failed",
         checkedAt: now.toISOString(),
         safeError: error instanceof Error ? error.message : "Unknown worker error",
       }),

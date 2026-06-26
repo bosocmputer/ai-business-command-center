@@ -43,6 +43,7 @@ describe("local JSON system store", () => {
       planCode: "business",
       suspendedReason: null,
       currentPeriodEnd: null,
+      billingCycle: null,
     };
 
     const firstStore = createSystemStore();
@@ -93,6 +94,7 @@ describe("local JSON system store", () => {
       planCode: "business",
       suspendedReason: null,
       currentPeriodEnd: null,
+      billingCycle: null,
     };
     const reportDefinitions = [
       {
@@ -182,6 +184,7 @@ describe("local JSON system store", () => {
         planCode: "business",
         suspendedReason: null,
         currentPeriodEnd: null,
+      billingCycle: null,
       },
     ];
 
@@ -604,6 +607,7 @@ describe("local JSON system store", () => {
         planCode: "business",
         suspendedReason: null,
         currentPeriodEnd: null,
+      billingCycle: null,
       },
     ];
     const store = createSystemStore();
@@ -741,6 +745,7 @@ describe("local JSON system store", () => {
       planCode: "business",
       suspendedReason: null,
       currentPeriodEnd: null,
+      billingCycle: null,
     };
     const store = createSystemStore();
     await store.initialize({
@@ -922,6 +927,7 @@ describe("local JSON system store", () => {
         planCode: "business",
         suspendedReason: null,
         currentPeriodEnd: null,
+      billingCycle: null,
       },
     ];
     const store = createSystemStore();
@@ -1049,6 +1055,7 @@ describe("local JSON system store", () => {
         planCode: "business",
         suspendedReason: null,
         currentPeriodEnd: null,
+      billingCycle: null,
       },
     ];
     const store = createSystemStore();
@@ -1161,6 +1168,7 @@ describe("local JSON system store", () => {
       planCode: "business",
       suspendedReason: null,
       currentPeriodEnd: null,
+      billingCycle: null,
     };
     const store = createSystemStore();
     await store.initialize({

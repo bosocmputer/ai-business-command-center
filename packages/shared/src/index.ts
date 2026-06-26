@@ -532,6 +532,8 @@ export function getReportCatalogEntry<K extends ReportKey>(
   return reportCatalog[reportKey];
 }
 
+export type BillingCycle = "monthly" | "yearly" | "one_time";
+
 export type Tenant = {
   id: TenantId;
   name: string;
@@ -544,6 +546,7 @@ export type Tenant = {
   businessSignalThresholds?: BusinessSignalThresholdsConfig;
   suspendedReason: string | null;
   currentPeriodEnd: string | null;
+  billingCycle: BillingCycle | null;
 };
 
 export type SubscriptionRecord = {

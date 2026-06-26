@@ -1813,6 +1813,7 @@ app.post("/api/owner/tenants", async (request, reply) => {
     businessSignalThresholds: businessSignalThresholdsSchema.parse({}),
     suspendedReason: null,
     currentPeriodEnd: body.data.current_period_end ?? null,
+    billingCycle: body.data.billing_cycle ?? null,
   });
 
   await systemStore.upsertUser({
@@ -1905,6 +1906,10 @@ app.patch("/api/owner/tenants/:tenantId", async (request, reply) => {
       body.data.current_period_end !== undefined
         ? body.data.current_period_end
         : current.currentPeriodEnd,
+    billingCycle:
+      body.data.billing_cycle !== undefined
+        ? body.data.billing_cycle
+        : current.billingCycle,
   });
 
   await systemStore.appendAuditLog({
@@ -4346,6 +4351,268 @@ app.post("/api/worker/trial-expiry/tick", async (request, reply) => {
       expired,
       warned,
       checked_tenants: trialTenants.length,
+      checked_at: now.toISOString(),
+    },
+  };
+});
+
+app.post("/api/worker/subscription-due/tick", async (request, reply) => {
+  const workerAuth = await requireWorkerToken(request);
+  if (!workerAuth.ok) {
+    return reply.status(workerAuth.statusCode).send({ error: workerAuth.error });
+  }
+
+  const GRACE_PERIOD_DAYS = 7;
+  const now = new Date();
+  const todayBangkok = formatDateInBangkok(now);
+
+  const flippedPastDue: string[] = [];
+  const suspended: string[] = [];
+  const remindedAdmin: string[] = [];
+
+  const subTenants = await systemStore.listSubscriptionTenantsWithPeriodEnd();
+
+  for (const tenant of subTenants) {
+    if (!tenant.currentPeriodEnd || !tenant.billingCycle) continue;
+
+    const periodEnd = new Date(tenant.currentPeriodEnd);
+    const msOverdue = now.getTime() - periodEnd.getTime();
+    const daysOverdue = msOverdue / (24 * 60 * 60 * 1000);
+    const msRemaining = -msOverdue;
+    const daysRemaining = msRemaining / (24 * 60 * 60 * 1000);
+
+    if (msOverdue > GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000) {
+      // Grace period หมด → auto-suspend
+      if (tenant.status !== "past_due") continue;
+
+      const updatedTenant = await systemStore.updateTenantStatus({
+        tenantId: tenant.id,
+        status: "suspended",
+        suspendedReason: "subscription_expired",
+      }).catch(() => null);
+
+      if (!updatedTenant) continue;
+
+      // LINE push ลูกค้า 1 ครั้ง (dedup ด้วย period_end + action key)
+      const recentLogs = await systemStore.listAuditLogs(200);
+      const lineAlreadySent = recentLogs.some(
+        (log) =>
+          log.tenant_id === tenant.id &&
+          log.action === "subscription_suspended_line_sent" &&
+          typeof log.metadata_json === "object" &&
+          log.metadata_json !== null &&
+          (log.metadata_json as Record<string, unknown>).period_end === tenant.currentPeriodEnd,
+      );
+
+      if (!lineAlreadySent) {
+        const targets = await listEffectiveLineTargets(tenant.id).catch(() => []);
+        const approvedTargets = targets.filter((t) => t.approved && t.enabled);
+        const suspendMessage = `${tenant.name} หยุดให้บริการแล้ว เนื่องจากยังไม่ได้ต่ออายุการใช้งาน\nกรุณาติดต่อทีมงานเพื่อเปิดใช้งานอีกครั้ง`;
+
+        for (const target of approvedTargets) {
+          const lineConfig = await buildLineChannelConfigForTarget(target);
+          if (!lineConfig) continue;
+
+          await sendLineTextPush({
+            channelAccessToken: lineConfig.channelAccessToken,
+            targetId: lineConfig.targetId,
+            text: suspendMessage,
+          }).catch(() => null);
+        }
+
+        await systemStore.appendAuditLog({
+          tenant_id: tenant.id,
+          actor_id: null,
+          action: "subscription_suspended_line_sent",
+          target_type: "tenant",
+          target_id: tenant.id,
+          metadata_json: { period_end: tenant.currentPeriodEnd },
+        });
+      }
+
+      // Telegram admin alert
+      await sendOperationalTelegramAlert({
+        store: systemStore,
+        alertType: "subscription_auto_suspended",
+        severity: "critical",
+        messageText: buildOperationalAlertMessage({
+          title: "Subscription หมด — auto-suspended",
+          severity: "critical",
+          status: "suspended",
+          details: [
+            `tenant: ${tenant.id}`,
+            `name: ${tenant.name}`,
+            `period_end: ${tenant.currentPeriodEnd}`,
+            `billing_cycle: ${tenant.billingCycle}`,
+            `overdue: ${Math.floor(daysOverdue)} วัน`,
+          ],
+          action: "ต่ออายุและเปิด status กลับ active ผ่าน Owner UI",
+        }),
+        dedupeKey: buildOperationalAlertDedupeKey({
+          alertType: "subscription_auto_suspended",
+          tenantId: tenant.id,
+          ruleId: "subscription_due",
+          scheduledDate: todayBangkok,
+          scheduledTime: "00:00",
+          severity: "critical",
+        }),
+      }).catch(() => null);
+
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "subscription_auto_suspended",
+        target_type: "tenant",
+        target_id: tenant.id,
+        metadata_json: {
+          period_end: tenant.currentPeriodEnd,
+          billing_cycle: tenant.billingCycle,
+          suspended_reason: "subscription_expired",
+        },
+      });
+
+      suspended.push(tenant.id);
+    } else if (msOverdue > 0) {
+      // หมดแล้ว แต่ยังอยู่ใน grace period → flip past_due
+      if (tenant.status !== "active") continue;
+
+      const updatedTenant = await systemStore.updateTenantStatus({
+        tenantId: tenant.id,
+        status: "past_due",
+      }).catch(() => null);
+
+      if (!updatedTenant) continue;
+
+      // LINE push ลูกค้า 1 ครั้ง (dedup ด้วย period_end)
+      const recentLogs = await systemStore.listAuditLogs(200);
+      const lineAlreadySent = recentLogs.some(
+        (log) =>
+          log.tenant_id === tenant.id &&
+          log.action === "past_due_grace_started" &&
+          typeof log.metadata_json === "object" &&
+          log.metadata_json !== null &&
+          (log.metadata_json as Record<string, unknown>).period_end === tenant.currentPeriodEnd,
+      );
+
+      if (!lineAlreadySent) {
+        const targets = await listEffectiveLineTargets(tenant.id).catch(() => []);
+        const approvedTargets = targets.filter((t) => t.approved && t.enabled);
+        const graceMessage = `${tenant.name} จะหยุดให้บริการใน 7 วัน เนื่องจากยังไม่ได้ต่ออายุการใช้งาน\nกรุณาติดต่อทีมงานเพื่อต่ออายุ`;
+
+        for (const target of approvedTargets) {
+          const lineConfig = await buildLineChannelConfigForTarget(target);
+          if (!lineConfig) continue;
+
+          await sendLineTextPush({
+            channelAccessToken: lineConfig.channelAccessToken,
+            targetId: lineConfig.targetId,
+            text: graceMessage,
+          }).catch(() => null);
+        }
+
+        await systemStore.appendAuditLog({
+          tenant_id: tenant.id,
+          actor_id: null,
+          action: "past_due_grace_started",
+          target_type: "tenant",
+          target_id: tenant.id,
+          metadata_json: { period_end: tenant.currentPeriodEnd },
+        });
+      }
+
+      // Telegram admin alert
+      await sendOperationalTelegramAlert({
+        store: systemStore,
+        alertType: "subscription_past_due",
+        severity: "warning",
+        messageText: buildOperationalAlertMessage({
+          title: "Subscription หมดแล้ว — grace period 7 วัน",
+          severity: "warning",
+          status: "past_due",
+          details: [
+            `tenant: ${tenant.id}`,
+            `name: ${tenant.name}`,
+            `period_end: ${tenant.currentPeriodEnd}`,
+            `billing_cycle: ${tenant.billingCycle}`,
+          ],
+          action: "ต่ออายุผ่าน Owner UI ก่อน grace period หมด",
+        }),
+        dedupeKey: buildOperationalAlertDedupeKey({
+          alertType: "subscription_past_due",
+          tenantId: tenant.id,
+          ruleId: "subscription_due",
+          scheduledDate: todayBangkok,
+          scheduledTime: "00:00",
+          severity: "warning",
+        }),
+      }).catch(() => null);
+
+      flippedPastDue.push(tenant.id);
+    } else if (daysRemaining >= 0 && daysRemaining <= 3) {
+      // ยังไม่หมด แต่เหลือ ≤ 3 วัน → Telegram reminder เท่านั้น (ไม่ LINE ลูกค้า)
+      const recentLogs = await systemStore.listAuditLogs(200);
+      const alreadyRemindedToday = recentLogs.some(
+        (log) =>
+          log.tenant_id === tenant.id &&
+          log.action === "subscription_renewal_reminder_sent" &&
+          typeof log.metadata_json === "object" &&
+          log.metadata_json !== null &&
+          (log.metadata_json as Record<string, unknown>).reminder_date === todayBangkok,
+      );
+
+      if (alreadyRemindedToday) continue;
+
+      const daysRemainingDisplay = Math.ceil(daysRemaining);
+
+      await sendOperationalTelegramAlert({
+        store: systemStore,
+        alertType: "subscription_renewal_due",
+        severity: "info",
+        messageText: buildOperationalAlertMessage({
+          title: `Subscription ใกล้หมด — เหลือ ${daysRemainingDisplay} วัน`,
+          severity: "info",
+          status: "active",
+          details: [
+            `tenant: ${tenant.id}`,
+            `name: ${tenant.name}`,
+            `period_end: ${tenant.currentPeriodEnd}`,
+            `billing_cycle: ${tenant.billingCycle}`,
+          ],
+          action: "ต่ออายุผ่าน Owner UI",
+        }),
+        dedupeKey: buildOperationalAlertDedupeKey({
+          alertType: "subscription_renewal_due",
+          tenantId: tenant.id,
+          ruleId: "subscription_due",
+          scheduledDate: todayBangkok,
+          scheduledTime: "00:00",
+          severity: "info",
+        }),
+      }).catch(() => null);
+
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "subscription_renewal_reminder_sent",
+        target_type: "tenant",
+        target_id: tenant.id,
+        metadata_json: {
+          reminder_date: todayBangkok,
+          days_remaining: daysRemainingDisplay,
+          period_end: tenant.currentPeriodEnd,
+        },
+      });
+
+      remindedAdmin.push(tenant.id);
+    }
+  }
+
+  return {
+    data: {
+      flipped_past_due: flippedPastDue,
+      suspended,
+      reminded_admin: remindedAdmin,
+      checked_tenants: subTenants.length,
       checked_at: now.toISOString(),
     },
   };
@@ -15468,6 +15735,8 @@ function validateTenantNoteSafety(description: string | undefined) {
   };
 }
 
+const billingCycleSchema = z.enum(["monthly", "yearly", "one_time"]);
+
 const ownerTenantCreateSchema = z.object({
   tenant_id: tenantIdSchema,
   name: z.string().trim().min(2).max(120),
@@ -15476,6 +15745,7 @@ const ownerTenantCreateSchema = z.object({
   status: tenantStatusSchema.default("trial"),
   plan_code: planCodeSchema.default("starter"),
   current_period_end: z.string().datetime().nullable().optional(),
+  billing_cycle: billingCycleSchema.nullable().optional(),
   viewer_email: z.string().email().optional(),
 });
 
@@ -15489,6 +15759,7 @@ const ownerTenantPatchSchema = z.object({
   feature_flags: tenantFeatureFlagsSchema.partial().optional(),
   business_signal_thresholds: businessSignalThresholdsSchema.partial().optional(),
   current_period_end: z.string().datetime().nullable().optional(),
+  billing_cycle: billingCycleSchema.nullable().optional(),
   suspended_reason: z.string().trim().max(500).nullable().optional(),
 });
 

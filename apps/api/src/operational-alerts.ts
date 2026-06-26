@@ -33,7 +33,10 @@ export type OperationalAlertType =
   | "line_delivery_failed"
   | "worker_tick_failed"
   | "heartbeat_stale"
-  | "trial_auto_expired";
+  | "trial_auto_expired"
+  | "subscription_past_due"
+  | "subscription_renewal_due"
+  | "subscription_auto_suspended";
 
 export type TelegramOperationalAlertStatus = {
   configured: boolean;

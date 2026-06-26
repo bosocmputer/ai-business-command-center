@@ -56,6 +56,7 @@ type TenantCreateInput = {
   plan_code: PlanCode;
   viewer_email?: string;
   current_period_end?: string;
+  billing_cycle?: "monthly" | "yearly" | "one_time" | null;
 };
 
 const BANGKOK_TZ = "Asia/Bangkok";
@@ -83,6 +84,7 @@ export default function OwnerV2NewTenant() {
   const [planCode, setPlanCode] = useState<PlanCode>("starter");
   const [status, setStatus] = useState<Tenant["status"]>("trial");
   const [trialDays, setTrialDays] = useState<number>(14);
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly" | "one_time" | null>(null);
   const [preview, setPreview] = useState<TenantCreateDryRunPreview | null>(null);
   const [busy, setBusy] = useState<"dry-run" | "create" | null>(null);
   const [message, setMessage] = useState<{
@@ -124,6 +126,7 @@ export default function OwnerV2NewTenant() {
       status === "trial" && trialDays > 0
         ? new Date(Date.now() + trialDays * 86_400_000).toISOString()
         : undefined,
+    billing_cycle: status !== "trial" ? billingCycle : null,
   });
 
   const runDryRun = async (event?: FormEvent) => {
@@ -345,6 +348,7 @@ export default function OwnerV2NewTenant() {
                   onChange={(event) => {
                     setStatus(event.target.value as Tenant["status"]);
                     setTrialDays(14);
+                    setBillingCycle(null);
                     setPreview(null);
                   }}
                   value={status}
@@ -381,7 +385,38 @@ export default function OwnerV2NewTenant() {
                   หมดวันที่ {formatTrialEndDate(trialDays)}
                 </p>
               </div>
-            ) : null}
+            ) : (
+              <div>
+                <label
+                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+                  htmlFor="new-tenant-billing-cycle"
+                >
+                  รูปแบบการชำระ
+                </label>
+                <select
+                  className="owner-v2-input"
+                  id="new-tenant-billing-cycle"
+                  onChange={(event) => {
+                    const v = event.target.value;
+                    setBillingCycle(
+                      v === "monthly" || v === "yearly" || v === "one_time"
+                        ? v
+                        : null,
+                    );
+                    setPreview(null);
+                  }}
+                  value={billingCycle ?? ""}
+                >
+                  <option value="">ไม่ระบุ (ไม่มี automation)</option>
+                  <option value="monthly">รายเดือน</option>
+                  <option value="yearly">รายปี</option>
+                  <option value="one_time">ครั้งเดียว</option>
+                </select>
+                <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  กำหนดเพื่อให้ระบบแจ้งเตือนและ auto-suspend เมื่อหมดอายุ
+                </p>
+              </div>
+            )}
             <div>
               <label
                 className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"

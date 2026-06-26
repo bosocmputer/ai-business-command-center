@@ -20,6 +20,7 @@ import {
   type ReportRunRecord,
   type ReportSnapshot,
   type SalesGoodsServicesParams,
+  type BillingCycle,
   type Tenant,
   type TenantFeatureFlags,
   type TenantId,
@@ -164,6 +165,7 @@ export type SystemStore = {
   }): Promise<void>;
   listTenants(): Promise<Tenant[]>;
   listTrialTenantsWithPeriodEnd(): Promise<Tenant[]>;
+  listSubscriptionTenantsWithPeriodEnd(): Promise<Tenant[]>;
   upsertTenant(tenant: Tenant): Promise<Tenant>;
   updateTenantStatus(input: {
     tenantId: TenantId;
@@ -171,6 +173,7 @@ export type SystemStore = {
     planCode?: PlanCode;
     suspendedReason?: string | null;
     currentPeriodEnd?: string | null;
+    billingCycle?: BillingCycle | null;
   }): Promise<Tenant | null>;
   cancelTenant(input: {
     tenantId: TenantId;
@@ -488,6 +491,17 @@ class LocalJsonSystemStore implements SystemStore {
       .map(normalizeTenantRecord);
   }
 
+  async listSubscriptionTenantsWithPeriodEnd() {
+    return this.requireData()
+      .tenants.filter(
+        (t) =>
+          (t.status === "active" || t.status === "past_due") &&
+          t.currentPeriodEnd != null &&
+          t.billingCycle != null,
+      )
+      .map(normalizeTenantRecord);
+  }
+
   async upsertTenant(tenant: Tenant) {
     const data = this.requireData();
     const normalizedTenant = normalizeTenantRecord(tenant);
@@ -505,6 +519,7 @@ class LocalJsonSystemStore implements SystemStore {
     planCode?: PlanCode;
     suspendedReason?: string | null;
     currentPeriodEnd?: string | null;
+    billingCycle?: BillingCycle | null;
   }) {
     const data = this.requireData();
     const tenant = data.tenants.find((item) => item.id === input.tenantId);
@@ -524,6 +539,10 @@ class LocalJsonSystemStore implements SystemStore {
         input.currentPeriodEnd !== undefined
           ? input.currentPeriodEnd
           : tenant.currentPeriodEnd,
+      billingCycle:
+        input.billingCycle !== undefined
+          ? input.billingCycle
+          : tenant.billingCycle,
     };
     await this.upsertTenant(updated);
     return updated;
@@ -1838,7 +1857,7 @@ set name = excluded.name,
   async listTenants() {
     const result = await this.pool.query(
       `
-select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end, billing_cycle
 from tenants
 order by name asc
 `,
@@ -1850,10 +1869,25 @@ order by name asc
   async listTrialTenantsWithPeriodEnd() {
     const result = await this.pool.query(
       `
-select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end, billing_cycle
 from tenants
 where status = 'trial'
   and current_period_end is not null
+order by current_period_end asc
+`,
+    );
+
+    return result.rows.map(mapTenantRow);
+  }
+
+  async listSubscriptionTenantsWithPeriodEnd() {
+    const result = await this.pool.query(
+      `
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end, billing_cycle
+from tenants
+where status in ('active', 'past_due')
+  and current_period_end is not null
+  and billing_cycle is not null
 order by current_period_end asc
 `,
     );
@@ -1914,9 +1948,10 @@ insert into tenants (
   feature_flags_json,
   business_signal_thresholds_json,
   suspended_reason,
-  current_period_end
+  current_period_end,
+  billing_cycle
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11::timestamptz, $12)
 on conflict (id) do update
 set name = excluded.name,
     status = excluded.status,
@@ -1927,8 +1962,9 @@ set name = excluded.name,
     feature_flags_json = excluded.feature_flags_json,
     business_signal_thresholds_json = excluded.business_signal_thresholds_json,
     suspended_reason = excluded.suspended_reason,
-    current_period_end = excluded.current_period_end
-returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+    current_period_end = excluded.current_period_end,
+    billing_cycle = excluded.billing_cycle
+returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end, billing_cycle
 `,
       [
         tenant.id,
@@ -1944,6 +1980,7 @@ returning id, name, status, plan_code, database_name, description, datasource_co
         ),
         tenant.suspendedReason,
         tenant.currentPeriodEnd,
+        tenant.billingCycle ?? null,
       ],
     );
 
@@ -1956,6 +1993,7 @@ returning id, name, status, plan_code, database_name, description, datasource_co
     planCode?: PlanCode;
     suspendedReason?: string | null;
     currentPeriodEnd?: string | null;
+    billingCycle?: BillingCycle | null;
   }) {
     const result = await this.pool.query(
       `
@@ -1963,9 +2001,10 @@ update tenants
 set status = $2,
     plan_code = coalesce($3, plan_code),
     suspended_reason = $4,
-    current_period_end = $5::timestamptz
+    current_period_end = $5::timestamptz,
+    billing_cycle = coalesce($6, billing_cycle)
 where id = $1
-returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+returning id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end, billing_cycle
 `,
       [
         input.tenantId,
@@ -1973,6 +2012,7 @@ returning id, name, status, plan_code, database_name, description, datasource_co
         input.planCode ?? null,
         input.suspendedReason ?? null,
         input.currentPeriodEnd ?? null,
+        input.billingCycle ?? null,
       ],
     );
 
@@ -1990,7 +2030,7 @@ returning id, name, status, plan_code, database_name, description, datasource_co
 
       const currentResult = await client.query(
         `
-select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end, billing_cycle
 from tenants
 where id = $1
 for update
@@ -5724,6 +5764,10 @@ function mapTenantRow(row: Record<string, unknown>): Tenant {
     currentPeriodEnd: row.current_period_end
       ? toIsoString(row.current_period_end as string | Date)
       : null,
+    billingCycle:
+      typeof row.billing_cycle === "string"
+        ? (row.billing_cycle as BillingCycle)
+        : null,
   };
 }
 
@@ -5943,6 +5987,7 @@ function normalizeTenantRecord(value: unknown): Tenant {
       businessSignalThresholds: normalizeBusinessSignalThresholds(undefined),
       suspendedReason: null,
       currentPeriodEnd: null,
+      billingCycle: null,
     };
   }
 
@@ -5963,6 +6008,12 @@ function normalizeTenantRecord(value: unknown): Tenant {
       typeof tenant.suspendedReason === "string" ? tenant.suspendedReason : null,
     currentPeriodEnd:
       typeof tenant.currentPeriodEnd === "string" ? tenant.currentPeriodEnd : null,
+    billingCycle:
+      tenant.billingCycle === "monthly" ||
+      tenant.billingCycle === "yearly" ||
+      tenant.billingCycle === "one_time"
+        ? tenant.billingCycle
+        : null,
   };
 }
 

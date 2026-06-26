@@ -129,6 +129,25 @@ export async function callTrialExpiryTick(input: {
   });
 }
 
+export async function callSubscriptionDueTick(input: {
+  config: NotificationRulesWorkerConfig;
+}) {
+  if (!input.config.heartbeatToken) {
+    return {
+      skipped: true as const,
+      reason: "worker_token_missing",
+    };
+  }
+
+  return fetchJsonWithTimeout({
+    url: `${input.config.apiBaseUrl}/api/worker/subscription-due/tick`,
+    token: input.config.heartbeatToken,
+    timeoutMs: 30_000,
+    body: {},
+    errorPrefix: "Subscription due tick API",
+  });
+}
+
 export async function callWorkerHeartbeat(input: {
   config: NotificationRulesWorkerConfig;
   status?: WorkerHeartbeatStatus;

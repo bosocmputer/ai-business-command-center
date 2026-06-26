@@ -38,6 +38,7 @@ type StoreFormState = {
   status: Exclude<Tenant["status"], "cancelled">;
   plan_code: Tenant["planCode"];
   current_period_end_date: string;
+  billing_cycle: "monthly" | "yearly" | "one_time" | null;
   suspended_reason: string;
 };
 
@@ -224,6 +225,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
           status: form.status,
           plan_code: form.plan_code,
           current_period_end: dateInputToIso(form.current_period_end_date),
+          billing_cycle: form.billing_cycle,
           suspended_reason:
             form.status === "suspended"
               ? form.suspended_reason.trim() || null
@@ -612,6 +614,20 @@ function StoreHero({
                 </span>
               </>
             ) : null}
+            {tenant.status === "past_due" && tenant.currentPeriodEnd ? (
+              <>
+                <span className="hidden h-3.5 w-px bg-gray-300 dark:bg-gray-700 sm:block" />
+                <span className="font-medium text-red-600 dark:text-red-400">
+                  ผ่อนผันถึง{" "}
+                  {formatDate(
+                    new Date(
+                      new Date(tenant.currentPeriodEnd).getTime() +
+                        7 * 24 * 60 * 60 * 1000,
+                    ).toISOString(),
+                  )}
+                </span>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -843,6 +859,48 @@ function StoreEditForm({
         <div className="block min-w-0">
           <label
             className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+            htmlFor="edit-tenant-billing-cycle"
+          >
+            รูปแบบการชำระ
+          </label>
+          <select
+            className="owner-v2-input"
+            disabled={cancelled}
+            id="edit-tenant-billing-cycle"
+            onChange={(event) => {
+              const v = event.target.value;
+              setForm((current) =>
+                current
+                  ? {
+                      ...current,
+                      billing_cycle:
+                        v === "monthly" || v === "yearly" || v === "one_time"
+                          ? v
+                          : null,
+                    }
+                  : current,
+              );
+            }}
+            value={form.billing_cycle ?? ""}
+          >
+            <option value="">ไม่ระบุ (ไม่มี automation)</option>
+            <option value="monthly">รายเดือน</option>
+            <option value="yearly">รายปี</option>
+            <option value="one_time">ครั้งเดียว</option>
+          </select>
+          {!form.billing_cycle ? (
+            <span className="mt-1.5 block text-xs leading-5 text-warning-600 dark:text-warning-400">
+              ยังไม่ได้ตั้งรูปแบบการชำระ — ระบบจะไม่ auto-manage subscription นี้
+            </span>
+          ) : (
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ระบบจะแจ้งเตือนและ suspend อัตโนมัติตามรูปแบบที่เลือก
+            </span>
+          )}
+        </div>
+        <div className="block min-w-0">
+          <label
+            className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
             htmlFor="edit-tenant-period-end"
           >
             สิ้นสุดรอบใช้งาน
@@ -881,7 +939,10 @@ function StoreEditForm({
           )}
           {!cancelled ? (
             <div className="mt-2 flex gap-2">
-              {([14, 30] as const).map((days) => (
+              {([
+                { label: "+1 เดือน", days: 30 },
+                { label: "+1 ปี", days: 365 },
+              ] as const).map(({ label, days }) => (
                 <button
                   className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]"
                   key={days}
@@ -903,7 +964,7 @@ function StoreEditForm({
                   }}
                   type="button"
                 >
-                  +{days} วัน
+                  {label}
                 </button>
               ))}
             </div>
@@ -1286,6 +1347,7 @@ function toStoreFormState(tenant: Tenant): StoreFormState {
         : (tenant.status as StoreFormState["status"]),
     plan_code: tenant.planCode,
     current_period_end_date: isoToDateInput(tenant.currentPeriodEnd),
+    billing_cycle: tenant.billingCycle ?? null,
     suspended_reason: tenant.suspendedReason ?? "",
   };
 }
