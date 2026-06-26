@@ -1429,6 +1429,9 @@ function heroToneConfig(tone: StoreVerdict["tone"]) {
 
 function v2HrefForCheck(tenantId: string, check: OwnerV2StoreSetupCheck) {
   const encodedTenantId = encodeURIComponent(tenantId);
+  if (check.key === "store_active") {
+    return `/owner-v2/stores/${encodedTenantId}?tab=advanced`;
+  }
   if (check.key === "sml_javaws") {
     return `/owner-v2/stores/${encodedTenantId}/sml`;
   }
