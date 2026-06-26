@@ -9,6 +9,7 @@ import type {
 import type { LineChannelConfig } from "./config.js";
 
 const LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push";
+const LINE_REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply";
 const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 const LINE_GROUP_SUMMARY_ENDPOINT = "https://api.line.me/v2/bot/group";
 const LINE_FLEX_ALT_TEXT_MAX_LENGTH = 400;
@@ -105,6 +106,30 @@ export async function sendLineBrief(
       status: "failed",
       safe_error_message: "LINE push failed due to network or provider error.",
     };
+  }
+}
+
+export async function sendLineReply(input: {
+  channelAccessToken: string;
+  replyToken: string;
+  messages: Array<{ type: "text"; text: string }>;
+}): Promise<void> {
+  const response = await fetch(LINE_REPLY_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.channelAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      replyToken: input.replyToken,
+      messages: input.messages,
+    }),
+    signal: AbortSignal.timeout(5_000),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`LINE reply failed with status ${response.status}: ${body.slice(0, 200)}`);
   }
 }
 

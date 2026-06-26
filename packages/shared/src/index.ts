@@ -2018,6 +2018,7 @@ export type LineWebhookEventRecord = {
   source_id_masked: string | null;
   user_id: string | null;
   message_text: string | null;
+  reply_token: string | null;
   raw_event_json: Record<string, unknown>;
   created_at: string;
 };

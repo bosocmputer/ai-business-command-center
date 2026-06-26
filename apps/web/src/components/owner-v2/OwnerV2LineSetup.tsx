@@ -899,7 +899,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       โหลดคลังผู้รับ
                     </Button>
                   }
-                  detail="ให้ผู้รับเพิ่ม OA แล้วพิมพ์ test หรือเลือกผู้รับจากคลังที่มีอยู่"
+                  detail="ให้ผู้รับเพิ่ม LINE OA เป็นเพื่อน ระบบรับข้อมูลอัตโนมัติ หรือเลือกผู้รับจากคลังที่มีอยู่"
                   title="ยังไม่มีผู้รับ LINE ในร้านนี้"
                 />
               )}
@@ -1013,7 +1013,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               {recipientsState.status === "loading" ? <MiniSkeleton /> : null}
               {recipientsState.status === "error" ? (
                 <Notice
-                  text={`${recipientsState.message} ลองโหลดใหม่ หรือให้ผู้รับพิมพ์ test ใน LINE OA อีกครั้ง`}
+                  text={`${recipientsState.message} ลองโหลดใหม่ หรือให้ผู้รับเพิ่ม LINE OA เป็นเพื่อนอีกครั้ง`}
                   title="โหลดคลังผู้รับไม่สำเร็จ"
                   tone="error"
                 />
@@ -1813,7 +1813,7 @@ function buildReadinessChecks({
       label: "มี secret รับ webhook",
       detail: secretReadyChannels.length
         ? `${secretReadyChannels.length}/${channels.length} ช่องทางมี token และ secret`
-        : "บันทึก secret รับ webhook เพื่อให้ระบบรับ userId หรือ groupId หลังผู้รับพิมพ์ test",
+        : "บันทึก secret รับ webhook เพื่อให้ระบบรับ userId หรือ groupId เมื่อผู้รับเพิ่ม OA เป็นเพื่อนหรือส่งข้อความ",
     },
     {
       ok: readyTargets.length > 0,

@@ -140,7 +140,7 @@ import {
   type ExecutiveDashboardRunRecord,
   type SecretRecord,
 } from "./system-store.js";
-import { fetchLineTargetDisplayName, sendLineBrief } from "./line-client.js";
+import { fetchLineTargetDisplayName, sendLineBrief, sendLineReply } from "./line-client.js";
 import {
   buildMorningBriefCarouselPreview,
   buildNotificationDigestPreview,
@@ -177,6 +177,7 @@ import {
   buildAssignedLineTarget,
   buildPendingWebhookLineTarget,
   canAccessLineReport,
+  hashLineTargetId,
   lineAccessProfileDefaults,
   toSafeLineTargetRecord,
   type StoredLineTargetRecord,
@@ -4199,6 +4200,54 @@ app.post("/api/line/webhook", async (request, reply) => {
   }
 
   const events = normalizeLineWebhookEvents(request.body as { events?: unknown[] });
+
+  // Send auto-reply immediately while replyToken is still fresh (30s TTL).
+  // Done before saveLineWebhookEvents / registerWebhookLineTargets to avoid
+  // blocking async DB + HTTP calls consuming the TTL window.
+  const replyCredentials = await readStoredLineChannelCredentials({
+    store: systemStore,
+    tenantId: webhookTenantId,
+    preferredLineChannelId: webhookLineChannelId,
+  }).catch(() => null);
+
+  if (replyCredentials) {
+    for (const event of events) {
+      if (!event.reply_token) continue;
+      if (!["follow", "join", "message"].includes(event.event_type)) continue;
+
+      // Skip approved targets — they don't need onboarding reply.
+      const existingTarget = event.source_id
+        ? await systemStore
+            .getLineTargetByHash({
+              tenantId: webhookTenantId,
+              targetIdHash: hashLineTargetId(event.source_id),
+            })
+            .catch(() => null)
+        : null;
+      if (existingTarget?.approved) continue;
+
+      await sendLineReply({
+        channelAccessToken: replyCredentials.channelAccessToken,
+        replyToken: event.reply_token,
+        messages: [
+          {
+            type: "text",
+            text: "ขอบคุณที่ติดตาม ทีมงานกำลังตั้งค่าให้ รอรับรายงานเร็วๆ นี้",
+          },
+        ],
+      }).catch((error: unknown) => {
+        // replyToken expires after 30s (e.g. LINE Developers console test) — non-fatal.
+        request.log.warn(
+          {
+            safe_error_message: toSafeErrorMessage(error),
+            event_type: event.event_type,
+          },
+          "LINE auto-reply failed (non-fatal)",
+        );
+      });
+    }
+  }
+
   await systemStore.saveLineWebhookEvents(events);
   const discoveredTargets = await registerWebhookLineTargets(events, {
     tenantId: webhookTenantId,
@@ -4220,6 +4269,11 @@ app.post("/api/line/webhook", async (request, reply) => {
         webhook_tenant_id: webhookTenantId,
         line_channel_id: webhookLineChannelId,
       },
+    }).catch((auditError: unknown) => {
+      request.log.warn(
+        { safe_error_message: toSafeErrorMessage(auditError) },
+        "LINE webhook audit log failed (non-fatal)",
+      );
     });
   }
 

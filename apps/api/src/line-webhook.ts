@@ -13,6 +13,7 @@ type LineWebhookEvent = {
   type?: string;
   webhookEventId?: string;
   timestamp?: number;
+  replyToken?: string;
   source?: {
     type?: string;
     userId?: string;
@@ -67,6 +68,7 @@ export function normalizeLineWebhookEvents(
         user_id: event.source?.userId ?? null,
         message_text:
           event.message?.type === "text" ? event.message.text ?? null : null,
+        reply_token: event.replyToken ?? null,
         raw_event_json: event as Record<string, unknown>,
         created_at: now,
       } satisfies LineWebhookEventRecord;
@@ -78,6 +80,7 @@ export function sanitizeLineWebhookEvent(event: LineWebhookEventRecord) {
     ...event,
     source_id: null,
     user_id: event.user_id ? maskLineId(event.user_id) : null,
+    reply_token: null,
     raw_event_json: {},
   } satisfies LineWebhookEventRecord;
 }
