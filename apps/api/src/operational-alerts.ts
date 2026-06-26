@@ -32,7 +32,8 @@ export type OperationalAlertType =
   | "javaws_failure"
   | "line_delivery_failed"
   | "worker_tick_failed"
-  | "heartbeat_stale";
+  | "heartbeat_stale"
+  | "trial_auto_expired";
 
 export type TelegramOperationalAlertStatus = {
   configured: boolean;

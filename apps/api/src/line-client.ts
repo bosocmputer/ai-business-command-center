@@ -109,6 +109,30 @@ export async function sendLineBrief(
   }
 }
 
+export async function sendLineTextPush(input: {
+  channelAccessToken: string;
+  targetId: string;
+  text: string;
+}): Promise<void> {
+  const response = await fetch(LINE_PUSH_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.channelAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      to: input.targetId,
+      messages: [{ type: "text", text: truncateLineMessageText(input.text) }],
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`LINE push failed with status ${response.status}: ${body.slice(0, 200)}`);
+  }
+}
+
 export async function sendLineReply(input: {
   channelAccessToken: string;
   replyToken: string;

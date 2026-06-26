@@ -163,6 +163,7 @@ export type SystemStore = {
     reportDefinitions: ReportDefinitionSeed[];
   }): Promise<void>;
   listTenants(): Promise<Tenant[]>;
+  listTrialTenantsWithPeriodEnd(): Promise<Tenant[]>;
   upsertTenant(tenant: Tenant): Promise<Tenant>;
   updateTenantStatus(input: {
     tenantId: TenantId;
@@ -477,6 +478,14 @@ class LocalJsonSystemStore implements SystemStore {
 
   async listTenants() {
     return this.requireData().tenants.map(normalizeTenantRecord);
+  }
+
+  async listTrialTenantsWithPeriodEnd() {
+    return this.requireData()
+      .tenants.filter(
+        (t) => t.status === "trial" && t.currentPeriodEnd != null,
+      )
+      .map(normalizeTenantRecord);
   }
 
   async upsertTenant(tenant: Tenant) {
@@ -1832,6 +1841,20 @@ set name = excluded.name,
 select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
 from tenants
 order by name asc
+`,
+    );
+
+    return result.rows.map(mapTenantRow);
+  }
+
+  async listTrialTenantsWithPeriodEnd() {
+    const result = await this.pool.query(
+      `
+select id, name, status, plan_code, database_name, description, datasource_configured, feature_flags_json, business_signal_thresholds_json, suspended_reason, current_period_end
+from tenants
+where status = 'trial'
+  and current_period_end is not null
+order by current_period_end asc
 `,
     );
 

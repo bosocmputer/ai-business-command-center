@@ -140,7 +140,7 @@ import {
   type ExecutiveDashboardRunRecord,
   type SecretRecord,
 } from "./system-store.js";
-import { fetchLineTargetDisplayName, sendLineBrief, sendLineReply } from "./line-client.js";
+import { fetchLineTargetDisplayName, sendLineBrief, sendLineReply, sendLineTextPush } from "./line-client.js";
 import {
   buildMorningBriefCarouselPreview,
   buildNotificationDigestPreview,
@@ -1918,6 +1918,51 @@ app.patch("/api/owner/tenants/:tenantId", async (request, reply) => {
       after: tenantAuditSnapshot(updated),
       datasource_configured: updated.datasourceConfigured,
     },
+  });
+
+  return { data: await buildOwnerTenantSummary(updated.id) };
+});
+
+app.post("/api/owner/tenants/:tenantId/trial", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = tenantParamsSchema.safeParse(request.params);
+  if (!routeParams.success) {
+    return reply.status(400).send({ error: "Invalid tenant_id" });
+  }
+
+  const body = z
+    .object({ days: z.number().int().min(1).max(365) })
+    .safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "Invalid trial request",
+      details: body.error.flatten().fieldErrors,
+    });
+  }
+
+  const tenant = await getTenantOrNull(routeParams.data.tenantId);
+  if (!tenant) {
+    return reply.status(404).send({ error: "Tenant not found." });
+  }
+
+  const periodEnd = new Date(Date.now() + body.data.days * 24 * 60 * 60 * 1000).toISOString();
+  const updated = await systemStore.upsertTenant({
+    ...tenant,
+    status: "trial",
+    currentPeriodEnd: periodEnd,
+  });
+
+  await systemStore.appendAuditLog({
+    tenant_id: tenant.id,
+    actor_id: null,
+    action: "trial_period_set",
+    target_type: "tenant",
+    target_id: tenant.id,
+    metadata_json: { days: body.data.days, period_end: periodEnd },
   });
 
   return { data: await buildOwnerTenantSummary(updated.id) };
@@ -4155,6 +4200,152 @@ app.post("/api/worker/report-runs/tick", async (request, reply) => {
   return {
     data: {
       ...result,
+      checked_at: now.toISOString(),
+    },
+  };
+});
+
+app.post("/api/worker/trial-expiry/tick", async (request, reply) => {
+  const workerAuth = await requireWorkerToken(request);
+  if (!workerAuth.ok) {
+    return reply.status(workerAuth.statusCode).send({ error: workerAuth.error });
+  }
+
+  const now = new Date();
+  const todayBangkok = formatDateInBangkok(now);
+  const expired: string[] = [];
+  const warned: string[] = [];
+
+  const trialTenants = await systemStore.listTrialTenantsWithPeriodEnd();
+
+  for (const tenant of trialTenants) {
+    if (tenant.status !== "trial" || !tenant.currentPeriodEnd) continue;
+
+    const periodEnd = new Date(tenant.currentPeriodEnd);
+    const msRemaining = periodEnd.getTime() - now.getTime();
+    const daysRemaining = Math.ceil(msRemaining / (24 * 60 * 60 * 1000));
+
+    if (msRemaining <= 0) {
+      // Expired: auto-suspend
+      const updated = await systemStore.updateTenantStatus({
+        tenantId: tenant.id,
+        status: "suspended",
+        suspendedReason: "trial_expired",
+        currentPeriodEnd: tenant.currentPeriodEnd,
+      }).catch(() => null);
+
+      if (!updated) continue;
+
+      // LINE push to all approved targets (text-only, non-fatal per target)
+      const targets = await listEffectiveLineTargets(tenant.id).catch(() => []);
+      const approvedTargets = targets.filter((t) => t.approved && t.enabled);
+      const expiredMessage = `การทดลองใช้งาน ${tenant.name} สิ้นสุดแล้ว ระบบหยุดส่งรายงาน\nกรุณาติดต่อทีมงานเพื่อเปิดใช้งานต่อ`;
+
+      for (const target of approvedTargets) {
+        const lineConfig = await buildLineChannelConfigForTarget(target);
+        if (!lineConfig) continue;
+
+        await sendLineTextPush({
+          channelAccessToken: lineConfig.channelAccessToken,
+          targetId: lineConfig.targetId,
+          text: expiredMessage,
+        }).catch(async (error: unknown) => {
+          await systemStore.appendAuditLog({
+            tenant_id: tenant.id,
+            actor_id: null,
+            action: "trial_expired_line_failed",
+            target_type: "tenant",
+            target_id: tenant.id,
+            metadata_json: { safe_error_message: toSafeErrorMessage(error), target_id_masked: target.target_id_masked },
+          });
+        });
+      }
+
+      // Telegram admin alert (dedup'd per tenant per day)
+      await sendOperationalTelegramAlert({
+        store: systemStore,
+        alertType: "trial_auto_expired",
+        severity: "warning",
+        messageText: buildOperationalAlertMessage({
+          title: "Trial หมดอายุ — auto-suspended",
+          severity: "warning",
+          status: "suspended",
+          details: [`tenant: ${tenant.id}`, `name: ${tenant.name}`, `period_end: ${tenant.currentPeriodEnd}`],
+          action: "ตรวจสอบและต่ออายุหรือ cancel ผ่าน Owner UI",
+        }),
+        dedupeKey: buildOperationalAlertDedupeKey({
+          alertType: "trial_auto_expired",
+          tenantId: tenant.id,
+          ruleId: "trial_expiry",
+          scheduledDate: todayBangkok,
+          scheduledTime: "00:00",
+          severity: "warning",
+        }),
+      }).catch(() => null);
+
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "trial_auto_expired",
+        target_type: "tenant",
+        target_id: tenant.id,
+        metadata_json: { period_end: tenant.currentPeriodEnd, suspended_reason: "trial_expired" },
+      });
+
+      expired.push(tenant.id);
+    } else if (daysRemaining >= 1 && daysRemaining <= 3) {
+      // Warning: check dedup — ส่งได้วันละ 1 ครั้งต่อ tenant
+      const recentLogs = await systemStore.listAuditLogs(200);
+      const alreadyWarnedToday = recentLogs.some(
+        (log) =>
+          log.tenant_id === tenant.id &&
+          log.action === "trial_warning_sent" &&
+          typeof log.metadata_json === "object" &&
+          log.metadata_json !== null &&
+          (log.metadata_json as Record<string, unknown>).warning_date === todayBangkok,
+      );
+      if (alreadyWarnedToday) continue;
+
+      const periodEndDisplay = new Intl.DateTimeFormat("th-TH", {
+        timeZone: BANGKOK_TIME_ZONE,
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }).format(periodEnd);
+      const warningMessage = `การทดลองใช้งาน ${tenant.name} เหลืออีก ${daysRemaining} วัน (หมด ${periodEndDisplay})\nกรุณาติดต่อทีมงานเพื่อต่ออายุการใช้งาน`;
+
+      const targets = await listEffectiveLineTargets(tenant.id).catch(() => []);
+      const approvedTargets = targets.filter((t) => t.approved && t.enabled);
+
+      for (const target of approvedTargets) {
+        const lineConfig = await buildLineChannelConfigForTarget(target);
+        if (!lineConfig) continue;
+
+        await sendLineTextPush({
+          channelAccessToken: lineConfig.channelAccessToken,
+          targetId: lineConfig.targetId,
+          text: warningMessage,
+        }).catch(() => null);
+      }
+
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "trial_warning_sent",
+        target_type: "tenant",
+        target_id: tenant.id,
+        metadata_json: { warning_date: todayBangkok, days_remaining: daysRemaining, period_end: tenant.currentPeriodEnd },
+      });
+
+      warned.push(tenant.id);
+    }
+  }
+
+  return {
+    data: {
+      expired,
+      warned,
+      checked_tenants: trialTenants.length,
       checked_at: now.toISOString(),
     },
   };

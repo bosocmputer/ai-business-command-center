@@ -1,6 +1,7 @@
 import {
   callNotificationRulesTick,
   callReportRunsTick,
+  callTrialExpiryTick,
   callWorkerHeartbeat,
   readNotificationRulesWorkerConfig,
 } from "./scheduler.js";
@@ -172,6 +173,29 @@ async function tick(now = new Date()) {
     );
   } finally {
     tickInFlight = false;
+  }
+
+  // Trial expiry check — non-fatal, ไม่นับใน consecutiveFailures หลัก
+  try {
+    const result = await callTrialExpiryTick({ config });
+    if (!("skipped" in result)) {
+      console.log(
+        JSON.stringify({
+          event: "trial_expiry_tick_completed",
+          checkedAt: now.toISOString(),
+          expired: (result.data as { expired?: unknown[] } | undefined)?.expired?.length ?? 0,
+          warned: (result.data as { warned?: unknown[] } | undefined)?.warned?.length ?? 0,
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "trial_expiry_tick_failed",
+        checkedAt: now.toISOString(),
+        safeError: error instanceof Error ? error.message : "Unknown worker error",
+      }),
+    );
   }
 }
 
