@@ -142,7 +142,7 @@ const categoryLabels: Record<string, string> = {
 const emptyNotificationRuns: NotificationRuleRunRecord[] = [];
 const emptyNotificationRules: OwnerNotificationRule[] = [];
 const emptyChannels: LineChannelRecord[] = [];
-const emptyTargets: LineTargetRecord[] = [];
+const emptyTargets: Array<LineTargetRecord & { sibling_tenant_names: string[] }> = [];
 
 export default function OwnerV2NotificationSetup({
   tenantId,
@@ -277,11 +277,12 @@ export default function OwnerV2NotificationSetup({
     return () => window.clearInterval(intervalId);
   }, [activeRuns.length, load, state.status]);
 
+  type LineTargetWithSiblings = LineTargetRecord & { sibling_tenant_names: string[] };
   const selectedTargetReadiness = useMemo(
     () =>
       form.targetIds
         .map((targetId) => lineTargets.find((target) => target.id === targetId))
-        .filter((target): target is LineTargetRecord => Boolean(target))
+        .filter((target): target is LineTargetWithSiblings => Boolean(target))
         .map((target) => ({
           target,
           readiness: getLineTargetDeliveryReadiness({
@@ -297,10 +298,12 @@ export default function OwnerV2NotificationSetup({
       item,
     ): item is {
       readiness: Extract<LineTargetDeliveryReadiness, { ok: false }>;
-      target: LineTargetRecord;
+      target: LineTargetWithSiblings;
     } => !item.readiness.ok,
   );
-  const selectedTargetBlockedReason = blockedTarget?.readiness.message ?? null;
+  const selectedTargetBlockedReason = blockedTarget
+    ? (!blockedTarget.readiness.ok ? blockedTarget.readiness.message : null)
+    : null;
   const dirty = !sameForm(form, initialForm);
   const saveBlockedReason = getSaveBlockedReason({
     enabled: form.enabled,
@@ -1279,7 +1282,7 @@ function TargetSelector({
   onToggleTarget: (targetId: string) => void;
   reportKeys: ReportKey[];
   selectedTargetIds: string[];
-  targets: LineTargetRecord[];
+  targets: Array<LineTargetRecord & { sibling_tenant_names?: string[] }>;
   tenantId: string;
 }) {
   if (!targets.length) {
@@ -1324,7 +1327,7 @@ function TargetSelector({
         <table className="w-full min-w-[720px]">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
-              {["เลือก", "ผู้รับ", "พร้อมส่ง", "เหตุผล"].map((label) => (
+              {["เลือก", "ผู้รับ", "แชร์ช่อง LINE กับ", "พร้อมส่ง", "เหตุผล"].map((label) => (
                 <th className="py-3 pr-5 text-left last:pr-0 sm:pr-6" key={label}>
                   <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                     {label}
@@ -1340,6 +1343,7 @@ function TargetSelector({
                 reportKeys,
                 target,
               });
+              const siblings = target.sibling_tenant_names ?? [];
               return (
                 <tr key={target.id}>
                   <td className="py-4 pr-5 last:pr-0 sm:pr-6">
@@ -1357,6 +1361,25 @@ function TargetSelector({
                     <p className="mt-1 font-mono text-theme-xs text-gray-500 dark:text-gray-400">
                       {target.target_id_masked}
                     </p>
+                  </td>
+                  <td className="py-4 pr-5 last:pr-0 sm:pr-6">
+                    {siblings.length > 0 ? (
+                      <div>
+                        {siblings.map((name) => (
+                          <span
+                            className="mr-1 inline-block rounded-full bg-warning-50 px-2 py-0.5 text-theme-xs font-medium text-warning-700 dark:bg-warning-500/10 dark:text-warning-300"
+                            key={name}
+                          >
+                            {name}
+                          </span>
+                        ))}
+                        <p className="mt-1 text-theme-xs text-gray-400 dark:text-gray-500">
+                          quota LINE OA ถูกใช้ร่วมกัน
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-theme-xs text-gray-400 dark:text-gray-500">—</span>
+                    )}
                   </td>
                   <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <Badge color={readiness.ok ? "success" : "warning"}>

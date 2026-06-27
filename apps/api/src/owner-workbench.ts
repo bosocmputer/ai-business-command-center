@@ -124,7 +124,7 @@ export type OwnerWorkbenchSmlSetupPayload = {
 export type OwnerWorkbenchLineSetupPayload = {
   tenant: Pick<Tenant, "id" | "name" | "status">;
   channels: LineChannelRecord[];
-  targets: LineTargetRecord[];
+  targets: Array<LineTargetRecord & { sibling_tenant_names: string[] }>;
   readiness: {
     ready_targets: number;
     total_targets: number;

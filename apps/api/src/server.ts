@@ -1096,6 +1096,22 @@ app.get(
       listEffectiveLineTargets(tenant.id),
     ]);
     const safeTargets = targets.map(toSafeLineTargetRecord);
+    const siblingsByHash = new Map<string, string[]>();
+    await Promise.all(
+      targets.map(async (target) => {
+        const siblings = await systemStore
+          .findTenantsWithSameLineTargetHash({
+            targetIdHash: target.target_id_hash,
+            excludeTenantId: tenant.id,
+          })
+          .catch(() => []);
+        siblingsByHash.set(target.target_id_hash, siblings.map((s) => s.tenantName));
+      }),
+    );
+    const safeTargetsWithSiblings = safeTargets.map((target) => ({
+      ...target,
+      sibling_tenant_names: siblingsByHash.get(target.target_id_hash) ?? [],
+    }));
     const sendReadyChannels = channels.filter(isLineChannelSendReady);
     const readyTargets = safeTargets.filter(
       (target) =>
@@ -1113,7 +1129,7 @@ app.get(
           status: tenant.status,
         },
         channels,
-        targets: safeTargets,
+        targets: safeTargetsWithSiblings,
         readiness: {
           ready_targets: readyTargets.length,
           total_targets: safeTargets.length,

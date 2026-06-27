@@ -229,7 +229,7 @@ export type OwnerV2SmlSetupPayload = {
 export type OwnerV2LineSetupPayload = {
   tenant: Pick<Tenant, "id" | "name" | "status">;
   channels: LineChannelRecord[];
-  targets: LineTargetRecord[];
+  targets: Array<LineTargetRecord & { sibling_tenant_names: string[] }>;
   readiness: {
     ready_targets: number;
     total_targets: number;
