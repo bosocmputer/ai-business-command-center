@@ -12517,13 +12517,18 @@ async function executeNotificationRule(input: {
 	          : null,
 	    });
 	    if (input.mode === "send") {
+	      const isRateLimit = (failedDelivery.safe_error_message ?? "").includes("429");
+	      const lineFailSeverity = isRateLimit ? "warning" : "critical";
+	      const lineFailAction = isRateLimit
+	        ? "LINE quota หมดหรือถูก rate limit — ตรวจ LINE OA Console และ upgrade plan ถ้าจำเป็น (ระบบจะ retry อัตโนมัติ)"
+	        : "ตรวจ LINE OA token, target permission, quota และลองส่ง test alert อีกครั้ง";
 	      await sendOpsAlertSafe({
 	        alertType: "line_delivery_failed",
-	        severity: "critical",
+	        severity: lineFailSeverity,
 	        reportKey: null,
 	        messageText: buildOperationalAlertMessage({
 	          title: "ส่ง LINE executive notification ไม่สำเร็จ",
-	          severity: "critical",
+	          severity: lineFailSeverity,
 	          tenantName: tenant.name,
 	          scheduledTime: `${zoned.date} ${zoned.time}`,
 	          status: "failed",
@@ -12531,9 +12536,9 @@ async function executeNotificationRule(input: {
 	          details: [
 	            `LINE target: ${failedDelivery.target_id_masked ?? "unknown"}`,
 	            `สาเหตุ: ${failedDelivery.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ"}`,
+	            ...(isRateLimit ? ["หมายเหตุ: 429 อาจเกิดจาก quota ร่วมกับร้านอื่นในช่อง LINE OA เดียวกัน"] : []),
 	          ],
-	          action:
-	            "ตรวจ LINE OA token, target permission, quota และลองส่ง test alert อีกครั้ง",
+	          action: lineFailAction,
 	        }),
 	      });
 	    }

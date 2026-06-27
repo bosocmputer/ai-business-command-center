@@ -262,6 +262,12 @@ async function alertOverdueLineRetries(input: {
       continue;
     }
 
+    const retryErrMsg = failedDelivery.safe_error_message ?? run.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ";
+    const isRateLimit = retryErrMsg.includes("429");
+    const retryOverdueSeverity = isRateLimit ? "warning" : "critical";
+    const retryOverdueAction = isRateLimit
+      ? "LINE quota หมดหรือถูก rate limit — ตรวจ LINE OA Console และ upgrade plan ถ้าจำเป็น ระบบไม่ retry อีกแล้วในรอบนี้"
+      : "ตรวจ worker retry tick, LINE OA token/quota และ delivery key ว่ามี success ซ้ำหรือไม่";
     const alerted = await sendAndAudit({
       action: "notification_line_retry_overdue_alert_processed",
       alertType: "line_delivery_failed",
@@ -272,11 +278,11 @@ async function alertOverdueLineRetries(input: {
         scheduledDate: run.scheduled_local_date,
         scheduledTime: run.scheduled_local_time,
         reportKey: "retry_overdue",
-        severity: "critical",
+        severity: retryOverdueSeverity,
       }),
       messageText: buildOperationalAlertMessage({
         title: "LINE retry เลยกำหนดและยังไม่สำเร็จ",
-        severity: "critical",
+        severity: retryOverdueSeverity,
         tenantName: tenant.name,
         scheduledTime: `${run.scheduled_local_date} ${run.scheduled_local_time}`,
         runId: run.id,
@@ -285,14 +291,14 @@ async function alertOverdueLineRetries(input: {
           `next_retry_at: ${run.next_retry_at}`,
           `attempt: ${run.attempt}/${rule.retry_policy.max_attempts}`,
           `LINE target: ${failedDelivery.target_id_masked ?? "unknown"}`,
-          `สาเหตุ: ${failedDelivery.safe_error_message ?? run.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ"}`,
+          `สาเหตุ: ${retryErrMsg}`,
+          ...(isRateLimit ? ["หมายเหตุ: 429 อาจเกิดจาก quota ร่วมกับร้านอื่นในช่อง LINE OA เดียวกัน"] : []),
         ],
-        action:
-          "ตรวจ worker retry tick, LINE OA token/quota และ delivery key ว่ามี success ซ้ำหรือไม่",
+        action: retryOverdueAction,
       }),
       notificationRunId: run.id,
       sendAlert: input.sendAlert,
-      severity: "critical",
+      severity: retryOverdueSeverity,
       store: input.store,
       tenant,
     });
