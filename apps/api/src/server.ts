@@ -12255,6 +12255,7 @@ async function executeNotificationRule(input: {
 
   const deliveries: LineDeliveryRecord[] = [];
   const deliveryTargetHashes = new Set<string>();
+  const deliveryIdToTargetHash = new Map<string, string>();
   for (const targetId of input.rule.target_ids) {
     const target = await getEffectiveLineTargetById(targetId);
     if (!target) {
@@ -12425,6 +12426,7 @@ async function executeNotificationRule(input: {
       periodTo: params.date_to,
     });
     deliveries.push(delivery);
+    deliveryIdToTargetHash.set(delivery.id, target.target_id_hash);
     await systemStore.saveLineDelivery(delivery);
     if (delivery.sent_at) {
       await markLineTargetDelivered(target, delivery.sent_at);
@@ -12522,6 +12524,16 @@ async function executeNotificationRule(input: {
 	      const lineFailAction = isRateLimit
 	        ? "LINE quota หมดหรือถูก rate limit — ตรวจ LINE OA Console และ upgrade plan ถ้าจำเป็น (ระบบจะ retry อัตโนมัติ)"
 	        : "ตรวจ LINE OA token, target permission, quota และลองส่ง test alert อีกครั้ง";
+	      const failedDeliveryHash = deliveryIdToTargetHash.get(failedDelivery.id);
+	      const siblingTenants = failedDeliveryHash
+	        ? await systemStore.findTenantsWithSameLineTargetHash({
+	            targetIdHash: failedDeliveryHash,
+	            excludeTenantId: tenant.id,
+	          }).catch(() => [])
+	        : [];
+	      const siblingNote = siblingTenants.length > 0
+	        ? `target นี้แชร์กับร้าน: ${siblingTenants.map((s) => s.tenantName).join(", ")} — quota อาจถูกใช้โดยร้านอื่น`
+	        : null;
 	      await sendOpsAlertSafe({
 	        alertType: "line_delivery_failed",
 	        severity: lineFailSeverity,
@@ -12536,7 +12548,8 @@ async function executeNotificationRule(input: {
 	          details: [
 	            `LINE target: ${failedDelivery.target_id_masked ?? "unknown"}`,
 	            `สาเหตุ: ${failedDelivery.safe_error_message ?? "ส่ง LINE ไม่สำเร็จ"}`,
-	            ...(isRateLimit ? ["หมายเหตุ: 429 อาจเกิดจาก quota ร่วมกับร้านอื่นในช่อง LINE OA เดียวกัน"] : []),
+	            ...(siblingNote ? [siblingNote] : []),
+	            ...(isRateLimit && !siblingNote ? ["หมายเหตุ: 429 อาจเกิดจาก quota ร่วมกับร้านอื่นในช่อง LINE OA เดียวกัน"] : []),
 	          ],
 	          action: lineFailAction,
 	        }),

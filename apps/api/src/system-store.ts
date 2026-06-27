@@ -323,6 +323,10 @@ export type SystemStore = {
     tenantId: TenantId;
     targetIdHash: string;
   }): Promise<StoredLineTargetRecord | null>;
+  findTenantsWithSameLineTargetHash(input: {
+    targetIdHash: string;
+    excludeTenantId: TenantId;
+  }): Promise<{ tenantId: TenantId; tenantName: string }[]>;
   upsertLineTarget(
     target: StoredLineTargetRecord,
   ): Promise<StoredLineTargetRecord>;
@@ -1337,6 +1341,27 @@ class LocalJsonSystemStore implements SystemStore {
           target.target_id_hash === input.targetIdHash,
       ) ?? null
     );
+  }
+
+  async findTenantsWithSameLineTargetHash(input: {
+    targetIdHash: string;
+    excludeTenantId: TenantId;
+  }) {
+    const data = this.requireData();
+    const seen = new Set<TenantId>();
+    const result: { tenantId: TenantId; tenantName: string }[] = [];
+    for (const target of data.lineTargets) {
+      if (
+        target.target_id_hash === input.targetIdHash &&
+        target.tenant_id !== input.excludeTenantId &&
+        !seen.has(target.tenant_id)
+      ) {
+        seen.add(target.tenant_id);
+        const tenant = data.tenants.find((t) => t.id === target.tenant_id);
+        result.push({ tenantId: target.tenant_id, tenantName: tenant?.name ?? target.tenant_id });
+      }
+    }
+    return result;
   }
 
   async upsertLineTarget(target: StoredLineTargetRecord) {
@@ -4318,6 +4343,27 @@ limit 1
     );
 
     return result.rows[0] ? mapLineTargetRow(result.rows[0]) : null;
+  }
+
+  async findTenantsWithSameLineTargetHash(input: {
+    targetIdHash: string;
+    excludeTenantId: TenantId;
+  }) {
+    const result = await this.pool.query(
+      `
+select distinct lt.tenant_id, t.name as tenant_name
+from line_targets lt
+join tenants t on t.id = lt.tenant_id
+where lt.target_id_hash = $1
+  and lt.tenant_id != $2
+order by t.name
+`,
+      [input.targetIdHash, input.excludeTenantId],
+    );
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id as TenantId,
+      tenantName: row.tenant_name as string,
+    }));
   }
 
   async upsertLineTarget(target: StoredLineTargetRecord) {

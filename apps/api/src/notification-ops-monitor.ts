@@ -23,8 +23,10 @@ type NotificationOpsMonitorStore = Pick<
   | "appendAuditLog"
   | "findSuccessfulLineDeliveryByKey"
   | "findSuccessfulOperationalAlertDeliveryByDedupeKey"
+  | "findTenantsWithSameLineTargetHash"
   | "getLatestWorkerHeartbeat"
   | "listLineDeliveries"
+  | "listLineTargets"
   | "listNotificationRuleRuns"
   | "listNotificationRules"
   | "listTenants"
@@ -268,6 +270,23 @@ async function alertOverdueLineRetries(input: {
     const retryOverdueAction = isRateLimit
       ? "LINE quota หมดหรือถูก rate limit — ตรวจ LINE OA Console และ upgrade plan ถ้าจำเป็น ระบบไม่ retry อีกแล้วในรอบนี้"
       : "ตรวจ worker retry tick, LINE OA token/quota และ delivery key ว่ามี success ซ้ำหรือไม่";
+    const targetMasked = failedDelivery.target_id_masked;
+    let siblingNote: string | null = null;
+    if (targetMasked) {
+      const tenantTargets = await input.store.listLineTargets(run.tenant_id).catch(() => []);
+      const matchedTarget = tenantTargets.find((t) => t.target_id_masked === targetMasked);
+      if (matchedTarget?.target_id_hash) {
+        const siblings = await input.store
+          .findTenantsWithSameLineTargetHash({
+            targetIdHash: matchedTarget.target_id_hash,
+            excludeTenantId: run.tenant_id,
+          })
+          .catch(() => []);
+        if (siblings.length > 0) {
+          siblingNote = `target นี้แชร์กับร้าน: ${siblings.map((s) => s.tenantName).join(", ")} — quota อาจถูกใช้โดยร้านอื่น`;
+        }
+      }
+    }
     const alerted = await sendAndAudit({
       action: "notification_line_retry_overdue_alert_processed",
       alertType: "line_delivery_failed",
@@ -292,7 +311,8 @@ async function alertOverdueLineRetries(input: {
           `attempt: ${run.attempt}/${rule.retry_policy.max_attempts}`,
           `LINE target: ${failedDelivery.target_id_masked ?? "unknown"}`,
           `สาเหตุ: ${retryErrMsg}`,
-          ...(isRateLimit ? ["หมายเหตุ: 429 อาจเกิดจาก quota ร่วมกับร้านอื่นในช่อง LINE OA เดียวกัน"] : []),
+          ...(siblingNote ? [siblingNote] : []),
+          ...(isRateLimit && !siblingNote ? ["หมายเหตุ: 429 อาจเกิดจาก quota ร่วมกับร้านอื่นในช่อง LINE OA เดียวกัน"] : []),
         ],
         action: retryOverdueAction,
       }),

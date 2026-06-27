@@ -236,6 +236,8 @@ function createHarness(input?: {
         .sort((a, b) => b.checked_at.localeCompare(a.checked_at))[0] ?? null,
     listLineDeliveries: async (tenantId: string) =>
       state.lineDeliveries.filter((delivery) => delivery.tenant_id === tenantId),
+    listLineTargets: async () => [],
+    findTenantsWithSameLineTargetHash: async () => [],
     listNotificationRuleRuns: async () => [...state.runs],
     listNotificationRules: async () => [...state.rules],
     listTenants: async () => [...state.tenants],
