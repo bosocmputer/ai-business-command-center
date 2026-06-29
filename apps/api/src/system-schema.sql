@@ -6,7 +6,7 @@ create table if not exists tenants (
   database_name text not null default '',
   description text not null default '',
   datasource_configured boolean not null default false,
-  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":true,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":true,"sml_chunked_heavy_reports_enabled":true,"telegram_operational_alerts_enabled":true,"demo_mode_enabled":false}'::jsonb,
   business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
@@ -16,7 +16,7 @@ alter table tenants
   add column if not exists database_name text not null default '',
   add column if not exists description text not null default '',
   add column if not exists datasource_configured boolean not null default false,
-  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":false,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":false,"sml_chunked_heavy_reports_enabled":false,"telegram_operational_alerts_enabled":false,"demo_mode_enabled":false}'::jsonb,
+  add column if not exists feature_flags_json jsonb not null default '{"business_signals_enabled":true,"line_action_digest_v2_enabled":true,"line_heavy_report_fallback_enabled":true,"line_report_failure_incident_enabled":true,"sml_chunked_heavy_reports_enabled":true,"telegram_operational_alerts_enabled":true,"demo_mode_enabled":false}'::jsonb,
   add column if not exists business_signal_thresholds_json jsonb not null default '{}'::jsonb,
   add column if not exists suspended_reason text,
   add column if not exists current_period_end timestamptz,

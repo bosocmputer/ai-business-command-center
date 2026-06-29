@@ -226,8 +226,13 @@ describe("report catalog", () => {
       "success_with_warnings",
     );
     expect(tenantFeatureFlagsSchema.parse({})).toMatchObject({
+      business_signals_enabled: true,
+      line_action_digest_v2_enabled: true,
       line_heavy_report_fallback_enabled: true,
-      line_report_failure_incident_enabled: false,
+      line_report_failure_incident_enabled: true,
+      sml_chunked_heavy_reports_enabled: true,
+      telegram_operational_alerts_enabled: true,
+      demo_mode_enabled: false,
     });
   });
 });

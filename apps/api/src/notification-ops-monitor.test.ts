@@ -23,7 +23,7 @@ const config: NotificationOpsMonitorConfig = {
   slowWarningMs: 15 * 60_000,
 };
 
-function buildTenant(id: string, name: string, telegramEnabled = true): Tenant {
+function buildTenant(id: string, name: string): Tenant {
   return {
     id,
     name,
@@ -42,7 +42,7 @@ function buildTenant(id: string, name: string, telegramEnabled = true): Tenant {
       line_heavy_report_fallback_enabled: true,
       line_report_failure_incident_enabled: true,
       sml_chunked_heavy_reports_enabled: true,
-      telegram_operational_alerts_enabled: telegramEnabled,
+      telegram_operational_alerts_enabled: true,
     },
   };
 }
@@ -203,7 +203,7 @@ function createHarness(input?: {
       [
         buildTenant("tenant_demo_remote", "กระบี่"),
         buildTenant("seaandhill_demo", "seaandhill THAPPUT"),
-        buildTenant("tenant_office_sml1_2026", "248 SHOP", false),
+        buildTenant("tenant_office_sml1_2026", "248 SHOP"),
       ],
   };
   const store = {

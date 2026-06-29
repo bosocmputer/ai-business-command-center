@@ -1,5 +1,5 @@
 import {
-  tenantFeatureFlagsSchema,
+  productTenantFeatureFlags,
   type LineDeliveryRecord,
   type NotificationRuleRecord,
   type NotificationRuleRunRecord,
@@ -458,8 +458,8 @@ function isActiveTenant(tenant: Tenant | undefined): tenant is Tenant {
 
 function opsAlertsEnabled(tenant: Tenant | undefined) {
   return (
-    tenantFeatureFlagsSchema.parse(tenant?.featureFlags ?? {})
-      .telegram_operational_alerts_enabled === true
+    tenant?.status === "active" &&
+    productTenantFeatureFlags.telegram_operational_alerts_enabled === true
   );
 }
 

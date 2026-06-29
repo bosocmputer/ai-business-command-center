@@ -69,6 +69,8 @@ import {
   businessSignalThresholdsSchema,
   notificationDigestModeSchema,
   notificationPeriodStrategySchema,
+  productBusinessSignalThresholds,
+  productTenantFeatureFlags,
   tenantFeatureFlagsSchema,
 } from "@ai-bcc/shared";
 import {
@@ -1269,7 +1271,7 @@ app.get(
         }),
       ),
     ]);
-    const featureFlags = tenant.featureFlags ?? tenantFeatureFlagsSchema.parse({});
+    const featureFlags = getTenantFeatureFlags(tenant);
 
     return {
       data: {
@@ -1341,7 +1343,7 @@ app.get("/api/owner/tenants/:tenantId/business-signals", async (request, reply) 
   return {
     data: signals,
     tenant,
-    feature_flags: tenant.featureFlags ?? tenantFeatureFlagsSchema.parse({}),
+    feature_flags: getTenantFeatureFlags(tenant),
   };
 });
 
@@ -8594,8 +8596,8 @@ async function serializeExecutiveDashboardRun(run: ExecutiveDashboardRunRecord) 
   };
 }
 
-function getTenantFeatureFlags(tenant: Tenant) {
-  return tenantFeatureFlagsSchema.parse(tenant.featureFlags ?? {});
+function getTenantFeatureFlags(_tenant: Tenant) {
+  return productTenantFeatureFlags;
 }
 
 function isBusinessSignalsEnabled(tenant: Tenant) {
@@ -9924,10 +9926,8 @@ function isTimeoutError(error: unknown) {
   );
 }
 
-function getBusinessSignalThresholdsForTenant(tenant: Tenant) {
-  const thresholds = businessSignalThresholdsSchema.parse(
-    tenant.businessSignalThresholds ?? {},
-  );
+function getBusinessSignalThresholdsForTenant(_tenant: Tenant) {
+  const thresholds = productBusinessSignalThresholds;
   return {
     lowGrossMarginPercent: thresholds.low_gross_margin_percent,
     salesDropPercent: thresholds.sales_drop_percent,
@@ -13397,9 +13397,7 @@ function tenantAuditSnapshot(tenant: Tenant) {
     plan_code: tenant.planCode,
     description: tenant.description,
     feature_flags: getTenantFeatureFlags(tenant),
-    business_signal_thresholds: businessSignalThresholdsSchema.parse(
-      tenant.businessSignalThresholds ?? {},
-    ),
+    business_signal_thresholds: productBusinessSignalThresholds,
     current_period_end: tenant.currentPeriodEnd,
     suspended_reason: tenant.suspendedReason,
   };

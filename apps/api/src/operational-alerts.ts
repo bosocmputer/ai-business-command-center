@@ -5,7 +5,7 @@ import type {
   OperationalAlertTargetRecord,
   Tenant,
 } from "@ai-bcc/shared";
-import { tenantFeatureFlagsSchema } from "@ai-bcc/shared";
+import { productTenantFeatureFlags } from "@ai-bcc/shared";
 import { decryptSecret, encryptSecret } from "./secret-vault.js";
 import type { SecretRecord, SystemStore } from "./system-store.js";
 import { readSecretEncryptionSecret } from "./tenant-secret-config.js";
@@ -209,8 +209,7 @@ export async function sendOperationalTelegramAlert(input: {
   const enabled =
     input.forceEnabled ||
     input.dryRun ||
-    tenantFeatureFlagsSchema.parse(input.tenant?.featureFlags ?? {})
-      .telegram_operational_alerts_enabled === true;
+    productTenantFeatureFlags.telegram_operational_alerts_enabled === true;
   if (!enabled) {
     return [
       await saveAlertDelivery(input.store, {

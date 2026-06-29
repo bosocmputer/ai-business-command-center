@@ -34,11 +34,11 @@ export const tenantStatusSchema = z.enum([
 
 export const tenantFeatureFlagsSchema = z.object({
   business_signals_enabled: z.boolean().default(true),
-  line_action_digest_v2_enabled: z.boolean().default(false),
+  line_action_digest_v2_enabled: z.boolean().default(true),
   line_heavy_report_fallback_enabled: z.boolean().default(true),
-  line_report_failure_incident_enabled: z.boolean().default(false),
-  sml_chunked_heavy_reports_enabled: z.boolean().default(false),
-  telegram_operational_alerts_enabled: z.boolean().default(false),
+  line_report_failure_incident_enabled: z.boolean().default(true),
+  sml_chunked_heavy_reports_enabled: z.boolean().default(true),
+  telegram_operational_alerts_enabled: z.boolean().default(true),
   demo_mode_enabled: z.boolean().default(false),
 });
 
@@ -55,6 +55,19 @@ export const businessSignalThresholdsSchema = z.object({
     .default(0),
   no_sales_enabled: z.boolean().default(true),
 });
+
+export const productTenantFeatureFlags = tenantFeatureFlagsSchema.parse({
+  business_signals_enabled: true,
+  line_action_digest_v2_enabled: true,
+  line_heavy_report_fallback_enabled: true,
+  line_report_failure_incident_enabled: true,
+  sml_chunked_heavy_reports_enabled: true,
+  telegram_operational_alerts_enabled: true,
+  demo_mode_enabled: false,
+});
+
+export const productBusinessSignalThresholds =
+  businessSignalThresholdsSchema.parse({});
 
 export const planCodeSchema = z.enum(["starter", "business", "pro"]);
 
