@@ -592,6 +592,13 @@ export type AiUsageLedgerRecord = {
   created_at: string;
 };
 
+export type AiCeoPruneResult = {
+  advisor_runs_deleted: number;
+  advisor_items_deleted: number;
+  usage_ledger_deleted: number;
+  metric_snapshots_deleted: number;
+};
+
 export const reportCatalog = {
   sales_goods_services: {
     key: "sales_goods_services",

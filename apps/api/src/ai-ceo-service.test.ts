@@ -12,6 +12,7 @@ import type {
 } from "@ai-bcc/shared";
 import { createSampleSnapshot } from "./sample-data.js";
 import {
+  buildAiCeoLinePreview,
   defaultTenantAiProfile,
   runAiCeoDryRun,
   syncOpenRouterModelCatalog,
@@ -122,6 +123,15 @@ describe("AI CEO service", () => {
     expect(store.runs.at(-1)?.response_json?.summary).toContain("ยอดขายดี");
     expect(store.items.at(-1)?.title).toBe("ตรวจสินค้ากำไรต่ำ");
     expect(store.usageLedger.at(-1)?.input_tokens).toBe(1000);
+
+    const preview = buildAiCeoLinePreview({
+      tenant,
+      run: result.run,
+      items: result.items,
+    });
+    expect(preview?.line_message_type).toBe("flex");
+    expect(preview?.text).toContain("ตรวจสินค้ากำไรต่ำ");
+    expect(JSON.stringify(preview?.flex_message)).not.toContain("api_key");
   });
 });
 
@@ -180,6 +190,12 @@ function createFakeStore() {
       return entry;
     },
     listAiUsageLedger: async () => [...state.usageLedger],
+    pruneAiCeoHistory: async () => ({
+      advisor_runs_deleted: 0,
+      advisor_items_deleted: 0,
+      usage_ledger_deleted: 0,
+      metric_snapshots_deleted: 0,
+    }),
     getLatestSnapshot: async (_tenantId: string, reportKey?: ReportKey) =>
       !reportKey || reportKey === snapshot.report_key ? snapshot : null,
     listBusinessSignals: async () => [] as BusinessSignalRecord[],

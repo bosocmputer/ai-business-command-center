@@ -208,6 +208,7 @@ import {
 } from "./flowaccount-service.js";
 import {
   AiCeoSafeError,
+  buildAiCeoLinePreview,
   defaultTenantAiProfile,
   readAiCeoSetupStatus,
   runAiCeoDryRun,
@@ -12591,6 +12592,99 @@ async function executeNotificationRule(input: {
         },
       )
     : [];
+  const deliveries: LineDeliveryRecord[] = [];
+  const deliveryTargetHashes = new Set<string>();
+  const deliveryIdToTargetHash = new Map<string, string>();
+  const lineTargetById = new Map<
+    string,
+    NonNullable<Awaited<ReturnType<typeof getEffectiveLineTargetById>>>
+  >();
+  for (const targetId of input.rule.target_ids) {
+    const target = await getEffectiveLineTargetById(targetId);
+    if (!target) {
+      return failRun(
+        "ปลายทาง LINE ในกฎนี้หายไป กรุณาเลือกปลายทางใหม่แล้วบันทึกอีกครั้ง",
+        424,
+        reportRunIds,
+        deliveries.map((delivery) => delivery.id),
+      );
+    }
+    lineTargetById.set(targetId, target);
+  }
+  const hasExecutiveLineTarget = Array.from(lineTargetById.values()).some(
+    (target) => target.access_profile_key === "executive",
+  );
+  const aiCeoProfile = await systemStore.getTenantAiProfile(tenant.id);
+  let aiCeoPreview: ReportLinePreview | null = null;
+  let aiCeoRunId: string | null = null;
+  let aiCeoStatus: string | null = null;
+  let aiCeoSafeErrorMessage: string | null = null;
+  if (aiCeoProfile?.ai_enabled && hasExecutiveLineTarget) {
+    try {
+      const aiResult = await runAiCeoDryRun({
+        store: systemStore,
+        tenant,
+        request: { scheduled_date: zoned.date },
+        actorId: null,
+        triggerType: "scheduled",
+        idempotencyKey: `ai-ceo:notification:${input.rule.id}:${zoned.date}:${zoned.time}:${run.id}`,
+      });
+      aiCeoRunId = aiResult.run.id;
+      aiCeoStatus = aiResult.run.status;
+      aiCeoSafeErrorMessage = aiResult.safe_error_message;
+      if (aiResult.ok && !aiCeoProfile.shadow_mode_enabled) {
+        aiCeoPreview = buildAiCeoLinePreview({
+          tenant,
+          run: aiResult.run,
+          items: aiResult.items,
+        });
+      }
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: aiResult.ok
+          ? "ai_ceo_notification_run_succeeded"
+          : "ai_ceo_notification_run_failed",
+        target_type: "ai_ceo_run",
+        target_id: aiResult.run.id,
+        metadata_json: {
+          notification_rule_id: input.rule.id,
+          notification_run_id: run.id,
+          mode: input.mode,
+          source: input.source,
+          scheduled_local_date: zoned.date,
+          scheduled_local_time: zoned.time,
+          shadow_mode_enabled: aiCeoProfile.shadow_mode_enabled,
+          line_preview_enabled: Boolean(aiCeoPreview),
+          status: aiResult.run.status,
+          model_id: aiResult.run.model_id,
+          input_tokens: aiResult.run.input_tokens,
+          output_tokens: aiResult.run.output_tokens,
+          cost_estimate_usd: aiResult.run.cost_estimate_usd,
+          safe_error_message: aiResult.safe_error_message,
+        },
+      });
+    } catch (error) {
+      aiCeoStatus = "failed";
+      aiCeoSafeErrorMessage = toSafeErrorMessage(error);
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: null,
+        action: "ai_ceo_notification_run_failed",
+        target_type: "ai_ceo_run",
+        target_id: null,
+        metadata_json: {
+          notification_rule_id: input.rule.id,
+          notification_run_id: run.id,
+          mode: input.mode,
+          source: input.source,
+          scheduled_local_date: zoned.date,
+          scheduled_local_time: zoned.time,
+          safe_error_message: aiCeoSafeErrorMessage,
+        },
+      });
+    }
+  }
   const lineActionDigestV2Enabled = isLineActionDigestV2Enabled(tenant);
 
   await updateRunProgress({
@@ -12601,11 +12695,8 @@ async function executeNotificationRule(input: {
     totalReports,
   });
 
-  const deliveries: LineDeliveryRecord[] = [];
-  const deliveryTargetHashes = new Set<string>();
-  const deliveryIdToTargetHash = new Map<string, string>();
   for (const targetId of input.rule.target_ids) {
-    const target = await getEffectiveLineTargetById(targetId);
+    const target = lineTargetById.get(targetId);
     if (!target) {
       return failRun(
         "ปลายทาง LINE ในกฎนี้หายไป กรุณาเลือกปลายทางใหม่แล้วบันทึกอีกครั้ง",
@@ -12728,8 +12819,20 @@ async function executeNotificationRule(input: {
     const orderedFallbackPreviews = input.rule.report_keys
       .map((reportKey) => fallbackPreviewByReportKey.get(reportKey) ?? null)
       .filter((preview): preview is ReportLinePreview => Boolean(preview));
-    const preview =
-      actionDigestPreview ?? buildNotificationDigestPreview(orderedFallbackPreviews);
+    const targetCanReceiveAiCeo =
+      Boolean(aiCeoPreview) && target.access_profile_key === "executive";
+    const aiCeoLinePreviews =
+      targetCanReceiveAiCeo && aiCeoPreview ? [aiCeoPreview] : [];
+    const preview = actionDigestPreview
+      ? targetCanReceiveAiCeo
+        ? buildNotificationDigestPreview([
+            ...aiCeoLinePreviews,
+            actionDigestPreview,
+          ])
+        : actionDigestPreview
+      : buildNotificationDigestPreview(
+          [...aiCeoLinePreviews, ...orderedFallbackPreviews],
+        );
     const digestIssueAuditMapping =
       actionDigestSelection?.issues.map((issue) => ({
         issue_key: issue.issue_key,
@@ -12812,6 +12915,12 @@ async function executeNotificationRule(input: {
         business_signal_keys: actionDigestSignals.map(
           (signal) => signal.signal_key,
         ),
+        ai_ceo_enabled: Boolean(aiCeoProfile?.ai_enabled),
+        ai_ceo_shadow_mode_enabled: aiCeoProfile?.shadow_mode_enabled ?? null,
+        ai_ceo_preview_included: targetCanReceiveAiCeo,
+        ai_ceo_run_id: aiCeoRunId,
+        ai_ceo_status: aiCeoStatus,
+        ai_ceo_safe_error_message: aiCeoSafeErrorMessage,
         ...getDegradedAuditMetadata(),
       },
     });
@@ -12952,41 +13061,48 @@ async function executeNotificationRule(input: {
       report_run_ids: reportRunIds,
       delivery_ids: deliveries.map((delivery) => delivery.id),
       delivery_statuses: deliveries.map((delivery) => delivery.status),
-	      ...getDegradedAuditMetadata(),
-	    },
-	  });
-	  if (input.mode === "send") {
-	    const warningCount =
-	      degradedReports.length +
-	      deliveries.filter((delivery) => delivery.status !== "success").length;
-	    await sendOpsAlertSafe({
-	      alertType: "notification_summary",
-	      severity: warningCount ? "warning" : "info",
-	      reportKey: null,
-	      messageText: buildOperationalAlertMessage({
-	        title: "สรุปรอบแจ้งเตือนผู้บริหาร",
-	        severity: warningCount ? "warning" : "info",
-	        tenantName: tenant.name,
-	        scheduledTime: `${zoned.date} ${zoned.time}`,
-	        status: run.status,
-	        runId: run.id,
-	        details: [
-	          `reports: ${input.rule.report_keys.length}`,
-	          `LINE deliveries: ${deliveries.length}`,
-	          `success LINE: ${
-	            deliveries.filter((delivery) => delivery.status === "success").length
-	          }`,
-	          `duration_ms: ${Date.now() - executionStartedAtMs}`,
-	          `warning_count: ${warningCount}`,
-	        ],
-	        action: warningCount
-	          ? "ตรวจ operations status และรายงานที่ degraded ก่อนใช้ยอดรอบนี้ตัดสินใจ"
-	          : "ไม่ต้องดำเนินการ ระบบส่งรายงานผู้บริหารสำเร็จ",
-	      }),
-	    });
-	  }
+      ai_ceo_enabled: Boolean(aiCeoProfile?.ai_enabled),
+      ai_ceo_shadow_mode_enabled: aiCeoProfile?.shadow_mode_enabled ?? null,
+      ai_ceo_preview_available: Boolean(aiCeoPreview),
+      ai_ceo_run_id: aiCeoRunId,
+      ai_ceo_status: aiCeoStatus,
+      ai_ceo_safe_error_message: aiCeoSafeErrorMessage,
+      ...getDegradedAuditMetadata(),
+    },
+  });
+  if (input.mode === "send") {
+    const warningCount =
+      degradedReports.length +
+      deliveries.filter((delivery) => delivery.status !== "success").length;
+    await sendOpsAlertSafe({
+      alertType: "notification_summary",
+      severity: warningCount ? "warning" : "info",
+      reportKey: null,
+      messageText: buildOperationalAlertMessage({
+        title: "สรุปรอบแจ้งเตือนผู้บริหาร",
+        severity: warningCount ? "warning" : "info",
+        tenantName: tenant.name,
+        scheduledTime: `${zoned.date} ${zoned.time}`,
+        status: run.status,
+        runId: run.id,
+        details: [
+          `reports: ${input.rule.report_keys.length}`,
+          `LINE deliveries: ${deliveries.length}`,
+          `success LINE: ${
+            deliveries.filter((delivery) => delivery.status === "success")
+              .length
+          }`,
+          `duration_ms: ${Date.now() - executionStartedAtMs}`,
+          `warning_count: ${warningCount}`,
+        ],
+        action: warningCount
+          ? "ตรวจ operations status และรายงานที่ degraded ก่อนใช้ยอดรอบนี้ตัดสินใจ"
+          : "ไม่ต้องดำเนินการ ระบบส่งรายงานผู้บริหารสำเร็จ",
+      }),
+    });
+  }
 
-	  const successfulDelivery = deliveries.find(
+  const successfulDelivery = deliveries.find(
     (delivery) => delivery.status === "success",
   );
   return {

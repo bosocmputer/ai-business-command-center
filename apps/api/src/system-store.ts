@@ -5,6 +5,7 @@ import { Pool } from "pg";
 import {
   type AiAdvisorItemRecord,
   type AiAdvisorRunRecord,
+  type AiCeoPruneResult,
   type AiCeoAdvisorItemStatus,
   type AiUsageLedgerRecord,
   type BusinessSignalRecord,
@@ -260,6 +261,11 @@ export type SystemStore = {
     since?: string;
     limit?: number;
   }): Promise<AiUsageLedgerRecord[]>;
+  pruneAiCeoHistory(input: {
+    tenantId: TenantId;
+    before: string;
+    keepLatestRuns: number;
+  }): Promise<AiCeoPruneResult>;
   getLatestSnapshot(
     tenantId: TenantId,
     reportKey?: ReportKey,
@@ -977,6 +983,83 @@ class LocalJsonSystemStore implements SystemStore {
       )
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, limit);
+  }
+
+  async pruneAiCeoHistory(input: {
+    tenantId: TenantId;
+    before: string;
+    keepLatestRuns: number;
+  }) {
+    const data = this.requireData();
+    const keepRunIds = new Set(
+      data.aiAdvisorRuns
+        .filter((run) => run.tenant_id === input.tenantId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, normalizeLimit(input.keepLatestRuns, 100))
+        .map((run) => run.id),
+    );
+    const before = input.before;
+    const runIdsWithOpenItems = new Set(
+      data.aiAdvisorItems
+        .filter(
+          (item) => item.tenant_id === input.tenantId && item.status === "new",
+        )
+        .map((item) => item.advisor_run_id),
+    );
+    const runIdsToDelete = new Set(
+      data.aiAdvisorRuns
+        .filter(
+          (run) =>
+            run.tenant_id === input.tenantId &&
+            run.created_at < before &&
+            !keepRunIds.has(run.id) &&
+            !runIdsWithOpenItems.has(run.id),
+        )
+        .map((run) => run.id),
+    );
+
+    const runsBefore = data.aiAdvisorRuns.length;
+    const itemsBefore = data.aiAdvisorItems.length;
+    const usageBefore = data.aiUsageLedger.length;
+    const metricsBefore = data.metricSnapshots.length;
+
+    data.aiUsageLedger = data.aiUsageLedger.filter(
+      (entry) =>
+        entry.tenant_id !== input.tenantId ||
+        entry.created_at >= before ||
+        (entry.advisor_run_id !== null &&
+          !runIdsToDelete.has(entry.advisor_run_id)),
+    );
+    data.aiAdvisorItems = data.aiAdvisorItems.filter(
+      (item) =>
+        item.tenant_id !== input.tenantId ||
+        item.status === "new" ||
+        item.created_at >= before ||
+        !runIdsToDelete.has(item.advisor_run_id),
+    );
+    data.aiAdvisorRuns = data.aiAdvisorRuns.filter(
+      (run) => !runIdsToDelete.has(run.id),
+    );
+    data.metricSnapshots = data.metricSnapshots.filter(
+      (snapshot) =>
+        snapshot.tenant_id !== input.tenantId || snapshot.created_at >= before,
+    );
+
+    const result = {
+      advisor_runs_deleted: runsBefore - data.aiAdvisorRuns.length,
+      advisor_items_deleted: itemsBefore - data.aiAdvisorItems.length,
+      usage_ledger_deleted: usageBefore - data.aiUsageLedger.length,
+      metric_snapshots_deleted: metricsBefore - data.metricSnapshots.length,
+    };
+    if (
+      result.advisor_runs_deleted ||
+      result.advisor_items_deleted ||
+      result.usage_ledger_deleted ||
+      result.metric_snapshots_deleted
+    ) {
+      await this.persist();
+    }
+    return result;
   }
 
   async getLatestSnapshot(
@@ -3283,6 +3366,108 @@ limit $3
     );
 
     return result.rows.map(mapAiUsageLedgerRow);
+  }
+
+  async pruneAiCeoHistory(input: {
+    tenantId: TenantId;
+    before: string;
+    keepLatestRuns: number;
+  }) {
+    const keepLatestRuns = normalizeLimit(input.keepLatestRuns, 100);
+    const usageResult = await this.pool.query(
+      `
+with ranked_runs as (
+  select id,
+         row_number() over (order by created_at desc) as rn
+  from ai_advisor_runs
+  where tenant_id = $1
+),
+deletable_runs as (
+  select id
+  from ranked_runs
+  where rn > $3
+    and not exists (
+      select 1
+      from ai_advisor_items i
+      where i.advisor_run_id = ranked_runs.id
+        and i.status = 'new'
+    )
+)
+delete from ai_usage_ledger
+where tenant_id = $1
+  and created_at < $2::timestamptz
+  and (advisor_run_id is null or advisor_run_id in (select id from deletable_runs))
+`,
+      [input.tenantId, input.before, keepLatestRuns],
+    );
+    const itemsResult = await this.pool.query(
+      `
+with ranked_runs as (
+  select id,
+         row_number() over (order by created_at desc) as rn
+  from ai_advisor_runs
+  where tenant_id = $1
+),
+deletable_runs as (
+  select id
+  from ranked_runs
+  where rn > $3
+    and not exists (
+      select 1
+      from ai_advisor_items i
+      where i.advisor_run_id = ranked_runs.id
+        and i.status = 'new'
+    )
+)
+delete from ai_advisor_items
+where tenant_id = $1
+  and status <> 'new'
+  and created_at < $2::timestamptz
+  and advisor_run_id in (select id from deletable_runs)
+`,
+      [input.tenantId, input.before, keepLatestRuns],
+    );
+    const runsResult = await this.pool.query(
+      `
+with ranked_runs as (
+  select id,
+         row_number() over (order by created_at desc) as rn
+  from ai_advisor_runs
+  where tenant_id = $1
+),
+deletable_runs as (
+  select id
+  from ranked_runs
+  where rn > $3
+    and not exists (
+      select 1
+      from ai_advisor_items i
+      where i.advisor_run_id = ranked_runs.id
+        and i.status = 'new'
+    )
+)
+delete from ai_advisor_runs
+where tenant_id = $1
+  and created_at < $2::timestamptz
+  and id in (select id from deletable_runs)
+`,
+      [input.tenantId, input.before, keepLatestRuns],
+    );
+    const metricsResult = await this.pool.query(
+      `
+delete from metric_snapshots
+where tenant_id = $1
+  and created_at < $2::timestamptz
+`,
+      [input.tenantId, input.before],
+    );
+
+    return {
+      advisor_runs_deleted: runsResult.rowCount ?? 0,
+      advisor_items_deleted: itemsResult.rowCount ?? 0,
+      usage_ledger_deleted: usageResult.rowCount ?? 0,
+      metric_snapshots_deleted: metricsResult.rowCount ?? 0,
+    };
   }
 
   async getLatestSnapshot(

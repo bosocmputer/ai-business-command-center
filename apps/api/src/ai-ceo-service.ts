@@ -9,7 +9,9 @@ import {
   type AiCeoDryRunRequest,
   type AiCeoModelId,
   type AiCeoProfileUpdate,
+  type AiCeoRunTrigger,
   type AiUsageLedgerRecord,
+  type ReportLinePreview,
   type OpenRouterModelCatalogRecord,
   type ReportKey,
   type ReportSnapshot,
@@ -31,6 +33,8 @@ const AI_CEO_DEFAULT_MODEL: AiCeoModelId = "qwen/qwen3.7-max";
 const MAX_CONTEXT_REPORTS = 10;
 const MAX_CONTEXT_SIGNALS = 15;
 const MAX_CONTEXT_ITEMS = 15;
+const AI_CEO_RETENTION_DAYS = 90;
+const AI_CEO_KEEP_LATEST_RUNS = 100;
 
 export type AiCeoSetupStatus = {
   tenant: Pick<Tenant, "id" | "name" | "planCode" | "status">;
@@ -319,6 +323,8 @@ export async function runAiCeoDryRun(input: {
   request: AiCeoDryRunRequest;
   actorId: string | null;
   requester?: OpenRouterRequester;
+  triggerType?: AiCeoRunTrigger;
+  idempotencyKey?: string;
 }): Promise<AiCeoDryRunResult> {
   if (!isAiCeoPlanEligible(input.tenant)) {
     throw new AiCeoSafeError(
@@ -353,6 +359,33 @@ export async function runAiCeoDryRun(input: {
     tenantId: input.tenant.id,
     keyMode: profile.key_mode,
   });
+  if (input.idempotencyKey) {
+    const existing = (
+      await input.store.listAiAdvisorRuns({
+        tenantId: input.tenant.id,
+        limit: AI_CEO_KEEP_LATEST_RUNS,
+      })
+    ).find((run) => run.idempotency_key === input.idempotencyKey);
+    if (
+      existing &&
+      (existing.status === "success" ||
+        existing.status === "success_with_warnings" ||
+        existing.status === "failed")
+    ) {
+      return {
+        ok:
+          existing.status === "success" ||
+          existing.status === "success_with_warnings",
+        checked_at: existing.finished_at ?? existing.created_at,
+        latency_ms: existing.latency_ms ?? 0,
+        run: existing,
+        items: [],
+        response: existing.response_json,
+        safe_error_message: existing.safe_error_message,
+        provider_status: null,
+      };
+    }
+  }
   const runId = `ai_run_${input.tenant.id}_${randomUUID()}`;
   const runDate = input.request.scheduled_date ?? checkedAtIso.slice(0, 10);
   const context = await buildAdvisorContext({
@@ -366,9 +399,11 @@ export async function runAiCeoDryRun(input: {
     id: runId,
     tenant_id: input.tenant.id,
     run_date: runDate,
-    trigger_type: "dry_run",
+    trigger_type: input.triggerType ?? "dry_run",
     status: "running",
-    idempotency_key: `ai-ceo:dry-run:${input.tenant.id}:${runDate}:${contextHash}:${randomUUID()}`,
+    idempotency_key:
+      input.idempotencyKey ??
+      `ai-ceo:dry-run:${input.tenant.id}:${runDate}:${contextHash}:${randomUUID()}`,
     model_provider: "openrouter",
     model_id: profile.selected_model_id,
     prompt_version_id: prompt.id,
@@ -510,12 +545,19 @@ export async function runAiCeoDryRun(input: {
   });
   await input.store.upsertTenantAiProfile({
     ...profile,
-    last_dry_run_at: finishedAt,
-    last_run_at: profile.last_run_at,
+    last_dry_run_at:
+      (input.triggerType ?? "dry_run") === "dry_run"
+        ? finishedAt
+        : profile.last_dry_run_at,
+    last_run_at:
+      (input.triggerType ?? "dry_run") === "dry_run"
+        ? profile.last_run_at
+        : finishedAt,
     last_status: finishedRun.status,
     last_safe_error_message: null,
     updated_at: finishedAt,
   });
+  await pruneAiCeoHistorySafe(input.store, input.tenant.id);
 
   return {
     ok: true,
@@ -541,6 +583,164 @@ export async function updateAiAdvisorItemStatus(input: {
     status: input.status,
     updatedAt: new Date().toISOString(),
   });
+}
+
+export function buildAiCeoLinePreview(input: {
+  tenant: Pick<Tenant, "id" | "name">;
+  run: AiAdvisorRunRecord;
+  items: AiAdvisorItemRecord[];
+}): ReportLinePreview | null {
+  const response = input.run.response_json;
+  if (!response) {
+    return null;
+  }
+
+  const topItems = input.items.length
+    ? input.items.slice(0, 3)
+    : response.top_actions.slice(0, 3).map((action, index) => ({
+        id: `${input.run.id}:action:${index}`,
+        tenant_id: input.tenant.id,
+        advisor_run_id: input.run.id,
+        item_date: input.run.run_date,
+        severity: action.severity,
+        title: action.title,
+        reason: action.reason,
+        recommended_action: action.recommended_action,
+        evidence_json: {
+          source_report_keys: action.source_report_keys,
+          source_run_ids: action.source_run_ids,
+        },
+        confidence: action.confidence,
+        status: "new",
+        created_at: input.run.finished_at ?? input.run.created_at,
+        updated_at: input.run.finished_at ?? input.run.created_at,
+        resolved_at: null,
+      }));
+  const lines = [
+    `AI CEO · ${input.tenant.name}`,
+    response.summary,
+    ...topItems.map(
+      (item, index) =>
+        `${index + 1}. ${item.title}: ${item.recommended_action}`,
+    ),
+    ...response.caveats.slice(0, 2).map((caveat) => `หมายเหตุ: ${caveat}`),
+  ];
+  const flexMessage = {
+    type: "flex" as const,
+    altText: truncateLineText(`AI CEO: ${response.summary}`, 300),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: "AI CEO",
+            size: "sm",
+            color: "#2563EB",
+            weight: "bold",
+          },
+          {
+            type: "text",
+            text: "Business Advisor",
+            size: "xl",
+            weight: "bold",
+            color: "#111827",
+            wrap: true,
+          },
+          {
+            type: "text",
+            text: input.tenant.name,
+            size: "sm",
+            color: "#6B7280",
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "text",
+            text: "สรุปผู้บริหาร",
+            size: "sm",
+            color: "#B45309",
+            weight: "bold",
+          },
+          {
+            type: "text",
+            text: truncateLineText(response.summary, 420),
+            size: "md",
+            color: "#111827",
+            wrap: true,
+            weight: "bold",
+          },
+          {
+            type: "separator",
+            margin: "md",
+          },
+          {
+            type: "text",
+            text: "สิ่งที่ควรทำ",
+            size: "sm",
+            color: "#6B7280",
+            weight: "bold",
+          },
+          ...topItems.flatMap((item, index) => [
+            {
+              type: "text",
+              text: `${index + 1}. ${truncateLineText(item.title, 120)}`,
+              size: "sm",
+              color: severityColor(item.severity),
+              weight: "bold",
+              wrap: true,
+            },
+            {
+              type: "text",
+              text: truncateLineText(item.recommended_action, 220),
+              size: "sm",
+              color: "#374151",
+              wrap: true,
+            },
+          ]),
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: `confidence ${Math.round(response.confidence * 100)}% · ${input.run.model_id}`,
+            size: "xs",
+            color: "#6B7280",
+            wrap: true,
+          },
+        ],
+      },
+    },
+  };
+
+  return {
+    tenant_id: input.tenant.id,
+    report_key: input.run.source_report_keys[0] ?? "sales_goods_services",
+    run_id: input.run.id,
+    generated_at: input.run.finished_at ?? input.run.created_at,
+    source: "operational_incident",
+    line_message_type: "flex",
+    title: "AI CEO / Business Advisor",
+    text: lines.join("\n"),
+    lines,
+    flex_message: flexMessage,
+    warnings: response.caveats,
+    dashboard_url: null,
+    incident: false,
+    failure_kind: "ai_ceo_advisor",
+  } as unknown as ReportLinePreview;
 }
 
 export class AiCeoSafeError extends Error {
@@ -930,11 +1130,19 @@ async function finishFailedRun(input: {
   });
   await input.store.upsertTenantAiProfile({
     ...input.profile,
-    last_dry_run_at: input.checkedAt,
+    last_dry_run_at:
+      input.run.trigger_type === "dry_run"
+        ? input.checkedAt
+        : input.profile.last_dry_run_at,
+    last_run_at:
+      input.run.trigger_type === "dry_run"
+        ? input.profile.last_run_at
+        : input.checkedAt,
     last_status: "failed",
     last_safe_error_message: input.safeErrorMessage,
     updated_at: input.checkedAt,
   });
+  await pruneAiCeoHistorySafe(input.store, input.tenantId);
   return {
     ok: false,
     checked_at: input.checkedAt,
@@ -1120,4 +1328,31 @@ function hashJson(value: unknown) {
     .update(JSON.stringify(value))
     .digest("hex")
     .slice(0, 32);
+}
+
+async function pruneAiCeoHistorySafe(store: SystemStore, tenantId: TenantId) {
+  const cutoff = new Date(
+    Date.now() - AI_CEO_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  await store
+    .pruneAiCeoHistory({
+      tenantId,
+      before: cutoff,
+      keepLatestRuns: AI_CEO_KEEP_LATEST_RUNS,
+    })
+    .catch(() => undefined);
+}
+
+function truncateLineText(value: string, maxLength: number) {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
+}
+
+function severityColor(severity: string) {
+  if (severity === "critical") {
+    return "#DC2626";
+  }
+  if (severity === "warning") {
+    return "#D97706";
+  }
+  return "#2563EB";
 }
