@@ -33,6 +33,15 @@ type MessageState = {
 
 type BusyState = "save" | "key" | "models" | "dry-run" | `item:${string}` | null;
 
+type AiCeoModelCatalogItem = OwnerV2AiCeoSetupStatus["model_catalog"][number];
+
+type ModelAdminGuide = {
+  bestFor: string;
+  strengths: string[];
+  tradeoffs: string[];
+  recommendation: string;
+};
+
 export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   const [state, setState] = useState<AiCeoState>({ status: "loading" });
   const [message, setMessage] = useState<MessageState | null>(null);
@@ -299,6 +308,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   }
 
   const data = state.data;
+  const selectedModelGuide = selectedModel ? modelAdminGuide(selectedModel) : null;
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -353,6 +363,8 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               text="ต้องตั้งค่า encryption secret บน server ก่อนบันทึก OpenRouter key หรือเปิด AI CEO"
             />
           ) : null}
+
+          <AiCeoAdminGuide />
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.55fr)]">
             <form
@@ -450,14 +462,34 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
 
               {selectedModel ? (
                 <div className="mt-4 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-                    {selectedModel.intelligence_label}
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    {selectedModel.use_case} · context {formatNumber(selectedModel.context_length)} tokens · input $
-                    {formatPrice(selectedModel.price_input_per_m)}/M · output $
-                    {formatPrice(selectedModel.price_output_per_m)}/M
-                  </p>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                        {selectedModel.intelligence_label}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                        {selectedModel.use_case} · context{" "}
+                        {formatNumber(selectedModel.context_length)} tokens · input $
+                        {formatPrice(selectedModel.price_input_per_m)}/M · output $
+                        {formatPrice(selectedModel.price_output_per_m)}/M
+                      </p>
+                    </div>
+                    <Badge color={modelCostTone(selectedModel)}>
+                      {modelCostLabel(selectedModel)}
+                    </Badge>
+                  </div>
+                  {selectedModelGuide ? (
+                    <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      <MiniDefinition
+                        label="เหมาะกับ"
+                        value={selectedModelGuide.bestFor}
+                      />
+                      <MiniDefinition
+                        label="ข้อควรระวัง"
+                        value={selectedModelGuide.tradeoffs[0] ?? "-"}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -646,54 +678,65 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 <h4 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">
                   Usage guardrail
                 </h4>
-                  <div className="grid grid-cols-1 gap-3">
-                    <Fact
-                      label="Today"
-                      value={`${formatNumber(data.usage.today_tokens)} tokens · $${formatPrice(data.usage.today_cost_usd)}`}
-                    />
-                    <Fact
-                      label="This month"
-                      value={`${formatNumber(data.usage.month_tokens)} tokens · $${formatPrice(data.usage.month_cost_usd)}`}
-                    />
-                    <Fact
-                      label="Last dry-run"
-                      value={formatDateTime(data.profile.last_dry_run_at)}
-                    />
-                    <Fact
-                      label="Last status"
-                      tone={data.profile.last_status === "failed" ? "error" : "light"}
-                      value={data.profile.last_status ?? "-"}
-                    />
-                  </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <Fact
+                    label="Today"
+                    value={`${formatNumber(data.usage.today_tokens)} tokens · $${formatPrice(data.usage.today_cost_usd)}`}
+                  />
+                  <Fact
+                    label="This month"
+                    value={`${formatNumber(data.usage.month_tokens)} tokens · $${formatPrice(data.usage.month_cost_usd)}`}
+                  />
+                  <Fact
+                    label="Last dry-run"
+                    value={formatDateTime(data.profile.last_dry_run_at)}
+                  />
+                  <Fact
+                    label="Last status"
+                    tone={data.profile.last_status === "failed" ? "error" : "light"}
+                    value={data.profile.last_status ?? "-"}
+                  />
+                </div>
               </section>
 
               <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
                 <h4 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">
                   Dry-run
                 </h4>
-                  <Field label="จำลองวันที่">
-                    <input
-                      className="owner-v2-input"
-                      disabled={busy !== null}
-                      onChange={(event) => setScheduledDate(event.target.value)}
-                      type="date"
-                      value={scheduledDate}
-                    />
-                  </Field>
-                  <Button
-                    className="mt-4 w-full"
-                    disabled={busy !== null || !canDryRun}
-                    onClick={() => void runDryRun()}
-                    size="sm"
-                    type="button"
-                  >
-                    {busy === "dry-run" ? "กำลังเรียก AI..." : "ทดสอบ AI CEO"}
-                  </Button>
+                <Field label="จำลองวันที่">
+                  <input
+                    className="owner-v2-input"
+                    disabled={busy !== null}
+                    onChange={(event) => setScheduledDate(event.target.value)}
+                    type="date"
+                    value={scheduledDate}
+                  />
+                </Field>
+                <Button
+                  className="mt-4 w-full"
+                  disabled={busy !== null || !canDryRun}
+                  onClick={() => void runDryRun()}
+                  size="sm"
+                  type="button"
+                >
+                  {busy === "dry-run" ? "กำลังเรียก AI..." : "ทดสอบ AI CEO"}
+                </Button>
               </section>
             </div>
           </div>
         </PanelBody>
       </Panel>
+
+      <AiCeoModelGuide
+        busy={busy}
+        canUseAi={canUseAi}
+        models={modelOptions}
+        onSelect={(modelId) =>
+          setForm((current) => ({ ...current, selected_model_id: modelId }))
+        }
+        selectedModelId={form.selected_model_id}
+        tenantPlanCode={data.tenant.planCode}
+      />
 
       {message ? (
         <Notice tone={message.tone} title="สถานะ AI CEO" text={message.text} />
@@ -706,6 +749,200 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
         items={data.open_items}
         onUpdateStatus={(itemId, status) => void updateItemStatus(itemId, status)}
       />
+    </div>
+  );
+}
+
+function AiCeoAdminGuide() {
+  const sections = [
+    {
+      title: "สถานะด้านบน",
+      text: "ใช้เช็กความพร้อมก่อนเปิดจริง: plan ต้องเป็น Business/Pro, key ต้องพร้อม และ encryption ต้องพร้อม",
+    },
+    {
+      title: "บทบาทและ prompt",
+      text: "กำหนดตัวตน AI CEO ของร้านนั้น ๆ เช่น ธุรกิจคอนกรีตควรเน้นสต็อก/ลูกหนี้ ส่วนร้านอาหารอาจเน้นยอดขายรายวัน",
+    },
+    {
+      title: "OpenRouter model",
+      text: "เลือกสมดุลระหว่างความฉลาด ความเร็ว และต้นทุน ยิ่ง model ใหญ่ยิ่งเหมาะกับวิเคราะห์ยากแต่ราคาสูงกว่า",
+    },
+    {
+      title: "API key mode",
+      text: "Key กลางระบบคือใช้ key บริษัท ถ้าเลือก key เฉพาะร้าน ระบบจะใช้ key ของร้านนั้นและเก็บแบบ encrypted",
+    },
+    {
+      title: "Usage guardrail",
+      text: "เพดาน token และ USD ใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะ failed แบบปลอดภัย",
+    },
+    {
+      title: "Shadow mode",
+      text: "เปิดไว้เพื่อให้ AI วิเคราะห์และเก็บคำแนะนำ แต่ไม่แนบการ์ดใน LINE เหมาะกับช่วงทดลองก่อนส่งจริง",
+    },
+    {
+      title: "Dry-run",
+      text: "ทดสอบ prompt/model/key กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้ token จริงของ OpenRouter",
+    },
+    {
+      title: "สิ่งที่ AI CEO แนะนำ",
+      text: "เป็น inbox งานที่ AI สร้างจากรอบ dry-run หรือ scheduled run เพื่อให้ admin รับทราบหรือปิดงานได้",
+    },
+  ];
+
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            คู่มือสำหรับ Admin
+          </h4>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้ส่วนนี้เป็น checklist ก่อนเปิด AI CEO ให้ร้านจริง
+          </p>
+        </div>
+        <Badge color="info">Admin guide</Badge>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {sections.map((section) => (
+          <MiniDefinition
+            key={section.title}
+            label={section.title}
+            value={section.text}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AiCeoModelGuide({
+  busy,
+  canUseAi,
+  models,
+  onSelect,
+  selectedModelId,
+  tenantPlanCode,
+}: {
+  busy: BusyState;
+  canUseAi: boolean;
+  models: AiCeoModelCatalogItem[];
+  onSelect: (modelId: string) => void;
+  selectedModelId: string;
+  tenantPlanCode: string;
+}) {
+  return (
+    <Panel>
+      <PanelHeader
+        title="คู่มือเลือก OpenRouter model"
+        description="ราคาแสดงเป็น USD ต่อ 1M input/output tokens จาก catalog ล่าสุดของระบบ ส่วนคำแนะนำใช้สำหรับเลือก model ให้เหมาะกับงานของร้าน"
+        action={<Badge color="info">{models.length} models</Badge>}
+      />
+      <PanelBody spaced>
+        <Notice
+          tone="info"
+          title="เลือกแบบเร็ว"
+          text="ร้านส่วนใหญ่เริ่มจาก Qwen3.7 Max ได้ ถ้าต้องคุมต้นทุนมากให้ใช้ Gemini Flash หรือ DeepSeek Flash ถ้าต้องวิเคราะห์ยากมากและยอมรับต้นทุนได้ให้ใช้กลุ่ม Pro"
+        />
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {models.map((model) => {
+            const guide = modelAdminGuide(model);
+            const disabledByPlan =
+              tenantPlanCode !== "pro" && model.recommended_tier === "pro";
+            const selected = model.model_id === selectedModelId;
+            return (
+              <article
+                className={`rounded-xl border p-4 ${
+                  selected
+                    ? "border-brand-500 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
+                    : "border-gray-200 dark:border-gray-800"
+                }`}
+                key={model.model_id}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Badge
+                        color={
+                          model.recommended_tier === "pro" ? "warning" : "success"
+                        }
+                      >
+                        {model.recommended_tier.toUpperCase()}
+                      </Badge>
+                      <Badge color={modelCostTone(model)}>
+                        {modelCostLabel(model)}
+                      </Badge>
+                      {selected ? <Badge color="info">เลือกอยู่</Badge> : null}
+                    </div>
+                    <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+                      {model.display_name}
+                    </h4>
+                    <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
+                      {model.model_id}
+                    </p>
+                  </div>
+                  <Button
+                    disabled={busy !== null || !canUseAi || disabledByPlan || selected}
+                    onClick={() => onSelect(model.model_id)}
+                    size="sm"
+                    type="button"
+                    variant={selected ? "outline" : "primary"}
+                  >
+                    {selected
+                      ? "เลือกอยู่"
+                      : disabledByPlan
+                        ? "ต้องใช้ Pro"
+                        : "เลือก model นี้"}
+                  </Button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <Fact label="Input" value={`$${formatPrice(model.price_input_per_m)}/M`} />
+                  <Fact label="Output" value={`$${formatPrice(model.price_output_per_m)}/M`} />
+                  <Fact
+                    label="Context"
+                    value={`${formatNumber(model.context_length)} tokens`}
+                  />
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <MiniDefinition label="เหมาะกับ" value={guide.bestFor} />
+                  <MiniList label="ข้อดี" values={guide.strengths} />
+                  <MiniList label="ข้อควรระวัง" values={guide.tradeoffs} />
+                  <MiniDefinition label="คำแนะนำ" value={guide.recommendation} />
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </PanelBody>
+    </Panel>
+  );
+}
+
+function MiniDefinition({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function MiniList({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+        {label}
+      </p>
+      <ul className="mt-1 list-disc space-y-1 pl-4 text-sm leading-6 text-gray-700 dark:text-gray-300">
+        {values.map((value) => (
+          <li key={value}>{value}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -895,6 +1132,189 @@ function keySourceLabel(source: OwnerV2AiCeoSetupStatus["key_source"]) {
     missing: "ยังไม่มี",
   };
   return labels[source];
+}
+
+function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
+  const guides: Record<string, ModelAdminGuide> = {
+    "anthropic/claude-opus-4.8": {
+      bestFor: "วิเคราะห์ยากมาก, board memo, เคสที่ต้องอ่าน caveat และความเสี่ยงละเอียด",
+      strengths: [
+        "ให้เหตุผลลึกและระวังข้อจำกัดของข้อมูลดี",
+        "เหมาะกับร้านใหญ่ที่ต้องการคำแนะนำเชิงบริหารจริงจัง",
+      ],
+      tradeoffs: [
+        "ต้นทุนสูงมาก ไม่เหมาะกับ daily brief ทุกเช้าถ้ายังไม่พิสูจน์ ROI",
+        "อาจใช้เวลานานกว่า model กลุ่ม Flash หรือ Business",
+      ],
+      recommendation:
+        "ใช้เฉพาะร้าน Pro หรือรอบวิเคราะห์พิเศษ เช่น สรุปรายสัปดาห์/รายเดือน",
+    },
+    "openai/gpt-5.5": {
+      bestFor: "ผู้ช่วยผู้บริหารแบบ premium ที่ต้องการคำตอบรอบด้านและสื่อสารดี",
+      strengths: [
+        "สมดุลทั้ง reasoning, business writing และการจัดลำดับ action",
+        "เหมาะกับคำแนะนำที่ต้องอ่านง่ายสำหรับเจ้าของกิจการ",
+      ],
+      tradeoffs: [
+        "ราคา output สูง ควรตั้ง daily/monthly budget ให้ชัด",
+        "ไม่จำเป็นสำหรับร้านเล็กที่ต้องการ brief สั้นเท่านั้น",
+      ],
+      recommendation:
+        "ใช้เมื่อร้านยอมจ่ายเพื่อคุณภาพคำแนะนำสูง หรือมีข้อมูลหลายรายงานให้วิเคราะห์",
+    },
+    "anthropic/claude-sonnet-4.6": {
+      bestFor: "ค่า default ของร้าน Pro ที่อยากได้ความละเอียดโดยไม่ไปแพงสุด",
+      strengths: [
+        "อ่าน context ยาวและสรุปเหตุผลเป็นระบบ",
+        "เหมาะกับการชี้ความเสี่ยงและข้อควรตรวจสอบก่อนตัดสินใจ",
+      ],
+      tradeoffs: [
+        "ยังแพงกว่ากลุ่ม Business default",
+        "ถ้าข้อมูลรายวันสั้นมาก อาจเกินความจำเป็น",
+      ],
+      recommendation:
+        "ใช้กับร้านใหญ่ที่อยากได้ AI CEO จริงจัง แต่ยังต้องคุมต้นทุนกว่า Opus",
+    },
+    "google/gemini-3.1-pro-preview": {
+      bestFor: "งาน context ยาวมาก หรือร้านที่มีข้อมูลหลายมิติในรอบเดียว",
+      strengths: [
+        "context ใหญ่ เหมาะกับการรวมหลายรายงาน",
+        "ดีสำหรับ structured output และการอ่านข้อมูลจำนวนมาก",
+      ],
+      tradeoffs: [
+        "เป็น preview จึงควร monitor คุณภาพและราคาเมื่อ provider เปลี่ยน",
+        "อาจไม่ใช่ตัวเลือกแรกถ้างานคือ brief สั้นทุกเช้า",
+      ],
+      recommendation:
+        "ใช้กับงาน long-context หรือทดลองเทียบคุณภาพก่อนเปิดให้ลูกค้าจริง",
+    },
+    "qwen/qwen3.7-max": {
+      bestFor: "daily AI CEO สำหรับร้านส่วนใหญ่ที่ต้องการ cost/performance ดี",
+      strengths: [
+        "สมดุลราคาและคุณภาพ เหมาะกับรอบส่งเช้าประจำวัน",
+        "context ใหญ่พอสำหรับ 10 รายงานและ business signals",
+      ],
+      tradeoffs: [
+        "งานวิเคราะห์ซับซ้อนมากอาจไม่ละเอียดเท่ากลุ่ม Pro premium",
+        "ควรดูผล dry-run หลังแก้ prompt สำคัญทุกครั้ง",
+      ],
+      recommendation:
+        "แนะนำเป็นค่าเริ่มต้นของแผน Business และร้านที่เริ่มใช้ AI CEO จริง",
+    },
+    "deepseek/deepseek-v4-pro": {
+      bestFor: "ร้านที่อยากได้ reasoning ดีแต่ยังต้องคุมต้นทุน",
+      strengths: [
+        "ราคาดีเมื่อเทียบกับความสามารถด้าน reasoning",
+        "เหมาะกับ report synthesis และหาสัญญาณผิดปกติจากตัวเลข",
+      ],
+      tradeoffs: [
+        "ควรตรวจ output format หลังเปลี่ยน prompt หรือ sync model",
+        "style คำแนะนำอาจต้องจูน prompt ให้เข้าภาษาแบรนด์",
+      ],
+      recommendation:
+        "ใช้เป็นทางเลือก Business เมื่ออยากลดต้นทุนจาก Qwen แต่ยังคงคุณภาพวิเคราะห์",
+    },
+    "x-ai/grok-4.3": {
+      bestFor: "ทางเลือก high-context สำหรับร้านที่ต้องการลอง provider สำรอง",
+      strengths: [
+        "context ใหญ่และ output cost น่าสนใจ",
+        "ใช้เป็น fallback เปรียบเทียบคุณภาพกับ Qwen/DeepSeek ได้",
+      ],
+      tradeoffs: [
+        "style อาจสนทนามาก ต้องคุม prompt ให้ตอบเป็น action business",
+        "ควร monitor ความสม่ำเสมอของคำตอบช่วงแรก",
+      ],
+      recommendation:
+        "ใช้ทดลองกับร้าน pilot ก่อน หากผลดีค่อยเปิดเป็น option ให้ admin เลือก",
+    },
+    "mistralai/mistral-large-2512": {
+      bestFor: "ข้อความธุรกิจแบบ structured ที่ต้องการราคากลางและ predictable",
+      strengths: [
+        "เหมาะกับสรุปเชิงโครงสร้างและภาษา business ตรงไปตรงมา",
+        "ต้นทุนไม่แรงเท่ากลุ่ม Pro premium",
+      ],
+      tradeoffs: [
+        "context สั้นกว่าหลายตัวในรายการนี้",
+        "ไม่ใช่ตัวเลือกแรกถ้าต้องอ่านข้อมูลยาวมากหลายรอบ",
+      ],
+      recommendation:
+        "ใช้กับร้านที่ข้อมูลไม่ใหญ่มากและต้องการ brief ที่เป็นระบบ",
+    },
+    "google/gemini-2.5-flash": {
+      bestFor: "daily brief ราคาประหยัดและต้องการความเร็ว",
+      strengths: [
+        "เร็วและประหยัด เหมาะกับรอบส่งทุกวัน",
+        "context ใหญ่ เหมาะกับการสรุปหลายรายงานแบบไม่ลึกมาก",
+      ],
+      tradeoffs: [
+        "คำแนะนำเชิงลึกอาจน้อยกว่ากลุ่ม Max/Pro",
+        "ไม่เหมาะกับการตัดสินใจใหญ่ที่ต้องการ reasoning ละเอียด",
+      ],
+      recommendation:
+        "ใช้เมื่อร้านเน้นต้นทุนต่ำ หรือใช้เป็น model สำหรับ shadow/dry-run จำนวนมาก",
+    },
+    "deepseek/deepseek-v4-flash": {
+      bestFor: "lowest-cost shadow mode, dry-run และ brief สั้น",
+      strengths: [
+        "ต้นทุนต่ำมาก เหมาะกับการทดลอง prompt บ่อย ๆ",
+        "ดีสำหรับเช็ก flow และสร้างคำแนะนำเบื้องต้น",
+      ],
+      tradeoffs: [
+        "ไม่ควรใช้เป็นตัวหลักสำหรับร้านใหญ่ที่ต้องการ insight ลึก",
+        "ควรให้ admin ตรวจคุณภาพก่อนเปิดส่งจริง",
+      ],
+      recommendation:
+        "ใช้ช่วง onboarding หรือร้านที่ยังทดลอง AI CEO ก่อนอัปเป็น model หลัก",
+    },
+  };
+
+  return (
+    guides[model.model_id] ?? {
+      bestFor: model.use_case,
+      strengths: [
+        model.intelligence_label,
+        `${model.provider} model พร้อม context ${formatNumber(
+          model.context_length,
+        )} tokens`,
+      ],
+      tradeoffs: [
+        "ยังไม่มี playbook เฉพาะรุ่นในระบบ ควร dry-run ก่อนเปิดส่งจริง",
+        "ตรวจราคาและคุณภาพหลัง sync catalog จาก OpenRouter",
+      ],
+      recommendation:
+        model.recommended_tier === "pro"
+          ? "ใช้กับร้าน Pro หรือรอบวิเคราะห์ที่ยอมรับต้นทุนสูงได้"
+          : "ใช้กับร้าน Business ได้ แต่ควรทดสอบกับข้อมูลจริงก่อน",
+    }
+  );
+}
+
+function modelCostLabel(model: AiCeoModelCatalogItem) {
+  const blendedCost = model.price_input_per_m + model.price_output_per_m;
+  if (blendedCost <= 1) {
+    return "ถูกมาก";
+  }
+  if (blendedCost <= 4) {
+    return "ประหยัด";
+  }
+  if (blendedCost <= 10) {
+    return "สมดุล";
+  }
+  return "พรีเมียม";
+}
+
+function modelCostTone(model: AiCeoModelCatalogItem) {
+  const blendedCost = model.price_input_per_m + model.price_output_per_m;
+  if (blendedCost <= 1) {
+    return "success" as const;
+  }
+  if (blendedCost <= 10) {
+    return "info" as const;
+  }
+  if (blendedCost <= 25) {
+    return "warning" as const;
+  }
+  return "error" as const;
 }
 
 function severityTone(severity: string) {
