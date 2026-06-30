@@ -4498,6 +4498,11 @@ app.post("/api/worker/notification-rules/tick", async (request, reply) => {
       source: "worker_retry",
       retryFromRun: failedRun,
     });
+    await clearNotificationRetryMarker({
+      run: failedRun,
+      retryRunId: result.run.id,
+      reused: result.reused,
+    });
     if (result.reused) {
       skipped.push({
         rule_id: rule.id,
@@ -10436,8 +10441,8 @@ async function enqueueManualNotificationRuleRun(input: {
     updated_at: nowIso,
   });
 
-	  await systemStore.appendAuditLog({
-	    tenant_id: input.rule.tenant_id,
+  await systemStore.appendAuditLog({
+    tenant_id: input.rule.tenant_id,
     actor_id: null,
     action: "notification_rule_run_queued",
     target_type: "notification_rule_run",
@@ -10457,6 +10462,39 @@ async function enqueueManualNotificationRuleRun(input: {
   });
 
   return { run, reused: false, clientRequestId };
+}
+
+async function clearNotificationRetryMarker(input: {
+  run: NotificationRuleRunRecord;
+  retryRunId: string;
+  reused: boolean;
+}) {
+  if (!input.run.next_retry_at) {
+    return;
+  }
+
+  const updatedAt = new Date().toISOString();
+  await systemStore.upsertNotificationRuleRun({
+    ...input.run,
+    next_retry_at: null,
+    updated_at: updatedAt,
+  });
+  await systemStore.appendAuditLog({
+    tenant_id: input.run.tenant_id,
+    actor_id: null,
+    action: "notification_rule_retry_marker_cleared",
+    target_type: "notification_rule_run",
+    target_id: input.run.id,
+    metadata_json: {
+      retry_run_id: input.retryRunId,
+      reused: input.reused,
+      source: input.run.source,
+      attempt: input.run.attempt,
+      scheduled_local_date: input.run.scheduled_local_date,
+      scheduled_local_time: input.run.scheduled_local_time,
+      previous_next_retry_at: input.run.next_retry_at,
+    },
+  });
 }
 
 async function enqueueWorkerNotificationRuleRun(input: {
@@ -12379,8 +12417,8 @@ async function executeNotificationRule(input: {
     const { result, coalesced, policy } = reportExecution;
     const reportDurationMs = Date.now() - reportStartedAt;
     addReportRunId(result.runRecord.id);
-	    if (reportDurationMs >= 45_000) {
-	      await systemStore.appendAuditLog({
+    if (reportDurationMs >= 45_000) {
+      await systemStore.appendAuditLog({
         tenant_id: input.rule.tenant_id,
         actor_id: null,
         action: "notification_rule_report_slow",
@@ -12395,38 +12433,38 @@ async function executeNotificationRule(input: {
           scheduled_local_date: zoned.date,
           scheduled_local_time: zoned.time,
           report_execution_policy: policy.mode,
-	          coalesced,
-	        },
-	      });
-	      const slowSeverity = await classifyHeavyReportSlowSeverity({
-	        tenantId: input.rule.tenant_id,
-	        reportKey,
-	        durationMs: reportDurationMs,
-	      });
-	      if (slowSeverity === "critical") {
-	        await sendOpsAlertSafe({
-	          alertType: "heavy_report_slow",
-	          severity: slowSeverity,
-	          reportKey,
-	          messageText: buildOperationalAlertMessage({
-	            title: "รายงานหนักใช้เวลานานผิดปกติ",
-	            severity: slowSeverity,
-	            tenantName: tenant.name,
-	            scheduledTime: `${zoned.date} ${zoned.time}`,
-	            reportKey,
-	            runId: result.runRecord.id,
-	            status: "slow",
-	            details: [
-	              `duration_ms: ${reportDurationMs}`,
-	              `row_count: ${result.runRecord.row_count}`,
-	              `execution_policy: ${policy.mode}`,
-	            ],
-	            action:
-	              "ตรวจ JavaWS/Tomcat และ slow chunk audit ถ้ายังช้าซ้ำให้ลดช่วงข้อมูลหรือปรับ chunk size",
-	          }),
-	        });
-	      }
-	    }
+          coalesced,
+        },
+      });
+      const slowSeverity = await classifyHeavyReportSlowSeverity({
+        tenantId: input.rule.tenant_id,
+        reportKey,
+        durationMs: reportDurationMs,
+      });
+      if (slowSeverity === "critical") {
+        await sendOpsAlertSafe({
+          alertType: "heavy_report_slow",
+          severity: slowSeverity,
+          reportKey,
+          messageText: buildOperationalAlertMessage({
+            title: "รายงานหนักใช้เวลานานผิดปกติ",
+            severity: slowSeverity,
+            tenantName: tenant.name,
+            scheduledTime: `${zoned.date} ${zoned.time}`,
+            reportKey,
+            runId: result.runRecord.id,
+            status: "slow",
+            details: [
+              `duration_ms: ${reportDurationMs}`,
+              `row_count: ${result.runRecord.row_count}`,
+              `execution_policy: ${policy.mode}`,
+            ],
+            action:
+              "ตรวจ JavaWS/Tomcat และ slow chunk audit ถ้ายังช้าซ้ำให้ลดช่วงข้อมูลหรือปรับ chunk size",
+          }),
+        });
+      }
+    }
     if (!result.ok) {
       if (
         reportKey === "stock_balance" &&
