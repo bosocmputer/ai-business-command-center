@@ -73,6 +73,231 @@ export const planCodeSchema = z.enum(["starter", "business", "pro"]);
 
 export const userRoleSchema = z.enum(["owner_admin", "tenant_viewer"]);
 
+export const aiCeoModelIdValues = [
+  "anthropic/claude-opus-4.8",
+  "openai/gpt-5.5",
+  "anthropic/claude-sonnet-4.6",
+  "google/gemini-3.1-pro-preview",
+  "qwen/qwen3.7-max",
+  "deepseek/deepseek-v4-pro",
+  "x-ai/grok-4.3",
+  "mistralai/mistral-large-2512",
+  "google/gemini-2.5-flash",
+  "deepseek/deepseek-v4-flash",
+] as const;
+
+export const aiCeoModelIdSchema = z.enum(aiCeoModelIdValues);
+
+export const aiCeoModelTierSchema = z.enum(["business", "pro"]);
+
+export const aiCeoKeyModeSchema = z.enum([
+  "system_default",
+  "tenant_override",
+]);
+
+export const aiCeoRunTriggerSchema = z.enum([
+  "dry_run",
+  "shadow",
+  "scheduled",
+  "manual",
+]);
+
+export const aiCeoRunStatusSchema = z.enum([
+  "queued",
+  "running",
+  "success",
+  "success_with_warnings",
+  "failed",
+  "skipped",
+]);
+
+export const aiCeoAdvisorItemStatusSchema = z.enum([
+  "new",
+  "acknowledged",
+  "snoozed",
+  "resolved",
+  "dismissed",
+]);
+
+export const aiCeoAdvisorSeveritySchema = z.enum([
+  "info",
+  "warning",
+  "critical",
+]);
+
+export const aiCeoModelCatalogSeeds = [
+  {
+    model_id: "anthropic/claude-opus-4.8",
+    display_name: "Claude Opus 4.8",
+    provider: "anthropic",
+    recommended_tier: "pro",
+    use_case: "Pro deep analysis",
+    intelligence_label: "ฉลาดมาก เหมาะกับ board memo และวิเคราะห์ยาก",
+    context_length: 1_000_000,
+    price_input_per_m: 5,
+    price_output_per_m: 25,
+  },
+  {
+    model_id: "openai/gpt-5.5",
+    display_name: "GPT-5.5",
+    provider: "openai",
+    recommended_tier: "pro",
+    use_case: "Pro premium advisor",
+    intelligence_label: "เก่งรอบด้าน เหมาะกับคำแนะนำเชิงบริหาร",
+    context_length: 1_050_000,
+    price_input_per_m: 5,
+    price_output_per_m: 30,
+  },
+  {
+    model_id: "anthropic/claude-sonnet-4.6",
+    display_name: "Claude Sonnet 4.6",
+    provider: "anthropic",
+    recommended_tier: "pro",
+    use_case: "Pro default",
+    intelligence_label: "สมดุล ฉลาด อ่าน context ใหญ่ดี",
+    context_length: 1_000_000,
+    price_input_per_m: 3,
+    price_output_per_m: 15,
+  },
+  {
+    model_id: "google/gemini-3.1-pro-preview",
+    display_name: "Gemini 3.1 Pro Preview",
+    provider: "google",
+    recommended_tier: "pro",
+    use_case: "Long-context analysis",
+    intelligence_label: "เหมาะกับ context ยาวมากและ structured output",
+    context_length: 1_048_576,
+    price_input_per_m: 2,
+    price_output_per_m: 12,
+  },
+  {
+    model_id: "qwen/qwen3.7-max",
+    display_name: "Qwen3.7 Max",
+    provider: "qwen",
+    recommended_tier: "business",
+    use_case: "Business default",
+    intelligence_label: "cost/performance ดี เหมาะกับ daily advisor",
+    context_length: 1_000_000,
+    price_input_per_m: 1.25,
+    price_output_per_m: 3.75,
+  },
+  {
+    model_id: "deepseek/deepseek-v4-pro",
+    display_name: "DeepSeek V4 Pro",
+    provider: "deepseek",
+    recommended_tier: "business",
+    use_case: "Cost-efficient smart",
+    intelligence_label: "ราคาดีมากสำหรับ reasoning และ report synthesis",
+    context_length: 1_048_576,
+    price_input_per_m: 0.435,
+    price_output_per_m: 0.87,
+  },
+  {
+    model_id: "x-ai/grok-4.3",
+    display_name: "Grok 4.3",
+    provider: "x-ai",
+    recommended_tier: "business",
+    use_case: "Alternative high-context",
+    intelligence_label: "context ใหญ่ ราคาขา output ดี",
+    context_length: 1_000_000,
+    price_input_per_m: 1.25,
+    price_output_per_m: 2.5,
+  },
+  {
+    model_id: "mistralai/mistral-large-2512",
+    display_name: "Mistral Large 2512",
+    provider: "mistralai",
+    recommended_tier: "business",
+    use_case: "Enterprise/value",
+    intelligence_label: "ราคากลาง เหมาะกับ structured business text",
+    context_length: 262_144,
+    price_input_per_m: 0.5,
+    price_output_per_m: 1.5,
+  },
+  {
+    model_id: "google/gemini-2.5-flash",
+    display_name: "Gemini 2.5 Flash",
+    provider: "google",
+    recommended_tier: "business",
+    use_case: "Cheap daily brief",
+    intelligence_label: "เร็วและประหยัด เหมาะกับสรุปเช้าทั่วไป",
+    context_length: 1_048_576,
+    price_input_per_m: 0.3,
+    price_output_per_m: 2.5,
+  },
+  {
+    model_id: "deepseek/deepseek-v4-flash",
+    display_name: "DeepSeek V4 Flash",
+    provider: "deepseek",
+    recommended_tier: "business",
+    use_case: "Lowest-cost shadow/dry-run",
+    intelligence_label: "ถูกมาก เหมาะกับ shadow, dry-run และ brief สั้น",
+    context_length: 1_048_576,
+    price_input_per_m: 0.09,
+    price_output_per_m: 0.18,
+  },
+] as const;
+
+export const aiCeoProfileUpdateSchema = z
+  .object({
+    ai_enabled: z.boolean().default(false),
+    shadow_mode_enabled: z.boolean().default(true),
+    advisor_name: z.string().trim().min(2).max(80).default("AI CEO"),
+    business_type: z.string().trim().min(2).max(120).default("retail"),
+    selected_model_id: aiCeoModelIdSchema.default("qwen/qwen3.7-max"),
+    key_mode: aiCeoKeyModeSchema.default("system_default"),
+    daily_token_budget: z.coerce.number().int().min(1_000).max(2_000_000),
+    monthly_token_budget: z.coerce.number().int().min(10_000).max(50_000_000),
+    daily_cost_budget_usd: z.coerce.number().min(0.01).max(1_000),
+    monthly_cost_budget_usd: z.coerce.number().min(0.1).max(20_000),
+    prompt_text: z.string().trim().min(80).max(8_000),
+  })
+  .superRefine((value, ctx) => {
+    if (value.monthly_token_budget < value.daily_token_budget) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "monthly_token_budget must be greater than daily_token_budget",
+        path: ["monthly_token_budget"],
+      });
+    }
+    if (value.monthly_cost_budget_usd < value.daily_cost_budget_usd) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "monthly_cost_budget_usd must be greater than daily_cost_budget_usd",
+        path: ["monthly_cost_budget_usd"],
+      });
+    }
+  });
+
+export const aiCeoOpenRouterKeyUpdateSchema = z.object({
+  api_key: z.string().trim().min(20).max(4096),
+});
+
+export const aiCeoDryRunRequestSchema = z.object({
+  scheduled_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .optional(),
+});
+
+export const aiCeoAdvisorActionSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  reason: z.string().trim().min(1).max(800),
+  recommended_action: z.string().trim().min(1).max(800),
+  severity: aiCeoAdvisorSeveritySchema.default("info"),
+  confidence: z.coerce.number().min(0).max(1).default(0.5),
+  source_report_keys: z.array(reportKeySchema).max(reportKeyValues.length),
+  source_run_ids: z.array(z.string().trim().min(1).max(180)).max(20),
+});
+
+export const aiCeoAdvisorResponseSchema = z.object({
+  summary: z.string().trim().min(1).max(1_200),
+  confidence: z.coerce.number().min(0).max(1).default(0.5),
+  caveats: z.array(z.string().trim().min(1).max(260)).max(6).default([]),
+  top_actions: z.array(aiCeoAdvisorActionSchema).max(5).default([]),
+});
+
 export function findSensitiveTenantNoteHints(value: string) {
   const normalized = value.toLowerCase();
   const hints: string[] = [];
@@ -233,11 +458,139 @@ export type BusinessSignalThresholdsConfig = z.infer<
 >;
 export type PlanCode = z.infer<typeof planCodeSchema>;
 export type UserRole = z.infer<typeof userRoleSchema>;
+export type AiCeoModelId = z.infer<typeof aiCeoModelIdSchema>;
+export type AiCeoModelTier = z.infer<typeof aiCeoModelTierSchema>;
+export type AiCeoKeyMode = z.infer<typeof aiCeoKeyModeSchema>;
+export type AiCeoRunTrigger = z.infer<typeof aiCeoRunTriggerSchema>;
+export type AiCeoRunStatus = z.infer<typeof aiCeoRunStatusSchema>;
+export type AiCeoAdvisorItemStatus = z.infer<
+  typeof aiCeoAdvisorItemStatusSchema
+>;
+export type AiCeoAdvisorSeverity = z.infer<typeof aiCeoAdvisorSeveritySchema>;
+export type AiCeoProfileUpdate = z.infer<typeof aiCeoProfileUpdateSchema>;
+export type AiCeoOpenRouterKeyUpdate = z.infer<
+  typeof aiCeoOpenRouterKeyUpdateSchema
+>;
+export type AiCeoDryRunRequest = z.infer<typeof aiCeoDryRunRequestSchema>;
+export type AiCeoAdvisorResponse = z.infer<typeof aiCeoAdvisorResponseSchema>;
+export type AiCeoAdvisorAction = z.infer<typeof aiCeoAdvisorActionSchema>;
 export type SalesGoodsServicesParams = z.infer<
   typeof salesGoodsServicesParamsSchema
 >;
 export type ReportParams = SalesGoodsServicesParams;
 export type DataQualityStatus = z.infer<typeof dataQualityStatusSchema>;
+
+export type TenantAiProfileRecord = {
+  tenant_id: TenantId;
+  ai_enabled: boolean;
+  shadow_mode_enabled: boolean;
+  advisor_name: string;
+  business_type: string;
+  selected_model_id: AiCeoModelId;
+  key_mode: AiCeoKeyMode;
+  daily_token_budget: number;
+  monthly_token_budget: number;
+  daily_cost_budget_usd: number;
+  monthly_cost_budget_usd: number;
+  active_prompt_version_id: string | null;
+  last_dry_run_at: string | null;
+  last_run_at: string | null;
+  last_status: AiCeoRunStatus | null;
+  last_safe_error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TenantAiPromptVersionRecord = {
+  id: string;
+  tenant_id: TenantId;
+  version: number;
+  prompt_text: string;
+  created_by: string | null;
+  created_at: string;
+  archived_at: string | null;
+};
+
+export type OpenRouterModelCatalogRecord = {
+  model_id: AiCeoModelId;
+  display_name: string;
+  provider: string;
+  recommended_tier: AiCeoModelTier;
+  use_case: string;
+  intelligence_label: string;
+  context_length: number;
+  price_input_per_m: number;
+  price_output_per_m: number;
+  supports_structured_outputs: boolean;
+  enabled: boolean;
+  fetched_at: string;
+};
+
+export type MetricSnapshotRecord = {
+  id: string;
+  tenant_id: TenantId;
+  report_key: ReportKey;
+  metric_date: string;
+  period_preset: string;
+  metrics_json: Record<string, unknown>;
+  quality_status: DataQualityStatus;
+  source_run_ids: string[];
+  created_at: string;
+};
+
+export type AiAdvisorRunRecord = {
+  id: string;
+  tenant_id: TenantId;
+  run_date: string;
+  trigger_type: AiCeoRunTrigger;
+  status: AiCeoRunStatus;
+  idempotency_key: string;
+  model_provider: "openrouter";
+  model_id: AiCeoModelId;
+  prompt_version_id: string | null;
+  context_hash: string;
+  source_report_keys: ReportKey[];
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_estimate_usd: number | null;
+  latency_ms: number | null;
+  fallback_used: boolean;
+  response_json: AiCeoAdvisorResponse | null;
+  safe_error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type AiAdvisorItemRecord = {
+  id: string;
+  tenant_id: TenantId;
+  advisor_run_id: string;
+  item_date: string;
+  severity: AiCeoAdvisorSeverity;
+  title: string;
+  reason: string;
+  recommended_action: string;
+  evidence_json: Record<string, unknown>;
+  confidence: number;
+  status: AiCeoAdvisorItemStatus;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+};
+
+export type AiUsageLedgerRecord = {
+  id: string;
+  tenant_id: TenantId;
+  provider: "openrouter";
+  model_id: AiCeoModelId;
+  advisor_run_id: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost_estimate_usd: number;
+  usage_source: "provider" | "estimated";
+  created_at: string;
+};
 
 export const reportCatalog = {
   sales_goods_services: {

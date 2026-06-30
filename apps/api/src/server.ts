@@ -19,6 +19,10 @@ import {
   getNextNotificationRunAt,
   getZonedDateTimeParts,
   allowedLineActionSchema,
+  aiCeoAdvisorItemStatusSchema,
+  aiCeoDryRunRequestSchema,
+  aiCeoOpenRouterKeyUpdateSchema,
+  aiCeoProfileUpdateSchema,
   lineSendRequestSchema,
   lineAccessProfileKeySchema,
   tenantReportRolePermissionsPayloadSchema,
@@ -202,6 +206,16 @@ import {
   testStoredFlowAccountConnection,
   type FlowAccountStoredTestResult,
 } from "./flowaccount-service.js";
+import {
+  AiCeoSafeError,
+  defaultTenantAiProfile,
+  readAiCeoSetupStatus,
+  runAiCeoDryRun,
+  saveAiCeoProfile,
+  saveTenantOpenRouterApiKey,
+  syncOpenRouterModelCatalog,
+  updateAiAdvisorItemStatus,
+} from "./ai-ceo-service.js";
 import {
   readEffectiveSystemRuntimeConfig,
   readSystemRuntimeConfigStatus,
@@ -2374,6 +2388,324 @@ app.post(
     }
 
     return response;
+  },
+);
+
+app.get(
+  "/api/owner/tenants/:tenantId/ai-ceo/config",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    return {
+      data: await readAiCeoSetupStatus({
+        store: systemStore,
+        tenant,
+      }),
+    };
+  },
+);
+
+app.put(
+  "/api/owner/tenants/:tenantId/ai-ceo/config",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = aiCeoProfileUpdateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid AI CEO config request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    try {
+      const profile = await saveAiCeoProfile({
+        store: systemStore,
+        tenant,
+        update: body.data,
+        actorId: adminAuth.subject,
+      });
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: adminAuth.subject,
+        action: "ai_ceo_profile_updated",
+        target_type: "ai_ceo",
+        target_id: tenant.id,
+        metadata_json: {
+          ai_enabled: profile.ai_enabled,
+          shadow_mode_enabled: profile.shadow_mode_enabled,
+          selected_model_id: profile.selected_model_id,
+          key_mode: profile.key_mode,
+          daily_token_budget: profile.daily_token_budget,
+          monthly_token_budget: profile.monthly_token_budget,
+          daily_cost_budget_usd: profile.daily_cost_budget_usd,
+          monthly_cost_budget_usd: profile.monthly_cost_budget_usd,
+        },
+      });
+
+      return {
+        data: await readAiCeoSetupStatus({
+          store: systemStore,
+          tenant,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof AiCeoSafeError) {
+        return reply.status(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
+
+app.put(
+  "/api/owner/tenants/:tenantId/ai-ceo/openrouter-key",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = aiCeoOpenRouterKeyUpdateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid OpenRouter key request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    try {
+      await saveTenantOpenRouterApiKey({
+        store: systemStore,
+        tenantId: tenant.id,
+        apiKey: body.data.api_key,
+      });
+      const now = new Date().toISOString();
+      const currentProfile =
+        (await systemStore.getTenantAiProfile(tenant.id)) ??
+        defaultTenantAiProfile({ tenant, now });
+      await systemStore.upsertTenantAiProfile({
+        ...currentProfile,
+        key_mode: "tenant_override",
+        updated_at: now,
+      });
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: adminAuth.subject,
+        action: "ai_ceo_openrouter_key_updated",
+        target_type: "ai_ceo",
+        target_id: tenant.id,
+        metadata_json: {
+          provider: "openrouter",
+          mode: "tenant_override",
+          configured: true,
+        },
+      });
+
+      return {
+        data: await readAiCeoSetupStatus({
+          store: systemStore,
+          tenant,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof AiCeoSafeError) {
+        return reply.status(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
+
+app.post(
+  "/api/owner/tenants/:tenantId/ai-ceo/sync-models",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const models = await syncOpenRouterModelCatalog({ store: systemStore });
+    await systemStore.appendAuditLog({
+      tenant_id: tenant.id,
+      actor_id: adminAuth.subject,
+      action: "ai_ceo_model_catalog_synced",
+      target_type: "ai_ceo",
+      target_id: tenant.id,
+      metadata_json: {
+        provider: "openrouter",
+        model_count: models.length,
+      },
+    });
+
+    return {
+      data: await readAiCeoSetupStatus({
+        store: systemStore,
+        tenant,
+      }),
+    };
+  },
+);
+
+app.post(
+  "/api/owner/tenants/:tenantId/ai-ceo/dry-run",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = aiCeoDryRunRequestSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid AI CEO dry-run request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    try {
+      const result = await runAiCeoDryRun({
+        store: systemStore,
+        tenant,
+        request: body.data,
+        actorId: adminAuth.subject,
+      });
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: adminAuth.subject,
+        action: result.ok ? "ai_ceo_dry_run_succeeded" : "ai_ceo_dry_run_failed",
+        target_type: "ai_ceo_run",
+        target_id: result.run.id,
+        metadata_json: {
+          model_id: result.run.model_id,
+          status: result.run.status,
+          input_tokens: result.run.input_tokens,
+          output_tokens: result.run.output_tokens,
+          cost_estimate_usd: result.run.cost_estimate_usd,
+          latency_ms: result.latency_ms,
+          provider_status: result.provider_status,
+          item_count: result.items.length,
+          safe_error_message: result.safe_error_message,
+        },
+      });
+
+      return { data: result };
+    } catch (error) {
+      if (error instanceof AiCeoSafeError) {
+        return reply.status(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
+
+app.patch(
+  "/api/owner/tenants/:tenantId/ai-ceo/items/:itemId",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema
+      .extend({ itemId: z.string().trim().min(1).max(220) })
+      .safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid AI CEO item params" });
+    }
+
+    const body = aiCeoItemStatusUpdateSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid AI CEO item status request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    const item = await updateAiAdvisorItemStatus({
+      store: systemStore,
+      tenantId: tenant.id,
+      itemId: routeParams.data.itemId,
+      status: body.data.status,
+    });
+    if (!item) {
+      return reply.status(404).send({ error: "AI CEO item not found." });
+    }
+
+    await systemStore.appendAuditLog({
+      tenant_id: tenant.id,
+      actor_id: adminAuth.subject,
+      action: "ai_ceo_item_status_updated",
+      target_type: "ai_ceo_item",
+      target_id: item.id,
+      metadata_json: {
+        status: item.status,
+        severity: item.severity,
+      },
+    });
+
+    return { data: item };
   },
 );
 
@@ -15929,6 +16261,10 @@ const flowAccountConfigUpdateSchema = z.object({
   auth_mode: z.literal("client_credentials"),
   client_id: z.string().trim().min(1).max(512),
   client_secret: z.string().trim().min(1).max(2048),
+});
+
+const aiCeoItemStatusUpdateSchema = z.object({
+  status: aiCeoAdvisorItemStatusSchema,
 });
 
 const nullableUrlString = z

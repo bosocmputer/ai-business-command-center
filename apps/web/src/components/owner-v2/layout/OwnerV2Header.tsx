@@ -139,6 +139,12 @@ export default function OwnerV2Header() {
         label: "FlowAccount ร้านนี้",
       },
       {
+        detail: "ตั้งค่า prompt, model และ OpenRouter key ของ AI CEO ร้านนี้",
+        href: `${tenantPath}/ai-ceo`,
+        keywords: "ai ceo business advisor openrouter prompt model advisor",
+        label: "AI CEO ร้านนี้",
+      },
+      {
         detail: "ตรวจ role และ report permissions ของร้านนี้",
         href: `${tenantPath}/permissions`,
         keywords: "permissions access role สิทธิ์ รายงาน",

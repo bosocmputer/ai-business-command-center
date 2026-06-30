@@ -248,6 +248,137 @@ create table if not exists flowaccount_connections (
 create index if not exists flowaccount_connections_status_idx
 on flowaccount_connections (status, updated_at desc);
 
+create table if not exists tenant_ai_profiles (
+  tenant_id text primary key references tenants(id) on delete cascade,
+  ai_enabled boolean not null default false,
+  shadow_mode_enabled boolean not null default true,
+  advisor_name text not null default 'AI CEO',
+  business_type text not null default 'retail',
+  selected_model_id text not null default 'qwen/qwen3.7-max',
+  key_mode text not null default 'system_default',
+  daily_token_budget integer not null default 80000,
+  monthly_token_budget integer not null default 2000000,
+  daily_cost_budget_usd numeric(12, 4) not null default 2,
+  monthly_cost_budget_usd numeric(12, 4) not null default 60,
+  active_prompt_version_id text,
+  last_dry_run_at timestamptz,
+  last_run_at timestamptz,
+  last_status text,
+  last_safe_error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists tenant_ai_prompt_versions (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  version integer not null,
+  prompt_text text not null,
+  created_by text,
+  created_at timestamptz not null default now(),
+  archived_at timestamptz,
+  unique (tenant_id, version)
+);
+
+create index if not exists tenant_ai_prompt_versions_tenant_idx
+on tenant_ai_prompt_versions (tenant_id, version desc, created_at desc);
+
+create table if not exists openrouter_model_catalog (
+  model_id text primary key,
+  display_name text not null,
+  provider text not null,
+  recommended_tier text not null default 'business',
+  use_case text not null,
+  intelligence_label text not null,
+  context_length integer not null default 128000,
+  price_input_per_m numeric(12, 6) not null default 0,
+  price_output_per_m numeric(12, 6) not null default 0,
+  supports_structured_outputs boolean not null default true,
+  enabled boolean not null default true,
+  fetched_at timestamptz not null default now()
+);
+
+create table if not exists metric_snapshots (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  report_key text not null,
+  metric_date date not null,
+  period_preset text not null,
+  metrics_json jsonb not null default '{}'::jsonb,
+  quality_status text not null default 'partial',
+  source_run_ids_json jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists metric_snapshots_tenant_idx
+on metric_snapshots (tenant_id, metric_date desc, created_at desc);
+
+create table if not exists ai_advisor_runs (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  run_date date not null,
+  trigger_type text not null,
+  status text not null,
+  idempotency_key text not null unique,
+  model_provider text not null default 'openrouter',
+  model_id text not null,
+  prompt_version_id text,
+  context_hash text not null,
+  source_report_keys_json jsonb not null default '[]'::jsonb,
+  input_tokens integer,
+  output_tokens integer,
+  cost_estimate_usd numeric(12, 6),
+  latency_ms integer,
+  fallback_used boolean not null default false,
+  response_json jsonb,
+  safe_error_message text,
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  finished_at timestamptz
+);
+
+create index if not exists ai_advisor_runs_tenant_idx
+on ai_advisor_runs (tenant_id, run_date desc, created_at desc);
+
+create index if not exists ai_advisor_runs_status_idx
+on ai_advisor_runs (status, created_at desc);
+
+create table if not exists ai_advisor_items (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  advisor_run_id text not null references ai_advisor_runs(id) on delete cascade,
+  item_date date not null,
+  severity text not null default 'info',
+  title text not null,
+  reason text not null,
+  recommended_action text not null,
+  evidence_json jsonb not null default '{}'::jsonb,
+  confidence numeric(5, 4) not null default 0.5,
+  status text not null default 'new',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create index if not exists ai_advisor_items_tenant_status_idx
+on ai_advisor_items (tenant_id, status, created_at desc);
+
+create table if not exists ai_usage_ledger (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  provider text not null default 'openrouter',
+  model_id text not null,
+  advisor_run_id text references ai_advisor_runs(id) on delete set null,
+  input_tokens integer not null default 0,
+  output_tokens integer not null default 0,
+  cost_estimate_usd numeric(12, 6) not null default 0,
+  usage_source text not null default 'estimated',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ai_usage_ledger_tenant_created_idx
+on ai_usage_ledger (tenant_id, created_at desc);
+
 create table if not exists audit_logs (
   id bigserial primary key,
   tenant_id text,

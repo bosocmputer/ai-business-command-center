@@ -430,6 +430,23 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                   <ArrowRightIcon className="h-4 w-4" />
                 </Link>
               </div>
+              <div className="mt-5 flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                    AI CEO / Business Advisor
+                  </p>
+                  <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+                    ตั้งค่า prompt, OpenRouter model, key และงบใช้งานของร้านนี้
+                  </p>
+                </div>
+                <Link
+                  className={secondaryActionClass}
+                  href={`/owner-v2/stores/${encodeURIComponent(tenant.id)}/ai-ceo`}
+                >
+                  ตั้งค่า AI CEO
+                  <ArrowRightIcon className="h-4 w-4" />
+                </Link>
+              </div>
             </PanelBody>
           </Panel>
 

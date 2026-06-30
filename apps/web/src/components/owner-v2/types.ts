@@ -1,4 +1,7 @@
 import type {
+  AiAdvisorItemRecord,
+  AiAdvisorRunRecord,
+  AiCeoAdvisorResponse,
   BusinessSignalRecord,
   BusinessSignalThresholdsConfig,
   LineAccessProfileKey,
@@ -10,9 +13,12 @@ import type {
   ReportKey,
   ReportRunRecord,
   Tenant,
+  TenantAiProfileRecord,
+  TenantAiPromptVersionRecord,
   TenantFeatureFlags,
   TenantId,
   TenantReportRolePermissionRecord,
+  OpenRouterModelCatalogRecord,
 } from "@ai-bcc/shared";
 
 export type OwnerV2StepId =
@@ -192,6 +198,39 @@ export type OwnerV2FlowAccountTestResult = {
   company_id: string | null;
   support_code: string | null;
   safe_error_message: string | null;
+};
+
+export type OwnerV2AiCeoSetupStatus = {
+  tenant: Pick<Tenant, "id" | "name" | "status"> & {
+    planCode: Tenant["planCode"];
+  };
+  plan_eligible: boolean;
+  encryption_configured: boolean;
+  key_configured: boolean;
+  key_source: "tenant_override" | "system_default" | "env" | "missing";
+  profile: TenantAiProfileRecord;
+  active_prompt: TenantAiPromptVersionRecord | null;
+  prompt_versions: TenantAiPromptVersionRecord[];
+  model_catalog: OpenRouterModelCatalogRecord[];
+  latest_runs: AiAdvisorRunRecord[];
+  open_items: AiAdvisorItemRecord[];
+  usage: {
+    today_tokens: number;
+    today_cost_usd: number;
+    month_tokens: number;
+    month_cost_usd: number;
+  };
+};
+
+export type OwnerV2AiCeoDryRunResult = {
+  ok: boolean;
+  checked_at: string;
+  latency_ms: number;
+  run: AiAdvisorRunRecord;
+  items: AiAdvisorItemRecord[];
+  response: AiCeoAdvisorResponse | null;
+  safe_error_message: string | null;
+  provider_status: number | null;
 };
 
 export type OwnerV2JavaWsDatabaseDiscoveryResult = {

@@ -3,6 +3,10 @@ import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
+  type AiAdvisorItemRecord,
+  type AiAdvisorRunRecord,
+  type AiCeoAdvisorItemStatus,
+  type AiUsageLedgerRecord,
   type BusinessSignalRecord,
   type BusinessSignalStatus,
   type BusinessSignalThresholdsConfig,
@@ -26,14 +30,27 @@ import {
   type TenantId,
   type LineAccessProfileKey,
   type NotificationReportResult,
+  type MetricSnapshotRecord,
   type TenantReportRolePermissionRecord,
+  type OpenRouterModelCatalogRecord,
   type TenantStatus,
+  type TenantAiProfileRecord,
+  type TenantAiPromptVersionRecord,
   type UserRecord,
   type WorkerHeartbeatRecord,
+  aiCeoAdvisorItemStatusSchema,
+  aiCeoAdvisorResponseSchema,
+  aiCeoAdvisorSeveritySchema,
+  aiCeoKeyModeSchema,
+  aiCeoModelIdSchema,
+  aiCeoModelTierSchema,
+  aiCeoRunStatusSchema,
+  aiCeoRunTriggerSchema,
   businessSignalCategorySchema,
   businessSignalSeveritySchema,
   businessSignalStatusSchema,
   businessSignalThresholdsSchema,
+  dataQualityStatusSchema,
   notificationDigestModeSchema,
   notificationRunProgressStageSchema,
   notificationPeriodStrategySchema,
@@ -66,7 +83,7 @@ export type ReportDefinitionSeed = {
 export type SecretRecord = {
   id: string;
   tenant_id: TenantId | null;
-  scope: "datasource" | "flowaccount" | "line_channel" | "system";
+  scope: "datasource" | "flowaccount" | "line_channel" | "system" | "ai_provider";
   secret_key: string;
   encrypted_value: string;
   encryption_key_id: string;
@@ -193,6 +210,56 @@ export type SystemStore = {
   upsertFlowAccountConnection(
     connection: FlowAccountConnectionRecord,
   ): Promise<FlowAccountConnectionRecord>;
+  getTenantAiProfile(tenantId: TenantId): Promise<TenantAiProfileRecord | null>;
+  upsertTenantAiProfile(
+    profile: TenantAiProfileRecord,
+  ): Promise<TenantAiProfileRecord>;
+  listTenantAiPromptVersions(
+    tenantId: TenantId,
+  ): Promise<TenantAiPromptVersionRecord[]>;
+  upsertTenantAiPromptVersion(
+    promptVersion: TenantAiPromptVersionRecord,
+  ): Promise<TenantAiPromptVersionRecord>;
+  listOpenRouterModelCatalog(): Promise<OpenRouterModelCatalogRecord[]>;
+  upsertOpenRouterModelCatalog(
+    models: OpenRouterModelCatalogRecord[],
+  ): Promise<OpenRouterModelCatalogRecord[]>;
+  upsertMetricSnapshot(
+    snapshot: MetricSnapshotRecord,
+  ): Promise<MetricSnapshotRecord>;
+  listMetricSnapshots(input: {
+    tenantId: TenantId;
+    limit?: number;
+  }): Promise<MetricSnapshotRecord[]>;
+  getAiAdvisorRun(runId: string): Promise<AiAdvisorRunRecord | null>;
+  listAiAdvisorRuns(input: {
+    tenantId: TenantId;
+    limit?: number;
+  }): Promise<AiAdvisorRunRecord[]>;
+  upsertAiAdvisorRun(run: AiAdvisorRunRecord): Promise<AiAdvisorRunRecord>;
+  upsertAiAdvisorItems(
+    items: AiAdvisorItemRecord[],
+  ): Promise<AiAdvisorItemRecord[]>;
+  listAiAdvisorItems(input: {
+    tenantId: TenantId;
+    status?: AiCeoAdvisorItemStatus;
+    limit?: number;
+  }): Promise<AiAdvisorItemRecord[]>;
+  updateAiAdvisorItemStatus(input: {
+    tenantId: TenantId;
+    itemId: string;
+    status: AiCeoAdvisorItemStatus;
+    updatedAt: string;
+    resolvedAt?: string | null;
+  }): Promise<AiAdvisorItemRecord | null>;
+  upsertAiUsageLedger(
+    entry: AiUsageLedgerRecord,
+  ): Promise<AiUsageLedgerRecord>;
+  listAiUsageLedger(input: {
+    tenantId: TenantId;
+    since?: string;
+    limit?: number;
+  }): Promise<AiUsageLedgerRecord[]>;
   getLatestSnapshot(
     tenantId: TenantId,
     reportKey?: ReportKey,
@@ -439,6 +506,13 @@ type StoreFile = {
   lineChannels: LineChannelRecord[];
   secrets: SecretRecord[];
   flowAccountConnections: FlowAccountConnectionRecord[];
+  tenantAiProfiles: TenantAiProfileRecord[];
+  tenantAiPromptVersions: TenantAiPromptVersionRecord[];
+  openRouterModelCatalog: OpenRouterModelCatalogRecord[];
+  metricSnapshots: MetricSnapshotRecord[];
+  aiAdvisorRuns: AiAdvisorRunRecord[];
+  aiAdvisorItems: AiAdvisorItemRecord[];
+  aiUsageLedger: AiUsageLedgerRecord[];
   operationalAlertTargets: OperationalAlertTargetRecord[];
   operationalAlertDeliveries: OperationalAlertDeliveryRecord[];
   dashboardViewerTokens: DashboardViewerTokenRecord[];
@@ -683,6 +757,226 @@ class LocalJsonSystemStore implements SystemStore {
     ];
     await this.persist();
     return normalized;
+  }
+
+  async getTenantAiProfile(tenantId: TenantId) {
+    return (
+      this.requireData().tenantAiProfiles.find(
+        (profile) => profile.tenant_id === tenantId,
+      ) ?? null
+    );
+  }
+
+  async upsertTenantAiProfile(profile: TenantAiProfileRecord) {
+    const data = this.requireData();
+    const normalized = normalizeTenantAiProfile(profile);
+    if (!normalized) {
+      throw new Error("Invalid tenant AI profile record.");
+    }
+    data.tenantAiProfiles = [
+      normalized,
+      ...data.tenantAiProfiles.filter(
+        (existing) => existing.tenant_id !== normalized.tenant_id,
+      ),
+    ];
+    await this.persist();
+    return normalized;
+  }
+
+  async listTenantAiPromptVersions(tenantId: TenantId) {
+    return this.requireData()
+      .tenantAiPromptVersions.filter((prompt) => prompt.tenant_id === tenantId)
+      .sort((a, b) => b.version - a.version || b.created_at.localeCompare(a.created_at));
+  }
+
+  async upsertTenantAiPromptVersion(
+    promptVersion: TenantAiPromptVersionRecord,
+  ) {
+    const data = this.requireData();
+    const normalized = normalizeTenantAiPromptVersion(promptVersion);
+    if (!normalized) {
+      throw new Error("Invalid tenant AI prompt version record.");
+    }
+    data.tenantAiPromptVersions = [
+      normalized,
+      ...data.tenantAiPromptVersions.filter(
+        (existing) => existing.id !== normalized.id,
+      ),
+    ];
+    await this.persist();
+    return normalized;
+  }
+
+  async listOpenRouterModelCatalog() {
+    return this.requireData().openRouterModelCatalog
+      .filter((model) => model.enabled)
+      .sort(
+        (a, b) =>
+          a.recommended_tier.localeCompare(b.recommended_tier) ||
+          a.price_input_per_m - b.price_input_per_m ||
+          a.display_name.localeCompare(b.display_name),
+      );
+  }
+
+  async upsertOpenRouterModelCatalog(models: OpenRouterModelCatalogRecord[]) {
+    const data = this.requireData();
+    const normalized = models.map(normalizeOpenRouterModelCatalog).filter(
+      (model): model is OpenRouterModelCatalogRecord => Boolean(model),
+    );
+    const byId = new Map(
+      data.openRouterModelCatalog.map((model) => [model.model_id, model]),
+    );
+    for (const model of normalized) {
+      byId.set(model.model_id, model);
+    }
+    data.openRouterModelCatalog = Array.from(byId.values()).sort((a, b) =>
+      a.display_name.localeCompare(b.display_name),
+    );
+    await this.persist();
+    return normalized;
+  }
+
+  async upsertMetricSnapshot(snapshot: MetricSnapshotRecord) {
+    const data = this.requireData();
+    const normalized = normalizeMetricSnapshot(snapshot);
+    if (!normalized) {
+      throw new Error("Invalid metric snapshot record.");
+    }
+    data.metricSnapshots = [
+      normalized,
+      ...data.metricSnapshots.filter((existing) => existing.id !== normalized.id),
+    ].slice(0, 10_000);
+    await this.persist();
+    return normalized;
+  }
+
+  async listMetricSnapshots(input: { tenantId: TenantId; limit?: number }) {
+    const limit = normalizeLimit(input.limit, 100);
+    return this.requireData()
+      .metricSnapshots.filter((snapshot) => snapshot.tenant_id === input.tenantId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
+  }
+
+  async getAiAdvisorRun(runId: string) {
+    return this.requireData().aiAdvisorRuns.find((run) => run.id === runId) ?? null;
+  }
+
+  async listAiAdvisorRuns(input: { tenantId: TenantId; limit?: number }) {
+    const limit = normalizeLimit(input.limit, 20);
+    return this.requireData()
+      .aiAdvisorRuns.filter((run) => run.tenant_id === input.tenantId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
+  }
+
+  async upsertAiAdvisorRun(run: AiAdvisorRunRecord) {
+    const data = this.requireData();
+    const normalized = normalizeAiAdvisorRun(run);
+    if (!normalized) {
+      throw new Error("Invalid AI advisor run record.");
+    }
+    data.aiAdvisorRuns = [
+      normalized,
+      ...data.aiAdvisorRuns.filter((existing) => existing.id !== normalized.id),
+    ].slice(0, 5_000);
+    await this.persist();
+    return normalized;
+  }
+
+  async upsertAiAdvisorItems(items: AiAdvisorItemRecord[]) {
+    const data = this.requireData();
+    const normalized = items.map(normalizeAiAdvisorItem).filter(
+      (item): item is AiAdvisorItemRecord => Boolean(item),
+    );
+    const byId = new Map(data.aiAdvisorItems.map((item) => [item.id, item]));
+    for (const item of normalized) {
+      byId.set(item.id, item);
+    }
+    data.aiAdvisorItems = Array.from(byId.values())
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 10_000);
+    await this.persist();
+    return normalized;
+  }
+
+  async listAiAdvisorItems(input: {
+    tenantId: TenantId;
+    status?: AiCeoAdvisorItemStatus;
+    limit?: number;
+  }) {
+    const limit = normalizeLimit(input.limit, 50);
+    return this.requireData()
+      .aiAdvisorItems.filter(
+        (item) =>
+          item.tenant_id === input.tenantId &&
+          (!input.status || item.status === input.status),
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
+  }
+
+  async updateAiAdvisorItemStatus(input: {
+    tenantId: TenantId;
+    itemId: string;
+    status: AiCeoAdvisorItemStatus;
+    updatedAt: string;
+    resolvedAt?: string | null;
+  }) {
+    const data = this.requireData();
+    const existing = data.aiAdvisorItems.find(
+      (item) => item.id === input.itemId && item.tenant_id === input.tenantId,
+    );
+    if (!existing) {
+      return null;
+    }
+    const updated: AiAdvisorItemRecord = {
+      ...existing,
+      status: input.status,
+      updated_at: input.updatedAt,
+      resolved_at:
+        input.resolvedAt !== undefined
+          ? input.resolvedAt
+          : input.status === "resolved"
+            ? input.updatedAt
+            : existing.resolved_at,
+    };
+    data.aiAdvisorItems = [
+      updated,
+      ...data.aiAdvisorItems.filter((item) => item.id !== input.itemId),
+    ];
+    await this.persist();
+    return updated;
+  }
+
+  async upsertAiUsageLedger(entry: AiUsageLedgerRecord) {
+    const data = this.requireData();
+    const normalized = normalizeAiUsageLedger(entry);
+    if (!normalized) {
+      throw new Error("Invalid AI usage ledger record.");
+    }
+    data.aiUsageLedger = [
+      normalized,
+      ...data.aiUsageLedger.filter((existing) => existing.id !== normalized.id),
+    ].slice(0, 20_000);
+    await this.persist();
+    return normalized;
+  }
+
+  async listAiUsageLedger(input: {
+    tenantId: TenantId;
+    since?: string;
+    limit?: number;
+  }) {
+    const limit = normalizeLimit(input.limit, 200);
+    return this.requireData()
+      .aiUsageLedger.filter(
+        (entry) =>
+          entry.tenant_id === input.tenantId &&
+          (!input.since || entry.created_at >= input.since),
+      )
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
   }
 
   async getLatestSnapshot(
@@ -1754,6 +2048,17 @@ class LocalJsonSystemStore implements SystemStore {
         flowAccountConnections: normalizeFlowAccountConnections(
           parsed.flowAccountConnections,
         ),
+        tenantAiProfiles: normalizeTenantAiProfiles(parsed.tenantAiProfiles),
+        tenantAiPromptVersions: normalizeTenantAiPromptVersions(
+          parsed.tenantAiPromptVersions,
+        ),
+        openRouterModelCatalog: normalizeOpenRouterModelCatalogEntries(
+          parsed.openRouterModelCatalog,
+        ),
+        metricSnapshots: normalizeMetricSnapshots(parsed.metricSnapshots),
+        aiAdvisorRuns: normalizeAiAdvisorRuns(parsed.aiAdvisorRuns),
+        aiAdvisorItems: normalizeAiAdvisorItems(parsed.aiAdvisorItems),
+        aiUsageLedger: normalizeAiUsageLedgerEntries(parsed.aiUsageLedger),
         operationalAlertTargets: normalizeOperationalAlertTargets(
           parsed.operationalAlertTargets,
         ),
@@ -1787,6 +2092,13 @@ class LocalJsonSystemStore implements SystemStore {
         lineChannels: [],
         secrets: [],
         flowAccountConnections: [],
+        tenantAiProfiles: [],
+        tenantAiPromptVersions: [],
+        openRouterModelCatalog: [],
+        metricSnapshots: [],
+        aiAdvisorRuns: [],
+        aiAdvisorItems: [],
+        aiUsageLedger: [],
         operationalAlertTargets: [],
         operationalAlertDeliveries: [],
         dashboardViewerTokens: [],
@@ -2426,6 +2738,551 @@ returning
     );
 
     return mapFlowAccountConnectionRow(result.rows[0]);
+  }
+
+  async getTenantAiProfile(tenantId: TenantId) {
+    const result = await this.pool.query(
+      `
+select *
+from tenant_ai_profiles
+where tenant_id = $1
+limit 1
+`,
+      [tenantId],
+    );
+
+    return result.rows[0] ? mapTenantAiProfileRow(result.rows[0]) : null;
+  }
+
+  async upsertTenantAiProfile(profile: TenantAiProfileRecord) {
+    const normalized = normalizeTenantAiProfile(profile);
+    if (!normalized) {
+      throw new Error("Invalid tenant AI profile record.");
+    }
+    const result = await this.pool.query(
+      `
+insert into tenant_ai_profiles (
+  tenant_id,
+  ai_enabled,
+  shadow_mode_enabled,
+  advisor_name,
+  business_type,
+  selected_model_id,
+  key_mode,
+  daily_token_budget,
+  monthly_token_budget,
+  daily_cost_budget_usd,
+  monthly_cost_budget_usd,
+  active_prompt_version_id,
+  last_dry_run_at,
+  last_run_at,
+  last_status,
+  last_safe_error_message,
+  created_at,
+  updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $14::timestamptz, $15, $16, $17::timestamptz, $18::timestamptz)
+on conflict (tenant_id) do update
+set ai_enabled = excluded.ai_enabled,
+    shadow_mode_enabled = excluded.shadow_mode_enabled,
+    advisor_name = excluded.advisor_name,
+    business_type = excluded.business_type,
+    selected_model_id = excluded.selected_model_id,
+    key_mode = excluded.key_mode,
+    daily_token_budget = excluded.daily_token_budget,
+    monthly_token_budget = excluded.monthly_token_budget,
+    daily_cost_budget_usd = excluded.daily_cost_budget_usd,
+    monthly_cost_budget_usd = excluded.monthly_cost_budget_usd,
+    active_prompt_version_id = excluded.active_prompt_version_id,
+    last_dry_run_at = excluded.last_dry_run_at,
+    last_run_at = excluded.last_run_at,
+    last_status = excluded.last_status,
+    last_safe_error_message = excluded.last_safe_error_message,
+    updated_at = excluded.updated_at
+returning *
+`,
+      [
+        normalized.tenant_id,
+        normalized.ai_enabled,
+        normalized.shadow_mode_enabled,
+        normalized.advisor_name,
+        normalized.business_type,
+        normalized.selected_model_id,
+        normalized.key_mode,
+        normalized.daily_token_budget,
+        normalized.monthly_token_budget,
+        normalized.daily_cost_budget_usd,
+        normalized.monthly_cost_budget_usd,
+        normalized.active_prompt_version_id,
+        normalized.last_dry_run_at,
+        normalized.last_run_at,
+        normalized.last_status,
+        normalized.last_safe_error_message,
+        normalized.created_at,
+        normalized.updated_at,
+      ],
+    );
+
+    return mapTenantAiProfileRow(result.rows[0]);
+  }
+
+  async listTenantAiPromptVersions(tenantId: TenantId) {
+    const result = await this.pool.query(
+      `
+select *
+from tenant_ai_prompt_versions
+where tenant_id = $1
+order by version desc, created_at desc
+`,
+      [tenantId],
+    );
+
+    return result.rows.map(mapTenantAiPromptVersionRow);
+  }
+
+  async upsertTenantAiPromptVersion(
+    promptVersion: TenantAiPromptVersionRecord,
+  ) {
+    const normalized = normalizeTenantAiPromptVersion(promptVersion);
+    if (!normalized) {
+      throw new Error("Invalid tenant AI prompt version record.");
+    }
+    const result = await this.pool.query(
+      `
+insert into tenant_ai_prompt_versions (
+  id,
+  tenant_id,
+  version,
+  prompt_text,
+  created_by,
+  created_at,
+  archived_at
+)
+values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
+on conflict (id) do update
+set version = excluded.version,
+    prompt_text = excluded.prompt_text,
+    created_by = excluded.created_by,
+    archived_at = excluded.archived_at
+returning *
+`,
+      [
+        normalized.id,
+        normalized.tenant_id,
+        normalized.version,
+        normalized.prompt_text,
+        normalized.created_by,
+        normalized.created_at,
+        normalized.archived_at,
+      ],
+    );
+
+    return mapTenantAiPromptVersionRow(result.rows[0]);
+  }
+
+  async listOpenRouterModelCatalog() {
+    const result = await this.pool.query(
+      `
+select *
+from openrouter_model_catalog
+where enabled = true
+order by recommended_tier asc, price_input_per_m asc, display_name asc
+`,
+    );
+
+    return result.rows.map(mapOpenRouterModelCatalogRow);
+  }
+
+  async upsertOpenRouterModelCatalog(models: OpenRouterModelCatalogRecord[]) {
+    const saved: OpenRouterModelCatalogRecord[] = [];
+    for (const model of models) {
+      const normalized = normalizeOpenRouterModelCatalog(model);
+      if (!normalized) {
+        continue;
+      }
+      const result = await this.pool.query(
+        `
+insert into openrouter_model_catalog (
+  model_id,
+  display_name,
+  provider,
+  recommended_tier,
+  use_case,
+  intelligence_label,
+  context_length,
+  price_input_per_m,
+  price_output_per_m,
+  supports_structured_outputs,
+  enabled,
+  fetched_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz)
+on conflict (model_id) do update
+set display_name = excluded.display_name,
+    provider = excluded.provider,
+    recommended_tier = excluded.recommended_tier,
+    use_case = excluded.use_case,
+    intelligence_label = excluded.intelligence_label,
+    context_length = excluded.context_length,
+    price_input_per_m = excluded.price_input_per_m,
+    price_output_per_m = excluded.price_output_per_m,
+    supports_structured_outputs = excluded.supports_structured_outputs,
+    enabled = excluded.enabled,
+    fetched_at = excluded.fetched_at
+returning *
+`,
+        [
+          normalized.model_id,
+          normalized.display_name,
+          normalized.provider,
+          normalized.recommended_tier,
+          normalized.use_case,
+          normalized.intelligence_label,
+          normalized.context_length,
+          normalized.price_input_per_m,
+          normalized.price_output_per_m,
+          normalized.supports_structured_outputs,
+          normalized.enabled,
+          normalized.fetched_at,
+        ],
+      );
+      saved.push(mapOpenRouterModelCatalogRow(result.rows[0]));
+    }
+    return saved;
+  }
+
+  async upsertMetricSnapshot(snapshot: MetricSnapshotRecord) {
+    const normalized = normalizeMetricSnapshot(snapshot);
+    if (!normalized) {
+      throw new Error("Invalid metric snapshot record.");
+    }
+    const result = await this.pool.query(
+      `
+insert into metric_snapshots (
+  id,
+  tenant_id,
+  report_key,
+  metric_date,
+  period_preset,
+  metrics_json,
+  quality_status,
+  source_run_ids_json,
+  created_at
+)
+values ($1, $2, $3, $4::date, $5, $6::jsonb, $7, $8::jsonb, $9::timestamptz)
+on conflict (id) do update
+set metrics_json = excluded.metrics_json,
+    quality_status = excluded.quality_status,
+    source_run_ids_json = excluded.source_run_ids_json
+returning *
+`,
+      [
+        normalized.id,
+        normalized.tenant_id,
+        normalized.report_key,
+        normalized.metric_date,
+        normalized.period_preset,
+        JSON.stringify(normalized.metrics_json),
+        normalized.quality_status,
+        JSON.stringify(normalized.source_run_ids),
+        normalized.created_at,
+      ],
+    );
+
+    return mapMetricSnapshotRow(result.rows[0]);
+  }
+
+  async listMetricSnapshots(input: { tenantId: TenantId; limit?: number }) {
+    const result = await this.pool.query(
+      `
+select *
+from metric_snapshots
+where tenant_id = $1
+order by created_at desc
+limit $2
+`,
+      [input.tenantId, normalizeLimit(input.limit, 100)],
+    );
+
+    return result.rows.map(mapMetricSnapshotRow);
+  }
+
+  async getAiAdvisorRun(runId: string) {
+    const result = await this.pool.query(
+      `
+select *
+from ai_advisor_runs
+where id = $1
+limit 1
+`,
+      [runId],
+    );
+
+    return result.rows[0] ? mapAiAdvisorRunRow(result.rows[0]) : null;
+  }
+
+  async listAiAdvisorRuns(input: { tenantId: TenantId; limit?: number }) {
+    const result = await this.pool.query(
+      `
+select *
+from ai_advisor_runs
+where tenant_id = $1
+order by created_at desc
+limit $2
+`,
+      [input.tenantId, normalizeLimit(input.limit, 20)],
+    );
+
+    return result.rows.map(mapAiAdvisorRunRow);
+  }
+
+  async upsertAiAdvisorRun(run: AiAdvisorRunRecord) {
+    const normalized = normalizeAiAdvisorRun(run);
+    if (!normalized) {
+      throw new Error("Invalid AI advisor run record.");
+    }
+    const result = await this.pool.query(
+      `
+insert into ai_advisor_runs (
+  id,
+  tenant_id,
+  run_date,
+  trigger_type,
+  status,
+  idempotency_key,
+  model_provider,
+  model_id,
+  prompt_version_id,
+  context_hash,
+  source_report_keys_json,
+  input_tokens,
+  output_tokens,
+  cost_estimate_usd,
+  latency_ms,
+  fallback_used,
+  response_json,
+  safe_error_message,
+  created_at,
+  started_at,
+  finished_at
+)
+values ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17::jsonb, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz)
+on conflict (id) do update
+set status = excluded.status,
+    input_tokens = excluded.input_tokens,
+    output_tokens = excluded.output_tokens,
+    cost_estimate_usd = excluded.cost_estimate_usd,
+    latency_ms = excluded.latency_ms,
+    fallback_used = excluded.fallback_used,
+    response_json = excluded.response_json,
+    safe_error_message = excluded.safe_error_message,
+    started_at = excluded.started_at,
+    finished_at = excluded.finished_at
+returning *
+`,
+      [
+        normalized.id,
+        normalized.tenant_id,
+        normalized.run_date,
+        normalized.trigger_type,
+        normalized.status,
+        normalized.idempotency_key,
+        normalized.model_provider,
+        normalized.model_id,
+        normalized.prompt_version_id,
+        normalized.context_hash,
+        JSON.stringify(normalized.source_report_keys),
+        normalized.input_tokens,
+        normalized.output_tokens,
+        normalized.cost_estimate_usd,
+        normalized.latency_ms,
+        normalized.fallback_used,
+        normalized.response_json ? JSON.stringify(normalized.response_json) : null,
+        normalized.safe_error_message,
+        normalized.created_at,
+        normalized.started_at,
+        normalized.finished_at,
+      ],
+    );
+
+    return mapAiAdvisorRunRow(result.rows[0]);
+  }
+
+  async upsertAiAdvisorItems(items: AiAdvisorItemRecord[]) {
+    const saved: AiAdvisorItemRecord[] = [];
+    for (const item of items) {
+      const normalized = normalizeAiAdvisorItem(item);
+      if (!normalized) {
+        continue;
+      }
+      const result = await this.pool.query(
+        `
+insert into ai_advisor_items (
+  id,
+  tenant_id,
+  advisor_run_id,
+  item_date,
+  severity,
+  title,
+  reason,
+  recommended_action,
+  evidence_json,
+  confidence,
+  status,
+  created_at,
+  updated_at,
+  resolved_at
+)
+values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::timestamptz, $13::timestamptz, $14::timestamptz)
+on conflict (id) do update
+set severity = excluded.severity,
+    title = excluded.title,
+    reason = excluded.reason,
+    recommended_action = excluded.recommended_action,
+    evidence_json = excluded.evidence_json,
+    confidence = excluded.confidence,
+    status = excluded.status,
+    updated_at = excluded.updated_at,
+    resolved_at = excluded.resolved_at
+returning *
+`,
+        [
+          normalized.id,
+          normalized.tenant_id,
+          normalized.advisor_run_id,
+          normalized.item_date,
+          normalized.severity,
+          normalized.title,
+          normalized.reason,
+          normalized.recommended_action,
+          JSON.stringify(normalized.evidence_json),
+          normalized.confidence,
+          normalized.status,
+          normalized.created_at,
+          normalized.updated_at,
+          normalized.resolved_at,
+        ],
+      );
+      saved.push(mapAiAdvisorItemRow(result.rows[0]));
+    }
+    return saved;
+  }
+
+  async listAiAdvisorItems(input: {
+    tenantId: TenantId;
+    status?: AiCeoAdvisorItemStatus;
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select *
+from ai_advisor_items
+where tenant_id = $1
+  and ($2::text is null or status = $2)
+order by created_at desc
+limit $3
+`,
+      [input.tenantId, input.status ?? null, normalizeLimit(input.limit, 50)],
+    );
+
+    return result.rows.map(mapAiAdvisorItemRow);
+  }
+
+  async updateAiAdvisorItemStatus(input: {
+    tenantId: TenantId;
+    itemId: string;
+    status: AiCeoAdvisorItemStatus;
+    updatedAt: string;
+    resolvedAt?: string | null;
+  }) {
+    const result = await this.pool.query(
+      `
+update ai_advisor_items
+set status = $3,
+    updated_at = $4::timestamptz,
+    resolved_at = case
+      when $5::timestamptz is not null then $5::timestamptz
+      when $3 = 'resolved' then $4::timestamptz
+      else resolved_at
+    end
+where tenant_id = $1
+  and id = $2
+returning *
+`,
+      [
+        input.tenantId,
+        input.itemId,
+        input.status,
+        input.updatedAt,
+        input.resolvedAt ?? null,
+      ],
+    );
+
+    return result.rows[0] ? mapAiAdvisorItemRow(result.rows[0]) : null;
+  }
+
+  async upsertAiUsageLedger(entry: AiUsageLedgerRecord) {
+    const normalized = normalizeAiUsageLedger(entry);
+    if (!normalized) {
+      throw new Error("Invalid AI usage ledger record.");
+    }
+    const result = await this.pool.query(
+      `
+insert into ai_usage_ledger (
+  id,
+  tenant_id,
+  provider,
+  model_id,
+  advisor_run_id,
+  input_tokens,
+  output_tokens,
+  cost_estimate_usd,
+  usage_source,
+  created_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)
+on conflict (id) do update
+set input_tokens = excluded.input_tokens,
+    output_tokens = excluded.output_tokens,
+    cost_estimate_usd = excluded.cost_estimate_usd,
+    usage_source = excluded.usage_source
+returning *
+`,
+      [
+        normalized.id,
+        normalized.tenant_id,
+        normalized.provider,
+        normalized.model_id,
+        normalized.advisor_run_id,
+        normalized.input_tokens,
+        normalized.output_tokens,
+        normalized.cost_estimate_usd,
+        normalized.usage_source,
+        normalized.created_at,
+      ],
+    );
+
+    return mapAiUsageLedgerRow(result.rows[0]);
+  }
+
+  async listAiUsageLedger(input: {
+    tenantId: TenantId;
+    since?: string;
+    limit?: number;
+  }) {
+    const result = await this.pool.query(
+      `
+select *
+from ai_usage_ledger
+where tenant_id = $1
+  and ($2::timestamptz is null or created_at >= $2::timestamptz)
+order by created_at desc
+limit $3
+`,
+      [input.tenantId, input.since ?? null, normalizeLimit(input.limit, 200)],
+    );
+
+    return result.rows.map(mapAiUsageLedgerRow);
   }
 
   async getLatestSnapshot(
@@ -5891,6 +6748,168 @@ function mapFlowAccountConnectionRow(
   }) as FlowAccountConnectionRecord;
 }
 
+function mapTenantAiProfileRow(
+  row: Record<string, unknown>,
+): TenantAiProfileRecord {
+  return normalizeTenantAiProfile({
+    tenant_id: row.tenant_id,
+    ai_enabled: row.ai_enabled,
+    shadow_mode_enabled: row.shadow_mode_enabled,
+    advisor_name: row.advisor_name,
+    business_type: row.business_type,
+    selected_model_id: row.selected_model_id,
+    key_mode: row.key_mode,
+    daily_token_budget: row.daily_token_budget,
+    monthly_token_budget: row.monthly_token_budget,
+    daily_cost_budget_usd: row.daily_cost_budget_usd,
+    monthly_cost_budget_usd: row.monthly_cost_budget_usd,
+    active_prompt_version_id: row.active_prompt_version_id,
+    last_dry_run_at: row.last_dry_run_at
+      ? toIsoString(row.last_dry_run_at as string | Date)
+      : null,
+    last_run_at: row.last_run_at
+      ? toIsoString(row.last_run_at as string | Date)
+      : null,
+    last_status: row.last_status,
+    last_safe_error_message: row.last_safe_error_message,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+  }) as TenantAiProfileRecord;
+}
+
+function mapTenantAiPromptVersionRow(
+  row: Record<string, unknown>,
+): TenantAiPromptVersionRecord {
+  return normalizeTenantAiPromptVersion({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    version: row.version,
+    prompt_text: row.prompt_text,
+    created_by: row.created_by,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    archived_at: row.archived_at
+      ? toIsoString(row.archived_at as string | Date)
+      : null,
+  }) as TenantAiPromptVersionRecord;
+}
+
+function mapOpenRouterModelCatalogRow(
+  row: Record<string, unknown>,
+): OpenRouterModelCatalogRecord {
+  return normalizeOpenRouterModelCatalog({
+    model_id: row.model_id,
+    display_name: row.display_name,
+    provider: row.provider,
+    recommended_tier: row.recommended_tier,
+    use_case: row.use_case,
+    intelligence_label: row.intelligence_label,
+    context_length: row.context_length,
+    price_input_per_m: row.price_input_per_m,
+    price_output_per_m: row.price_output_per_m,
+    supports_structured_outputs: row.supports_structured_outputs,
+    enabled: row.enabled,
+    fetched_at: row.fetched_at
+      ? toIsoString(row.fetched_at as string | Date)
+      : undefined,
+  }) as OpenRouterModelCatalogRecord;
+}
+
+function mapMetricSnapshotRow(row: Record<string, unknown>): MetricSnapshotRecord {
+  return normalizeMetricSnapshot({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    report_key: row.report_key,
+    metric_date: toDateOnly(row.metric_date),
+    period_preset: row.period_preset,
+    metrics_json: row.metrics_json,
+    quality_status: row.quality_status,
+    source_run_ids: row.source_run_ids_json,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+  }) as MetricSnapshotRecord;
+}
+
+function mapAiAdvisorRunRow(row: Record<string, unknown>): AiAdvisorRunRecord {
+  return normalizeAiAdvisorRun({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    run_date: toDateOnly(row.run_date),
+    trigger_type: row.trigger_type,
+    status: row.status,
+    idempotency_key: row.idempotency_key,
+    model_provider: row.model_provider,
+    model_id: row.model_id,
+    prompt_version_id: row.prompt_version_id,
+    context_hash: row.context_hash,
+    source_report_keys: row.source_report_keys_json,
+    input_tokens: row.input_tokens,
+    output_tokens: row.output_tokens,
+    cost_estimate_usd: row.cost_estimate_usd,
+    latency_ms: row.latency_ms,
+    fallback_used: row.fallback_used,
+    response_json: row.response_json,
+    safe_error_message: row.safe_error_message,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    started_at: row.started_at
+      ? toIsoString(row.started_at as string | Date)
+      : null,
+    finished_at: row.finished_at
+      ? toIsoString(row.finished_at as string | Date)
+      : null,
+  }) as AiAdvisorRunRecord;
+}
+
+function mapAiAdvisorItemRow(row: Record<string, unknown>): AiAdvisorItemRecord {
+  return normalizeAiAdvisorItem({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    advisor_run_id: row.advisor_run_id,
+    item_date: toDateOnly(row.item_date),
+    severity: row.severity,
+    title: row.title,
+    reason: row.reason,
+    recommended_action: row.recommended_action,
+    evidence_json: row.evidence_json,
+    confidence: row.confidence,
+    status: row.status,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+    updated_at: row.updated_at
+      ? toIsoString(row.updated_at as string | Date)
+      : undefined,
+    resolved_at: row.resolved_at
+      ? toIsoString(row.resolved_at as string | Date)
+      : null,
+  }) as AiAdvisorItemRecord;
+}
+
+function mapAiUsageLedgerRow(row: Record<string, unknown>): AiUsageLedgerRecord {
+  return normalizeAiUsageLedger({
+    id: row.id,
+    tenant_id: row.tenant_id,
+    provider: row.provider,
+    model_id: row.model_id,
+    advisor_run_id: row.advisor_run_id,
+    input_tokens: row.input_tokens,
+    output_tokens: row.output_tokens,
+    cost_estimate_usd: row.cost_estimate_usd,
+    usage_source: row.usage_source,
+    created_at: row.created_at
+      ? toIsoString(row.created_at as string | Date)
+      : undefined,
+  }) as AiUsageLedgerRecord;
+}
+
 function toSecretMetadata(secret: SecretRecord): SecretMetadataRecord {
   const { encrypted_value: _encryptedValue, ...metadata } = secret;
   return {
@@ -7388,10 +8407,472 @@ function normalizeFlowAccountConnection(
   };
 }
 
+function normalizeTenantAiProfiles(value: unknown): TenantAiProfileRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeTenantAiProfile)
+    .filter((profile): profile is TenantAiProfileRecord => Boolean(profile));
+}
+
+function normalizeTenantAiProfile(value: unknown): TenantAiProfileRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const profile = value as Partial<TenantAiProfileRecord>;
+  if (!profile.tenant_id) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const model = aiCeoModelIdSchema.safeParse(profile.selected_model_id);
+  const keyMode = aiCeoKeyModeSchema.safeParse(profile.key_mode);
+  const status = aiCeoRunStatusSchema.safeParse(profile.last_status);
+
+  return {
+    tenant_id: String(profile.tenant_id) as TenantId,
+    ai_enabled: Boolean(profile.ai_enabled),
+    shadow_mode_enabled: profile.shadow_mode_enabled !== false,
+    advisor_name: normalizeTrimmedString(profile.advisor_name, "AI CEO", 80),
+    business_type: normalizeTrimmedString(profile.business_type, "retail", 120),
+    selected_model_id: model.success ? model.data : "qwen/qwen3.7-max",
+    key_mode: keyMode.success ? keyMode.data : "system_default",
+    daily_token_budget: normalizeBoundedInteger(
+      profile.daily_token_budget,
+      1_000,
+      2_000_000,
+      80_000,
+    ),
+    monthly_token_budget: normalizeBoundedInteger(
+      profile.monthly_token_budget,
+      10_000,
+      50_000_000,
+      2_000_000,
+    ),
+    daily_cost_budget_usd: normalizeBoundedNumber(
+      profile.daily_cost_budget_usd,
+      0.01,
+      1_000,
+      2,
+    ),
+    monthly_cost_budget_usd: normalizeBoundedNumber(
+      profile.monthly_cost_budget_usd,
+      0.1,
+      20_000,
+      60,
+    ),
+    active_prompt_version_id:
+      typeof profile.active_prompt_version_id === "string"
+        ? profile.active_prompt_version_id
+        : null,
+    last_dry_run_at:
+      typeof profile.last_dry_run_at === "string"
+        ? profile.last_dry_run_at
+        : null,
+    last_run_at:
+      typeof profile.last_run_at === "string" ? profile.last_run_at : null,
+    last_status: status.success ? status.data : null,
+    last_safe_error_message:
+      typeof profile.last_safe_error_message === "string"
+        ? profile.last_safe_error_message.slice(0, 500)
+        : null,
+    created_at: typeof profile.created_at === "string" ? profile.created_at : now,
+    updated_at: typeof profile.updated_at === "string" ? profile.updated_at : now,
+  };
+}
+
+function normalizeTenantAiPromptVersions(
+  value: unknown,
+): TenantAiPromptVersionRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeTenantAiPromptVersion)
+    .filter(
+      (prompt): prompt is TenantAiPromptVersionRecord => Boolean(prompt),
+    );
+}
+
+function normalizeTenantAiPromptVersion(
+  value: unknown,
+): TenantAiPromptVersionRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const prompt = value as Partial<TenantAiPromptVersionRecord>;
+  if (!prompt.id || !prompt.tenant_id || !prompt.prompt_text) {
+    return null;
+  }
+  const now = new Date().toISOString();
+
+  return {
+    id: String(prompt.id),
+    tenant_id: String(prompt.tenant_id) as TenantId,
+    version: normalizeBoundedInteger(prompt.version, 1, 1_000_000, 1),
+    prompt_text: String(prompt.prompt_text).slice(0, 8_000),
+    created_by:
+      typeof prompt.created_by === "string" ? prompt.created_by.slice(0, 180) : null,
+    created_at: typeof prompt.created_at === "string" ? prompt.created_at : now,
+    archived_at:
+      typeof prompt.archived_at === "string" ? prompt.archived_at : null,
+  };
+}
+
+function normalizeOpenRouterModelCatalogEntries(
+  value: unknown,
+): OpenRouterModelCatalogRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeOpenRouterModelCatalog)
+    .filter(
+      (model): model is OpenRouterModelCatalogRecord => Boolean(model),
+    );
+}
+
+function normalizeOpenRouterModelCatalog(
+  value: unknown,
+): OpenRouterModelCatalogRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const model = value as Partial<OpenRouterModelCatalogRecord>;
+  const modelId = aiCeoModelIdSchema.safeParse(model.model_id);
+  if (!modelId.success) {
+    return null;
+  }
+  const tier = aiCeoModelTierSchema.safeParse(model.recommended_tier);
+
+  return {
+    model_id: modelId.data,
+    display_name: normalizeTrimmedString(
+      model.display_name,
+      modelId.data,
+      120,
+    ),
+    provider: normalizeTrimmedString(
+      model.provider,
+      modelId.data.split("/")[0] ?? "openrouter",
+      80,
+    ),
+    recommended_tier: tier.success ? tier.data : "business",
+    use_case: normalizeTrimmedString(model.use_case, "Daily advisor", 160),
+    intelligence_label: normalizeTrimmedString(
+      model.intelligence_label,
+      "เหมาะกับสรุปและคำแนะนำธุรกิจรายวัน",
+      260,
+    ),
+    context_length: normalizeBoundedInteger(
+      model.context_length,
+      1_000,
+      5_000_000,
+      128_000,
+    ),
+    price_input_per_m: normalizeBoundedNumber(
+      model.price_input_per_m,
+      0,
+      1_000,
+      0,
+    ),
+    price_output_per_m: normalizeBoundedNumber(
+      model.price_output_per_m,
+      0,
+      1_000,
+      0,
+    ),
+    supports_structured_outputs: model.supports_structured_outputs !== false,
+    enabled: model.enabled !== false,
+    fetched_at:
+      typeof model.fetched_at === "string"
+        ? model.fetched_at
+        : new Date().toISOString(),
+  };
+}
+
+function normalizeMetricSnapshots(value: unknown): MetricSnapshotRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeMetricSnapshot)
+    .filter((snapshot): snapshot is MetricSnapshotRecord => Boolean(snapshot));
+}
+
+function normalizeMetricSnapshot(value: unknown): MetricSnapshotRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const snapshot = value as Partial<MetricSnapshotRecord>;
+  const reportKey = reportKeySchema.safeParse(snapshot.report_key);
+  const qualityStatus = dataQualityStatusSchema.safeParse(
+    snapshot.quality_status,
+  );
+  if (!snapshot.id || !snapshot.tenant_id || !reportKey.success) {
+    return null;
+  }
+
+  return {
+    id: String(snapshot.id),
+    tenant_id: String(snapshot.tenant_id) as TenantId,
+    report_key: reportKey.data,
+    metric_date:
+      typeof snapshot.metric_date === "string"
+        ? snapshot.metric_date.slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
+    period_preset: normalizeTrimmedString(
+      snapshot.period_preset,
+      "latest",
+      80,
+    ),
+    metrics_json: normalizeRecordJson(snapshot.metrics_json),
+    quality_status: qualityStatus.success ? qualityStatus.data : "partial",
+    source_run_ids: normalizeStringArray(snapshot.source_run_ids, 50),
+    created_at:
+      typeof snapshot.created_at === "string"
+        ? snapshot.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function normalizeAiAdvisorRuns(value: unknown): AiAdvisorRunRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeAiAdvisorRun)
+    .filter((run): run is AiAdvisorRunRecord => Boolean(run));
+}
+
+function normalizeAiAdvisorRun(value: unknown): AiAdvisorRunRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const run = value as Partial<AiAdvisorRunRecord>;
+  const model = aiCeoModelIdSchema.safeParse(run.model_id);
+  if (!run.id || !run.tenant_id || !model.success) {
+    return null;
+  }
+  const trigger = aiCeoRunTriggerSchema.safeParse(run.trigger_type);
+  const status = aiCeoRunStatusSchema.safeParse(run.status);
+  const response = aiCeoAdvisorResponseSchema.safeParse(run.response_json);
+
+  return {
+    id: String(run.id),
+    tenant_id: String(run.tenant_id) as TenantId,
+    run_date:
+      typeof run.run_date === "string"
+        ? run.run_date.slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
+    trigger_type: trigger.success ? trigger.data : "manual",
+    status: status.success ? status.data : "failed",
+    idempotency_key: normalizeTrimmedString(
+      run.idempotency_key,
+      String(run.id),
+      240,
+    ),
+    model_provider: "openrouter",
+    model_id: model.data,
+    prompt_version_id:
+      typeof run.prompt_version_id === "string" ? run.prompt_version_id : null,
+    context_hash: normalizeTrimmedString(run.context_hash, "unknown", 128),
+    source_report_keys: normalizeReportKeys(run.source_report_keys),
+    input_tokens: normalizeOptionalNonNegativeInteger(run.input_tokens),
+    output_tokens: normalizeOptionalNonNegativeInteger(run.output_tokens),
+    cost_estimate_usd: normalizeOptionalNonNegativeNumber(
+      run.cost_estimate_usd,
+    ),
+    latency_ms: normalizeOptionalNonNegativeInteger(run.latency_ms),
+    fallback_used: Boolean(run.fallback_used),
+    response_json: response.success ? response.data : null,
+    safe_error_message:
+      typeof run.safe_error_message === "string"
+        ? run.safe_error_message.slice(0, 500)
+        : null,
+    created_at:
+      typeof run.created_at === "string" ? run.created_at : new Date().toISOString(),
+    started_at: typeof run.started_at === "string" ? run.started_at : null,
+    finished_at: typeof run.finished_at === "string" ? run.finished_at : null,
+  };
+}
+
+function normalizeAiAdvisorItems(value: unknown): AiAdvisorItemRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeAiAdvisorItem)
+    .filter((item): item is AiAdvisorItemRecord => Boolean(item));
+}
+
+function normalizeAiAdvisorItem(value: unknown): AiAdvisorItemRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const item = value as Partial<AiAdvisorItemRecord>;
+  if (!item.id || !item.tenant_id || !item.advisor_run_id || !item.title) {
+    return null;
+  }
+  const severity = aiCeoAdvisorSeveritySchema.safeParse(item.severity);
+  const status = aiCeoAdvisorItemStatusSchema.safeParse(item.status);
+  const now = new Date().toISOString();
+
+  return {
+    id: String(item.id),
+    tenant_id: String(item.tenant_id) as TenantId,
+    advisor_run_id: String(item.advisor_run_id),
+    item_date:
+      typeof item.item_date === "string" ? item.item_date.slice(0, 10) : now.slice(0, 10),
+    severity: severity.success ? severity.data : "info",
+    title: normalizeTrimmedString(item.title, "คำแนะนำธุรกิจ", 160),
+    reason: normalizeTrimmedString(item.reason, "ไม่มีรายละเอียด", 800),
+    recommended_action: normalizeTrimmedString(
+      item.recommended_action,
+      "ตรวจสอบข้อมูลประกอบก่อนตัดสินใจ",
+      800,
+    ),
+    evidence_json: normalizeRecordJson(item.evidence_json),
+    confidence: normalizeBoundedNumber(item.confidence, 0, 1, 0.5),
+    status: status.success ? status.data : "new",
+    created_at: typeof item.created_at === "string" ? item.created_at : now,
+    updated_at: typeof item.updated_at === "string" ? item.updated_at : now,
+    resolved_at: typeof item.resolved_at === "string" ? item.resolved_at : null,
+  };
+}
+
+function normalizeAiUsageLedgerEntries(value: unknown): AiUsageLedgerRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeAiUsageLedger)
+    .filter((entry): entry is AiUsageLedgerRecord => Boolean(entry));
+}
+
+function normalizeAiUsageLedger(value: unknown): AiUsageLedgerRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const entry = value as Partial<AiUsageLedgerRecord>;
+  const model = aiCeoModelIdSchema.safeParse(entry.model_id);
+  if (!entry.id || !entry.tenant_id || !model.success) {
+    return null;
+  }
+
+  return {
+    id: String(entry.id),
+    tenant_id: String(entry.tenant_id) as TenantId,
+    provider: "openrouter",
+    model_id: model.data,
+    advisor_run_id:
+      typeof entry.advisor_run_id === "string" ? entry.advisor_run_id : null,
+    input_tokens: normalizeBoundedInteger(
+      entry.input_tokens,
+      0,
+      1_000_000_000,
+      0,
+    ),
+    output_tokens: normalizeBoundedInteger(
+      entry.output_tokens,
+      0,
+      1_000_000_000,
+      0,
+    ),
+    cost_estimate_usd: normalizeBoundedNumber(
+      entry.cost_estimate_usd,
+      0,
+      1_000_000,
+      0,
+    ),
+    usage_source: entry.usage_source === "provider" ? "provider" : "estimated",
+    created_at:
+      typeof entry.created_at === "string" ? entry.created_at : new Date().toISOString(),
+  };
+}
+
+function normalizeTrimmedString(
+  value: unknown,
+  fallback: string,
+  maxLength: number,
+) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return (normalized || fallback).slice(0, maxLength);
+}
+
+function normalizeStringArray(value: unknown, maxLength: number) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const normalized = item.trim().slice(0, 180);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+    if (result.length >= maxLength) {
+      break;
+    }
+  }
+  return result;
+}
+
+function normalizeBoundedNumber(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+) {
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(numeric, max));
+}
+
+function normalizeOptionalNonNegativeNumber(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return normalizeBoundedNumber(value, 0, 1_000_000, 0);
+}
+
+function normalizeLimit(value: unknown, fallback: number) {
+  return normalizeBoundedInteger(value, 1, 1_000, fallback);
+}
+
 function normalizeSecretScope(value: unknown): SecretRecord["scope"] {
   if (
     value === "datasource" ||
     value === "flowaccount" ||
+    value === "ai_provider" ||
     value === "line_channel" ||
     value === "system"
   ) {
@@ -7814,6 +9295,137 @@ create table if not exists flowaccount_connections (
 
 create index if not exists flowaccount_connections_status_idx
 on flowaccount_connections (status, updated_at desc);
+
+create table if not exists tenant_ai_profiles (
+  tenant_id text primary key references tenants(id) on delete cascade,
+  ai_enabled boolean not null default false,
+  shadow_mode_enabled boolean not null default true,
+  advisor_name text not null default 'AI CEO',
+  business_type text not null default 'retail',
+  selected_model_id text not null default 'qwen/qwen3.7-max',
+  key_mode text not null default 'system_default',
+  daily_token_budget integer not null default 80000,
+  monthly_token_budget integer not null default 2000000,
+  daily_cost_budget_usd numeric(12, 4) not null default 2,
+  monthly_cost_budget_usd numeric(12, 4) not null default 60,
+  active_prompt_version_id text,
+  last_dry_run_at timestamptz,
+  last_run_at timestamptz,
+  last_status text,
+  last_safe_error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists tenant_ai_prompt_versions (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  version integer not null,
+  prompt_text text not null,
+  created_by text,
+  created_at timestamptz not null default now(),
+  archived_at timestamptz,
+  unique (tenant_id, version)
+);
+
+create index if not exists tenant_ai_prompt_versions_tenant_idx
+on tenant_ai_prompt_versions (tenant_id, version desc, created_at desc);
+
+create table if not exists openrouter_model_catalog (
+  model_id text primary key,
+  display_name text not null,
+  provider text not null,
+  recommended_tier text not null default 'business',
+  use_case text not null,
+  intelligence_label text not null,
+  context_length integer not null default 128000,
+  price_input_per_m numeric(12, 6) not null default 0,
+  price_output_per_m numeric(12, 6) not null default 0,
+  supports_structured_outputs boolean not null default true,
+  enabled boolean not null default true,
+  fetched_at timestamptz not null default now()
+);
+
+create table if not exists metric_snapshots (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  report_key text not null,
+  metric_date date not null,
+  period_preset text not null,
+  metrics_json jsonb not null default '{}'::jsonb,
+  quality_status text not null default 'partial',
+  source_run_ids_json jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists metric_snapshots_tenant_idx
+on metric_snapshots (tenant_id, metric_date desc, created_at desc);
+
+create table if not exists ai_advisor_runs (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  run_date date not null,
+  trigger_type text not null,
+  status text not null,
+  idempotency_key text not null unique,
+  model_provider text not null default 'openrouter',
+  model_id text not null,
+  prompt_version_id text,
+  context_hash text not null,
+  source_report_keys_json jsonb not null default '[]'::jsonb,
+  input_tokens integer,
+  output_tokens integer,
+  cost_estimate_usd numeric(12, 6),
+  latency_ms integer,
+  fallback_used boolean not null default false,
+  response_json jsonb,
+  safe_error_message text,
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  finished_at timestamptz
+);
+
+create index if not exists ai_advisor_runs_tenant_idx
+on ai_advisor_runs (tenant_id, run_date desc, created_at desc);
+
+create index if not exists ai_advisor_runs_status_idx
+on ai_advisor_runs (status, created_at desc);
+
+create table if not exists ai_advisor_items (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  advisor_run_id text not null references ai_advisor_runs(id) on delete cascade,
+  item_date date not null,
+  severity text not null default 'info',
+  title text not null,
+  reason text not null,
+  recommended_action text not null,
+  evidence_json jsonb not null default '{}'::jsonb,
+  confidence numeric(5, 4) not null default 0.5,
+  status text not null default 'new',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create index if not exists ai_advisor_items_tenant_status_idx
+on ai_advisor_items (tenant_id, status, created_at desc);
+
+create table if not exists ai_usage_ledger (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  provider text not null default 'openrouter',
+  model_id text not null,
+  advisor_run_id text references ai_advisor_runs(id) on delete set null,
+  input_tokens integer not null default 0,
+  output_tokens integer not null default 0,
+  cost_estimate_usd numeric(12, 6) not null default 0,
+  usage_source text not null default 'estimated',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ai_usage_ledger_tenant_created_idx
+on ai_usage_ledger (tenant_id, created_at desc);
 
 create index if not exists line_targets_tenant_idx
 on line_targets (tenant_id, updated_at desc);
