@@ -1391,9 +1391,9 @@ function sanitizeAdvisorResponseForContext(
     };
   });
 
-  const caveats = response.caveats.map((caveat) =>
-    sanitizeAdvisorDisplayText(caveat, textGuards),
-  );
+  const caveats = response.caveats
+    .map((caveat) => sanitizeAdvisorDisplayText(caveat, textGuards))
+    .filter((caveat) => shouldKeepAdvisorCaveat(caveat, context));
   if (!context.reports.length) {
     caveats.unshift("รอบนี้ไม่มีรายงานสำเร็จใน context ของ AI CEO");
   }
@@ -1409,7 +1409,10 @@ function sanitizeAdvisorResponseForContext(
   }
   const cashflowCaveat = buildCashflowEvidenceCaveat(textGuards);
   if (cashflowCaveat) {
-    caveats.push(cashflowCaveat);
+    const alreadyHasCashflowCaveat = caveats.some(isCashflowEvidenceCaveat);
+    if (!alreadyHasCashflowCaveat) {
+      caveats.push(cashflowCaveat);
+    }
   }
 
   return {
@@ -1510,11 +1513,14 @@ function sanitizeAdvisorDisplayText(value: string, guards: AdvisorTextGuards) {
       .replace(/ลูกหนี้การค้า/g, "ยอดรับเงิน/เอกสารรับเงิน")
       .replace(/ลูกหนี้ค้างชำระ/g, "ยอดรับชำระที่ควรตรวจ");
   }
+  text = normalizeAdvisorSpacing(text);
   return text.replace(/[ \t]{2,}/g, " ").trim();
 }
 
 function sanitizeLinePreviewDisplayText(value: string) {
-  return softenAdvisorTone(replaceReportKeyMentions(stripDecorativeSymbols(value)))
+  return normalizeAdvisorSpacing(
+    softenAdvisorTone(replaceReportKeyMentions(stripDecorativeSymbols(value))),
+  )
     .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
@@ -1582,6 +1588,38 @@ function buildCashflowEvidenceCaveat(guards: AdvisorTextGuards) {
     return null;
   }
   return "เงินสดสุทธิเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน ไม่ใช่ยอดเงินฝากธนาคารคงเหลือ ควรตรวจเอกสารประกอบก่อนสรุป";
+}
+
+function shouldKeepAdvisorCaveat(
+  caveat: string,
+  context: Awaited<ReturnType<typeof buildAdvisorContext>>,
+) {
+  if (
+    hasCompleteFullReportScope(context) &&
+    /ข้อมูลจำกัด.*(แพ็กเกจ|rule|รายงานที่ระบบอนุมัติ)/i.test(caveat)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function hasCompleteFullReportScope(
+  context: Awaited<ReturnType<typeof buildAdvisorContext>>,
+) {
+  return (
+    context.data_scope.requested_report_keys.length === reportKeyValues.length &&
+    context.reports.length >= reportKeyValues.length
+  );
+}
+
+function isCashflowEvidenceCaveat(value: string) {
+  return /เงินสดสุทธิ|กระแสเงินสดสุทธิ/.test(value) && /เอกสาร/.test(value);
+}
+
+function normalizeAdvisorSpacing(value: string) {
+  return value
+    .replace(/(เปิด|ตรวจสอบ|เทียบ|ดู|จาก|ใน|และ)\s+(รายงาน)/g, "$1$2")
+    .replace(/ยอดยอด/g, "ยอด");
 }
 
 function getReportSummaryNumber(
