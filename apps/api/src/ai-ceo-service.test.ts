@@ -134,7 +134,7 @@ describe("AI CEO service", () => {
     expect(preview?.line_message_type).toBe("text");
     expect(preview?.run_id).toBe("sample_demo_remote");
     expect(preview?.text).toContain("สรุปวันนี้");
-    expect(preview?.text).toContain("ใช้ข้อมูลจากรายงานรอบนี้ 1 รายงาน");
+    expect(preview?.text).toContain("อ้างอิงจากรายงานรอบนี้ 1 รายงาน");
     expect(preview?.text).toContain("ควรทำก่อน");
     expect(preview?.text).toContain("ตรวจสินค้ากำไรต่ำ");
     expect(preview?.flex_message).toBeUndefined();
@@ -200,7 +200,8 @@ describe("AI CEO service", () => {
     });
 
     const context = capturedContext as unknown as {
-      data_scope?: { mode?: string; available_report_keys?: string[] };
+      data_scope?: { mode?: string; available_report_keys?: string[]; rules?: string[] };
+      output_contract?: { cashflow_style?: string };
       reports?: Array<{ report_key: string; run_id: string }>;
     };
     expect(result.ok).toBe(true);
@@ -213,6 +214,8 @@ describe("AI CEO service", () => {
       "run_sales_current",
       "run_cash_current",
     ]);
+    expect(context.output_contract?.cashflow_style).toContain("เงินสดสุทธิ");
+    expect(context.data_scope?.rules?.join(" ")).toContain("ลูกหนี้การค้า");
     expect(result.run.source_report_keys).toEqual([
       "sales_goods_services",
       "cash_bank_receipts",

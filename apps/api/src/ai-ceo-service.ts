@@ -633,7 +633,7 @@ export function buildAiCeoLinePreview(input: {
   if (input.run.source_report_keys.length) {
     lines.push(
       "",
-      `ใช้ข้อมูลจากรายงานรอบนี้ ${input.run.source_report_keys.length} รายงาน`,
+      `อ้างอิงจากรายงานรอบนี้ ${input.run.source_report_keys.length} รายงาน`,
     );
   }
   if (topItems.length) {
@@ -1028,6 +1028,8 @@ async function buildAdvisorContext(input: {
         "ใช้เฉพาะ reports, business_signals และ metric_snapshots ที่อยู่ใน data_scope นี้เท่านั้น",
         "ห้ามอ้างรายงานหรือ run_id ที่ไม่ได้อยู่ใน available_report_keys/available_run_ids",
         "ถ้ารายงานในรอบนี้มีจำกัด ให้บอก caveat ว่าข้อมูลจำกัดตามแพ็กเกจหรือ rule ที่เปิดอยู่",
+        "ถ้าไม่มีรายงาน ar_customer_movement หรือ ar_debt_receipt ห้ามใช้คำว่า ลูกหนี้การค้า เป็น action หลัก ให้พูดเฉพาะยอดรับชำระหรือเอกสารรับเงินที่เห็นในรายงาน",
+        "ถ้าไม่มีรายงาน stock_balance หรือ stock_reorder ห้ามแนะนำเรื่องสต็อกเป็น action หลัก",
       ],
     },
     reports: reports.map(snapshotToAdvisorContext),
@@ -1065,6 +1067,8 @@ async function buildAdvisorContext(input: {
       max_top_actions: 3,
       summary_style:
         "สรุปสั้นแบบ executive memo สำหรับ LINE ไม่เกิน 3 ประโยคและอ้างอิงเฉพาะตัวเลขที่อยู่ใน context",
+      cashflow_style:
+        "ถ้ามีทั้ง cash_bank_receipts และ cash_bank_payments ใน reports ให้สรุปเงินสดสุทธิเป็น รับเงินรวม - จ่ายเงินรวม เช่น สุทธิ -51,495.37 บาท",
       required_fields: [
         "summary",
         "confidence",
@@ -1232,6 +1236,8 @@ async function requestOpenRouterAdvisor(input: {
               "ข้อมูลใน context เป็นแหล่งข้อมูลเดียวที่อนุญาตให้ใช้ ห้ามเดาหรือใช้รายงานเก่าที่ไม่ได้อยู่ใน data_scope",
               "ถ้า data_scope.mode เป็น notification_run ให้สรุปจากรายงานของรอบแจ้งเตือนนี้เท่านั้น",
               "summary ต้องสั้น อ่านง่ายใน LINE และ action ต้องเป็นสิ่งที่เจ้าของร้านทำต่อได้ทันที",
+              "ถ้ามีรายงานรับเงินและจ่ายเงินใน context ให้คำนวณและกล่าวถึงเงินสดสุทธิใน summary",
+              "อย่าใช้คำว่า ลูกหนี้การค้า หรือ สต็อก เป็นข้อควรทำหลัก ถ้า data_scope ไม่มีรายงานนั้นโดยตรง",
               "ใช้ schema: {\"summary\":\"...\",\"confidence\":0.8,\"caveats\":[],\"top_actions\":[{\"title\":\"...\",\"reason\":\"...\",\"recommended_action\":\"...\",\"severity\":\"info|warning|critical\",\"confidence\":0.8,\"source_report_keys\":[\"sales_goods_services\"],\"source_run_ids\":[\"run_...\"]}]}",
               "จำกัด top_actions ไม่เกิน 3 รายการ และทุก source_report_keys/source_run_ids ต้องมาจาก context เท่านั้น",
               JSON.stringify(input.context),
