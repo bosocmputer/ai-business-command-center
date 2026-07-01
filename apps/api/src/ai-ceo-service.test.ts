@@ -6,6 +6,7 @@ import type {
   BusinessSignalRecord,
   OpenRouterModelCatalogRecord,
   ReportKey,
+  ReportSnapshot,
   Tenant,
   TenantAiProfileRecord,
   TenantAiPromptVersionRecord,
@@ -109,7 +110,7 @@ describe("AI CEO service", () => {
               severity: "warning",
               confidence: 0.8,
               source_report_keys: ["sales_goods_services"],
-              source_run_ids: ["run_1"],
+              source_run_ids: ["sample_demo_remote"],
             },
           ],
         }),
@@ -131,10 +132,100 @@ describe("AI CEO service", () => {
       items: result.items,
     });
     expect(preview?.line_message_type).toBe("text");
-    expect(preview?.run_id).toBe("run_1");
+    expect(preview?.run_id).toBe("sample_demo_remote");
+    expect(preview?.text).toContain("สรุปวันนี้");
+    expect(preview?.text).toContain("ใช้ข้อมูลจากรายงานรอบนี้ 1 รายงาน");
+    expect(preview?.text).toContain("ควรทำก่อน");
     expect(preview?.text).toContain("ตรวจสินค้ากำไรต่ำ");
     expect(preview?.flex_message).toBeUndefined();
     expect(JSON.stringify(preview)).not.toContain("api_key");
+  });
+
+  it("limits scheduled AI CEO context to the current notification report snapshots", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+    const now = new Date().toISOString();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant, now }),
+      selected_model_id: "qwen/qwen3.7-max",
+      ai_enabled: true,
+    };
+    const salesSnapshot = createScopedSnapshot({
+      reportKey: "sales_goods_services",
+      runId: "run_sales_current",
+    });
+    const cashSnapshot = createScopedSnapshot({
+      reportKey: "cash_bank_receipts",
+      runId: "run_cash_current",
+    });
+    let capturedContext: Record<string, unknown> | null = null;
+
+    const result = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "owner",
+      triggerType: "scheduled",
+      sourceReportKeys: ["sales_goods_services", "cash_bank_receipts"],
+      sourceSnapshots: [salesSnapshot, cashSnapshot],
+      requester: async ({ context }) => {
+        capturedContext = context;
+        return {
+          ok: true,
+          providerStatus: 200,
+          latencyMs: 42,
+          content: JSON.stringify({
+            summary: "ใช้ยอดขายและรับเงินจากรอบแจ้งเตือนนี้เท่านั้น",
+            confidence: 0.82,
+            caveats: [],
+            top_actions: [
+              {
+                title: "ตรวจเงินรับ",
+                reason: "พบยอดรับเงินที่ควรตรวจ",
+                recommended_action: "เปิดรายงานรับเงินของรอบนี้",
+                severity: "warning",
+                confidence: 0.8,
+                source_report_keys: [
+                  "cash_bank_receipts",
+                  "gross_profit_by_product",
+                ],
+                source_run_ids: ["run_cash_current", "run_gross_profit_old"],
+              },
+            ],
+          }),
+          inputTokens: 1000,
+          outputTokens: 500,
+        };
+      },
+    });
+
+    const context = capturedContext as unknown as {
+      data_scope?: { mode?: string; available_report_keys?: string[] };
+      reports?: Array<{ report_key: string; run_id: string }>;
+    };
+    expect(result.ok).toBe(true);
+    expect(context.data_scope?.mode).toBe("notification_run");
+    expect(context.data_scope?.available_report_keys).toEqual([
+      "sales_goods_services",
+      "cash_bank_receipts",
+    ]);
+    expect(context.reports?.map((report) => report.run_id)).toEqual([
+      "run_sales_current",
+      "run_cash_current",
+    ]);
+    expect(result.run.source_report_keys).toEqual([
+      "sales_goods_services",
+      "cash_bank_receipts",
+    ]);
+    expect(result.response?.top_actions[0]?.source_report_keys).toEqual([
+      "cash_bank_receipts",
+    ]);
+    expect(result.response?.top_actions[0]?.source_run_ids).toEqual([
+      "run_cash_current",
+    ]);
+    expect(result.response?.caveats.join(" ")).toContain(
+      "ระบบตัดหลักฐานที่อยู่นอกชุดรายงานรอบนี้ออก",
+    );
   });
 
   it("parses fenced OpenRouter JSON and can render an AI CEO fallback card", async () => {
@@ -164,13 +255,13 @@ describe("AI CEO service", () => {
             caveats: "ควรตรวจข้อมูลบางส่วนซ้ำ",
             actions: [
               {
-                title: "ตรวจเงินรับ",
-                reason: "พบยอดที่ควรตรวจสอบจากรายงานรับเงิน",
-                action: "เปิดรายงานรับเงินแล้วตรวจรายการ mismatch",
+                title: "ตรวจยอดขาย",
+                reason: "พบยอดที่ควรตรวจสอบจากรายงานขาย",
+                action: "เปิดรายงานขายแล้วตรวจรายการที่ผิดปกติ",
                 severity: "medium",
                 confidence: 75,
-                source_report_key: "cash_bank_receipts",
-                source_run_id: "run_cash_1",
+                source_report_key: "sales_goods_services",
+                source_run_id: "sample_demo_remote",
               },
             ],
           }),
@@ -184,7 +275,7 @@ describe("AI CEO service", () => {
     expect(result.ok).toBe(true);
     expect(result.response?.confidence).toBe(0.82);
     expect(result.response?.caveats).toEqual(["ควรตรวจข้อมูลบางส่วนซ้ำ"]);
-    expect(result.items[0]?.recommended_action).toContain("รายงานรับเงิน");
+    expect(result.items[0]?.recommended_action).toContain("รายงานขาย");
     expect(result.items[0]?.severity).toBe("info");
 
     const fallback = buildAiCeoUnavailableLinePreview({
@@ -267,4 +358,21 @@ function createFakeStore() {
     listMetricSnapshots: async () => [],
   } as unknown as SystemStore & typeof state;
   return store;
+}
+
+function createScopedSnapshot(input: {
+  reportKey: ReportKey;
+  runId: string;
+}): ReportSnapshot {
+  const snapshot = createSampleSnapshot(tenant.id);
+  return {
+    ...snapshot,
+    report_key: input.reportKey,
+    run_id: input.runId,
+    generated_at: "2026-06-30T03:00:00.000Z",
+    params: {
+      date_from: "2026-06-30",
+      date_to: "2026-06-30",
+    },
+  } as unknown as ReportSnapshot;
 }

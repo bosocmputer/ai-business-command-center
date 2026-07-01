@@ -12721,6 +12721,15 @@ async function executeNotificationRule(input: {
   let aiCeoSafeErrorMessage: string | null = null;
   if (aiCeoProfile?.ai_enabled && hasExecutiveLineTarget) {
     try {
+      const degradedFallbackSnapshots = degradedReports.flatMap((report) =>
+        report.fallback?.snapshot
+          ? [report.fallback.snapshot as ReportSnapshot]
+          : [],
+      );
+      const aiCeoSourceSnapshots = [
+        ...snapshots,
+        ...degradedFallbackSnapshots,
+      ];
       const aiResult = await runAiCeoDryRun({
         store: systemStore,
         tenant,
@@ -12728,6 +12737,8 @@ async function executeNotificationRule(input: {
         actorId: null,
         triggerType: "scheduled",
         idempotencyKey: `ai-ceo:notification:${input.rule.id}:${zoned.date}:${zoned.time}:${run.id}`,
+        sourceReportKeys: input.rule.report_keys,
+        sourceSnapshots: aiCeoSourceSnapshots,
       });
       aiCeoRunId = aiResult.run.id;
       aiCeoStatus = aiResult.run.status;

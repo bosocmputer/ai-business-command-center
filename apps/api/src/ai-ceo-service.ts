@@ -325,6 +325,8 @@ export async function runAiCeoDryRun(input: {
   requester?: OpenRouterRequester;
   triggerType?: AiCeoRunTrigger;
   idempotencyKey?: string;
+  sourceReportKeys?: ReportKey[];
+  sourceSnapshots?: ReportSnapshot[];
 }): Promise<AiCeoDryRunResult> {
   if (!isAiCeoPlanEligible(input.tenant)) {
     throw new AiCeoSafeError(
@@ -392,6 +394,8 @@ export async function runAiCeoDryRun(input: {
     store: input.store,
     tenant: input.tenant,
     runDate,
+    sourceReportKeys: input.sourceReportKeys,
+    sourceSnapshots: input.sourceSnapshots,
   });
   const contextHash = hashJson(context);
   const sourceReportKeys = context.reports.map((report) => report.report_key);
@@ -473,7 +477,10 @@ export async function runAiCeoDryRun(input: {
     });
   }
 
-  const response = parseAdvisorResponse(result.content);
+  const parsedResponse = parseAdvisorResponse(result.content);
+  const response = parsedResponse
+    ? sanitizeAdvisorResponseForContext(parsedResponse, context)
+    : null;
   if (!response) {
     return finishFailedRun({
       store: input.store,
@@ -619,13 +626,32 @@ export function buildAiCeoLinePreview(input: {
       }));
   const lines = [
     `AI CEO · ${input.tenant.name}`,
-    response.summary,
-    ...topItems.map(
-      (item, index) =>
-        `${index + 1}. ${item.title}: ${item.recommended_action}`,
-    ),
-    ...response.caveats.slice(0, 2).map((caveat) => `หมายเหตุ: ${caveat}`),
+    "",
+    "สรุปวันนี้",
+    truncateLineText(response.summary, 620),
   ];
+  if (input.run.source_report_keys.length) {
+    lines.push(
+      "",
+      `ใช้ข้อมูลจากรายงานรอบนี้ ${input.run.source_report_keys.length} รายงาน`,
+    );
+  }
+  if (topItems.length) {
+    lines.push("", "ควรทำก่อน");
+    for (const [index, item] of topItems.entries()) {
+      lines.push(
+        `${index + 1}. ${truncateLineText(item.title, 120)}`,
+        `   ทำ: ${truncateLineText(item.recommended_action, 260)}`,
+      );
+    }
+  }
+  const caveats = response.caveats.slice(0, 2);
+  if (caveats.length) {
+    lines.push("", "หมายเหตุ");
+    for (const caveat of caveats) {
+      lines.push(`- ${truncateLineText(caveat, 240)}`);
+    }
+  }
   const sourceRunIds = collectAiCeoSourceRunIds({
     response,
     items: topItems,
@@ -923,13 +949,36 @@ async function buildAdvisorContext(input: {
   store: SystemStore;
   tenant: Tenant;
   runDate: string;
+  sourceReportKeys?: ReportKey[];
+  sourceSnapshots?: ReportSnapshot[];
 }) {
-  const [snapshots, signals, openItems, metrics] = await Promise.all([
-    Promise.all(
-      reportKeyValues.map((reportKey) =>
-        input.store.getLatestSnapshot(input.tenant.id, reportKey),
-      ),
-    ),
+  const requestedReportKeys = uniqueReportKeys([
+    ...(input.sourceReportKeys ?? []),
+    ...(input.sourceSnapshots ?? []).map((snapshot) => snapshot.report_key),
+  ]);
+  const hasNotificationRunSnapshots = Boolean(input.sourceSnapshots);
+  const snapshotScopeReportKeys = requestedReportKeys.length
+    ? requestedReportKeys
+    : [...reportKeyValues];
+  const scopedSnapshots = hasNotificationRunSnapshots
+    ? orderSnapshotsForReportKeys({
+        snapshots: input.sourceSnapshots ?? [],
+        reportKeys: snapshotScopeReportKeys,
+      })
+    : await Promise.all(
+        snapshotScopeReportKeys.map((reportKey) =>
+          input.store.getLatestSnapshot(input.tenant.id, reportKey),
+        ),
+      );
+  const reports = scopedSnapshots
+    .filter((snapshot): snapshot is ReportSnapshot => Boolean(snapshot))
+    .slice(0, MAX_CONTEXT_REPORTS);
+  const availableReportKeys = reports.map((snapshot) => snapshot.report_key);
+  const availableRunIds = reports.map((snapshot) => snapshot.run_id);
+  const availableReportKeySet = new Set(availableReportKeys);
+  const availableRunIdSet = new Set(availableRunIds);
+
+  const [signals, openItems, metrics] = await Promise.all([
     input.store.listBusinessSignals({
       tenantId: input.tenant.id,
       status: "open",
@@ -942,6 +991,22 @@ async function buildAdvisorContext(input: {
     }),
     input.store.listMetricSnapshots({ tenantId: input.tenant.id, limit: 30 }),
   ]);
+  const scopedSignals = signals.filter((signal) => {
+    if (!availableReportKeySet.has(signal.source_report_key)) {
+      return false;
+    }
+    return hasNotificationRunSnapshots
+      ? availableRunIdSet.has(signal.source_run_id)
+      : true;
+  });
+  const scopedMetrics = metrics.filter((metric) => {
+    if (!availableReportKeySet.has(metric.report_key)) {
+      return false;
+    }
+    return hasNotificationRunSnapshots
+      ? metric.source_run_ids.some((runId) => availableRunIdSet.has(runId))
+      : true;
+  });
 
   return {
     tenant: {
@@ -951,11 +1016,22 @@ async function buildAdvisorContext(input: {
       business_type: input.tenant.description,
     },
     run_date: input.runDate,
-    reports: snapshots
-      .filter((snapshot): snapshot is ReportSnapshot => Boolean(snapshot))
-      .slice(0, MAX_CONTEXT_REPORTS)
-      .map(snapshotToAdvisorContext),
-    business_signals: signals.map((signal) => ({
+    data_scope: {
+      mode: hasNotificationRunSnapshots
+        ? "notification_run"
+        : "latest_snapshots",
+      requested_report_keys: snapshotScopeReportKeys,
+      available_report_keys: availableReportKeys,
+      available_run_ids: availableRunIds,
+      report_count: availableReportKeys.length,
+      rules: [
+        "ใช้เฉพาะ reports, business_signals และ metric_snapshots ที่อยู่ใน data_scope นี้เท่านั้น",
+        "ห้ามอ้างรายงานหรือ run_id ที่ไม่ได้อยู่ใน available_report_keys/available_run_ids",
+        "ถ้ารายงานในรอบนี้มีจำกัด ให้บอก caveat ว่าข้อมูลจำกัดตามแพ็กเกจหรือ rule ที่เปิดอยู่",
+      ],
+    },
+    reports: reports.map(snapshotToAdvisorContext),
+    business_signals: scopedSignals.map((signal) => ({
       category: signal.category,
       severity: signal.severity,
       title: signal.title,
@@ -967,13 +1043,15 @@ async function buildAdvisorContext(input: {
       period_to: signal.period_to,
       amount_impact: signal.amount_impact,
     })),
-    open_ai_items: openItems.map((item) => ({
-      severity: item.severity,
-      title: item.title,
-      status: item.status,
-      created_at: item.created_at,
-    })),
-    metric_snapshots: metrics.map((metric) => ({
+    open_ai_items: hasNotificationRunSnapshots
+      ? []
+      : openItems.map((item) => ({
+          severity: item.severity,
+          title: item.title,
+          status: item.status,
+          created_at: item.created_at,
+        })),
+    metric_snapshots: scopedMetrics.map((metric) => ({
       report_key: metric.report_key,
       metric_date: metric.metric_date,
       period_preset: metric.period_preset,
@@ -985,6 +1063,8 @@ async function buildAdvisorContext(input: {
       language: "th-TH",
       json_only: true,
       max_top_actions: 3,
+      summary_style:
+        "สรุปสั้นแบบ executive memo สำหรับ LINE ไม่เกิน 3 ประโยคและอ้างอิงเฉพาะตัวเลขที่อยู่ใน context",
       required_fields: [
         "summary",
         "confidence",
@@ -999,6 +1079,32 @@ async function buildAdvisorContext(input: {
       ],
     },
   };
+}
+
+function uniqueReportKeys(values: ReportKey[]) {
+  const seen = new Set<ReportKey>();
+  return values.filter((reportKey) => {
+    if (seen.has(reportKey)) {
+      return false;
+    }
+    seen.add(reportKey);
+    return true;
+  });
+}
+
+function orderSnapshotsForReportKeys(input: {
+  snapshots: ReportSnapshot[];
+  reportKeys: ReportKey[];
+}) {
+  const snapshotByReportKey = new Map<ReportKey, ReportSnapshot>();
+  for (const snapshot of input.snapshots) {
+    if (!snapshotByReportKey.has(snapshot.report_key)) {
+      snapshotByReportKey.set(snapshot.report_key, snapshot);
+    }
+  }
+  return input.reportKeys
+    .map((reportKey) => snapshotByReportKey.get(reportKey) ?? null)
+    .filter((snapshot): snapshot is ReportSnapshot => Boolean(snapshot));
 }
 
 function snapshotToAdvisorContext(snapshot: ReportSnapshot) {
@@ -1123,6 +1229,9 @@ async function requestOpenRouterAdvisor(input: {
             content: [
               "อ่าน context ต่อไปนี้ แล้วตอบเป็น JSON object เท่านั้น",
               "ห้ามใช้ markdown, code fence, คำอธิบายนอก JSON, หรือข้อความก่อน/หลัง JSON",
+              "ข้อมูลใน context เป็นแหล่งข้อมูลเดียวที่อนุญาตให้ใช้ ห้ามเดาหรือใช้รายงานเก่าที่ไม่ได้อยู่ใน data_scope",
+              "ถ้า data_scope.mode เป็น notification_run ให้สรุปจากรายงานของรอบแจ้งเตือนนี้เท่านั้น",
+              "summary ต้องสั้น อ่านง่ายใน LINE และ action ต้องเป็นสิ่งที่เจ้าของร้านทำต่อได้ทันที",
               "ใช้ schema: {\"summary\":\"...\",\"confidence\":0.8,\"caveats\":[],\"top_actions\":[{\"title\":\"...\",\"reason\":\"...\",\"recommended_action\":\"...\",\"severity\":\"info|warning|critical\",\"confidence\":0.8,\"source_report_keys\":[\"sales_goods_services\"],\"source_run_ids\":[\"run_...\"]}]}",
               "จำกัด top_actions ไม่เกิน 3 รายการ และทุก source_report_keys/source_run_ids ต้องมาจาก context เท่านั้น",
               JSON.stringify(input.context),
@@ -1207,6 +1316,55 @@ function parseAdvisorResponse(content: string) {
   return result.success ? result.data : null;
 }
 
+function sanitizeAdvisorResponseForContext(
+  response: AiCeoAdvisorResponse,
+  context: Awaited<ReturnType<typeof buildAdvisorContext>>,
+): AiCeoAdvisorResponse {
+  const allowedReportKeys = new Set(
+    context.reports.map((report) => report.report_key),
+  );
+  const allowedRunIds = new Set(context.reports.map((report) => report.run_id));
+  let strippedOutOfScopeEvidence = false;
+
+  const topActions = response.top_actions.slice(0, 3).map((action) => {
+    const sourceReportKeys = action.source_report_keys.filter((reportKey) =>
+      allowedReportKeys.has(reportKey),
+    );
+    const sourceRunIds = action.source_run_ids.filter((runId) =>
+      allowedRunIds.has(runId),
+    );
+    if (
+      sourceReportKeys.length !== action.source_report_keys.length ||
+      sourceRunIds.length !== action.source_run_ids.length
+    ) {
+      strippedOutOfScopeEvidence = true;
+    }
+    return {
+      ...action,
+      source_report_keys: sourceReportKeys,
+      source_run_ids: sourceRunIds,
+    };
+  });
+
+  const caveats = [...response.caveats];
+  if (!context.reports.length) {
+    caveats.unshift("รอบนี้ไม่มีรายงานสำเร็จใน context ของ AI CEO");
+  }
+  if (strippedOutOfScopeEvidence) {
+    caveats.push(
+      "ระบบตัดหลักฐานที่อยู่นอกชุดรายงานรอบนี้ออก เพื่อกันการอ้างข้อมูลเก่าหรือผิดแพ็กเกจ",
+    );
+  }
+
+  return {
+    ...response,
+    top_actions: topActions,
+    caveats: uniqueStrings(caveats)
+      .map((caveat) => truncateLineText(caveat, 260))
+      .slice(0, 6),
+  };
+}
+
 function normalizeAdvisorPayload(
   value: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -1277,6 +1435,10 @@ function normalizeStringArray(value: unknown): string[] {
   return values.filter(
     (item): item is string => typeof item === "string" && item.trim().length > 0,
   );
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function stripMarkdownCodeFence(value: string) {
