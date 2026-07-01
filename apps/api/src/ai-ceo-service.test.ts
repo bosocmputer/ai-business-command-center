@@ -13,6 +13,7 @@ import type {
 import { createSampleSnapshot } from "./sample-data.js";
 import {
   buildAiCeoLinePreview,
+  buildAiCeoUnavailableLinePreview,
   defaultTenantAiProfile,
   runAiCeoDryRun,
   syncOpenRouterModelCatalog,
@@ -130,8 +131,70 @@ describe("AI CEO service", () => {
       items: result.items,
     });
     expect(preview?.line_message_type).toBe("flex");
+    expect(preview?.run_id).toBe("run_1");
     expect(preview?.text).toContain("ตรวจสินค้ากำไรต่ำ");
     expect(JSON.stringify(preview?.flex_message)).not.toContain("api_key");
+  });
+
+  it("parses fenced OpenRouter JSON and can render an AI CEO fallback card", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+    const now = new Date().toISOString();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant, now }),
+      selected_model_id: "qwen/qwen3.7-max",
+      ai_enabled: true,
+    };
+
+    const result = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "owner",
+      requester: async () => ({
+        ok: true,
+        providerStatus: 200,
+        latencyMs: 42,
+        content: [
+          "```json",
+          JSON.stringify({
+            summary: "ควรดูยอดขายและเงินรับวันนี้",
+            confidence: 82,
+            caveats: "ควรตรวจข้อมูลบางส่วนซ้ำ",
+            actions: [
+              {
+                title: "ตรวจเงินรับ",
+                reason: "พบยอดที่ควรตรวจสอบจากรายงานรับเงิน",
+                action: "เปิดรายงานรับเงินแล้วตรวจรายการ mismatch",
+                severity: "medium",
+                confidence: 75,
+                source_report_key: "cash_bank_receipts",
+                source_run_id: "run_cash_1",
+              },
+            ],
+          }),
+          "```",
+        ].join("\n"),
+        inputTokens: 1000,
+        outputTokens: 500,
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.response?.confidence).toBe(0.82);
+    expect(result.response?.caveats).toEqual(["ควรตรวจข้อมูลบางส่วนซ้ำ"]);
+    expect(result.items[0]?.recommended_action).toContain("รายงานรับเงิน");
+    expect(result.items[0]?.severity).toBe("info");
+
+    const fallback = buildAiCeoUnavailableLinePreview({
+      tenant,
+      run: result.run,
+      fallbackReportRunId: "run_cash_1",
+      safeErrorMessage: "OpenRouter ส่งคำตอบกลับมาในรูปแบบที่ระบบอ่านไม่ได้",
+    });
+    expect(fallback.line_message_type).toBe("flex");
+    expect(fallback.run_id).toBe("run_cash_1");
+    expect(fallback.text).toContain("วันนี้ AI CEO ยังสรุปไม่ได้");
   });
 });
 

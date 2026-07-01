@@ -589,6 +589,7 @@ export function buildAiCeoLinePreview(input: {
   tenant: Pick<Tenant, "id" | "name">;
   run: AiAdvisorRunRecord;
   items: AiAdvisorItemRecord[];
+  fallbackReportRunId?: string | null;
 }): ReportLinePreview | null {
   const response = input.run.response_json;
   if (!response) {
@@ -625,6 +626,12 @@ export function buildAiCeoLinePreview(input: {
     ),
     ...response.caveats.slice(0, 2).map((caveat) => `หมายเหตุ: ${caveat}`),
   ];
+  const sourceRunIds = collectAiCeoSourceRunIds({
+    response,
+    items: topItems,
+  });
+  const previewRunId =
+    input.fallbackReportRunId ?? sourceRunIds[0] ?? input.run.id;
   const flexMessage = {
     type: "flex" as const,
     altText: truncateLineText(`AI CEO: ${response.summary}`, 300),
@@ -728,7 +735,7 @@ export function buildAiCeoLinePreview(input: {
   return {
     tenant_id: input.tenant.id,
     report_key: input.run.source_report_keys[0] ?? "sales_goods_services",
-    run_id: input.run.id,
+    run_id: previewRunId,
     generated_at: input.run.finished_at ?? input.run.created_at,
     source: "operational_incident",
     line_message_type: "flex",
@@ -737,6 +744,122 @@ export function buildAiCeoLinePreview(input: {
     lines,
     flex_message: flexMessage,
     warnings: response.caveats,
+    dashboard_url: null,
+    incident: false,
+    failure_kind: "ai_ceo_advisor",
+  } as unknown as ReportLinePreview;
+}
+
+export function buildAiCeoUnavailableLinePreview(input: {
+  tenant: Pick<Tenant, "id" | "name">;
+  run: AiAdvisorRunRecord;
+  fallbackReportRunId: string;
+  safeErrorMessage: string | null;
+}): ReportLinePreview {
+  const safeMessage =
+    input.safeErrorMessage ??
+    "AI CEO ยังสรุปไม่ได้ในรอบนี้ ระบบบันทึกเหตุการณ์ไว้ให้ทีมตรวจสอบแล้ว";
+  const lines = [
+    `AI CEO · ${input.tenant.name}`,
+    "วันนี้ AI CEO ยังสรุปไม่ได้",
+    `สาเหตุ: ${safeMessage}`,
+    "ระบบยังรันรายงานและบันทึก log แล้ว ทีมดูแลสามารถตรวจสอบในหน้า Owner ได้",
+  ];
+  const flexMessage = {
+    type: "flex" as const,
+    altText: truncateLineText(`AI CEO: วันนี้ยังสรุปไม่ได้`, 300),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: "AI CEO",
+            size: "sm",
+            color: "#B45309",
+            weight: "bold",
+          },
+          {
+            type: "text",
+            text: "Business Advisor",
+            size: "xl",
+            weight: "bold",
+            color: "#111827",
+            wrap: true,
+          },
+          {
+            type: "text",
+            text: input.tenant.name,
+            size: "sm",
+            color: "#6B7280",
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "text",
+            text: "วันนี้ AI CEO ยังสรุปไม่ได้",
+            size: "md",
+            color: "#92400E",
+            weight: "bold",
+            wrap: true,
+          },
+          {
+            type: "text",
+            text: truncateLineText(safeMessage, 360),
+            size: "sm",
+            color: "#374151",
+            wrap: true,
+          },
+          {
+            type: "separator",
+            margin: "md",
+          },
+          {
+            type: "text",
+            text: "ระบบบันทึก log แล้ว ทีมดูแลจะตรวจสอบ provider/model/prompt ให้",
+            size: "sm",
+            color: "#6B7280",
+            wrap: true,
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: `${input.run.status} · ${input.run.model_id}`,
+            size: "xs",
+            color: "#6B7280",
+            wrap: true,
+          },
+        ],
+      },
+    },
+  };
+
+  return {
+    tenant_id: input.tenant.id,
+    report_key: input.run.source_report_keys[0] ?? "sales_goods_services",
+    run_id: input.fallbackReportRunId,
+    generated_at: input.run.finished_at ?? input.run.created_at,
+    source: "operational_incident",
+    line_message_type: "flex",
+    title: "AI CEO / Business Advisor",
+    text: lines.join("\n"),
+    lines,
+    flex_message: flexMessage,
+    warnings: [safeMessage],
     dashboard_url: null,
     incident: false,
     failure_kind: "ai_ceo_advisor",
@@ -1044,7 +1167,7 @@ async function buildAdvisorContext(input: {
     output_contract: {
       language: "th-TH",
       json_only: true,
-      max_top_actions: 5,
+      max_top_actions: 3,
       required_fields: [
         "summary",
         "confidence",
@@ -1182,12 +1305,15 @@ async function requestOpenRouterAdvisor(input: {
             role: "user",
             content: [
               "อ่าน context ต่อไปนี้ แล้วตอบเป็น JSON object เท่านั้น",
+              "ห้ามใช้ markdown, code fence, คำอธิบายนอก JSON, หรือข้อความก่อน/หลัง JSON",
+              "ใช้ schema: {\"summary\":\"...\",\"confidence\":0.8,\"caveats\":[],\"top_actions\":[{\"title\":\"...\",\"reason\":\"...\",\"recommended_action\":\"...\",\"severity\":\"info|warning|critical\",\"confidence\":0.8,\"source_report_keys\":[\"sales_goods_services\"],\"source_run_ids\":[\"run_...\"]}]}",
+              "จำกัด top_actions ไม่เกิน 3 รายการ และทุก source_report_keys/source_run_ids ต้องมาจาก context เท่านั้น",
               JSON.stringify(input.context),
             ].join("\n\n"),
           },
         ],
         temperature: 0.2,
-        max_tokens: 1200,
+        max_tokens: 1800,
         response_format: { type: "json_object" },
       }),
     });
@@ -1255,12 +1381,139 @@ function safeOpenRouterError(status: number, payload: Record<string, unknown> | 
 }
 
 function parseAdvisorResponse(content: string) {
-  const parsed = safeJsonParse(content);
-  const result = aiCeoAdvisorResponseSchema.safeParse(parsed);
+  const parsed =
+    safeJsonParse(content) ??
+    safeJsonParse(stripMarkdownCodeFence(content)) ??
+    safeJsonParse(extractFirstJsonObject(content) ?? "");
+  const normalized = parsed ? normalizeAdvisorPayload(parsed) : null;
+  const result = aiCeoAdvisorResponseSchema.safeParse(normalized);
   return result.success ? result.data : null;
 }
 
+function normalizeAdvisorPayload(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...value };
+  if (!Array.isArray(normalized.top_actions) && Array.isArray(normalized.actions)) {
+    normalized.top_actions = normalized.actions;
+  }
+  if (typeof normalized.caveats === "string" && normalized.caveats.trim()) {
+    normalized.caveats = [normalized.caveats.trim()];
+  }
+  if (!Array.isArray(normalized.caveats)) {
+    normalized.caveats = [];
+  }
+  const confidence = Number(normalized.confidence);
+  if (Number.isFinite(confidence) && confidence > 1 && confidence <= 100) {
+    normalized.confidence = confidence / 100;
+  }
+  if (Array.isArray(normalized.top_actions)) {
+    normalized.top_actions = normalized.top_actions
+      .filter((item): item is Record<string, unknown> =>
+        Boolean(item && typeof item === "object" && !Array.isArray(item)),
+      )
+      .slice(0, 3)
+      .map(normalizeAdvisorActionPayload);
+  }
+  return normalized;
+}
+
+function normalizeAdvisorActionPayload(
+  action: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...action };
+  if (!normalized.recommended_action && typeof normalized.action === "string") {
+    normalized.recommended_action = normalized.action;
+  }
+  const confidence = Number(normalized.confidence);
+  if (Number.isFinite(confidence) && confidence > 1 && confidence <= 100) {
+    normalized.confidence = confidence / 100;
+  }
+  normalized.source_report_keys = normalizeReportKeyArray(
+    normalized.source_report_keys ?? normalized.source_report_key,
+  );
+  normalized.source_run_ids = normalizeStringArray(
+    normalized.source_run_ids ?? normalized.source_run_id,
+  ).slice(0, 20);
+  if (
+    normalized.severity !== "critical" &&
+    normalized.severity !== "warning" &&
+    normalized.severity !== "info"
+  ) {
+    normalized.severity = "info";
+  }
+  return normalized;
+}
+
+function normalizeReportKeyArray(value: unknown): ReportKey[] {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values
+    .filter((item): item is ReportKey =>
+      typeof item === "string" &&
+      reportKeyValues.includes(item as ReportKey),
+    )
+    .slice(0, reportKeyValues.length);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
+}
+
+function stripMarkdownCodeFence(value: string) {
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced?.[1]?.trim() ?? trimmed;
+}
+
+function extractFirstJsonObject(value: string) {
+  const text = stripMarkdownCodeFence(value);
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (start < 0) {
+      if (char === "{") {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
+      }
+    }
+  }
+  return null;
+}
+
 function safeJsonParse(value: string): Record<string, unknown> | null {
+  if (!value.trim()) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -1269,6 +1522,29 @@ function safeJsonParse(value: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function collectAiCeoSourceRunIds(input: {
+  response: AiCeoAdvisorResponse;
+  items: Array<Pick<AiAdvisorItemRecord, "evidence_json">>;
+}) {
+  const runIds = new Set<string>();
+  for (const action of input.response.top_actions) {
+    for (const runId of action.source_run_ids) {
+      runIds.add(runId);
+    }
+  }
+  for (const item of input.items) {
+    const sourceRunIds = item.evidence_json.source_run_ids;
+    if (Array.isArray(sourceRunIds)) {
+      for (const runId of sourceRunIds) {
+        if (typeof runId === "string" && runId.trim()) {
+          runIds.add(runId);
+        }
+      }
+    }
+  }
+  return [...runIds];
 }
 
 function estimateTokens(text: string, context: Record<string, unknown>) {

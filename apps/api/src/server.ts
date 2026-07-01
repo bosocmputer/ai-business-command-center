@@ -209,6 +209,7 @@ import {
 import {
   AiCeoSafeError,
   buildAiCeoLinePreview,
+  buildAiCeoUnavailableLinePreview,
   defaultTenantAiProfile,
   readAiCeoSetupStatus,
   runAiCeoDryRun,
@@ -12654,6 +12655,7 @@ async function executeNotificationRule(input: {
   );
   const aiCeoProfile = await systemStore.getTenantAiProfile(tenant.id);
   let aiCeoPreview: ReportLinePreview | null = null;
+  let aiCeoFailurePreview: ReportLinePreview | null = null;
   let aiCeoRunId: string | null = null;
   let aiCeoStatus: string | null = null;
   let aiCeoSafeErrorMessage: string | null = null;
@@ -12675,6 +12677,14 @@ async function executeNotificationRule(input: {
           tenant,
           run: aiResult.run,
           items: aiResult.items,
+          fallbackReportRunId: reportRunIds[0] ?? null,
+        });
+      } else if (!aiResult.ok && !aiCeoProfile.shadow_mode_enabled && reportRunIds[0]) {
+        aiCeoFailurePreview = buildAiCeoUnavailableLinePreview({
+          tenant,
+          run: aiResult.run,
+          fallbackReportRunId: reportRunIds[0],
+          safeErrorMessage: aiResult.safe_error_message,
         });
       }
       await systemStore.appendAuditLog({
@@ -12694,6 +12704,7 @@ async function executeNotificationRule(input: {
           scheduled_local_time: zoned.time,
           shadow_mode_enabled: aiCeoProfile.shadow_mode_enabled,
           line_preview_enabled: Boolean(aiCeoPreview),
+          line_failure_preview_enabled: Boolean(aiCeoFailurePreview),
           status: aiResult.run.status,
           model_id: aiResult.run.model_id,
           input_tokens: aiResult.run.input_tokens,
@@ -12790,7 +12801,16 @@ async function executeNotificationRule(input: {
       });
     }
 
+    const targetWantsAiCeoOnly = Boolean(
+      aiCeoProfile?.ai_enabled &&
+        !aiCeoProfile.shadow_mode_enabled &&
+        target.access_profile_key === "executive",
+    );
+    const targetAiCeoPreview = targetWantsAiCeoOnly
+      ? aiCeoPreview ?? aiCeoFailurePreview
+      : null;
     const shouldUseActionDigest =
+      !targetAiCeoPreview &&
       input.rule.digest_mode === "action_only" &&
       lineActionDigestV2Enabled &&
       degradedReports.length === 0;
@@ -12837,7 +12857,7 @@ async function executeNotificationRule(input: {
           dashboardUrls,
         })
       : null;
-    const fallbackPreviews = actionDigestPreview
+    const fallbackPreviews = actionDigestPreview || targetAiCeoPreview
       ? []
       : await Promise.all(
           snapshots.map((snapshot) => buildPreviewForSnapshot(snapshot)),
@@ -12857,20 +12877,12 @@ async function executeNotificationRule(input: {
     const orderedFallbackPreviews = input.rule.report_keys
       .map((reportKey) => fallbackPreviewByReportKey.get(reportKey) ?? null)
       .filter((preview): preview is ReportLinePreview => Boolean(preview));
-    const targetCanReceiveAiCeo =
-      Boolean(aiCeoPreview) && target.access_profile_key === "executive";
-    const aiCeoLinePreviews =
-      targetCanReceiveAiCeo && aiCeoPreview ? [aiCeoPreview] : [];
-    const preview = actionDigestPreview
-      ? targetCanReceiveAiCeo
-        ? buildNotificationDigestPreview([
-            ...aiCeoLinePreviews,
-            actionDigestPreview,
-          ])
-        : actionDigestPreview
-      : buildNotificationDigestPreview(
-          [...aiCeoLinePreviews, ...orderedFallbackPreviews],
-        );
+    const targetCanReceiveAiCeo = Boolean(targetAiCeoPreview);
+    const preview = targetAiCeoPreview
+      ? targetAiCeoPreview
+      : actionDigestPreview
+        ? actionDigestPreview
+        : buildNotificationDigestPreview(orderedFallbackPreviews);
     const digestIssueAuditMapping =
       actionDigestSelection?.issues.map((issue) => ({
         issue_key: issue.issue_key,
