@@ -56,6 +56,48 @@ describe("buildNotificationDigestPreview", () => {
       "purchase_goods_payables",
     ]);
   });
+
+  it("keeps an AI CEO card as the first bubble and preserves report cards after it", () => {
+    const aiCeoPreview = {
+      ...mockPreview("sales_goods_services"),
+      title: "AI CEO / Business Advisor",
+      text: "AI CEO summary",
+      lines: ["AI CEO summary"],
+      flex_message: {
+        ...mockPreview("sales_goods_services").flex_message,
+        altText: "AI CEO",
+        contents: {
+          type: "bubble",
+          size: "mega",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [{ type: "text", text: "AI CEO" }],
+          },
+        },
+      },
+    } as ReportLinePreview;
+    const preview = buildNotificationDigestPreview([
+      aiCeoPreview,
+      mockPreview("cash_bank_receipts"),
+      mockPreview("cash_bank_payments"),
+    ]);
+    const contents = preview.flex_message?.contents as
+      | { type?: string; contents?: Array<{ body?: { contents?: Array<{ text?: string }> } }> }
+      | undefined;
+
+    expect(contents?.type).toBe("carousel");
+    expect(contents?.contents?.map((bubble) => bubble.body?.contents?.[0]?.text)).toEqual([
+      "AI CEO",
+      "cash_bank_receipts",
+      "cash_bank_payments",
+    ]);
+    expect(preview.text.split("\n\n---\n\n")).toEqual([
+      "AI CEO summary",
+      "cash_bank_receipts fallback",
+      "cash_bank_payments fallback",
+    ]);
+  });
 });
 
 function mockPreview(reportKey: ReportKey): ReportLinePreview {

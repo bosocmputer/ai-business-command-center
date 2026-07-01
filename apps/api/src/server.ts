@@ -12801,16 +12801,15 @@ async function executeNotificationRule(input: {
       });
     }
 
-    const targetWantsAiCeoOnly = Boolean(
+    const targetWantsAiCeo = Boolean(
       aiCeoProfile?.ai_enabled &&
         !aiCeoProfile.shadow_mode_enabled &&
         target.access_profile_key === "executive",
     );
-    const targetAiCeoPreview = targetWantsAiCeoOnly
+    const targetAiCeoPreview = targetWantsAiCeo
       ? aiCeoPreview ?? aiCeoFailurePreview
       : null;
     const shouldUseActionDigest =
-      !targetAiCeoPreview &&
       input.rule.digest_mode === "action_only" &&
       lineActionDigestV2Enabled &&
       degradedReports.length === 0;
@@ -12857,7 +12856,7 @@ async function executeNotificationRule(input: {
           dashboardUrls,
         })
       : null;
-    const fallbackPreviews = actionDigestPreview || targetAiCeoPreview
+    const fallbackPreviews = actionDigestPreview
       ? []
       : await Promise.all(
           snapshots.map((snapshot) => buildPreviewForSnapshot(snapshot)),
@@ -12878,11 +12877,11 @@ async function executeNotificationRule(input: {
       .map((reportKey) => fallbackPreviewByReportKey.get(reportKey) ?? null)
       .filter((preview): preview is ReportLinePreview => Boolean(preview));
     const targetCanReceiveAiCeo = Boolean(targetAiCeoPreview);
+    const reportDigestPreview =
+      actionDigestPreview ?? buildNotificationDigestPreview(orderedFallbackPreviews);
     const preview = targetAiCeoPreview
-      ? targetAiCeoPreview
-      : actionDigestPreview
-        ? actionDigestPreview
-        : buildNotificationDigestPreview(orderedFallbackPreviews);
+      ? buildNotificationDigestPreview([targetAiCeoPreview, reportDigestPreview])
+      : reportDigestPreview;
     const digestIssueAuditMapping =
       actionDigestSelection?.issues.map((issue) => ({
         issue_key: issue.issue_key,
