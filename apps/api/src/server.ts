@@ -12810,6 +12810,7 @@ async function executeNotificationRule(input: {
       ? aiCeoPreview ?? aiCeoFailurePreview
       : null;
     const shouldUseActionDigest =
+      !targetAiCeoPreview &&
       input.rule.digest_mode === "action_only" &&
       lineActionDigestV2Enabled &&
       degradedReports.length === 0;
@@ -12877,11 +12878,12 @@ async function executeNotificationRule(input: {
       .map((reportKey) => fallbackPreviewByReportKey.get(reportKey) ?? null)
       .filter((preview): preview is ReportLinePreview => Boolean(preview));
     const targetCanReceiveAiCeo = Boolean(targetAiCeoPreview);
-    const reportDigestPreview =
-      actionDigestPreview ?? buildNotificationDigestPreview(orderedFallbackPreviews);
     const preview = targetAiCeoPreview
-      ? buildNotificationDigestPreview([targetAiCeoPreview, reportDigestPreview])
-      : reportDigestPreview;
+      ? buildNotificationDigestPreview([
+          targetAiCeoPreview,
+          ...orderedFallbackPreviews,
+        ])
+      : actionDigestPreview ?? buildNotificationDigestPreview(orderedFallbackPreviews);
     const digestIssueAuditMapping =
       actionDigestSelection?.issues.map((issue) => ({
         issue_key: issue.issue_key,
