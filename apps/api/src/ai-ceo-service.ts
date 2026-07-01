@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   aiCeoAdvisorResponseSchema,
+  getReportCatalogEntry,
   aiCeoModelCatalogSeeds,
   reportKeyValues,
   type AiAdvisorItemRecord,
@@ -628,7 +629,7 @@ export function buildAiCeoLinePreview(input: {
     `AI CEO · ${input.tenant.name}`,
     "",
     "สรุปวันนี้",
-    truncateLineText(response.summary, 620),
+    truncateLineText(sanitizeLinePreviewDisplayText(response.summary), 620),
   ];
   if (input.run.source_report_keys.length) {
     lines.push(
@@ -640,8 +641,8 @@ export function buildAiCeoLinePreview(input: {
     lines.push("", "ควรทำก่อน");
     for (const [index, item] of topItems.entries()) {
       lines.push(
-        `${index + 1}. ${truncateLineText(item.title, 120)}`,
-        `   ทำ: ${truncateLineText(item.recommended_action, 260)}`,
+        `${index + 1}. ${truncateLineText(sanitizeLinePreviewDisplayText(item.title), 120)}`,
+        `   ทำ: ${truncateLineText(sanitizeLinePreviewDisplayText(item.recommended_action), 260)}`,
       );
     }
   }
@@ -649,7 +650,7 @@ export function buildAiCeoLinePreview(input: {
   if (caveats.length) {
     lines.push("", "หมายเหตุ");
     for (const caveat of caveats) {
-      lines.push(`- ${truncateLineText(caveat, 240)}`);
+      lines.push(`- ${truncateLineText(sanitizeLinePreviewDisplayText(caveat), 240)}`);
     }
   }
   const sourceRunIds = collectAiCeoSourceRunIds({
@@ -1023,10 +1024,18 @@ async function buildAdvisorContext(input: {
       requested_report_keys: snapshotScopeReportKeys,
       available_report_keys: availableReportKeys,
       available_run_ids: availableRunIds,
+      report_labels: Object.fromEntries(
+        availableReportKeys.map((reportKey) => [
+          reportKey,
+          getReportCatalogEntry(reportKey).label,
+        ]),
+      ),
       report_count: availableReportKeys.length,
       rules: [
         "ใช้เฉพาะ reports, business_signals และ metric_snapshots ที่อยู่ใน data_scope นี้เท่านั้น",
         "ห้ามอ้างรายงานหรือ run_id ที่ไม่ได้อยู่ใน available_report_keys/available_run_ids",
+        "ห้ามเขียน technical report_key หรือ snake_case ในข้อความที่เจ้าของร้านเห็น ให้ใช้ชื่อรายงานภาษาไทยจาก report_labels เท่านั้น",
+        "ห้ามใช้ emoji หรือสัญลักษณ์ตกแต่งใน summary, caveats และ top_actions",
         "ถ้ารายงานในรอบนี้มีจำกัด ให้บอก caveat ว่าข้อมูลจำกัดตามแพ็กเกจหรือ rule ที่เปิดอยู่",
         "ถ้าไม่มีรายงาน ar_customer_movement หรือ ar_debt_receipt ห้ามใช้คำว่า ลูกหนี้การค้า เป็น action หลัก ให้พูดเฉพาะยอดรับชำระหรือเอกสารรับเงินที่เห็นในรายงาน",
         "ถ้าไม่มีรายงาน stock_balance หรือ stock_reorder ห้ามแนะนำเรื่องสต็อกเป็น action หลัก",
@@ -1068,7 +1077,9 @@ async function buildAdvisorContext(input: {
       summary_style:
         "สรุปสั้นแบบ executive memo สำหรับ LINE ไม่เกิน 3 ประโยคและอ้างอิงเฉพาะตัวเลขที่อยู่ใน context",
       cashflow_style:
-        "ถ้ามีทั้ง cash_bank_receipts และ cash_bank_payments ใน reports ให้สรุปเงินสดสุทธิเป็น รับเงินรวม - จ่ายเงินรวม เช่น สุทธิ -51,495.37 บาท",
+        "ถ้ามีทั้งรายงานรับเงินและรายงานจ่ายเงินใน reports ให้สรุปเงินสดสุทธิเป็น รับเงินรวม - จ่ายเงินรวม เช่น สุทธิ -51,495.37 บาท และระบุว่าเป็นยอดตามเอกสารในวันรายงาน ไม่ใช่ยอดเงินฝากธนาคารคงเหลือ",
+      tone:
+        "ภาษาผู้บริหาร สุภาพ ตรงประเด็น ไม่ตื่นตระหนก ไม่ฟันธงว่าเงินหายหรือสต็อกผิดจนกว่าจะมีหลักฐานตรง",
       required_fields: [
         "summary",
         "confidence",
@@ -1238,6 +1249,9 @@ async function requestOpenRouterAdvisor(input: {
               "summary ต้องสั้น อ่านง่ายใน LINE และ action ต้องเป็นสิ่งที่เจ้าของร้านทำต่อได้ทันที",
               "ถ้ามีรายงานรับเงินและจ่ายเงินใน context ให้คำนวณและกล่าวถึงเงินสดสุทธิใน summary",
               "อย่าใช้คำว่า ลูกหนี้การค้า หรือ สต็อก เป็นข้อควรทำหลัก ถ้า data_scope ไม่มีรายงานนั้นโดยตรง",
+              "ห้ามใช้ emoji และห้ามเขียน technical report_key เช่น cash_bank_payments หรือ gross_profit_by_product ในข้อความที่เจ้าของร้านเห็น",
+              "ถ้าต้องกล่าวถึงรายงาน ให้ใช้ชื่อภาษาไทยจาก data_scope.report_labels เท่านั้น",
+              "ถ้าเงินสดสุทธิผิดปกติ ให้บอกว่าเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน และควรตรวจเอกสารก่อนสรุป",
               "ใช้ schema: {\"summary\":\"...\",\"confidence\":0.8,\"caveats\":[],\"top_actions\":[{\"title\":\"...\",\"reason\":\"...\",\"recommended_action\":\"...\",\"severity\":\"info|warning|critical\",\"confidence\":0.8,\"source_report_keys\":[\"sales_goods_services\"],\"source_run_ids\":[\"run_...\"]}]}",
               "จำกัด top_actions ไม่เกิน 3 รายการ และทุก source_report_keys/source_run_ids ต้องมาจาก context เท่านั้น",
               JSON.stringify(input.context),
@@ -1326,13 +1340,15 @@ function sanitizeAdvisorResponseForContext(
   response: AiCeoAdvisorResponse,
   context: Awaited<ReturnType<typeof buildAdvisorContext>>,
 ): AiCeoAdvisorResponse {
+  const textGuards = buildAdvisorTextGuards(context);
   const allowedReportKeys = new Set(
     context.reports.map((report) => report.report_key),
   );
   const allowedRunIds = new Set(context.reports.map((report) => report.run_id));
   let strippedOutOfScopeEvidence = false;
+  let strippedUnsafeAction = false;
 
-  const topActions = response.top_actions.slice(0, 3).map((action) => {
+  const topActions = response.top_actions.slice(0, 3).flatMap((action) => {
     const sourceReportKeys = action.source_report_keys.filter((reportKey) =>
       allowedReportKeys.has(reportKey),
     );
@@ -1345,14 +1361,39 @@ function sanitizeAdvisorResponseForContext(
     ) {
       strippedOutOfScopeEvidence = true;
     }
-    return {
+    if (context.reports.length && sourceReportKeys.length === 0) {
+      strippedOutOfScopeEvidence = true;
+      return [];
+    }
+    const sanitizedAction = {
       ...action,
+      title: sanitizeAdvisorDisplayText(action.title, textGuards),
+      reason: sanitizeAdvisorDisplayText(action.reason, textGuards),
+      recommended_action: sanitizeAdvisorDisplayText(
+        action.recommended_action,
+        textGuards,
+      ),
       source_report_keys: sourceReportKeys,
       source_run_ids: sourceRunIds,
     };
+    if (shouldStripAdvisorAction(sanitizedAction, textGuards)) {
+      strippedUnsafeAction = true;
+      return [];
+    }
+    return {
+      ...sanitizedAction,
+      title: truncateLineText(sanitizedAction.title, 120),
+      reason: truncateLineText(sanitizedAction.reason, 260),
+      recommended_action: truncateLineText(
+        sanitizedAction.recommended_action,
+        260,
+      ),
+    };
   });
 
-  const caveats = [...response.caveats];
+  const caveats = response.caveats.map((caveat) =>
+    sanitizeAdvisorDisplayText(caveat, textGuards),
+  );
   if (!context.reports.length) {
     caveats.unshift("รอบนี้ไม่มีรายงานสำเร็จใน context ของ AI CEO");
   }
@@ -1361,14 +1402,205 @@ function sanitizeAdvisorResponseForContext(
       "ระบบตัดหลักฐานที่อยู่นอกชุดรายงานรอบนี้ออก เพื่อกันการอ้างข้อมูลเก่าหรือผิดแพ็กเกจ",
     );
   }
+  if (strippedUnsafeAction) {
+    caveats.push(
+      "ระบบตัดข้อแนะนำที่ไม่ตรงกับชุดรายงานของร้านออกก่อนส่งให้ผู้รับ",
+    );
+  }
+  const cashflowCaveat = buildCashflowEvidenceCaveat(textGuards);
+  if (cashflowCaveat) {
+    caveats.push(cashflowCaveat);
+  }
 
   return {
     ...response,
+    summary: truncateLineText(
+      sanitizeAdvisorDisplayText(response.summary, textGuards),
+      620,
+    ),
     top_actions: topActions,
     caveats: uniqueStrings(caveats)
       .map((caveat) => truncateLineText(caveat, 260))
       .slice(0, 6),
   };
+}
+
+type AdvisorTextGuards = {
+  availableReportKeys: Set<ReportKey>;
+  hasArReports: boolean;
+  hasCashReports: boolean;
+  hasGrossProfitReports: boolean;
+  hasInventoryReports: boolean;
+  cashflow: {
+    receiptTotal: number;
+    paymentTotal: number;
+    netAmount: number;
+    salesTotal: number | null;
+    materiallyLarge: boolean;
+  } | null;
+};
+
+function buildAdvisorTextGuards(
+  context: Awaited<ReturnType<typeof buildAdvisorContext>>,
+): AdvisorTextGuards {
+  const availableReportKeys = new Set(
+    context.reports.map((report) => report.report_key),
+  );
+  const receiptTotal = getReportSummaryNumber(
+    context,
+    "cash_bank_receipts",
+    "total_amount",
+  );
+  const paymentTotal = getReportSummaryNumber(
+    context,
+    "cash_bank_payments",
+    "total_amount",
+  );
+  const salesTotal = getReportSummaryNumber(
+    context,
+    "sales_goods_services",
+    "total_sales",
+  );
+  const netAmount =
+    receiptTotal !== null && paymentTotal !== null
+      ? Number((receiptTotal - paymentTotal).toFixed(2))
+      : null;
+  const cashMovement = Math.max(
+    Math.abs(receiptTotal ?? 0),
+    Math.abs(paymentTotal ?? 0),
+    Math.abs(netAmount ?? 0),
+  );
+  return {
+    availableReportKeys,
+    hasArReports:
+      availableReportKeys.has("ar_customer_movement") ||
+      availableReportKeys.has("ar_debt_receipt"),
+    hasCashReports:
+      availableReportKeys.has("cash_bank_receipts") ||
+      availableReportKeys.has("cash_bank_payments"),
+    hasGrossProfitReports:
+      availableReportKeys.has("gross_profit_by_product") ||
+      availableReportKeys.has("gross_profit_by_ar_customer"),
+    hasInventoryReports:
+      availableReportKeys.has("stock_balance") ||
+      availableReportKeys.has("stock_reorder"),
+    cashflow:
+      receiptTotal !== null && paymentTotal !== null && netAmount !== null
+        ? {
+            receiptTotal,
+            paymentTotal,
+            netAmount,
+            salesTotal,
+            materiallyLarge:
+              salesTotal !== null && salesTotal > 0
+                ? cashMovement > Math.max(500_000, salesTotal * 2)
+                : cashMovement > 5_000_000,
+          }
+        : null,
+  };
+}
+
+function sanitizeAdvisorDisplayText(value: string, guards: AdvisorTextGuards) {
+  let text = stripDecorativeSymbols(value);
+  text = replaceReportKeyMentions(text);
+  text = softenAdvisorTone(text);
+  if (!guards.hasArReports) {
+    text = text
+      .replace(/รายงานลูกหนี้ค้างชำระ/g, "รายงานรับเงินหรือเอกสารรับชำระที่มีในรอบนี้")
+      .replace(/ลูกหนี้การค้า/g, "ยอดรับเงิน/เอกสารรับเงิน")
+      .replace(/ลูกหนี้ค้างชำระ/g, "ยอดรับชำระที่ควรตรวจ");
+  }
+  return text.replace(/[ \t]{2,}/g, " ").trim();
+}
+
+function sanitizeLinePreviewDisplayText(value: string) {
+  return softenAdvisorTone(replaceReportKeyMentions(stripDecorativeSymbols(value)))
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function shouldStripAdvisorAction(
+  action: Pick<
+    AiCeoAdvisorResponse["top_actions"][number],
+    "title" | "reason" | "recommended_action" | "source_report_keys"
+  >,
+  guards: AdvisorTextGuards,
+) {
+  const text = [action.title, action.reason, action.recommended_action].join(" ");
+  if (!guards.hasInventoryReports && containsInventoryActionText(text)) {
+    return true;
+  }
+  if (!guards.hasGrossProfitReports && containsGrossProfitActionText(text)) {
+    return true;
+  }
+  if (
+    !guards.hasArReports &&
+    !guards.hasCashReports &&
+    containsArActionText(text)
+  ) {
+    return true;
+  }
+  return action.source_report_keys.some(
+    (reportKey) => !guards.availableReportKeys.has(reportKey),
+  );
+}
+
+function replaceReportKeyMentions(value: string) {
+  return reportKeyValues.reduce((text, reportKey) => {
+    const label = getReportCatalogEntry(reportKey).label;
+    return text.replace(new RegExp(escapeRegExp(reportKey), "g"), label);
+  }, value);
+}
+
+function stripDecorativeSymbols(value: string) {
+  return value
+    .replace(/[\u{1F1E6}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F]/gu, "")
+    .replace(/\s+([,.)])/g, "$1");
+}
+
+function softenAdvisorTone(value: string) {
+  return value
+    .replace(/จ่ายออกสูงมาก/g, "ยอดจ่ายออกสูง ควรตรวจเอกสารประกอบ")
+    .replace(/เงินหาย/g, "ยอดเงินที่ต้องตรวจสอบ")
+    .replace(/ผิดปกติอย่างรุนแรง/g, "ผิดปกติและควรตรวจสอบ");
+}
+
+function containsInventoryActionText(value: string) {
+  return /สต็อก|stock|คงเหลือ|ขาดสินค้า|จุดสั่งซื้อ|สินค้าขาด/g.test(value);
+}
+
+function containsGrossProfitActionText(value: string) {
+  return /gross profit|กำไรขั้นต้น|มาร์จิ้น|margin/gi.test(value);
+}
+
+function containsArActionText(value: string) {
+  return /ลูกหนี้|ar_customer|ar_debt|ค้างชำระ/g.test(value);
+}
+
+function buildCashflowEvidenceCaveat(guards: AdvisorTextGuards) {
+  if (!guards.cashflow?.materiallyLarge) {
+    return null;
+  }
+  return "เงินสดสุทธิเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน ไม่ใช่ยอดเงินฝากธนาคารคงเหลือ ควรตรวจเอกสารประกอบก่อนสรุป";
+}
+
+function getReportSummaryNumber(
+  context: Awaited<ReturnType<typeof buildAdvisorContext>>,
+  reportKey: ReportKey,
+  field: string,
+) {
+  const report = context.reports.find((item) => item.report_key === reportKey);
+  const summary = report?.summary;
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
+    return null;
+  }
+  const value = (summary as Record<string, unknown>)[field];
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeAdvisorPayload(

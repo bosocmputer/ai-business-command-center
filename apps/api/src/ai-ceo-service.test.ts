@@ -99,14 +99,14 @@ describe("AI CEO service", () => {
         providerStatus: 200,
         latencyMs: 42,
         content: JSON.stringify({
-          summary: "ยอดขายดี แต่มีรายการที่ควรตรวจ margin",
+          summary: "ยอดขายดี แต่มีรายการขายที่ควรตรวจ",
           confidence: 0.82,
           caveats: [],
           top_actions: [
             {
-              title: "ตรวจสินค้ากำไรต่ำ",
-              reason: "พบสัญญาณ margin ต่ำจากรายงาน",
-              recommended_action: "เปิดรายงานกำไรสินค้าแล้วตรวจ 5 อันดับแรก",
+              title: "ตรวจยอดขายผิดปกติ",
+              reason: "พบสัญญาณจากรายงานขาย",
+              recommended_action: "เปิดรายงานขายแล้วตรวจ 5 อันดับแรก",
               severity: "warning",
               confidence: 0.8,
               source_report_keys: ["sales_goods_services"],
@@ -123,7 +123,7 @@ describe("AI CEO service", () => {
     expect(result.run.status).toBe("success");
     expect(result.items).toHaveLength(1);
     expect(store.runs.at(-1)?.response_json?.summary).toContain("ยอดขายดี");
-    expect(store.items.at(-1)?.title).toBe("ตรวจสินค้ากำไรต่ำ");
+    expect(store.items.at(-1)?.title).toBe("ตรวจยอดขายผิดปกติ");
     expect(store.usageLedger.at(-1)?.input_tokens).toBe(1000);
 
     const preview = buildAiCeoLinePreview({
@@ -136,7 +136,7 @@ describe("AI CEO service", () => {
     expect(preview?.text).toContain("สรุปวันนี้");
     expect(preview?.text).toContain("อ้างอิงจากรายงานรอบนี้ 1 รายงาน");
     expect(preview?.text).toContain("ควรทำก่อน");
-    expect(preview?.text).toContain("ตรวจสินค้ากำไรต่ำ");
+    expect(preview?.text).toContain("ตรวจยอดขายผิดปกติ");
     expect(preview?.flex_message).toBeUndefined();
     expect(JSON.stringify(preview)).not.toContain("api_key");
   });
@@ -175,14 +175,15 @@ describe("AI CEO service", () => {
           providerStatus: 200,
           latencyMs: 42,
           content: JSON.stringify({
-            summary: "ใช้ยอดขายและรับเงินจากรอบแจ้งเตือนนี้เท่านั้น",
+            summary:
+              "\u{1F4CA} ใช้ยอดขายและ cash_bank_receipts จากรอบแจ้งเตือนนี้เท่านั้น",
             confidence: 0.82,
             caveats: [],
             top_actions: [
               {
-                title: "ตรวจเงินรับ",
+                title: "ตรวจเงินรับจาก cash_bank_receipts",
                 reason: "พบยอดรับเงินที่ควรตรวจ",
-                recommended_action: "เปิดรายงานรับเงินของรอบนี้",
+                recommended_action: "เปิด cash_bank_receipts ของรอบนี้",
                 severity: "warning",
                 confidence: 0.8,
                 source_report_keys: [
@@ -226,9 +227,148 @@ describe("AI CEO service", () => {
     expect(result.response?.top_actions[0]?.source_run_ids).toEqual([
       "run_cash_current",
     ]);
+    expect(result.response?.summary).not.toContain("cash_bank_receipts");
+    expect(result.response?.summary).not.toContain("\u{1F4CA}");
+    expect(result.response?.summary).toContain("รายงานรับเงิน");
+    expect(result.response?.top_actions[0]?.title).not.toContain(
+      "cash_bank_receipts",
+    );
+    expect(result.response?.top_actions[0]?.recommended_action).toContain(
+      "รายงานรับเงิน",
+    );
     expect(result.response?.caveats.join(" ")).toContain(
       "ระบบตัดหลักฐานที่อยู่นอกชุดรายงานรอบนี้ออก",
     );
+  });
+
+  it("sanitizes production LINE advice for package scope and customer-safe wording", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+    const now = new Date().toISOString();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant, now }),
+      selected_model_id: "qwen/qwen3.7-max",
+      ai_enabled: true,
+    };
+
+    const result = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "owner",
+      triggerType: "scheduled",
+      sourceReportKeys: [
+        "sales_goods_services",
+        "purchase_goods_payables",
+        "cash_bank_receipts",
+        "cash_bank_payments",
+      ],
+      sourceSnapshots: [
+        createScopedSnapshot({
+          reportKey: "sales_goods_services",
+          runId: "run_sales_current",
+          summary: {
+            total_sales: 132_690,
+            document_count: 21,
+            line_count: 24,
+            total_qty: 75.5,
+            top_product_name: "สินค้า A",
+          },
+        }),
+        createScopedSnapshot({
+          reportKey: "purchase_goods_payables",
+          runId: "run_purchase_current",
+        }),
+        createScopedSnapshot({
+          reportKey: "cash_bank_receipts",
+          runId: "run_receipts_current",
+          summary: {
+            total_amount: 22_500,
+          },
+        }),
+        createScopedSnapshot({
+          reportKey: "cash_bank_payments",
+          runId: "run_payments_current",
+          summary: {
+            total_amount: 739_953.7,
+          },
+        }),
+      ],
+      requester: async () => ({
+        ok: true,
+        providerStatus: 200,
+        latencyMs: 42,
+        content: JSON.stringify({
+          summary:
+            "\u{1F4CA} เงินสดสุทธิ -717,453.70 บาท จาก cash_bank_payments จ่ายออกสูงมาก",
+          confidence: 0.82,
+          caveats: [],
+          top_actions: [
+            {
+              title: "ตรวจ cash_bank_payments",
+              reason: "ยอดจ่ายออกสูงมาก",
+              recommended_action: "เทียบเอกสาร cash_bank_payments กับเจ้าหนี้",
+              severity: "warning",
+              confidence: 0.8,
+              source_report_keys: ["cash_bank_payments"],
+              source_run_ids: ["run_payments_current"],
+            },
+            {
+              title: "ติดตามลูกหนี้การค้า",
+              reason: "ยอดขายสูงกว่ารับเงิน",
+              recommended_action: "ดึงรายงานลูกหนี้ค้างชำระ (ถ้ามี)",
+              severity: "warning",
+              confidence: 0.7,
+              source_report_keys: ["cash_bank_receipts"],
+              source_run_ids: ["run_receipts_current"],
+            },
+            {
+              title: "เร่งสั่งซื้อสินค้าขาดสต็อก",
+              reason: "ควรเติมสต็อก",
+              recommended_action: "เปิด stock_balance แล้วสร้างใบสั่งซื้อ",
+              severity: "warning",
+              confidence: 0.7,
+              source_report_keys: ["sales_goods_services"],
+              source_run_ids: ["run_sales_current"],
+            },
+          ],
+        }),
+        inputTokens: 1000,
+        outputTokens: 500,
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    const rendered = buildAiCeoLinePreview({
+      tenant,
+      run: result.run,
+      items: result.items,
+    });
+    const customerFacingText = [
+      result.response?.summary,
+      ...(result.response?.caveats ?? []),
+      ...(result.response?.top_actions.flatMap((action) => [
+        action.title,
+        action.reason,
+        action.recommended_action,
+      ]) ?? []),
+    ].join("\n");
+    expect(customerFacingText).not.toContain("cash_bank_payments");
+    expect(customerFacingText).not.toContain("stock_balance");
+    expect(customerFacingText).not.toContain("\u{1F4CA}");
+    expect(customerFacingText).not.toContain("ลูกหนี้การค้า");
+    expect(customerFacingText).not.toContain("รายงานลูกหนี้ค้างชำระ");
+    expect(result.response?.summary).toContain("รายงานจ่ายเงิน");
+    expect(result.response?.summary).toContain("ยอดจ่ายออกสูง ควรตรวจเอกสารประกอบ");
+    expect(result.response?.top_actions).toHaveLength(2);
+    expect(result.response?.top_actions.map((action) => action.title)).not.toContain(
+      "เร่งสั่งซื้อสินค้าขาดสต็อก",
+    );
+    expect(result.response?.caveats.join(" ")).toContain(
+      "เงินสดสุทธิเป็นยอดตามเอกสารรับ/จ่าย",
+    );
+    expect(rendered?.text).not.toContain("cash_bank_payments");
+    expect(rendered?.text).not.toContain("\u{1F4CA}");
   });
 
   it("parses fenced OpenRouter JSON and can render an AI CEO fallback card", async () => {
@@ -366,12 +506,14 @@ function createFakeStore() {
 function createScopedSnapshot(input: {
   reportKey: ReportKey;
   runId: string;
+  summary?: unknown;
 }): ReportSnapshot {
   const snapshot = createSampleSnapshot(tenant.id);
   return {
     ...snapshot,
     report_key: input.reportKey,
     run_id: input.runId,
+    summary: input.summary ?? snapshot.summary,
     generated_at: "2026-06-30T03:00:00.000Z",
     params: {
       date_from: "2026-06-30",

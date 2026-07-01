@@ -209,7 +209,6 @@ import {
 import {
   AiCeoSafeError,
   buildAiCeoLinePreview,
-  buildAiCeoUnavailableLinePreview,
   defaultTenantAiProfile,
   readAiCeoSetupStatus,
   runAiCeoDryRun,
@@ -12750,13 +12749,8 @@ async function executeNotificationRule(input: {
           items: aiResult.items,
           fallbackReportRunId: reportRunIds[0] ?? null,
         });
-      } else if (!aiResult.ok && !aiCeoProfile.shadow_mode_enabled && reportRunIds[0]) {
-        aiCeoFailurePreview = buildAiCeoUnavailableLinePreview({
-          tenant,
-          run: aiResult.run,
-          fallbackReportRunId: reportRunIds[0],
-          safeErrorMessage: aiResult.safe_error_message,
-        });
+      } else if (!aiResult.ok && !aiCeoProfile.shadow_mode_enabled) {
+        aiCeoFailurePreview = null;
       }
       await systemStore.appendAuditLog({
         tenant_id: tenant.id,
