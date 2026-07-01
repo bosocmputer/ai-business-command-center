@@ -161,6 +161,48 @@ describe("sendLineBrief", () => {
     expect(JSON.stringify(body.messages[0])).toContain("เปิดรายงาน");
   });
 
+  it("sends an AI CEO text message before report Flex cards in one push", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ sentMessages: [{ id: "msg-1" }] }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await sendLineBrief({
+      tenantId: "tenant_demo_remote",
+      mode: "send",
+      preview: {
+        ...flexPreview,
+        text: "AI CEO summary\n\n---\n\nรายงานขาย fallback text",
+        line_messages: [
+          { type: "text", text: "AI CEO summary" },
+          flexPreview.flex_message,
+        ],
+      } as SalesGoodsServicesLinePreview & { line_messages: unknown[] },
+      config: {
+        channelAccessToken: "line-token",
+        targetId: "C1234567890abcdef",
+      },
+    });
+
+    const [, request] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(request.body)) as {
+      messages: Array<{ type: string; text?: string; altText?: string }>;
+    };
+
+    expect(result.status).toBe("success");
+    expect(result.message_type).toBe("flex");
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0]).toEqual({
+      type: "text",
+      text: "AI CEO summary",
+    });
+    expect(body.messages[1]).toMatchObject({
+      type: "flex",
+      altText: "รายงานขาย Demo Remote",
+    });
+  });
+
   it("falls back to text when a Flex payload is not LINE-safe", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,

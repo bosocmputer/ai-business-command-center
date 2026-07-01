@@ -632,105 +632,6 @@ export function buildAiCeoLinePreview(input: {
   });
   const previewRunId =
     input.fallbackReportRunId ?? sourceRunIds[0] ?? input.run.id;
-  const flexMessage = {
-    type: "flex" as const,
-    altText: truncateLineText(`AI CEO: ${response.summary}`, 300),
-    contents: {
-      type: "bubble",
-      size: "mega",
-      header: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "text",
-            text: "AI CEO",
-            size: "sm",
-            color: "#2563EB",
-            weight: "bold",
-          },
-          {
-            type: "text",
-            text: "Business Advisor",
-            size: "xl",
-            weight: "bold",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "text",
-            text: input.tenant.name,
-            size: "sm",
-            color: "#6B7280",
-            wrap: true,
-          },
-        ],
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        spacing: "md",
-        contents: [
-          {
-            type: "text",
-            text: "สรุปผู้บริหาร",
-            size: "sm",
-            color: "#B45309",
-            weight: "bold",
-          },
-          {
-            type: "text",
-            text: truncateLineText(response.summary, 420),
-            size: "md",
-            color: "#111827",
-            wrap: true,
-            weight: "bold",
-          },
-          {
-            type: "separator",
-            margin: "md",
-          },
-          {
-            type: "text",
-            text: "สิ่งที่ควรทำ",
-            size: "sm",
-            color: "#6B7280",
-            weight: "bold",
-          },
-          ...topItems.flatMap((item, index) => [
-            {
-              type: "text",
-              text: `${index + 1}. ${truncateLineText(item.title, 120)}`,
-              size: "sm",
-              color: severityColor(item.severity),
-              weight: "bold",
-              wrap: true,
-            },
-            {
-              type: "text",
-              text: truncateLineText(item.recommended_action, 220),
-              size: "sm",
-              color: "#374151",
-              wrap: true,
-            },
-          ]),
-        ],
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "text",
-            text: `confidence ${Math.round(response.confidence * 100)}% · ${input.run.model_id}`,
-            size: "xs",
-            color: "#6B7280",
-            wrap: true,
-          },
-        ],
-      },
-    },
-  };
 
   return {
     tenant_id: input.tenant.id,
@@ -738,11 +639,10 @@ export function buildAiCeoLinePreview(input: {
     run_id: previewRunId,
     generated_at: input.run.finished_at ?? input.run.created_at,
     source: "operational_incident",
-    line_message_type: "flex",
+    line_message_type: "text",
     title: "AI CEO / Business Advisor",
     text: lines.join("\n"),
     lines,
-    flex_message: flexMessage,
     warnings: response.caveats,
     dashboard_url: null,
     incident: false,
@@ -765,88 +665,6 @@ export function buildAiCeoUnavailableLinePreview(input: {
     `สาเหตุ: ${safeMessage}`,
     "ระบบยังรันรายงานและบันทึก log แล้ว ทีมดูแลสามารถตรวจสอบในหน้า Owner ได้",
   ];
-  const flexMessage = {
-    type: "flex" as const,
-    altText: truncateLineText(`AI CEO: วันนี้ยังสรุปไม่ได้`, 300),
-    contents: {
-      type: "bubble",
-      size: "mega",
-      header: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "text",
-            text: "AI CEO",
-            size: "sm",
-            color: "#B45309",
-            weight: "bold",
-          },
-          {
-            type: "text",
-            text: "Business Advisor",
-            size: "xl",
-            weight: "bold",
-            color: "#111827",
-            wrap: true,
-          },
-          {
-            type: "text",
-            text: input.tenant.name,
-            size: "sm",
-            color: "#6B7280",
-            wrap: true,
-          },
-        ],
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        spacing: "md",
-        contents: [
-          {
-            type: "text",
-            text: "วันนี้ AI CEO ยังสรุปไม่ได้",
-            size: "md",
-            color: "#92400E",
-            weight: "bold",
-            wrap: true,
-          },
-          {
-            type: "text",
-            text: truncateLineText(safeMessage, 360),
-            size: "sm",
-            color: "#374151",
-            wrap: true,
-          },
-          {
-            type: "separator",
-            margin: "md",
-          },
-          {
-            type: "text",
-            text: "ระบบบันทึก log แล้ว ทีมดูแลจะตรวจสอบ provider/model/prompt ให้",
-            size: "sm",
-            color: "#6B7280",
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "text",
-            text: `${input.run.status} · ${input.run.model_id}`,
-            size: "xs",
-            color: "#6B7280",
-            wrap: true,
-          },
-        ],
-      },
-    },
-  };
 
   return {
     tenant_id: input.tenant.id,
@@ -854,11 +672,10 @@ export function buildAiCeoUnavailableLinePreview(input: {
     run_id: input.fallbackReportRunId,
     generated_at: input.run.finished_at ?? input.run.created_at,
     source: "operational_incident",
-    line_message_type: "flex",
+    line_message_type: "text",
     title: "AI CEO / Business Advisor",
     text: lines.join("\n"),
     lines,
-    flex_message: flexMessage,
     warnings: [safeMessage],
     dashboard_url: null,
     incident: false,
@@ -1621,14 +1438,4 @@ async function pruneAiCeoHistorySafe(store: SystemStore, tenantId: TenantId) {
 
 function truncateLineText(value: string, maxLength: number) {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
-}
-
-function severityColor(severity: string) {
-  if (severity === "critical") {
-    return "#DC2626";
-  }
-  if (severity === "warning") {
-    return "#D97706";
-  }
-  return "#2563EB";
 }

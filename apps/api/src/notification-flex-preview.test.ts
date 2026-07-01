@@ -57,38 +57,32 @@ describe("buildNotificationDigestPreview", () => {
     ]);
   });
 
-  it("keeps an AI CEO card as the first bubble and preserves report cards after it", () => {
+  it("sends AI CEO as text while preserving report cards as Flex", () => {
     const aiCeoPreview = {
       ...mockPreview("sales_goods_services"),
+      line_message_type: "text",
       title: "AI CEO / Business Advisor",
       text: "AI CEO summary",
       lines: ["AI CEO summary"],
-      flex_message: {
-        ...mockPreview("sales_goods_services").flex_message,
-        altText: "AI CEO",
-        contents: {
-          type: "bubble",
-          size: "mega",
-          body: {
-            type: "box",
-            layout: "vertical",
-            contents: [{ type: "text", text: "AI CEO" }],
-          },
-        },
-      },
+      flex_message: undefined,
     } as ReportLinePreview;
     const preview = buildNotificationDigestPreview([
       aiCeoPreview,
       mockPreview("cash_bank_receipts"),
       mockPreview("cash_bank_payments"),
     ]);
+    const lineMessages = (preview as ReportLinePreview & {
+      line_messages?: Array<{ type?: string; text?: string; contents?: unknown }>;
+    }).line_messages;
     const contents = preview.flex_message?.contents as
       | { type?: string; contents?: Array<{ body?: { contents?: Array<{ text?: string }> } }> }
       | undefined;
 
+    expect(preview.line_message_type).toBe("flex");
+    expect(lineMessages?.map((message) => message.type)).toEqual(["text", "flex"]);
+    expect(lineMessages?.[0]?.text).toBe("AI CEO summary");
     expect(contents?.type).toBe("carousel");
     expect(contents?.contents?.map((bubble) => bubble.body?.contents?.[0]?.text)).toEqual([
-      "AI CEO",
       "cash_bank_receipts",
       "cash_bank_payments",
     ]);

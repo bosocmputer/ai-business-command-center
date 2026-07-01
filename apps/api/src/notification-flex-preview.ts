@@ -1,7 +1,14 @@
 import {
+  type LineFlexMessage,
   reportKeyValues,
   type ReportLinePreview,
 } from "@ai-bcc/shared";
+
+type LineTextMessage = {
+  type: "text";
+  text: string;
+};
+type DigestLineMessage = LineTextMessage | LineFlexMessage;
 
 export function buildMorningBriefCarouselPreview(input: {
   salesPreview: ReportLinePreview | null;
@@ -53,25 +60,12 @@ export function buildNotificationDigestPreview(
     throw new Error("At least one report preview is required.");
   }
 
-  const flexBubbles = previews
-    .map((preview) => preview.flex_message?.contents)
-    .filter((contents): contents is Record<string, unknown> => Boolean(contents));
-  const allPreviewsHaveFlex = flexBubbles.length === previews.length;
-  const flexMessage =
-    allPreviewsHaveFlex && flexBubbles.length > 1
-      ? {
-          type: "flex" as const,
-          altText: isExecutiveFullReportDigest(previews)
-            ? `AI Business: รายงานผู้บริหารครบ ${reportKeyValues.length} ใบ`
-            : "AI Business: สรุปรายงานจาก SML",
-          contents: {
-            type: "carousel",
-            contents: flexBubbles,
-          },
-        }
-      : allPreviewsHaveFlex
-        ? primaryPreview.flex_message
-        : undefined;
+  const flexPreviews = previews.filter((preview) => preview.flex_message);
+  const flexMessage = buildFlexMessageForPreviews(flexPreviews);
+  const allPreviewsHaveFlex = flexPreviews.length === previews.length;
+  const lineMessages = allPreviewsHaveFlex
+    ? undefined
+    : buildDigestLineMessages(previews);
 
   return {
     ...primaryPreview,
@@ -82,8 +76,79 @@ export function buildNotificationDigestPreview(
       index === 0 ? preview.lines : ["", "---", "", ...preview.lines],
     ),
     flex_message: flexMessage,
+    line_messages: lineMessages,
     warnings: previews.flatMap((preview) => preview.warnings),
-  } as ReportLinePreview;
+  } as unknown as ReportLinePreview;
+}
+
+function buildFlexMessageForPreviews(previews: ReportLinePreview[]) {
+  const primaryPreview = previews[0];
+  if (!primaryPreview) {
+    return undefined;
+  }
+
+  const flexBubbles = previews
+    .map((preview) => preview.flex_message?.contents)
+    .filter((contents): contents is Record<string, unknown> => Boolean(contents));
+  const flexMessage =
+    flexBubbles.length === previews.length && flexBubbles.length > 1
+      ? {
+          type: "flex" as const,
+          altText: isExecutiveFullReportDigest(previews)
+            ? `AI Business: รายงานผู้บริหารครบ ${reportKeyValues.length} ใบ`
+            : "AI Business: สรุปรายงานจาก SML",
+          contents: {
+            type: "carousel",
+            contents: flexBubbles,
+          },
+        }
+      : flexBubbles.length === previews.length
+        ? primaryPreview.flex_message
+        : undefined;
+
+  return flexMessage;
+}
+
+function buildDigestLineMessages(previews: ReportLinePreview[]) {
+  const messages: DigestLineMessage[] = [];
+  let textGroup: ReportLinePreview[] = [];
+  let flexGroup: ReportLinePreview[] = [];
+
+  const flushTextGroup = () => {
+    if (!textGroup.length) {
+      return;
+    }
+    messages.push({
+      type: "text",
+      text: textGroup.map((preview) => preview.text).join("\n\n---\n\n"),
+    });
+    textGroup = [];
+  };
+  const flushFlexGroup = () => {
+    if (!flexGroup.length) {
+      return;
+    }
+    const flexMessage = buildFlexMessageForPreviews(flexGroup);
+    if (flexMessage) {
+      messages.push(flexMessage);
+    }
+    flexGroup = [];
+  };
+
+  for (const preview of previews) {
+    if (preview.flex_message) {
+      flushTextGroup();
+      flexGroup.push(preview);
+      continue;
+    }
+    flushFlexGroup();
+    textGroup.push(preview);
+  }
+
+  flushTextGroup();
+  flushFlexGroup();
+
+  return messages.length > 1 ? messages.slice(0, 5) : undefined;
 }
 
 function isExecutiveFullReportDigest(previews: ReportLinePreview[]) {

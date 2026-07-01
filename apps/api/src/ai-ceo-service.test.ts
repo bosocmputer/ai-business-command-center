@@ -130,10 +130,11 @@ describe("AI CEO service", () => {
       run: result.run,
       items: result.items,
     });
-    expect(preview?.line_message_type).toBe("flex");
+    expect(preview?.line_message_type).toBe("text");
     expect(preview?.run_id).toBe("run_1");
     expect(preview?.text).toContain("ตรวจสินค้ากำไรต่ำ");
-    expect(JSON.stringify(preview?.flex_message)).not.toContain("api_key");
+    expect(preview?.flex_message).toBeUndefined();
+    expect(JSON.stringify(preview)).not.toContain("api_key");
   });
 
   it("parses fenced OpenRouter JSON and can render an AI CEO fallback card", async () => {
@@ -192,9 +193,10 @@ describe("AI CEO service", () => {
       fallbackReportRunId: "run_cash_1",
       safeErrorMessage: "OpenRouter ส่งคำตอบกลับมาในรูปแบบที่ระบบอ่านไม่ได้",
     });
-    expect(fallback.line_message_type).toBe("flex");
+    expect(fallback.line_message_type).toBe("text");
     expect(fallback.run_id).toBe("run_cash_1");
     expect(fallback.text).toContain("วันนี้ AI CEO ยังสรุปไม่ได้");
+    expect(fallback.flex_message).toBeUndefined();
   });
 });
 

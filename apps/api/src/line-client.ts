@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   LineDeliveryRecord,
+  LineFlexMessage,
   LineMessageType,
   ReportLinePreview,
   LineSendMode,
@@ -15,6 +16,13 @@ const LINE_GROUP_SUMMARY_ENDPOINT = "https://api.line.me/v2/bot/group";
 const LINE_FLEX_ALT_TEXT_MAX_LENGTH = 400;
 const LINE_FLEX_MESSAGE_MAX_BYTES = 50_000;
 const LINE_TEXT_MESSAGE_MAX_LENGTH = 5_000;
+const LINE_PUSH_MESSAGES_MAX_COUNT = 5;
+
+type LineTextMessage = {
+  type: "text";
+  text: string;
+};
+type LinePushMessage = LineTextMessage | LineFlexMessage;
 
 export type SendLineBriefInput = {
   tenantId: TenantId;
@@ -32,7 +40,7 @@ export async function sendLineBrief(
 ): Promise<LineDeliveryRecord> {
   const now = new Date().toISOString();
   const configured = Boolean(input.config);
-  const { lineMessage, messageType } = buildSafeLineMessage(input.preview);
+  const { lineMessages, messageType } = buildSafeLineMessages(input.preview);
   const baseDelivery = {
     id: createLineDeliveryId(input.tenantId),
     tenant_id: input.tenantId,
@@ -78,7 +86,7 @@ export async function sendLineBrief(
       },
       body: JSON.stringify({
         to: input.config.targetId,
-        messages: [lineMessage],
+        messages: lineMessages,
       }),
     });
 
@@ -219,24 +227,62 @@ function createLineDeliveryId(tenantId: TenantId) {
   return `line_${tenantId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
 }
 
-function buildSafeLineMessage(preview: ReportLinePreview): {
-  lineMessage: Record<string, unknown>;
+function buildSafeLineMessages(preview: ReportLinePreview): {
+  lineMessages: LinePushMessage[];
   messageType: LineMessageType;
 } {
+  const explicitMessages = normalizeExplicitLineMessages(preview);
+  if (explicitMessages.length) {
+    return {
+      lineMessages: explicitMessages,
+      messageType: explicitMessages.some((message) => message.type === "flex")
+        ? "flex"
+        : "text",
+    };
+  }
+
   if (preview.flex_message && isSafeFlexMessage(preview.flex_message)) {
     return {
-      lineMessage: preview.flex_message,
+      lineMessages: [preview.flex_message],
       messageType: "flex",
     };
   }
 
   return {
-    lineMessage: {
+    lineMessages: [{
       type: "text",
       text: truncateLineMessageText(preview.text),
-    },
+    }],
     messageType: "text",
   };
+}
+
+function normalizeExplicitLineMessages(preview: ReportLinePreview) {
+  const value = (preview as ReportLinePreview & { line_messages?: unknown })
+    .line_messages;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const messages: LinePushMessage[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const candidate = item as Partial<LinePushMessage>;
+    if (candidate.type === "text" && typeof candidate.text === "string") {
+      const text = truncateLineMessageText(candidate.text.trim());
+      if (text) {
+        messages.push({ type: "text", text });
+      }
+      continue;
+    }
+    if (candidate.type === "flex" && isSafeFlexMessage(candidate as LineFlexMessage)) {
+      messages.push(candidate as LineFlexMessage);
+    }
+  }
+
+  return messages.slice(0, LINE_PUSH_MESSAGES_MAX_COUNT);
 }
 
 function isSafeFlexMessage(message: ReportLinePreview["flex_message"]) {
