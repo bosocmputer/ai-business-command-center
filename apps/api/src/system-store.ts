@@ -369,6 +369,7 @@ export type SystemStore = {
     mode: NotificationRuleRunRecord["mode"];
     source: NotificationRuleRunRecord["source"];
     clientRequestId?: string | null;
+    targetIdsOverride?: string[] | null;
   }): Promise<NotificationRuleRunRecord | null>;
   listQueuedNotificationRuleRuns(
     limit?: number,
@@ -1560,7 +1561,11 @@ class LocalJsonSystemStore implements SystemStore {
     mode: NotificationRuleRunRecord["mode"];
     source: NotificationRuleRunRecord["source"];
     clientRequestId?: string | null;
+    targetIdsOverride?: string[] | null;
   }) {
+    const requestedTargetIdsOverride = normalizeNotificationRunTargetIdsOverride(
+      input.targetIdsOverride,
+    );
     const activeRuns = this.requireData().notificationRuleRuns
       .filter(
         (run) =>
@@ -1569,6 +1574,10 @@ class LocalJsonSystemStore implements SystemStore {
           run.scheduled_local_time === input.scheduledLocalTime &&
           run.mode === input.mode &&
           run.source === input.source &&
+          notificationRunTargetIdsOverrideEquals(
+            run.target_ids_override,
+            requestedTargetIdsOverride,
+          ) &&
           (run.status === "queued" || run.status === "running"),
       )
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -4658,7 +4667,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where ($1::text is null or tenant_id = $1)
   and ($2::text is null or rule_id = $2)
@@ -4714,7 +4724,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where ($1::text[] is null or tenant_id = any($1::text[]))
   and ($2::timestamptz is null or created_at >= $2::timestamptz)
@@ -4770,7 +4781,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where idempotency_key = $1
 limit 1
@@ -4820,7 +4832,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where id = $1
 limit 1
@@ -4838,7 +4851,11 @@ limit 1
     mode: NotificationRuleRunRecord["mode"];
     source: NotificationRuleRunRecord["source"];
     clientRequestId?: string | null;
+    targetIdsOverride?: string[] | null;
   }) {
+    const targetIdsOverride = normalizeNotificationRunTargetIdsOverride(
+      input.targetIdsOverride,
+    );
     const result = await this.pool.query(
       `
 select
@@ -4877,7 +4894,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where rule_id = $1
   and scheduled_local_date = $2::date
@@ -4885,6 +4903,10 @@ where rule_id = $1
   and mode = $4
   and source = $5
   and status in ('queued', 'running')
+  and (
+    ($7::jsonb is null and target_ids_override_json is null)
+    or ($7::jsonb is not null and target_ids_override_json = $7::jsonb)
+  )
 order by case when client_request_id = $6 then 0 else 1 end, created_at desc
 limit 1
 `,
@@ -4895,6 +4917,7 @@ limit 1
         input.mode,
         input.source,
         input.clientRequestId ?? null,
+        targetIdsOverride ? JSON.stringify(targetIdsOverride) : null,
       ],
     );
 
@@ -4940,7 +4963,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where status = 'queued'
 order by queued_at asc nulls last, created_at asc
@@ -4994,7 +5018,8 @@ select
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 from notification_rule_runs
 where status = 'running'
   and progress_stage = 'waiting_chunked_report'
@@ -5067,7 +5092,8 @@ returning
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 `,
       [input.runId, input.claimedAt, input.workerId],
     );
@@ -5130,7 +5156,8 @@ returning
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 `,
       [input.staleBefore, input.safeErrorMessage, input.failedAt],
     );
@@ -5177,9 +5204,10 @@ insert into notification_rule_runs (
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 )
-values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25::timestamptz, $26, $27, $28::timestamptz, $29, $30, $31, $32, $33, $34::timestamptz, $35::timestamptz, $36::timestamptz)
+values ($1, $2, $3, $4::date, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25::timestamptz, $26, $27, $28::timestamptz, $29, $30, $31, $32, $33, $34::timestamptz, $35::timestamptz, $36::timestamptz, $37::jsonb)
 on conflict (id) do update
 set status = excluded.status,
     mode = excluded.mode,
@@ -5206,6 +5234,7 @@ set status = excluded.status,
     progress_done_reports = excluded.progress_done_reports,
     progress_total_reports = excluded.progress_total_reports,
     progress_updated_at = excluded.progress_updated_at,
+    target_ids_override_json = excluded.target_ids_override_json,
     updated_at = excluded.updated_at
 returning
   id,
@@ -5243,7 +5272,8 @@ returning
   progress_total_reports,
   progress_updated_at,
   created_at,
-  updated_at
+  updated_at,
+  target_ids_override_json
 `,
       [
         run.id,
@@ -5282,6 +5312,9 @@ returning
         run.progress_updated_at,
         run.created_at,
         run.updated_at,
+        run.target_ids_override?.length
+          ? JSON.stringify(run.target_ids_override)
+          : null,
       ],
     );
 
@@ -6722,6 +6755,7 @@ function mapNotificationRuleRunRow(
     worker_id: typeof row.worker_id === "string" ? row.worker_id : null,
     client_request_id:
       typeof row.client_request_id === "string" ? row.client_request_id : null,
+    target_ids_override: row.target_ids_override_json,
     next_retry_at: row.next_retry_at
       ? toIsoString(row.next_retry_at as string | Date)
       : null,
@@ -7834,6 +7868,9 @@ function normalizeNotificationRuleRun(
     worker_id: typeof run.worker_id === "string" ? run.worker_id : null,
     client_request_id:
       typeof run.client_request_id === "string" ? run.client_request_id : null,
+    target_ids_override: normalizeNotificationRunTargetIdsOverride(
+      run.target_ids_override,
+    ),
     next_retry_at:
       typeof run.next_retry_at === "string" ? run.next_retry_at : null,
     progress_stage: normalizeNotificationRunProgressStage(run.progress_stage),
@@ -7858,6 +7895,35 @@ function normalizeNotificationRuleRun(
     created_at: run.created_at ?? now,
     updated_at: run.updated_at ?? now,
   };
+}
+
+function normalizeNotificationRunTargetIdsOverride(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const targetIds = [
+    ...new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean),
+    ),
+  ];
+  return targetIds.length ? targetIds : null;
+}
+
+function notificationRunTargetIdsOverrideEquals(
+  left: unknown,
+  right: unknown,
+) {
+  const normalizedLeft = normalizeNotificationRunTargetIdsOverride(left);
+  const normalizedRight = normalizeNotificationRunTargetIdsOverride(right);
+  if (!normalizedLeft && !normalizedRight) {
+    return true;
+  }
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
 }
 
 function normalizeDashboardViewerTokens(
@@ -9338,6 +9404,7 @@ create table if not exists notification_rule_runs (
   claimed_at timestamptz,
   worker_id text,
   client_request_id text,
+  target_ids_override_json jsonb,
   next_retry_at timestamptz,
   progress_stage text,
   progress_percent integer,
@@ -9360,6 +9427,7 @@ alter table notification_rule_runs
   add column if not exists claimed_at timestamptz,
   add column if not exists worker_id text,
   add column if not exists client_request_id text,
+  add column if not exists target_ids_override_json jsonb,
   add column if not exists report_results_json jsonb,
   add column if not exists progress_stage text,
   add column if not exists progress_percent integer,

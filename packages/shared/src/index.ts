@@ -2209,6 +2209,7 @@ export type NotificationRuleRunRecord = {
   claimed_at: string | null;
   worker_id: string | null;
   client_request_id: string | null;
+  target_ids_override: string[] | null;
   next_retry_at: string | null;
   progress_stage: NotificationRunProgressStage | null;
   progress_percent: number | null;

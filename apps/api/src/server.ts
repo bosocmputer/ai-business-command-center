@@ -1654,9 +1654,22 @@ app.post(
     if (!manualSchedule.ok) {
       return reply.status(400).send({ error: manualSchedule.error });
     }
+    const targetOverride = await validateManualNotificationTargetOverride({
+      rule,
+      targetIds: body.data.target_ids,
+    });
+    if (!targetOverride.ok) {
+      return reply.status(422).send({
+        error: targetOverride.error,
+        details: targetOverride.details,
+      });
+    }
     const mode = body.data.mode ?? "dry_run";
     if (mode === "send") {
-      const readiness = await validateNotificationRuleSendReadiness(rule);
+      const readiness = await validateNotificationRuleSendReadiness(
+        rule,
+        targetOverride.targetIds,
+      );
       if (!readiness.ok) {
         return reply.status(422).send({
           error: readiness.error,
@@ -1680,6 +1693,7 @@ app.post(
       scheduledLocalTime,
       source: "manual_test",
       clientRequestId: body.data.client_request_id,
+      targetIdsOverride: targetOverride.targetIds,
     });
     kickNotificationQueueProcessor(queued.run.id);
 
@@ -1730,9 +1744,22 @@ app.post(
     if (!manualSchedule.ok) {
       return reply.status(400).send({ error: manualSchedule.error });
     }
+    const targetOverride = await validateManualNotificationTargetOverride({
+      rule,
+      targetIds: body.data.target_ids,
+    });
+    if (!targetOverride.ok) {
+      return reply.status(422).send({
+        error: targetOverride.error,
+        details: targetOverride.details,
+      });
+    }
     const mode = body.data.mode ?? "send";
     if (mode === "send") {
-      const readiness = await validateNotificationRuleSendReadiness(rule);
+      const readiness = await validateNotificationRuleSendReadiness(
+        rule,
+        targetOverride.targetIds,
+      );
       if (!readiness.ok) {
         return reply.status(422).send({
           error: readiness.error,
@@ -1756,6 +1783,7 @@ app.post(
       scheduledLocalTime,
       source: "manual_run_now",
       clientRequestId: body.data.client_request_id,
+      targetIdsOverride: targetOverride.targetIds,
     });
     kickNotificationQueueProcessor(queued.run.id);
 
@@ -10339,6 +10367,7 @@ function buildManualNotificationRunId(input: {
   mode: LineSendMode;
   source: NotificationRuleExecutionSource;
   clientRequestId: string;
+  targetIdsOverride?: string[] | null;
 }) {
   const digest = createHash("sha256")
     .update(
@@ -10349,6 +10378,7 @@ function buildManualNotificationRunId(input: {
         input.mode,
         input.source,
         input.clientRequestId,
+        input.targetIdsOverride?.join(",") ?? "",
       ].join("|"),
     )
     .digest("hex")
@@ -10363,8 +10393,13 @@ async function enqueueManualNotificationRuleRun(input: {
   scheduledLocalTime: string;
   source: "manual_test" | "manual_run_now";
   clientRequestId?: string | null;
+  targetIdsOverride?: string[] | null;
 }) {
   const clientRequestId = normalizeClientRequestId(input.clientRequestId);
+  const targetIdsOverride = uniqueStrings(input.targetIdsOverride ?? []);
+  const persistedTargetIdsOverride = targetIdsOverride.length
+    ? targetIdsOverride
+    : null;
   const runId = buildManualNotificationRunId({
     ruleId: input.rule.id,
     scheduledLocalDate: input.scheduledLocalDate,
@@ -10372,6 +10407,7 @@ async function enqueueManualNotificationRuleRun(input: {
     mode: input.mode,
     source: input.source,
     clientRequestId,
+    targetIdsOverride: persistedTargetIdsOverride,
   });
   const existingById = await systemStore.getNotificationRuleRun(runId);
   if (existingById) {
@@ -10384,6 +10420,7 @@ async function enqueueManualNotificationRuleRun(input: {
     mode: input.mode,
     source: input.source,
     clientRequestId,
+    targetIdsOverride: persistedTargetIdsOverride,
   });
   if (activeRun) {
     return { run: activeRun, reused: true, clientRequestId };
@@ -10420,7 +10457,9 @@ async function enqueueManualNotificationRuleRun(input: {
     mode: input.mode,
     source: input.source,
     attempt: 1,
-    idempotency_key: `${baseIdempotencyKey}:${input.source}:${clientRequestId}`,
+    idempotency_key: `${baseIdempotencyKey}:${input.source}:${clientRequestId}:${
+      persistedTargetIdsOverride?.join(",") ?? "all"
+    }`,
     report_run_ids: [],
     report_results: null,
     delivery_ids: [],
@@ -10431,6 +10470,7 @@ async function enqueueManualNotificationRuleRun(input: {
     claimed_at: null,
     worker_id: null,
     client_request_id: clientRequestId,
+    target_ids_override: persistedTargetIdsOverride,
     next_retry_at: null,
     progress_stage: "queued",
     progress_percent: 5,
@@ -10459,6 +10499,7 @@ async function enqueueManualNotificationRuleRun(input: {
       period_to: params.date_to,
       period_from_time: params.time_from ?? null,
       period_to_time: params.time_to ?? null,
+      target_ids_override_count: persistedTargetIdsOverride?.length ?? 0,
     },
   });
 
@@ -10508,12 +10549,24 @@ async function enqueueWorkerNotificationRuleRun(input: {
   retryFromRun?: NotificationRuleRunRecord | null;
 }) {
   const attempt = input.attempt ?? input.retryFromRun?.attempt ?? 1;
-  const idempotencyKey = buildNotificationIdempotencyKey({
+  const targetIdsOverride = uniqueStrings(
+    input.retryFromRun?.target_ids_override ?? [],
+  );
+  const persistedTargetIdsOverride = targetIdsOverride.length
+    ? targetIdsOverride
+    : null;
+  const baseIdempotencyKey = buildNotificationIdempotencyKey({
     ruleId: input.rule.id,
     scheduledLocalDate: input.scheduledLocalDate,
     scheduledLocalTime: input.scheduledLocalTime,
     attempt,
   });
+  const idempotencyKey = persistedTargetIdsOverride?.length
+    ? `${baseIdempotencyKey}:targets:${createHash("sha256")
+        .update(persistedTargetIdsOverride.join("|"))
+        .digest("hex")
+        .slice(0, 12)}`
+    : baseIdempotencyKey;
   const existing = await systemStore.getNotificationRuleRunByKey(idempotencyKey);
   if (existing) {
     return { run: existing, reused: true };
@@ -10524,6 +10577,7 @@ async function enqueueWorkerNotificationRuleRun(input: {
     scheduledLocalTime: input.scheduledLocalTime,
     mode: input.mode,
     source: input.source,
+    targetIdsOverride: persistedTargetIdsOverride,
   });
   if (activeRun) {
     return { run: activeRun, reused: true };
@@ -10593,6 +10647,7 @@ async function enqueueWorkerNotificationRuleRun(input: {
     claimed_at: null,
     worker_id: null,
     client_request_id: null,
+    target_ids_override: persistedTargetIdsOverride,
     next_retry_at: null,
     progress_stage: "queued",
     progress_percent: 5,
@@ -10625,6 +10680,7 @@ async function enqueueWorkerNotificationRuleRun(input: {
       delivery_only_retry: Boolean(reusableReportResults),
       reused_report_result_count: reusableReportResults?.length ?? 0,
       reused_report_run_ids: reusableReportResults ? reusableReportRunIds : [],
+      target_ids_override_count: persistedTargetIdsOverride?.length ?? 0,
     },
   });
 
@@ -11533,6 +11589,7 @@ async function executeNotificationRule(input: {
         claimed_at: input.workerId ? nowIso : null,
         worker_id: input.workerId ?? null,
         client_request_id: input.clientRequestId ?? null,
+        target_ids_override: null,
         next_retry_at: null,
         progress_stage: "claimed",
         progress_percent: 10,
@@ -11559,6 +11616,9 @@ async function executeNotificationRule(input: {
   }
 
   run = input.run ? run : await systemStore.upsertNotificationRuleRun(run);
+  const targetIdsOverride =
+    run.target_ids_override?.length ? run.target_ids_override : null;
+  const effectiveTargetIds = targetIdsOverride ?? input.rule.target_ids;
   const degradedReports: DegradedNotificationReport[] = [];
   const reportResults: NotificationReportResult[] = [
     ...(run.report_results ?? []),
@@ -11767,7 +11827,7 @@ async function executeNotificationRule(input: {
     period_strategy: input.rule.period_strategy,
     schedule: input.rule.schedule,
     report_keys: input.rule.report_keys,
-    target_ids: input.rule.target_ids,
+    target_ids: effectiveTargetIds,
   });
   if (!validation.ok) {
     return failRun(validation.error, 424);
@@ -11915,7 +11975,7 @@ async function executeNotificationRule(input: {
       failureKind: incident.failureKind,
     });
 
-    for (const targetId of input.rule.target_ids) {
+    for (const targetId of effectiveTargetIds) {
       const target = await getEffectiveLineTargetById(targetId);
       if (!target) {
         await systemStore.appendAuditLog({
@@ -12638,7 +12698,7 @@ async function executeNotificationRule(input: {
     string,
     NonNullable<Awaited<ReturnType<typeof getEffectiveLineTargetById>>>
   >();
-  for (const targetId of input.rule.target_ids) {
+  for (const targetId of effectiveTargetIds) {
     const target = await getEffectiveLineTargetById(targetId);
     if (!target) {
       return failRun(
@@ -12744,7 +12804,7 @@ async function executeNotificationRule(input: {
     totalReports,
   });
 
-  for (const targetId of input.rule.target_ids) {
+  for (const targetId of effectiveTargetIds) {
     const target = lineTargetById.get(targetId);
     if (!target) {
       return failRun(
@@ -13693,6 +13753,7 @@ function resolveLineTargetDeliveryReadiness(input: {
 
 async function validateNotificationRuleSendReadiness(
   rule: NotificationRuleRecord,
+  targetIdsOverride?: string[] | null,
 ) {
   return validateNotificationRulePayload({
     tenant_id: rule.tenant_id,
@@ -13703,8 +13764,40 @@ async function validateNotificationRuleSendReadiness(
     period_strategy: rule.period_strategy,
     schedule: rule.schedule,
     report_keys: rule.report_keys,
-    target_ids: rule.target_ids,
+    target_ids: targetIdsOverride?.length ? targetIdsOverride : rule.target_ids,
   });
+}
+
+async function validateManualNotificationTargetOverride(input: {
+  rule: NotificationRuleRecord;
+  targetIds?: string[] | null;
+}): Promise<
+  | { ok: true; targetIds: string[] | null }
+  | {
+      ok: false;
+      error: string;
+      details: NotificationRuleValidationDetail[];
+    }
+> {
+  const targetIds = uniqueStrings(input.targetIds ?? []);
+  if (!targetIds.length) {
+    return { ok: true, targetIds: null };
+  }
+
+  const validation = await validateNotificationRuleSendReadiness(
+    input.rule,
+    targetIds,
+  );
+  if (!validation.ok) {
+    return {
+      ok: false,
+      error:
+        "ปลายทางทดสอบนี้ยังรับรายงานของแผนนี้ไม่ได้ กรุณาตรวจสิทธิ์ LINE ก่อนส่ง",
+      details: validation.details,
+    };
+  }
+
+  return { ok: true, targetIds };
 }
 
 async function validateNotificationRulePayload(input: {
@@ -16212,6 +16305,7 @@ const notificationRuleExecuteSchema = z.object({
   mode: z.enum(["dry_run", "send"]).optional(),
   scheduled_local_date: isoDateSchema.optional(),
   scheduled_local_time: localTimeSchema.optional(),
+  target_ids: z.array(z.string().trim().min(1).max(180)).max(10).optional(),
   client_request_id: z.string().trim().min(1).max(120).optional(),
 }).superRefine((value, ctx) => {
   if (Boolean(value.scheduled_local_date) !== Boolean(value.scheduled_local_time)) {

@@ -118,6 +118,7 @@ function buildRun(
     claimed_at: "2026-06-22T01:44:00.000Z",
     worker_id: "worker_1",
     client_request_id: null,
+    target_ids_override: null,
     next_retry_at: null,
     progress_stage: "waiting_chunked_report",
     progress_percent: 60,

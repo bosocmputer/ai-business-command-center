@@ -344,6 +344,7 @@ describe("local JSON system store", () => {
       claimed_at: null,
       worker_id: null,
       client_request_id: null,
+      target_ids_override: null,
       next_retry_at: "2026-05-19T01:03:07.000Z",
       progress_stage: "failed",
       progress_percent: 100,
@@ -810,6 +811,7 @@ describe("local JSON system store", () => {
       claimed_at: null,
       worker_id: null,
       client_request_id: "client-1",
+      target_ids_override: null,
       next_retry_at: null,
       progress_stage: "queued",
       progress_percent: 5,
@@ -837,6 +839,54 @@ describe("local JSON system store", () => {
       progress_stage: "queued",
       progress_percent: 5,
       progress_total_reports: 1,
+    });
+    const overrideRun: NotificationRuleRunRecord = {
+      ...queuedRun,
+      id: "notification_run_queue_target_override",
+      status: "running",
+      client_request_id: "client-2",
+      target_ids_override: ["line_target_boss"],
+      idempotency_key:
+        "notification_rule:queue:2026-06-09:08:00:1:manual:line_target_boss",
+      started_at: "2026-06-09T00:55:01.000Z",
+      claimed_at: "2026-06-09T00:55:01.000Z",
+      worker_id: "worker-override",
+      progress_stage: "claimed",
+      progress_percent: 10,
+      created_at: "2026-06-09T00:55:01.000Z",
+      updated_at: "2026-06-09T00:55:01.000Z",
+    };
+    await store.upsertNotificationRuleRun(overrideRun);
+    await expect(
+      store.findActiveNotificationRuleRun({
+        ruleId: rule.id,
+        scheduledLocalDate: "2026-06-09",
+        scheduledLocalTime: "08:00",
+        mode: "send",
+        source: "manual_run_now",
+        targetIdsOverride: ["line_target_boss"],
+      }),
+    ).resolves.toMatchObject({
+      id: overrideRun.id,
+      target_ids_override: ["line_target_boss"],
+    });
+    await expect(
+      store.findActiveNotificationRuleRun({
+        ruleId: rule.id,
+        scheduledLocalDate: "2026-06-09",
+        scheduledLocalTime: "08:00",
+        mode: "send",
+        source: "manual_run_now",
+        targetIdsOverride: ["line_target_other"],
+      }),
+    ).resolves.toBeNull();
+    await store.upsertNotificationRuleRun({
+      ...overrideRun,
+      status: "success",
+      finished_at: "2026-06-09T00:55:02.000Z",
+      progress_stage: "completed",
+      progress_percent: 100,
+      updated_at: "2026-06-09T00:55:02.000Z",
     });
     await expect(store.listQueuedNotificationRuleRuns(1)).resolves.toEqual([
       expect.objectContaining({ id: queuedRun.id }),

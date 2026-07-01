@@ -74,6 +74,7 @@ const buildRun = (
   claimed_at: "2026-06-18T11:30:00.000Z",
   worker_id: "worker_morning_brief_1",
   client_request_id: null,
+  target_ids_override: null,
   next_retry_at: "2026-06-18T11:38:00.000Z",
   progress_stage: "failed",
   progress_percent: 100,

@@ -45,6 +45,7 @@ import {
 } from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
+type LineTargetWithSiblings = LineTargetRecord & { sibling_tenant_names: string[] };
 
 type NotificationSetupState =
   | { status: "loading" }
@@ -167,6 +168,7 @@ export default function OwnerV2NotificationSetup({
   const [sendConfirmRuleId, setSendConfirmRuleId] = useState<string | null>(
     null,
   );
+  const [manualRunTargetId, setManualRunTargetId] = useState("");
 
   const load = useCallback(
     async (
@@ -255,6 +257,22 @@ export default function OwnerV2NotificationSetup({
       : emptyTargets;
   const lineChannels =
     state.status === "success" ? state.line.channels ?? emptyChannels : emptyChannels;
+  const manualRunTargetOptions = useMemo(
+    () =>
+      lineTargets.filter((target) =>
+        getLineTargetDeliveryReadiness({
+          channels: lineChannels,
+          reportKeys: form.reportKeys,
+          target,
+        }).ok,
+      ),
+    [form.reportKeys, lineChannels, lineTargets],
+  );
+  const manualRunTarget =
+    manualRunTargetId && manualRunTargetOptions.length
+      ? manualRunTargetOptions.find((target) => target.id === manualRunTargetId) ??
+        null
+      : null;
   const selectedRule = selectedRuleId
     ? rules.find((rule) => rule.id === selectedRuleId) ?? null
     : null;
@@ -277,7 +295,6 @@ export default function OwnerV2NotificationSetup({
     return () => window.clearInterval(intervalId);
   }, [activeRuns.length, load, state.status]);
 
-  type LineTargetWithSiblings = LineTargetRecord & { sibling_tenant_names: string[] };
   const selectedTargetReadiness = useMemo(
     () =>
       form.targetIds
@@ -293,6 +310,20 @@ export default function OwnerV2NotificationSetup({
         })),
     [form.reportKeys, form.targetIds, lineChannels, lineTargets],
   );
+  useEffect(() => {
+    if (state.status !== "success") {
+      return;
+    }
+    setManualRunTargetId((current) => {
+      if (
+        current &&
+        manualRunTargetOptions.some((target) => target.id === current)
+      ) {
+        return current;
+      }
+      return getDefaultManualRunTargetId(manualRunTargetOptions);
+    });
+  }, [manualRunTargetOptions, state.status]);
   const blockedTarget = selectedTargetReadiness.find(
     (
       item,
@@ -440,7 +471,9 @@ export default function OwnerV2NotificationSetup({
       setSendConfirmRuleId(selectedRuleId);
       setMessage({
         tone: "warning",
-        text: "ตรวจแผนและผู้รับอีกครั้ง แล้วกดปุ่มอีกครั้งเพื่อยืนยัน ระบบจะส่ง LINE ไปยังผู้รับที่เลือกทันที",
+        text: `ตรวจแผนและผู้รับอีกครั้ง แล้วกดปุ่มอีกครั้งเพื่อยืนยัน ระบบจะส่ง LINE ${
+          manualRunTarget ? `เฉพาะ ${manualRunTarget.display_name}` : "ไปยังผู้รับในแผน"
+        } ทันที`,
       });
       return;
     }
@@ -470,6 +503,7 @@ export default function OwnerV2NotificationSetup({
         mode: "dry_run" | "send";
         scheduled_local_date?: string;
         scheduled_local_time?: string;
+        target_ids?: string[];
       } = {
         client_request_id: createClientRequestId(),
         mode,
@@ -477,6 +511,9 @@ export default function OwnerV2NotificationSetup({
       if (form.manualDate && form.manualTime) {
         body.scheduled_local_date = form.manualDate;
         body.scheduled_local_time = form.manualTime;
+      }
+      if (manualRunTargetId) {
+        body.target_ids = [manualRunTargetId];
       }
       const result = await ownerV2Fetch<NotificationRuleRunResult>(
         `/api/owner/notification-rules/${encodeURIComponent(selectedRuleId)}/${
@@ -493,7 +530,9 @@ export default function OwnerV2NotificationSetup({
         tone: "success",
         text:
           mode === "send"
-            ? "รับงานส่งจริงแล้ว ระบบกำลังรันรายงานและส่ง LINE"
+            ? `รับงานส่งจริงแล้ว ระบบกำลังรันรายงานและส่ง LINE ${
+                manualRunTarget ? `เฉพาะ ${manualRunTarget.display_name}` : "ตามผู้รับในแผน"
+              }`
             : "รับงานทดสอบแล้ว ระบบกำลังรันรายงานโดยไม่ส่ง LINE จริง",
       });
       await load({ preserveMessage: true, silent: true });
@@ -959,6 +998,29 @@ export default function OwnerV2NotificationSetup({
                     </select>
                   </Field>
                 </div>
+
+                <Field label="ปลายทางสำหรับรันทดสอบ/ส่งตอนนี้">
+                  <select
+                    className="owner-v2-input"
+                    disabled={busy !== null}
+                    onChange={(event) => {
+                      setSendConfirmRuleId(null);
+                      setManualRunTargetId(event.target.value);
+                    }}
+                    value={manualRunTargetId}
+                  >
+                    <option value="">ผู้รับทั้งหมดในแผน</option>
+                    {manualRunTargetOptions.map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.display_name} · {target.target_id_masked}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">
+                    ใช้เฉพาะการกดปุ่มทดสอบหรือส่งตอนนี้ ไม่เปลี่ยนผู้รับ LINE
+                    ที่บันทึกในแผน
+                  </p>
+                </Field>
 
                 <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
@@ -1648,6 +1710,29 @@ function formFromRule(rule: OwnerNotificationRule): NotificationFormState {
     times: [...schedule.times],
     weekdays: [...schedule.weekdays],
   };
+}
+
+function getDefaultManualRunTargetId(targets: LineTargetWithSiblings[]) {
+  return (
+    targets.find((target) => isPreferredManualRunTarget(target))?.id ??
+    targets.find(
+      (target) =>
+        target.target_type === "user" &&
+        target.access_profile_key === "executive",
+    )?.id ??
+    targets.find((target) => target.target_type === "user")?.id ??
+    targets[0]?.id ??
+    ""
+  );
+}
+
+function isPreferredManualRunTarget(target: LineTargetRecord) {
+  const displayName = target.display_name.toLowerCase();
+  const maskedId = target.target_id_masked;
+  return (
+    displayName.includes("บอส") ||
+    (maskedId.startsWith("Uc486") && maskedId.endsWith("2d3f9"))
+  );
 }
 
 function mergeManualRunFields({
