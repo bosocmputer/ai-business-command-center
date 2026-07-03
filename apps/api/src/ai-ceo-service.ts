@@ -27,6 +27,7 @@ import type { SecretRecord, SystemStore } from "./system-store.js";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_APP_TITLE = "AI CEO Morning Brief";
 const SECRET_KEY_ID = "env:AI_BCC_SECRET_KEY";
 const OPENROUTER_API_KEY_SECRET_KEY = "openrouter_api_key";
 const SYSTEM_OPENROUTER_SECRET_ID = "secret_system_ai_provider_openrouter_api_key";
@@ -1263,7 +1264,7 @@ async function requestOpenRouterAdvisor(input: {
         authorization: `Bearer ${input.apiKey}`,
         "content-type": "application/json",
         "http-referer": process.env.APP_PUBLIC_URL ?? "http://localhost",
-        "x-title": "AI Business Command Center",
+        "x-title": OPENROUTER_APP_TITLE,
       },
       body: JSON.stringify({
         model: input.modelId,
