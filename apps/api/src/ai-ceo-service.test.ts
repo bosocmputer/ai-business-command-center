@@ -201,8 +201,12 @@ describe("AI CEO service", () => {
     });
 
     const context = capturedContext as unknown as {
-      data_scope?: { mode?: string; available_report_keys?: string[]; rules?: string[] };
-      output_contract?: { cashflow_style?: string };
+      data_scope?: {
+        mode?: string;
+        available_report_keys?: string[];
+        rules?: string[];
+      };
+      output_contract?: { cashflow_style?: string; max_top_actions?: number };
       reports?: Array<{ report_key: string; run_id: string }>;
     };
     expect(result.ok).toBe(true);
@@ -216,6 +220,7 @@ describe("AI CEO service", () => {
       "run_cash_current",
     ]);
     expect(context.output_contract?.cashflow_style).toContain("เงินสดสุทธิ");
+    expect(context.output_contract?.max_top_actions).toBe(2);
     expect(context.data_scope?.rules?.join(" ")).toContain("ลูกหนี้การค้า");
     expect(result.run.source_report_keys).toEqual([
       "sales_goods_services",
@@ -369,6 +374,128 @@ describe("AI CEO service", () => {
     );
     expect(rendered?.text).not.toContain("cash_bank_payments");
     expect(rendered?.text).not.toContain("\u{1F4CA}");
+  });
+
+  it("renders compact owner-first AI CEO LINE text and strips broad strategy advice", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+    const now = new Date().toISOString();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant, now }),
+      selected_model_id: "qwen/qwen3.7-max",
+      ai_enabled: true,
+    };
+
+    const result = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-07-02" },
+      actorId: "owner",
+      triggerType: "scheduled",
+      sourceReportKeys: [
+        "sales_goods_services",
+        "purchase_goods_payables",
+        "cash_bank_receipts",
+        "cash_bank_payments",
+      ],
+      sourceSnapshots: [
+        createScopedSnapshot({
+          reportKey: "sales_goods_services",
+          runId: "run_sales_current",
+          summary: {
+            total_sales: 121_060,
+            document_count: 15,
+            line_count: 20,
+            total_qty: 120,
+          },
+        }),
+        createScopedSnapshot({
+          reportKey: "purchase_goods_payables",
+          runId: "run_purchase_current",
+        }),
+        createScopedSnapshot({
+          reportKey: "cash_bank_receipts",
+          runId: "run_receipts_current",
+          summary: {
+            total_amount: 109_150,
+            unallocated_amount: 65_350,
+            mismatch_document_count: 5,
+          },
+        }),
+        createScopedSnapshot({
+          reportKey: "cash_bank_payments",
+          runId: "run_payments_current",
+          summary: {
+            total_amount: 4_030,
+          },
+        }),
+      ],
+      requester: async () => ({
+        ok: true,
+        providerStatus: 200,
+        latencyMs: 42,
+        content: JSON.stringify({
+          summary:
+            "ยอดขายวันที่ 2 ก.ค. รวม 121,060 บาท จาก 15 เอกสาร รับเงิน 109,150 บาท จ่ายเงิน 4,030 บาท เงินสดสุทธิ +105,120 บาท ซึ่งเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน ควรตรวจเอกสารก่อนสรุป และมีสถานะ reconciled_with_warning",
+          confidence: 0.82,
+          caveats: [
+            "รายงานขายสินค้าและบริการมีสถานะ reconciled_with_warning",
+            "เงินสดสุทธิเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน ไม่ใช่ยอดเงินฝากธนาคารคงเหลือ",
+          ],
+          top_actions: [
+            {
+              title: "ทบทวนการพึ่งพาผู้จำหน่ายรายเดียว",
+              reason: "มีผู้จำหน่ายหลักรายเดียวในรอบนี้",
+              recommended_action: "พิจารณาหา supplier สำรองเพื่อความเสี่ยงระยะยาว",
+              severity: "warning",
+              confidence: 0.7,
+              source_report_keys: ["purchase_goods_payables"],
+              source_run_ids: ["run_purchase_current"],
+            },
+            {
+              title: "จัดสรรรับเงินที่ยังไม่ครบ",
+              reason: "พบเอกสารรับเงินไม่ตรง 5 รายการ",
+              recommended_action: "ให้ทีมบัญชีจัดสรรรับเงิน 5 รายการให้ครบก่อนปิดวัน",
+              severity: "warning",
+              confidence: 0.82,
+              source_report_keys: ["cash_bank_receipts"],
+              source_run_ids: ["run_receipts_current"],
+            },
+            {
+              title: "แก้เอกสารขายที่ไม่ระบุสาขา",
+              reason: "บิลขายบางส่วนไม่มีสาขา",
+              recommended_action: "ให้ทีมขายแก้เอกสารวันที่ 2 ก.ค. ให้ระบุสาขาให้ครบ",
+              severity: "warning",
+              confidence: 0.74,
+              source_report_keys: ["sales_goods_services"],
+              source_run_ids: ["run_sales_current"],
+            },
+          ],
+        }),
+        inputTokens: 1000,
+        outputTokens: 500,
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.response?.top_actions.map((action) => action.title)).toEqual([
+      "จัดสรรรับเงินที่ยังไม่ครบ",
+      "แก้เอกสารขายที่ไม่ระบุสาขา",
+    ]);
+
+    const rendered = buildAiCeoLinePreview({
+      tenant,
+      run: result.run,
+      items: result.items,
+    });
+    expect(rendered?.text).toContain("อ้างอิงจากรายงานรอบนี้ 4 รายงาน");
+    expect(rendered?.text).toContain("จัดสรรรับเงินที่ยังไม่ครบ");
+    expect(rendered?.text).toContain("แก้เอกสารขายที่ไม่ระบุสาขา");
+    expect(rendered?.text).not.toContain("3.");
+    expect(rendered?.text).not.toContain("พึ่งพาผู้จำหน่าย");
+    expect(rendered?.text).not.toContain("supplier");
+    expect(rendered?.text).not.toContain("reconciled_with_warning");
+    expect(rendered?.text.length ?? 0).toBeLessThan(900);
   });
 
   it("parses fenced OpenRouter JSON and can render an AI CEO fallback card", async () => {
