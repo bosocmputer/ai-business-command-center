@@ -32,6 +32,8 @@ import {
   type LineAccessProfileKey,
   type LineRecipientRecord,
   type LineSendMode,
+  type AiAdvisorItemRecord,
+  type AiAdvisorRunRecord,
   type ArDebtReceiptSnapshot,
   type CashBankReportKey,
   type CashBankSnapshot,
@@ -208,6 +210,7 @@ import {
 } from "./flowaccount-service.js";
 import {
   AiCeoSafeError,
+  AI_CEO_LINE_RENDERER_VERSION,
   buildAiCeoLinePreview,
   defaultTenantAiProfile,
   readAiCeoSetupStatus,
@@ -217,6 +220,7 @@ import {
   syncOpenRouterModelCatalog,
   updateAiAdvisorItemStatus,
 } from "./ai-ceo-service.js";
+import { buildMetricSnapshotFromReportSnapshot } from "./ai-ceo-memory.js";
 import {
   readEffectiveSystemRuntimeConfig,
   readSystemRuntimeConfigStatus,
@@ -10343,6 +10347,71 @@ async function persistBusinessSignals(
   return saved;
 }
 
+async function persistAiCeoMetricSnapshots(
+  snapshots: ReportSnapshot[],
+  context: {
+    notificationRuleId: string;
+    notificationRunId: string;
+    periodPreset: string;
+    source: string;
+  },
+) {
+  if (!snapshots.length) {
+    return [];
+  }
+  const createdAt = new Date().toISOString();
+  const metricSnapshots = snapshots
+    .map((snapshot) =>
+      buildMetricSnapshotFromReportSnapshot({
+        snapshot,
+        periodPreset: context.periodPreset,
+        createdAt,
+      }),
+    )
+    .filter((snapshot): snapshot is NonNullable<typeof snapshot> =>
+      Boolean(snapshot),
+    );
+  if (!metricSnapshots.length) {
+    return [];
+  }
+  try {
+    const saved = [];
+    for (const snapshot of metricSnapshots) {
+      saved.push(await systemStore.upsertMetricSnapshot(snapshot));
+    }
+    await systemStore.appendAuditLog({
+      tenant_id: saved[0]?.tenant_id ?? null,
+      actor_id: null,
+      action: "ai_ceo_metric_snapshots_upserted",
+      target_type: "notification_rule_run",
+      target_id: context.notificationRunId,
+      metadata_json: {
+        notification_rule_id: context.notificationRuleId,
+        source: context.source,
+        metric_snapshot_count: saved.length,
+        report_keys: saved.map((snapshot) => snapshot.report_key),
+        metric_dates: [...new Set(saved.map((snapshot) => snapshot.metric_date))],
+      },
+    });
+    return saved;
+  } catch (error) {
+    await systemStore.appendAuditLog({
+      tenant_id: snapshots[0]?.tenant_id ?? null,
+      actor_id: null,
+      action: "ai_ceo_metric_snapshots_failed",
+      target_type: "notification_rule_run",
+      target_id: context.notificationRunId,
+      metadata_json: {
+        notification_rule_id: context.notificationRuleId,
+        source: context.source,
+        attempted_count: metricSnapshots.length,
+        safe_error_message: toSafeErrorMessage(error),
+      },
+    });
+    return [];
+  }
+}
+
 function countUnknownDocTimeInSnapshot(snapshot: ReportSnapshot) {
   if (
     snapshot.report_key === "sales_goods_services" ||
@@ -12677,6 +12746,12 @@ async function executeNotificationRule(input: {
       0,
     ),
   };
+  await persistAiCeoMetricSnapshots(snapshots, {
+    notificationRuleId: input.rule.id,
+    notificationRunId: run.id,
+    periodPreset: input.rule.period_preset,
+    source: input.source,
+  });
 
   const businessSignals = businessSignalsEnabled
     ? await persistBusinessSignals(
@@ -12713,7 +12788,8 @@ async function executeNotificationRule(input: {
     (target) => target.access_profile_key === "executive",
   );
   const aiCeoProfile = await systemStore.getTenantAiProfile(tenant.id);
-  let aiCeoPreview: ReportLinePreview | null = null;
+  let aiCeoRunForPreview: AiAdvisorRunRecord | null = null;
+  let aiCeoItemsForPreview: AiAdvisorItemRecord[] = [];
   let aiCeoFailurePreview: ReportLinePreview | null = null;
   let aiCeoRunId: string | null = null;
   let aiCeoStatus: string | null = null;
@@ -12743,12 +12819,8 @@ async function executeNotificationRule(input: {
       aiCeoStatus = aiResult.run.status;
       aiCeoSafeErrorMessage = aiResult.safe_error_message;
       if (aiResult.ok && !aiCeoProfile.shadow_mode_enabled) {
-        aiCeoPreview = buildAiCeoLinePreview({
-          tenant,
-          run: aiResult.run,
-          items: aiResult.items,
-          fallbackReportRunId: reportRunIds[0] ?? null,
-        });
+        aiCeoRunForPreview = aiResult.run;
+        aiCeoItemsForPreview = aiResult.items;
       } else if (!aiResult.ok && !aiCeoProfile.shadow_mode_enabled) {
         aiCeoFailurePreview = null;
       }
@@ -12768,10 +12840,14 @@ async function executeNotificationRule(input: {
           scheduled_local_date: zoned.date,
           scheduled_local_time: zoned.time,
           shadow_mode_enabled: aiCeoProfile.shadow_mode_enabled,
-          line_preview_enabled: Boolean(aiCeoPreview),
+          line_preview_enabled: Boolean(aiCeoRunForPreview),
           line_failure_preview_enabled: Boolean(aiCeoFailurePreview),
           status: aiResult.run.status,
           model_id: aiResult.run.model_id,
+          prompt_version_id: aiResult.run.prompt_version_id,
+          renderer_version: AI_CEO_LINE_RENDERER_VERSION,
+          source_report_count: aiResult.run.source_report_keys.length,
+          action_count: aiResult.items.length,
           input_tokens: aiResult.run.input_tokens,
           output_tokens: aiResult.run.output_tokens,
           cost_estimate_usd: aiResult.run.cost_estimate_usd,
@@ -12871,9 +12947,26 @@ async function executeNotificationRule(input: {
         !aiCeoProfile.shadow_mode_enabled &&
         target.access_profile_key === "executive",
     );
-    const targetAiCeoPreview = targetWantsAiCeo
-      ? aiCeoPreview ?? aiCeoFailurePreview
-      : null;
+    const visibleAiCeoReportKeys = input.rule.report_keys.filter((reportKey) =>
+      canAccessLineReport({
+        tenantId: input.rule.tenant_id,
+        target,
+        reportKey,
+        action: "receive_morning_brief",
+      }).allowed,
+    );
+    const targetAiCeoPreview =
+      targetWantsAiCeo && aiCeoRunForPreview
+        ? buildAiCeoLinePreview({
+            tenant,
+            run: aiCeoRunForPreview,
+            items: aiCeoItemsForPreview,
+            fallbackReportRunId: reportRunIds[0] ?? null,
+            visibleReportKeys: visibleAiCeoReportKeys,
+          })
+        : targetWantsAiCeo
+          ? aiCeoFailurePreview
+          : null;
     const shouldUseActionDigest =
       !targetAiCeoPreview &&
       input.rule.digest_mode === "action_only" &&
@@ -13034,9 +13127,15 @@ async function executeNotificationRule(input: {
         ai_ceo_enabled: Boolean(aiCeoProfile?.ai_enabled),
         ai_ceo_shadow_mode_enabled: aiCeoProfile?.shadow_mode_enabled ?? null,
         ai_ceo_preview_included: targetCanReceiveAiCeo,
+        ai_ceo_renderer_version: targetCanReceiveAiCeo
+          ? AI_CEO_LINE_RENDERER_VERSION
+          : null,
         ai_ceo_run_id: aiCeoRunId,
         ai_ceo_status: aiCeoStatus,
         ai_ceo_safe_error_message: aiCeoSafeErrorMessage,
+        ai_ceo_action_count: targetAiCeoPreview
+          ? aiCeoItemsForPreview.length
+          : 0,
         ...getDegradedAuditMetadata(),
       },
     });
@@ -13179,7 +13278,10 @@ async function executeNotificationRule(input: {
       delivery_statuses: deliveries.map((delivery) => delivery.status),
       ai_ceo_enabled: Boolean(aiCeoProfile?.ai_enabled),
       ai_ceo_shadow_mode_enabled: aiCeoProfile?.shadow_mode_enabled ?? null,
-      ai_ceo_preview_available: Boolean(aiCeoPreview),
+      ai_ceo_preview_available: Boolean(aiCeoRunForPreview),
+      ai_ceo_renderer_version: aiCeoRunForPreview
+        ? AI_CEO_LINE_RENDERER_VERSION
+        : null,
       ai_ceo_run_id: aiCeoRunId,
       ai_ceo_status: aiCeoStatus,
       ai_ceo_safe_error_message: aiCeoSafeErrorMessage,

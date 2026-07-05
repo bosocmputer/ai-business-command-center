@@ -24,10 +24,16 @@ import {
 import { readBootstrapSecretKey } from "./bootstrap-config.js";
 import { decryptSecret, encryptSecret } from "./secret-vault.js";
 import type { SecretRecord, SystemStore } from "./system-store.js";
+import {
+  AI_CEO_MEMORY_LOOKBACK_DAYS,
+  buildAiCeoBusinessMemory,
+  subtractIsoDays,
+} from "./ai-ceo-memory.js";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_APP_TITLE = "AI CEO Morning Brief";
+export const AI_CEO_LINE_RENDERER_VERSION = "ai-ceo-line-v1.1";
 const SECRET_KEY_ID = "env:AI_BCC_SECRET_KEY";
 const OPENROUTER_API_KEY_SECRET_KEY = "openrouter_api_key";
 const SYSTEM_OPENROUTER_SECRET_ID = "secret_system_ai_provider_openrouter_api_key";
@@ -380,30 +386,16 @@ export async function runAiCeoDryRun(input: {
     keyMode: profile.key_mode,
   });
   if (input.idempotencyKey) {
-    const existing = (
-      await input.store.listAiAdvisorRuns({
+    const existing = await input.store.getAiAdvisorRunByIdempotencyKey({
+      tenantId: input.tenant.id,
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (existing) {
+      return buildExistingAiCeoRunResult({
+        store: input.store,
         tenantId: input.tenant.id,
-        limit: AI_CEO_KEEP_LATEST_RUNS,
-      })
-    ).find((run) => run.idempotency_key === input.idempotencyKey);
-    if (
-      existing &&
-      (existing.status === "success" ||
-        existing.status === "success_with_warnings" ||
-        existing.status === "failed")
-    ) {
-      return {
-        ok:
-          existing.status === "success" ||
-          existing.status === "success_with_warnings",
-        checked_at: existing.finished_at ?? existing.created_at,
-        latency_ms: existing.latency_ms ?? 0,
         run: existing,
-        items: [],
-        response: existing.response_json,
-        safe_error_message: existing.safe_error_message,
-        provider_status: null,
-      };
+      });
     }
   }
   const runId = `ai_run_${input.tenant.id}_${randomUUID()}`;
@@ -442,7 +434,24 @@ export async function runAiCeoDryRun(input: {
     started_at: checkedAtIso,
     finished_at: null,
   };
-  await input.store.upsertAiAdvisorRun(baseRun);
+  try {
+    await input.store.upsertAiAdvisorRun(baseRun);
+  } catch (error) {
+    if (input.idempotencyKey) {
+      const existing = await input.store.getAiAdvisorRunByIdempotencyKey({
+        tenantId: input.tenant.id,
+        idempotencyKey: input.idempotencyKey,
+      });
+      if (existing) {
+        return buildExistingAiCeoRunResult({
+          store: input.store,
+          tenantId: input.tenant.id,
+          run: existing,
+        });
+      }
+    }
+    throw error;
+  }
 
   const budgetCheck = await assertBudgetAvailable({
     store: input.store,
@@ -615,6 +624,7 @@ export function buildAiCeoLinePreview(input: {
   run: AiAdvisorRunRecord;
   items: AiAdvisorItemRecord[];
   fallbackReportRunId?: string | null;
+  visibleReportKeys?: ReportKey[];
 }): ReportLinePreview | null {
   const response = input.run.response_json;
   if (!response) {
@@ -639,7 +649,7 @@ export function buildAiCeoLinePreview(input: {
             source_run_ids: action.source_run_ids,
           },
           confidence: action.confidence,
-          status: "new",
+          status: "new" as const,
           created_at: input.run.finished_at ?? input.run.created_at,
           updated_at: input.run.finished_at ?? input.run.created_at,
           resolved_at: null,
@@ -662,6 +672,11 @@ export function buildAiCeoLinePreview(input: {
   if (topItems.length) {
     lines.push("", "ควรทำก่อน");
     for (const [index, item] of topItems.entries()) {
+      const actionReportLabels = resolveAiCeoActionReportLabels({
+        item,
+        runReportKeys: input.run.source_report_keys,
+        visibleReportKeys: input.visibleReportKeys ?? input.run.source_report_keys,
+      });
       lines.push(
         `${index + 1}. ${truncateLineText(
           compactAdvisorLineText(item.title),
@@ -672,6 +687,9 @@ export function buildAiCeoLinePreview(input: {
           AI_CEO_OWNER_LINE_ACTION_LENGTH,
         )}`,
       );
+      if (actionReportLabels.length) {
+        lines.push(`   ดู: ${actionReportLabels.join(", ")}`);
+      }
     }
   }
   const caveats = selectOwnerLineCaveats(response.caveats);
@@ -1011,6 +1029,14 @@ async function buildAdvisorContext(input: {
   const availableRunIds = reports.map((snapshot) => snapshot.run_id);
   const availableReportKeySet = new Set(availableReportKeys);
   const availableRunIdSet = new Set(availableRunIds);
+  const memoryMetricDateTo = resolveAdvisorContextMetricDate(
+    reports,
+    input.runDate,
+  );
+  const memoryMetricDateFrom = subtractIsoDays(
+    memoryMetricDateTo,
+    AI_CEO_MEMORY_LOOKBACK_DAYS,
+  );
 
   const [signals, openItems, metrics] = await Promise.all([
     input.store.listBusinessSignals({
@@ -1023,7 +1049,15 @@ async function buildAdvisorContext(input: {
       status: "new",
       limit: MAX_CONTEXT_ITEMS,
     }),
-    input.store.listMetricSnapshots({ tenantId: input.tenant.id, limit: 30 }),
+    input.store.listMetricSnapshots({
+      tenantId: input.tenant.id,
+      reportKeys: availableReportKeys.length
+        ? availableReportKeys
+        : snapshotScopeReportKeys,
+      dateFrom: memoryMetricDateFrom,
+      dateTo: memoryMetricDateTo,
+      limit: 120,
+    }),
   ]);
   const scopedSignals = signals.filter((signal) => {
     if (!availableReportKeySet.has(signal.source_report_key)) {
@@ -1040,6 +1074,11 @@ async function buildAdvisorContext(input: {
     return hasNotificationRunSnapshots
       ? metric.source_run_ids.some((runId) => availableRunIdSet.has(runId))
       : true;
+  });
+  const businessMemory = buildAiCeoBusinessMemory({
+    metricDateTo: memoryMetricDateTo,
+    reportKeys: availableReportKeys,
+    metrics,
   });
 
   return {
@@ -1064,9 +1103,11 @@ async function buildAdvisorContext(input: {
         ]),
       ),
       report_count: availableReportKeys.length,
+      memory_lookback_days: AI_CEO_MEMORY_LOOKBACK_DAYS,
       rules: [
         "ใช้เฉพาะ reports, business_signals และ metric_snapshots ที่อยู่ใน data_scope นี้เท่านั้น",
         "ห้ามอ้างรายงานหรือ run_id ที่ไม่ได้อยู่ใน available_report_keys/available_run_ids",
+        "ถ้าพูดว่าปัญหาพบซ้ำ ดีขึ้น แย่ลง หรือแก้แล้ว ต้องอ้างอิงจาก business_memory เท่านั้น ห้ามเดาจากความรู้ภายนอก",
         "ห้ามเขียน technical report_key หรือ snake_case ในข้อความที่เจ้าของร้านเห็น ให้ใช้ชื่อรายงานภาษาไทยจาก report_labels เท่านั้น",
         "ห้ามใช้ emoji หรือสัญลักษณ์ตกแต่งใน summary, caveats และ top_actions",
         "ถ้ารายงานในรอบนี้มีจำกัด ให้บอก caveat ว่าข้อมูลจำกัดตามแพ็กเกจหรือ rule ที่เปิดอยู่",
@@ -1103,6 +1144,7 @@ async function buildAdvisorContext(input: {
       metrics_json: metric.metrics_json,
       source_run_ids: metric.source_run_ids,
     })),
+    business_memory: businessMemory,
     output_contract: {
       language: "th-TH",
       json_only: true,
@@ -1142,6 +1184,17 @@ function uniqueReportKeys(values: ReportKey[]) {
     seen.add(reportKey);
     return true;
   });
+}
+
+function resolveAdvisorContextMetricDate(
+  reports: ReportSnapshot[],
+  fallbackDate: string,
+) {
+  const dates = reports
+    .map((report) => report.params.date_to || report.params.date_from)
+    .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort();
+  return dates.at(-1) ?? fallbackDate;
 }
 
 function orderSnapshotsForReportKeys(input: {
@@ -1253,6 +1306,30 @@ async function finishFailedRun(input: {
   };
 }
 
+async function buildExistingAiCeoRunResult(input: {
+  store: SystemStore;
+  tenantId: TenantId;
+  run: AiAdvisorRunRecord;
+}): Promise<AiCeoDryRunResult> {
+  const items = await input.store.listAiAdvisorItems({
+    tenantId: input.tenantId,
+    advisorRunId: input.run.id,
+    limit: AI_CEO_OWNER_LINE_MAX_ACTIONS,
+  });
+  return {
+    ok:
+      input.run.status === "success" ||
+      input.run.status === "success_with_warnings",
+    checked_at: input.run.finished_at ?? input.run.created_at,
+    latency_ms: input.run.latency_ms ?? 0,
+    run: input.run,
+    items,
+    response: input.run.response_json,
+    safe_error_message: input.run.safe_error_message,
+    provider_status: null,
+  };
+}
+
 async function requestOpenRouterAdvisor(input: {
   apiKey: string;
   modelId: AiCeoModelId;
@@ -1288,6 +1365,7 @@ async function requestOpenRouterAdvisor(input: {
               "ให้ action เป็นคำสั่งงานจริง เช่น แก้เอกสาร/จัดสรรเงิน/แก้สต็อกติดลบ/คัดรายการเร่งด่วน ไม่ใช่แค่บอกให้เปิดรายงานแบบกว้าง ๆ",
               "ถ้ามีรายงานรับเงินและจ่ายเงินใน context ให้คำนวณและกล่าวถึงเงินสดสุทธิใน summary",
               "ใช้คำว่า เงินสดสุทธิ เท่านั้นสำหรับยอดรับเงินรวม - จ่ายเงินรวม ห้ามใช้คำว่า รับเงินสุทธิ",
+              "ถ้าจะพูดว่าปัญหาพบซ้ำ ดีขึ้น แย่ลง หรือแก้แล้ว ให้ใช้เฉพาะ business_memory ใน context เท่านั้น",
               "อย่าใช้คำว่า ลูกหนี้การค้า หรือ สต็อก เป็นข้อควรทำหลัก ถ้า data_scope ไม่มีรายงานนั้นโดยตรง",
               "ห้ามใช้ emoji และห้ามเขียน technical report_key เช่น cash_bank_payments หรือ gross_profit_by_product ในข้อความที่เจ้าของร้านเห็น",
               "ถ้าต้องกล่าวถึงรายงาน ให้ใช้ชื่อภาษาไทยจาก data_scope.report_labels เท่านั้น",
@@ -1987,6 +2065,23 @@ function collectAiCeoSourceRunIds(input: {
     }
   }
   return [...runIds];
+}
+
+function resolveAiCeoActionReportLabels(input: {
+  item: AiAdvisorItemRecord;
+  runReportKeys: ReportKey[];
+  visibleReportKeys: ReportKey[];
+}) {
+  const runReportKeySet = new Set(input.runReportKeys);
+  const visibleReportKeySet = new Set(input.visibleReportKeys);
+  return normalizeReportKeyArray(input.item.evidence_json.source_report_keys)
+    .filter(
+      (reportKey) =>
+        runReportKeySet.has(reportKey) && visibleReportKeySet.has(reportKey),
+    )
+    .map((reportKey) => getReportCatalogEntry(reportKey).label)
+    .filter((label, index, labels) => labels.indexOf(label) === index)
+    .slice(0, 2);
 }
 
 function estimateTokens(text: string, context: Record<string, unknown>) {

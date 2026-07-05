@@ -313,6 +313,9 @@ create table if not exists metric_snapshots (
 create index if not exists metric_snapshots_tenant_idx
 on metric_snapshots (tenant_id, metric_date desc, created_at desc);
 
+create index if not exists metric_snapshots_report_date_idx
+on metric_snapshots (tenant_id, report_key, metric_date desc, created_at desc);
+
 create table if not exists ai_advisor_runs (
   id text primary key,
   tenant_id text not null references tenants(id) on delete cascade,
@@ -362,6 +365,9 @@ create table if not exists ai_advisor_items (
 
 create index if not exists ai_advisor_items_tenant_status_idx
 on ai_advisor_items (tenant_id, status, created_at desc);
+
+create index if not exists ai_advisor_items_tenant_date_status_idx
+on ai_advisor_items (tenant_id, item_date desc, status, severity);
 
 create table if not exists ai_usage_ledger (
   id text primary key,

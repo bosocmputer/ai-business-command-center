@@ -230,9 +230,16 @@ export type SystemStore = {
   ): Promise<MetricSnapshotRecord>;
   listMetricSnapshots(input: {
     tenantId: TenantId;
+    reportKeys?: ReportKey[];
+    dateFrom?: string;
+    dateTo?: string;
     limit?: number;
   }): Promise<MetricSnapshotRecord[]>;
   getAiAdvisorRun(runId: string): Promise<AiAdvisorRunRecord | null>;
+  getAiAdvisorRunByIdempotencyKey(input: {
+    tenantId: TenantId;
+    idempotencyKey: string;
+  }): Promise<AiAdvisorRunRecord | null>;
   listAiAdvisorRuns(input: {
     tenantId: TenantId;
     limit?: number;
@@ -243,6 +250,7 @@ export type SystemStore = {
   ): Promise<AiAdvisorItemRecord[]>;
   listAiAdvisorItems(input: {
     tenantId: TenantId;
+    advisorRunId?: string;
     status?: AiCeoAdvisorItemStatus;
     limit?: number;
   }): Promise<AiAdvisorItemRecord[]>;
@@ -857,16 +865,44 @@ class LocalJsonSystemStore implements SystemStore {
     return normalized;
   }
 
-  async listMetricSnapshots(input: { tenantId: TenantId; limit?: number }) {
+  async listMetricSnapshots(input: {
+    tenantId: TenantId;
+    reportKeys?: ReportKey[];
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  }) {
     const limit = normalizeLimit(input.limit, 100);
+    const reportKeySet = input.reportKeys?.length
+      ? new Set(input.reportKeys)
+      : null;
     return this.requireData()
-      .metricSnapshots.filter((snapshot) => snapshot.tenant_id === input.tenantId)
+      .metricSnapshots.filter(
+        (snapshot) =>
+          snapshot.tenant_id === input.tenantId &&
+          (!reportKeySet || reportKeySet.has(snapshot.report_key)) &&
+          (!input.dateFrom || snapshot.metric_date >= input.dateFrom) &&
+          (!input.dateTo || snapshot.metric_date <= input.dateTo),
+      )
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, limit);
   }
 
   async getAiAdvisorRun(runId: string) {
     return this.requireData().aiAdvisorRuns.find((run) => run.id === runId) ?? null;
+  }
+
+  async getAiAdvisorRunByIdempotencyKey(input: {
+    tenantId: TenantId;
+    idempotencyKey: string;
+  }) {
+    return (
+      this.requireData().aiAdvisorRuns.find(
+        (run) =>
+          run.tenant_id === input.tenantId &&
+          run.idempotency_key === input.idempotencyKey,
+      ) ?? null
+    );
   }
 
   async listAiAdvisorRuns(input: { tenantId: TenantId; limit?: number }) {
@@ -885,7 +921,11 @@ class LocalJsonSystemStore implements SystemStore {
     }
     data.aiAdvisorRuns = [
       normalized,
-      ...data.aiAdvisorRuns.filter((existing) => existing.id !== normalized.id),
+      ...data.aiAdvisorRuns.filter(
+        (existing) =>
+          existing.id !== normalized.id &&
+          existing.idempotency_key !== normalized.idempotency_key,
+      ),
     ].slice(0, 5_000);
     await this.persist();
     return normalized;
@@ -909,6 +949,7 @@ class LocalJsonSystemStore implements SystemStore {
 
   async listAiAdvisorItems(input: {
     tenantId: TenantId;
+    advisorRunId?: string;
     status?: AiCeoAdvisorItemStatus;
     limit?: number;
   }) {
@@ -917,6 +958,7 @@ class LocalJsonSystemStore implements SystemStore {
       .aiAdvisorItems.filter(
         (item) =>
           item.tenant_id === input.tenantId &&
+          (!input.advisorRunId || item.advisor_run_id === input.advisorRunId) &&
           (!input.status || item.status === input.status),
       )
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -3084,16 +3126,31 @@ returning *
     return mapMetricSnapshotRow(result.rows[0]);
   }
 
-  async listMetricSnapshots(input: { tenantId: TenantId; limit?: number }) {
+  async listMetricSnapshots(input: {
+    tenantId: TenantId;
+    reportKeys?: ReportKey[];
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  }) {
     const result = await this.pool.query(
       `
 select *
 from metric_snapshots
 where tenant_id = $1
+  and ($2::text[] is null or report_key = any($2::text[]))
+  and ($3::date is null or metric_date >= $3::date)
+  and ($4::date is null or metric_date <= $4::date)
 order by created_at desc
-limit $2
+limit $5
 `,
-      [input.tenantId, normalizeLimit(input.limit, 100)],
+      [
+        input.tenantId,
+        input.reportKeys?.length ? input.reportKeys : null,
+        input.dateFrom ?? null,
+        input.dateTo ?? null,
+        normalizeLimit(input.limit, 100),
+      ],
     );
 
     return result.rows.map(mapMetricSnapshotRow);
@@ -3108,6 +3165,24 @@ where id = $1
 limit 1
 `,
       [runId],
+    );
+
+    return result.rows[0] ? mapAiAdvisorRunRow(result.rows[0]) : null;
+  }
+
+  async getAiAdvisorRunByIdempotencyKey(input: {
+    tenantId: TenantId;
+    idempotencyKey: string;
+  }) {
+    const result = await this.pool.query(
+      `
+select *
+from ai_advisor_runs
+where tenant_id = $1
+  and idempotency_key = $2
+limit 1
+`,
+      [input.tenantId, input.idempotencyKey],
     );
 
     return result.rows[0] ? mapAiAdvisorRunRow(result.rows[0]) : null;
@@ -3262,6 +3337,7 @@ returning *
 
   async listAiAdvisorItems(input: {
     tenantId: TenantId;
+    advisorRunId?: string;
     status?: AiCeoAdvisorItemStatus;
     limit?: number;
   }) {
@@ -3270,11 +3346,17 @@ returning *
 select *
 from ai_advisor_items
 where tenant_id = $1
-  and ($2::text is null or status = $2)
+  and ($2::text is null or advisor_run_id = $2)
+  and ($3::text is null or status = $3)
 order by created_at desc
-limit $3
+limit $4
 `,
-      [input.tenantId, input.status ?? null, normalizeLimit(input.limit, 50)],
+      [
+        input.tenantId,
+        input.advisorRunId ?? null,
+        input.status ?? null,
+        normalizeLimit(input.limit, 50),
+      ],
     );
 
     return result.rows.map(mapAiAdvisorItemRow);
@@ -9614,6 +9696,9 @@ create table if not exists metric_snapshots (
 create index if not exists metric_snapshots_tenant_idx
 on metric_snapshots (tenant_id, metric_date desc, created_at desc);
 
+create index if not exists metric_snapshots_report_date_idx
+on metric_snapshots (tenant_id, report_key, metric_date desc, created_at desc);
+
 create table if not exists ai_advisor_runs (
   id text primary key,
   tenant_id text not null references tenants(id) on delete cascade,
@@ -9663,6 +9748,9 @@ create table if not exists ai_advisor_items (
 
 create index if not exists ai_advisor_items_tenant_status_idx
 on ai_advisor_items (tenant_id, status, created_at desc);
+
+create index if not exists ai_advisor_items_tenant_date_status_idx
+on ai_advisor_items (tenant_id, item_date desc, status, severity);
 
 create table if not exists ai_usage_ledger (
   id text primary key,

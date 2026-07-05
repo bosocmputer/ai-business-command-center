@@ -4,6 +4,7 @@ import type {
   AiAdvisorRunRecord,
   AiUsageLedgerRecord,
   BusinessSignalRecord,
+  MetricSnapshotRecord,
   OpenRouterModelCatalogRecord,
   ReportKey,
   ReportSnapshot,
@@ -19,6 +20,10 @@ import {
   runAiCeoDryRun,
   syncOpenRouterModelCatalog,
 } from "./ai-ceo-service.js";
+import {
+  buildAiCeoBusinessMemory,
+  buildMetricSnapshotFromReportSnapshot,
+} from "./ai-ceo-memory.js";
 import type { SystemStore } from "./system-store.js";
 
 const tenant: Tenant = {
@@ -137,8 +142,74 @@ describe("AI CEO service", () => {
     expect(preview?.text).toContain("อ้างอิงจากรายงานรอบนี้ 1 รายงาน");
     expect(preview?.text).toContain("ควรทำก่อน");
     expect(preview?.text).toContain("ตรวจยอดขายผิดปกติ");
+    expect(preview?.text).toContain("ดู: รายงานขายสินค้าและบริการ");
     expect(preview?.flex_message).toBeUndefined();
     expect(JSON.stringify(preview)).not.toContain("api_key");
+  });
+
+  it("renders action report labels only for visible reports in the current LINE target scope", async () => {
+    const now = new Date().toISOString();
+    const run: AiAdvisorRunRecord = {
+      id: "ai_run_visible_scope",
+      tenant_id: tenant.id,
+      run_date: "2026-07-04",
+      trigger_type: "scheduled",
+      status: "success",
+      idempotency_key: "ai-ceo:test:visible-scope",
+      model_provider: "openrouter",
+      model_id: "qwen/qwen3.7-max",
+      prompt_version_id: "prompt_1",
+      context_hash: "hash",
+      source_report_keys: ["cash_bank_receipts", "stock_balance"],
+      input_tokens: 100,
+      output_tokens: 50,
+      cost_estimate_usd: 0.001,
+      latency_ms: 30,
+      fallback_used: false,
+      response_json: {
+        summary: "รับเงินและสต็อกมีจุดให้ตรวจ",
+        confidence: 0.8,
+        caveats: [],
+        top_actions: [],
+      },
+      safe_error_message: null,
+      created_at: now,
+      started_at: now,
+      finished_at: now,
+    };
+    const items: AiAdvisorItemRecord[] = [
+      {
+        id: "item_1",
+        tenant_id: tenant.id,
+        advisor_run_id: run.id,
+        item_date: run.run_date,
+        severity: "warning",
+        title: "ตรวจรายการรับเงินไม่จัดสรร",
+        reason: "พบยอดรับเงินไม่จัดสรร",
+        recommended_action: "ให้บัญชีตรวจเอกสารรับเงินที่ยังไม่จัดสรร",
+        evidence_json: {
+          source_report_keys: ["cash_bank_receipts", "stock_balance"],
+          source_run_ids: ["run_cash", "run_stock"],
+        },
+        confidence: 0.8,
+        status: "new",
+        created_at: now,
+        updated_at: now,
+        resolved_at: null,
+      },
+    ];
+
+    const preview = buildAiCeoLinePreview({
+      tenant,
+      run,
+      items,
+      visibleReportKeys: ["cash_bank_receipts"],
+    });
+
+    expect(preview?.text).toContain("ดู: รายงานรับเงิน");
+    expect(preview?.text).not.toContain("รายงานสต็อกคงเหลือ");
+    expect(preview?.text).not.toContain("cash_bank_receipts");
+    expect(preview?.text).not.toContain("stock_balance");
   });
 
   it("limits scheduled AI CEO context to the current notification report snapshots", async () => {
@@ -157,7 +228,33 @@ describe("AI CEO service", () => {
     const cashSnapshot = createScopedSnapshot({
       reportKey: "cash_bank_receipts",
       runId: "run_cash_current",
+      summary: {
+        document_count: 8,
+        party_count: 3,
+        total_amount: 141_660,
+        cash_amount: 8_200,
+        card_amount: 0,
+        chq_amount: 0,
+        transfer_amount: 117_060,
+        total_income_amount: 0,
+        coupon_amount: 0,
+        petty_cash_amount: 0,
+        channel_total_amount: 125_260,
+        unallocated_amount: 16_400,
+        mismatch_document_count: 1,
+        top_party_name: null,
+        first_doc_time: null,
+        last_doc_time: null,
+      },
     });
+    const currentCashMetric = buildMetricSnapshotFromReportSnapshot({
+      snapshot: cashSnapshot,
+      periodPreset: "yesterday",
+      createdAt: "2026-07-01T01:00:00.000Z",
+    });
+    if (currentCashMetric) {
+      store.metricSnapshots.push(currentCashMetric);
+    }
     let capturedContext: Record<string, unknown> | null = null;
 
     const result = await runAiCeoDryRun({
@@ -208,6 +305,7 @@ describe("AI CEO service", () => {
       };
       output_contract?: { cashflow_style?: string; max_top_actions?: number };
       reports?: Array<{ report_key: string; run_id: string }>;
+      business_memory?: Array<{ issue_key: string; report_key: string }>;
     };
     expect(result.ok).toBe(true);
     expect(context.data_scope?.mode).toBe("notification_run");
@@ -222,6 +320,13 @@ describe("AI CEO service", () => {
     expect(context.output_contract?.cashflow_style).toContain("เงินสดสุทธิ");
     expect(context.output_contract?.max_top_actions).toBe(2);
     expect(context.data_scope?.rules?.join(" ")).toContain("ลูกหนี้การค้า");
+    expect(context.data_scope?.rules?.join(" ")).toContain("business_memory");
+    expect(context.business_memory?.map((item) => item.issue_key)).toContain(
+      "cash_bank_receipts:unallocated_amount",
+    );
+    expect(context.business_memory?.map((item) => item.report_key)).not.toContain(
+      "stock_balance",
+    );
     expect(result.run.source_report_keys).toEqual([
       "sales_goods_services",
       "cash_bank_receipts",
@@ -244,6 +349,164 @@ describe("AI CEO service", () => {
     expect(result.response?.caveats.join(" ")).toContain(
       "ระบบตัดหลักฐานที่อยู่นอกชุดรายงานรอบนี้ออก",
     );
+  });
+
+  it("reuses an existing AI CEO run for the same idempotency key without calling OpenRouter again", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+    const now = new Date().toISOString();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant, now }),
+      selected_model_id: "qwen/qwen3.7-max",
+      ai_enabled: true,
+    };
+    const requester = vi.fn(async () => ({
+      ok: true as const,
+      providerStatus: 200,
+      latencyMs: 42,
+      content: JSON.stringify({
+        summary: "ยอดขายดี แต่มีรายการขายที่ควรตรวจ",
+        confidence: 0.82,
+        caveats: [],
+        top_actions: [
+          {
+            title: "ตรวจยอดขายผิดปกติ",
+            reason: "พบสัญญาณจากรายงานขาย",
+            recommended_action: "เปิดรายงานขายแล้วตรวจ 5 อันดับแรก",
+            severity: "warning",
+            confidence: 0.8,
+            source_report_keys: ["sales_goods_services"],
+            source_run_ids: ["sample_demo_remote"],
+          },
+        ],
+      }),
+      inputTokens: 1000,
+      outputTokens: 500,
+    }));
+
+    const first = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "worker",
+      triggerType: "scheduled",
+      idempotencyKey: "ai-ceo:notification:rule:2026-06-30:08:00:run_1",
+      requester,
+    });
+    const second = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "worker",
+      triggerType: "scheduled",
+      idempotencyKey: "ai-ceo:notification:rule:2026-06-30:08:00:run_1",
+      requester,
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(second.run.id).toBe(first.run.id);
+    expect(second.items.map((item) => item.title)).toEqual([
+      "ตรวจยอดขายผิดปกติ",
+    ]);
+    expect(requester).toHaveBeenCalledTimes(1);
+    expect(store.runs).toHaveLength(1);
+    expect(store.items).toHaveLength(1);
+  });
+
+  it("builds bounded business memory from stable metrics without crossing package scope", () => {
+    const previousReceiptMetric = buildMetricSnapshotFromReportSnapshot({
+      snapshot: createScopedSnapshot({
+        reportKey: "cash_bank_receipts",
+        runId: "run_receipts_previous",
+        date: "2026-07-03",
+        summary: {
+          document_count: 4,
+          party_count: 2,
+          total_amount: 100_000,
+          cash_amount: 0,
+          card_amount: 0,
+          chq_amount: 0,
+          transfer_amount: 90_000,
+          total_income_amount: 0,
+          coupon_amount: 0,
+          petty_cash_amount: 0,
+          channel_total_amount: 90_000,
+          unallocated_amount: 10_000,
+          mismatch_document_count: 1,
+          top_party_name: null,
+          first_doc_time: null,
+          last_doc_time: null,
+        },
+      }),
+      periodPreset: "yesterday",
+      createdAt: "2026-07-04T01:00:00.000Z",
+    });
+    const currentReceiptMetric = buildMetricSnapshotFromReportSnapshot({
+      snapshot: createScopedSnapshot({
+        reportKey: "cash_bank_receipts",
+        runId: "run_receipts_current",
+        date: "2026-07-04",
+        summary: {
+          document_count: 8,
+          party_count: 3,
+          total_amount: 141_660,
+          cash_amount: 8_200,
+          card_amount: 0,
+          chq_amount: 0,
+          transfer_amount: 117_060,
+          total_income_amount: 0,
+          coupon_amount: 0,
+          petty_cash_amount: 0,
+          channel_total_amount: 125_260,
+          unallocated_amount: 16_400,
+          mismatch_document_count: 1,
+          top_party_name: null,
+          first_doc_time: null,
+          last_doc_time: null,
+        },
+      }),
+      periodPreset: "yesterday",
+      createdAt: "2026-07-05T01:00:00.000Z",
+    });
+    const stockMetric = buildMetricSnapshotFromReportSnapshot({
+      snapshot: createScopedSnapshot({
+        reportKey: "stock_balance",
+        runId: "run_stock_current",
+        date: "2026-07-04",
+        summary: {
+          sku_count: 10,
+          stock_value: 100_000,
+          balance_qty: 50,
+          negative_stock_count: 3,
+          zero_or_missing_cost_count: 0,
+          top_stock_item_name: null,
+        },
+      }),
+      periodPreset: "yesterday",
+      createdAt: "2026-07-05T01:00:00.000Z",
+    });
+
+    const memory = buildAiCeoBusinessMemory({
+      metricDateTo: "2026-07-04",
+      reportKeys: ["cash_bank_receipts"],
+      metrics: [previousReceiptMetric, currentReceiptMetric, stockMetric].filter(
+        (metric): metric is MetricSnapshotRecord => Boolean(metric),
+      ),
+    });
+
+    expect(memory.map((item) => item.issue_key)).toEqual([
+      "cash_bank_receipts:unallocated_amount",
+      "cash_bank_receipts:mismatch_document_count",
+    ]);
+    expect(memory[0]).toMatchObject({
+      report_key: "cash_bank_receipts",
+      current_value: 16_400,
+      previous_value: 10_000,
+      repeated_days: 2,
+      trend: "worsened",
+    });
+    expect(JSON.stringify(memory)).not.toContain("stock_balance");
   });
 
   it("sanitizes production LINE advice for package scope and customer-safe wording", async () => {
@@ -577,6 +840,7 @@ function createFakeStore() {
     runs: [] as AiAdvisorRunRecord[],
     items: [] as AiAdvisorItemRecord[],
     usageLedger: [] as AiUsageLedgerRecord[],
+    metricSnapshots: [] as MetricSnapshotRecord[],
   };
   const store = {
     ...state,
@@ -601,8 +865,20 @@ function createFakeStore() {
     },
     getSecretRecord: async () => null,
     listAiAdvisorRuns: async () => [...state.runs],
+    getAiAdvisorRunByIdempotencyKey: async (input: {
+      tenantId: string;
+      idempotencyKey: string;
+    }) =>
+      state.runs.find(
+        (run) =>
+          run.tenant_id === input.tenantId &&
+          run.idempotency_key === input.idempotencyKey,
+      ) ?? null,
     upsertAiAdvisorRun: async (run: AiAdvisorRunRecord) => {
-      const index = state.runs.findIndex((item) => item.id === run.id);
+      const index = state.runs.findIndex(
+        (item) =>
+          item.id === run.id || item.idempotency_key === run.idempotency_key,
+      );
       if (index >= 0) {
         state.runs[index] = run;
       } else {
@@ -612,11 +888,23 @@ function createFakeStore() {
       return run;
     },
     upsertAiAdvisorItems: async (items: AiAdvisorItemRecord[]) => {
-      state.items.push(...items);
+      const byId = new Map(state.items.map((item) => [item.id, item]));
+      for (const item of items) {
+        byId.set(item.id, item);
+      }
+      state.items = Array.from(byId.values());
       store.items = state.items;
       return items;
     },
-    listAiAdvisorItems: async () => [...state.items],
+    listAiAdvisorItems: async (input?: {
+      tenantId?: string;
+      advisorRunId?: string;
+    }) =>
+      state.items.filter(
+        (item) =>
+          (!input?.tenantId || item.tenant_id === input.tenantId) &&
+          (!input?.advisorRunId || item.advisor_run_id === input.advisorRunId),
+      ),
     upsertAiUsageLedger: async (entry: AiUsageLedgerRecord) => {
       state.usageLedger.push(entry);
       store.usageLedger = state.usageLedger;
@@ -632,7 +920,35 @@ function createFakeStore() {
     getLatestSnapshot: async (_tenantId: string, reportKey?: ReportKey) =>
       !reportKey || reportKey === snapshot.report_key ? snapshot : null,
     listBusinessSignals: async () => [] as BusinessSignalRecord[],
-    listMetricSnapshots: async () => [],
+    upsertMetricSnapshot: async (metricSnapshot: MetricSnapshotRecord) => {
+      const index = state.metricSnapshots.findIndex(
+        (item) => item.id === metricSnapshot.id,
+      );
+      if (index >= 0) {
+        state.metricSnapshots[index] = metricSnapshot;
+      } else {
+        state.metricSnapshots.push(metricSnapshot);
+      }
+      store.metricSnapshots = state.metricSnapshots;
+      return metricSnapshot;
+    },
+    listMetricSnapshots: async (input?: {
+      tenantId?: string;
+      reportKeys?: ReportKey[];
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      const reportKeySet = input?.reportKeys?.length
+        ? new Set(input.reportKeys)
+        : null;
+      return state.metricSnapshots.filter(
+        (snapshot) =>
+          (!input?.tenantId || snapshot.tenant_id === input.tenantId) &&
+          (!reportKeySet || reportKeySet.has(snapshot.report_key)) &&
+          (!input?.dateFrom || snapshot.metric_date >= input.dateFrom) &&
+          (!input?.dateTo || snapshot.metric_date <= input.dateTo),
+      );
+    },
   } as unknown as SystemStore & typeof state;
   return store;
 }
@@ -640,9 +956,11 @@ function createFakeStore() {
 function createScopedSnapshot(input: {
   reportKey: ReportKey;
   runId: string;
+  date?: string;
   summary?: unknown;
 }): ReportSnapshot {
   const snapshot = createSampleSnapshot(tenant.id);
+  const date = input.date ?? "2026-06-30";
   return {
     ...snapshot,
     report_key: input.reportKey,
@@ -650,8 +968,8 @@ function createScopedSnapshot(input: {
     summary: input.summary ?? snapshot.summary,
     generated_at: "2026-06-30T03:00:00.000Z",
     params: {
-      date_from: "2026-06-30",
-      date_to: "2026-06-30",
+      date_from: date,
+      date_to: date,
     },
   } as unknown as ReportSnapshot;
 }
