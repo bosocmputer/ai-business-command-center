@@ -436,7 +436,7 @@ describe("AI CEO service", () => {
         latencyMs: 42,
         content: JSON.stringify({
           summary:
-            "ยอดขายวันที่ 2 ก.ค. รวม 121,060 บาท จาก 15 เอกสาร รับเงิน 109,150 บาท จ่ายเงิน 4,030 บาท เงินสดสุทธิ +105,120 บาท ซึ่งเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน ควรตรวจเอกสารก่อนสรุป และมีสถานะ reconciled_with_warning",
+            "วานนี้ขาย 121,060 บาท จาก 15 เอกสาร รับเงิน 109,150 บาท จ่ายเงิน 4,030 บาท รับเงินสุทธิ +105,120 บาท ซึ่งเป็นยอดตามเอกสารรับ/จ่ายในวันที่รายงาน ควรตรวจเอกสารก่อนสรุป และมีสถานะ reconciled_with_warning",
           confidence: 0.82,
           caveats: [
             "รายงานขายสินค้าและบริการมีสถานะ reconciled_with_warning",
@@ -478,6 +478,10 @@ describe("AI CEO service", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(result.response?.summary).toContain("เมื่อวาน");
+    expect(result.response?.summary).toContain("เงินสดสุทธิ");
+    expect(result.response?.summary).not.toContain("วานนี้");
+    expect(result.response?.summary).not.toContain("รับเงินสุทธิ");
     expect(result.response?.top_actions.map((action) => action.title)).toEqual([
       "จัดสรรรับเงินที่ยังไม่ครบ",
       "แก้เอกสารขายที่ไม่ระบุสาขา",
@@ -489,9 +493,12 @@ describe("AI CEO service", () => {
       items: result.items,
     });
     expect(rendered?.text).toContain("อ้างอิงจากรายงานรอบนี้ 4 รายงาน");
+    expect(rendered?.text).toContain("เงินสดสุทธิ");
     expect(rendered?.text).toContain("จัดสรรรับเงินที่ยังไม่ครบ");
     expect(rendered?.text).toContain("แก้เอกสารขายที่ไม่ระบุสาขา");
     expect(rendered?.text).not.toContain("3.");
+    expect(rendered?.text).not.toContain("รับเงินสุทธิ");
+    expect(rendered?.text).not.toContain("วานนี้");
     expect(rendered?.text).not.toContain("พึ่งพาผู้จำหน่าย");
     expect(rendered?.text).not.toContain("supplier");
     expect(rendered?.text).not.toContain("reconciled_with_warning");
