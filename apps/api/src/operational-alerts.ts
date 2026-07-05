@@ -26,6 +26,7 @@ export type OperationalAlertType =
   | "incident_dry_run"
   | "javaws_diagnostic"
   | "heavy_report_slow"
+  | "ai_ceo_run_failed"
   | "notification_summary"
   | "notification_run_slow"
   | "notification_run_failed"

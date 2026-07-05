@@ -268,6 +268,11 @@ import {
   upsertTelegramOperationalAlertTarget,
 } from "./operational-alerts.js";
 import {
+  buildAiCeoFailureOpsAction,
+  shouldSendAiCeoFailureOpsAlert,
+  shouldSendNotificationSummaryOpsAlert,
+} from "./notification-ops-alert-policy.js";
+import {
   countOwnerWorkbenchOpsWarnings,
   projectOwnerWorkbenchSelected,
   projectOwnerWorkbenchTenant,
@@ -11906,6 +11911,7 @@ async function executeNotificationRule(input: {
   const heavyReportFallbackEnabled = isHeavyReportFallbackEnabled(tenant);
   const sendOpsAlertSafe = async (alert: {
     alertType:
+      | "ai_ceo_run_failed"
       | "notification_summary"
       | "notification_run_failed"
       | "javaws_failure"
@@ -12854,6 +12860,36 @@ async function executeNotificationRule(input: {
           safe_error_message: aiResult.safe_error_message,
         },
       });
+      if (
+        shouldSendAiCeoFailureOpsAlert({
+          mode: input.mode,
+          aiCeoEnabled: Boolean(aiCeoProfile.ai_enabled),
+          aiCeoStatus: aiResult.run.status,
+          safeErrorMessage: aiResult.safe_error_message,
+        })
+      ) {
+        await sendOpsAlertSafe({
+          alertType: "ai_ceo_run_failed",
+          severity: "warning",
+          reportKey: null,
+          messageText: buildOperationalAlertMessage({
+            title: "AI CEO สรุปข้อความไม่สำเร็จ แต่รายงาน LINE ยังส่งต่อได้",
+            severity: "warning",
+            tenantName: tenant.name,
+            scheduledTime: `${zoned.date} ${zoned.time}`,
+            runId: aiResult.run.id,
+            status: aiResult.run.status,
+            details: [
+              `notification_run_id: ${run.id}`,
+              `model: ${aiResult.run.model_id}`,
+              `source_reports: ${aiResult.run.source_report_keys.length}`,
+              `สาเหตุ: ${aiResult.safe_error_message ?? "AI CEO run failed"}`,
+              "ผลกระทบ: ลูกค้ายังได้รับการ์ดรายงาน LINE ตามปกติ แต่ไม่มีข้อความ AI CEO",
+            ],
+            action: buildAiCeoFailureOpsAction(aiResult.safe_error_message),
+          }),
+        });
+      }
     } catch (error) {
       aiCeoStatus = "failed";
       aiCeoSafeErrorMessage = toSafeErrorMessage(error);
@@ -12873,6 +12909,34 @@ async function executeNotificationRule(input: {
           safe_error_message: aiCeoSafeErrorMessage,
         },
       });
+      if (
+        shouldSendAiCeoFailureOpsAlert({
+          mode: input.mode,
+          aiCeoEnabled: Boolean(aiCeoProfile.ai_enabled),
+          aiCeoStatus,
+          safeErrorMessage: aiCeoSafeErrorMessage,
+        })
+      ) {
+        await sendOpsAlertSafe({
+          alertType: "ai_ceo_run_failed",
+          severity: "warning",
+          reportKey: null,
+          messageText: buildOperationalAlertMessage({
+            title: "AI CEO สรุปข้อความไม่สำเร็จ แต่รายงาน LINE ยังส่งต่อได้",
+            severity: "warning",
+            tenantName: tenant.name,
+            scheduledTime: `${zoned.date} ${zoned.time}`,
+            runId: run.id,
+            status: aiCeoStatus,
+            details: [
+              `notification_run_id: ${run.id}`,
+              `สาเหตุ: ${aiCeoSafeErrorMessage}`,
+              "ผลกระทบ: ลูกค้ายังได้รับการ์ดรายงาน LINE ตามปกติ แต่ไม่มีข้อความ AI CEO",
+            ],
+            action: buildAiCeoFailureOpsAction(aiCeoSafeErrorMessage),
+          }),
+        });
+      }
     }
   }
   const lineActionDigestV2Enabled = isLineActionDigestV2Enabled(tenant);
@@ -13289,35 +13353,44 @@ async function executeNotificationRule(input: {
     },
   });
   if (input.mode === "send") {
+    const deliveryStatuses = deliveries.map((delivery) => delivery.status);
     const warningCount =
       degradedReports.length +
-      deliveries.filter((delivery) => delivery.status !== "success").length;
-    await sendOpsAlertSafe({
-      alertType: "notification_summary",
-      severity: warningCount ? "warning" : "info",
-      reportKey: null,
-      messageText: buildOperationalAlertMessage({
-        title: "สรุปรอบแจ้งเตือนผู้บริหาร",
-        severity: warningCount ? "warning" : "info",
-        tenantName: tenant.name,
-        scheduledTime: `${zoned.date} ${zoned.time}`,
-        status: run.status,
-        runId: run.id,
-        details: [
-          `reports: ${input.rule.report_keys.length}`,
-          `LINE deliveries: ${deliveries.length}`,
-          `success LINE: ${
-            deliveries.filter((delivery) => delivery.status === "success")
-              .length
-          }`,
-          `duration_ms: ${Date.now() - executionStartedAtMs}`,
-          `warning_count: ${warningCount}`,
-        ],
-        action: warningCount
-          ? "ตรวจ operations status และรายงานที่ degraded ก่อนใช้ยอดรอบนี้ตัดสินใจ"
-          : "ไม่ต้องดำเนินการ ระบบส่งรายงานผู้บริหารสำเร็จ",
-      }),
-    });
+      deliveryStatuses.filter((status) => status !== "success").length +
+      (deliveries.length === 0 ? 1 : 0);
+    if (
+      shouldSendNotificationSummaryOpsAlert({
+        mode: input.mode,
+        degradedReportCount: degradedReports.length,
+        deliveryStatuses,
+      })
+    ) {
+      await sendOpsAlertSafe({
+        alertType: "notification_summary",
+        severity: "warning",
+        reportKey: null,
+        messageText: buildOperationalAlertMessage({
+          title: "สรุปรอบแจ้งเตือนผู้บริหารมีข้อควรตรวจ",
+          severity: "warning",
+          tenantName: tenant.name,
+          scheduledTime: `${zoned.date} ${zoned.time}`,
+          status: run.status,
+          runId: run.id,
+          details: [
+            `reports: ${input.rule.report_keys.length}`,
+            `LINE deliveries: ${deliveries.length}`,
+            `success LINE: ${
+              deliveries.filter((delivery) => delivery.status === "success")
+                .length
+            }`,
+            `duration_ms: ${Date.now() - executionStartedAtMs}`,
+            `warning_count: ${warningCount}`,
+          ],
+          action:
+            "ตรวจ operations status และรายงานที่ degraded ก่อนใช้ยอดรอบนี้ตัดสินใจ",
+        }),
+      });
+    }
   }
 
   const successfulDelivery = deliveries.find(
@@ -13442,6 +13515,8 @@ function readBooleanEnv(name: string, fallback: boolean) {
 
 function resolveSmokeTestAlertTitle(alertType: string) {
   switch (alertType) {
+    case "ai_ceo_run_failed":
+      return "AI CEO สรุปข้อความไม่สำเร็จ";
     case "javaws_diagnostic":
       return "JavaWS ตอบข้อมูลอ่านไม่ได้";
     case "heavy_report_slow":
@@ -16570,6 +16645,7 @@ const operationalAlertSmokeTestSchema = z.object({
   alert_type: z
     .enum([
       "incident_dry_run",
+      "ai_ceo_run_failed",
       "javaws_diagnostic",
       "heavy_report_slow",
       "notification_summary",
