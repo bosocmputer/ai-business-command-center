@@ -16,158 +16,128 @@ import {
 import { isAbortError, ownerV2Fetch } from "./api";
 import {
   Fact,
+  Notice,
+  Panel,
+  PanelBody,
+  PanelHeader,
   formatDateTime,
-  formatLineDeliveryStatus,
-  formatRunStatus,
+  secondaryActionClass,
 } from "./ui";
 
-type OperationsStatus = {
-  worker?: {
-    status: string;
-    age_seconds?: number | null;
+type HealthSeverity = "critical" | "warning" | "ok" | "info";
+
+type HealthCenterPayload = {
+  overall: {
+    status: HealthSeverity;
+    label: string;
+    critical_count: number;
+    warning_count: number;
+    generated_at: string;
+    window_hours: 24 | 72 | 168;
   };
-  scheduler?: {
-    enabled?: boolean;
+  summary: {
+    tenant_count: number;
+    tenant_ok_count: number;
+    tenant_warning_count: number;
+    tenant_critical_count: number;
+    line_failed_count: number;
+    ai_ceo_warning_count: number;
+    worker_stale: boolean;
   };
-  backup?: {
-    configured?: boolean;
-    last_backup_at?: string | null;
-    recommendation?: string | null;
-    system_store?: string | null;
-  };
-  operational_alerts?: {
-    telegram?: {
-      status?: {
-        configured?: boolean;
-        encryption_configured?: boolean;
-        verified?: boolean;
-        bot_username?: string | null;
-        bot_first_name?: string | null;
-        updated_at?: string | null;
-        targets?: Array<{
-          id?: string;
-          display_name?: string | null;
-          target_id_masked?: string | null;
-          enabled: boolean;
-          updated_at?: string | null;
-        }>;
-      };
-      deliveries?: Array<{
-        alert_type: string;
-        severity: string;
-        status: string;
-        created_at: string;
-        safe_error_message?: string | null;
-      }>;
-    };
-  };
-  report_health?: {
-    latest_javaws_failure?: {
-      tenant_id: string;
-      report_key: string;
-      failure_kind?: string | null;
-      failure_phase?: string | null;
-      safe_error_message: string;
-    } | null;
-    heavy_report_runs?: Array<{
-      id: string;
-      tenant_id: string;
-      report_key: string;
-      status: string;
-      duration_ms: number | null;
-    }>;
-  };
-  production_proof?: {
-    window_days?: number;
-    production_used_tenant_count?: number;
-    scheduled_run_count?: number;
-    scheduled_success_rate?: number | null;
-    scheduled_p95_duration_ms?: number | null;
-    scheduled_slow_count?: number;
-  };
-  audit_logs?: AuditLogEntry[];
-  tenants?: AuditTenantEntry[];
+  tenants: HealthTenant[];
+  incidents: HealthIncident[];
 };
 
-type AuditLogEntry = {
-  id?: number;
-  tenant_id: string | null;
-  actor_id: string | null;
-  action: string;
-  target_type: string;
-  target_id: string | null;
-  metadata_json: Record<string, unknown>;
-  created_at: string;
+type HealthTenant = {
+  tenant_id: string;
+  tenant_name: string;
+  status: HealthSeverity;
+  status_label: string;
+  plan_code: string;
+  line: {
+    status: HealthSeverity;
+    label: string;
+    enabled_targets: number;
+    total_targets: number;
+    latest_delivery_at: string | null;
+    latest_delivery_status: string | null;
+  };
+  notification: {
+    status: HealthSeverity;
+    label: string;
+    enabled_rules: number;
+    latest_run_at: string | null;
+    latest_run_status: string | null;
+    latest_run_mode: string | null;
+  };
+  ai_ceo: {
+    status: HealthSeverity;
+    label: string;
+    enabled: boolean;
+    latest_run_at: string | null;
+    latest_run_status: string | null;
+    model_id: string | null;
+    window_tokens: number;
+    window_cost_usd: number;
+    action_hint: string | null;
+  };
+  reports: {
+    status: HealthSeverity;
+    label: string;
+    latest_run_at: string | null;
+    latest_run_status: string | null;
+    failed_count: number;
+    warning_count: number;
+  };
+  datasource: {
+    status: HealthSeverity;
+    label: string;
+    configured: boolean;
+  };
+  actions: Array<{ label: string; href: string }>;
 };
 
-type AuditTenantEntry = {
+type HealthIncident = {
   id: string;
-  name: string;
-  status: string;
-  database_name?: string | null;
-  plan_code?: string;
-  datasource_configured?: boolean;
-  line_configured?: boolean;
-  line_target_masked?: string | null;
-  notification_rules_enabled?: number;
-  notification_usage_status?: "production_used" | "notifications_not_enabled";
+  severity: Exclude<HealthSeverity, "ok">;
+  severity_label: string;
+  tenant_id: string | null;
+  tenant_name: string | null;
+  title: string;
+  detail: string;
+  action_label: string;
+  action_href: string;
+  occurred_at: string | null;
+  system_area: "system" | "line" | "notification" | "ai_ceo" | "report" | "datasource";
 };
 
-type TelegramChatPreview = {
-  chat_id: string;
-  chat_id_masked: string;
-  display_name: string;
-  type: string;
-};
-
-const SMOKE_TEST_ALERTS: Array<{ alertType: string; label: string }> = [
-  { alertType: "incident_dry_run", label: "Incident dry-run" },
-  { alertType: "javaws_diagnostic", label: "JavaWS diagnostic" },
-  { alertType: "heavy_report_slow", label: "Slow heavy report" },
-  { alertType: "notification_summary", label: "Summary" },
-  { alertType: "notification_run_slow", label: "Slow notification" },
-  { alertType: "line_delivery_failed", label: "LINE failed" },
-  { alertType: "heartbeat_stale", label: "Heartbeat stale" },
+const WINDOW_OPTIONS: Array<{ value: 24 | 72 | 168; label: string }> = [
+  { value: 24, label: "24 ชม." },
+  { value: 72, label: "3 วัน" },
+  { value: 168, label: "7 วัน" },
 ];
 
-const AUDIT_ACTION_LABELS: Record<string, string> = {
-  datasource_test_succeeded: "ทดสอบ SML สำเร็จ",
-  datasource_test_failed: "ทดสอบ SML ไม่สำเร็จ",
-  line_channel_created: "เพิ่ม LINE OA",
-  line_channel_updated: "แก้ไข LINE OA",
-  line_channel_secrets_updated: "บันทึก LINE secret",
-  line_target_assigned: "เพิ่มผู้รับเข้าร้าน",
-  line_target_assignment_updated: "อัปเดตผู้รับเข้าร้าน",
-  line_target_approved: "อนุมัติผู้รับ LINE",
-  line_target_updated: "แก้สิทธิ์ผู้รับ LINE",
-  line_delivery_succeeded: "ส่ง LINE สำเร็จ",
-  line_delivery_failed: "ส่ง LINE ไม่สำเร็จ",
-  notification_line_retry_overdue_alert_processed: "แจ้งเตือน LINE retry เกินกำหนด",
-  notification_ops_monitor_tick_alerted: "Ops monitor พบเหตุ",
-  notification_run_slow_alert_processed: "แจ้งเตือนรอบแจ้งเตือนช้า",
-  notification_worker_heartbeat_stale_alert_processed: "แจ้งเตือน worker heartbeat stale",
-  morning_brief_report_run_requested: "รันแผนแจ้งเตือน",
-  report_run_requested: "รันรายงาน",
-  report_run_succeeded: "รันรายงานสำเร็จ",
-  report_run_failed: "รันรายงานไม่สำเร็จ",
-  report_validation_signed_off: "รับรองยอดรายงาน",
-  owner_tenant_created: "เพิ่มร้านค้า",
-  owner_tenant_updated: "แก้ไขร้านค้า",
-};
+const numberFormatter = new Intl.NumberFormat("th-TH");
+const usdFormatter = new Intl.NumberFormat("th-TH", {
+  currency: "USD",
+  maximumFractionDigits: 4,
+  style: "currency",
+});
 
 export default function OwnerV2Ops() {
   const [status, setStatus] = useState<"loading" | "success" | "error">(
     "loading",
   );
-  const [data, setData] = useState<OperationsStatus | null>(null);
+  const [windowHours, setWindowHours] = useState<24 | 72 | 168>(24);
+  const [data, setData] = useState<HealthCenterPayload | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const load = async (signal?: AbortSignal) => {
     setStatus("loading");
     setErrorMessage("");
     try {
-      const result = await ownerV2Fetch<OperationsStatus>(
-        "/api/owner/operations/status",
+      const result = await ownerV2Fetch<HealthCenterPayload>(
+        `/api/owner/health-center?window_hours=${windowHours}`,
         { signal },
       );
       if (signal?.aborted) {
@@ -181,7 +151,7 @@ export default function OwnerV2Ops() {
       }
       setStatus("error");
       setErrorMessage(
-        error instanceof Error ? error.message : "โหลดสถานะตรวจระบบไม่สำเร็จ",
+        error instanceof Error ? error.message : "โหลดศูนย์ตรวจระบบไม่สำเร็จ",
       );
     }
   };
@@ -190,449 +160,456 @@ export default function OwnerV2Ops() {
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [windowHours]);
 
   if (status === "loading" && !data) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6"
-              key={index}
-            />
-          ))}
-        </div>
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-          <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
-        </div>
-      </div>
-    );
+    return <HealthCenterSkeleton />;
   }
 
-  if (status === "error") {
+  if (status === "error" && !data) {
     return (
-      <OpsNotice
-        action={
-          <Button
-            className="mt-4 w-full sm:w-auto"
-            onClick={() => void load()}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            รีเฟรชสถานะ
-          </Button>
+      <Notice
+        text={
+          <span>
+            {errorMessage} กรุณารีเฟรชอีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ session
+            ผู้ดูแลหรือสถานะ API
+          </span>
         }
-        text={`${errorMessage} ลองรีเฟรชอีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ API และ session ผู้ดูแล`}
-        title="โหลดสถานะตรวจระบบไม่สำเร็จ"
+        title="โหลดศูนย์ตรวจระบบไม่สำเร็จ"
         tone="error"
       />
     );
   }
 
-  const telegram = data?.operational_alerts?.telegram?.status ?? null;
-  const telegramReady = Boolean(
-    telegram?.configured && telegram.targets?.some((target) => target.enabled),
-  );
-  const latestJavaWs = data?.report_health?.latest_javaws_failure ?? null;
-  const heavyRuns = data?.report_health?.heavy_report_runs ?? [];
-  const proof = data?.production_proof ?? null;
+  const payload = data;
 
   return (
-    <div className="space-y-5 sm:space-y-6">
-      {/* Action toolbar — refresh always available */}
-      <div className="flex items-center justify-end">
-        <Button
-          onClick={() => void load()}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          รีเฟรชสถานะ
-        </Button>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            ศูนย์ตรวจระบบร้านค้า
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            สรุปสุขภาพระบบหลังบ้านจากรอบแจ้งเตือน LINE, AI CEO และรายงานล่าสุด
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <WindowSelector value={windowHours} onChange={setWindowHours} />
+          <Button
+            onClick={() => void load()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            รีเฟรช
+          </Button>
+        </div>
       </div>
 
-      {/* Section 1 — โครงสร้างระบบ (worker / scheduler / telegram / backup) */}
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-gray-800 dark:text-white/90">
-          โครงสร้างระบบ
-        </h2>
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <OpsMetric
-            icon={<BoxCubeIcon className="h-6 w-6" />}
-            label="ตัวประมวลผลงาน"
-            tone={data?.worker?.status === "ok" ? "success" : "warning"}
-            value={formatWorker(data?.worker)}
-          />
-          <OpsMetric
-            icon={<TimeIcon className="h-6 w-6" />}
-            label="ตัวตั้งเวลา"
-            tone={data?.scheduler?.enabled ? "success" : "warning"}
-            value={data?.scheduler?.enabled ? "เปิดใช้งาน" : "ยังไม่พร้อม"}
-          />
-          <OpsMetric
-            icon={<BellIcon className="h-6 w-6" />}
-            label="Telegram แจ้งเตือน"
-            tone={telegramReady ? "success" : "warning"}
-            value={
-              telegramReady
-                ? telegram?.bot_username
-                  ? `@${telegram.bot_username}`
-                  : "พร้อม"
-                : "ยังไม่พร้อม"
-            }
-          />
-          <OpsMetric
-            icon={<PlugInIcon className="h-6 w-6" />}
-            label="สำรองข้อมูล"
-            tone={data?.backup?.configured ? "success" : "warning"}
-            value={data?.backup?.configured ? "ตั้งค่าแล้ว" : "ยังต้องตั้ง"}
-          />
-        </section>
-      </div>
-
-      {/* Section 2 — หลักฐานการผลิต (proof metrics) */}
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-gray-800 dark:text-white/90">
-          หลักฐานการผลิต (7 วัน)
-        </h2>
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <OpsMetric
-            icon={<CheckCircleIcon className="h-6 w-6" />}
-            label="แจ้งเตือนสำเร็จ"
-            tone={
-              typeof proof?.scheduled_success_rate === "number" &&
-              proof.scheduled_success_rate >= 0.95
-                ? "success"
-                : "warning"
-            }
-            value={`${formatPercent(proof?.scheduled_success_rate)} · ${
-              proof?.scheduled_run_count ?? 0
-            } runs`}
-          />
-          <OpsMetric
-            icon={<TimeIcon className="h-6 w-6" />}
-            label="p95 รอบแจ้งเตือน"
-            tone={
-              typeof proof?.scheduled_p95_duration_ms === "number" &&
-              proof.scheduled_p95_duration_ms <= 15 * 60 * 1000
-                ? "success"
-                : "warning"
-            }
-            value={durationLabel(proof?.scheduled_p95_duration_ms ?? null)}
-          />
-          <OpsMetric
-            icon={<BellIcon className="h-6 w-6" />}
-            label="รอนานกว่าปกติ"
-            tone={proof?.scheduled_slow_count ? "warning" : "success"}
-            value={`${proof?.scheduled_slow_count ?? 0} runs · ${
-              proof?.production_used_tenant_count ?? 0
-            } ร้านใช้งานจริง`}
-          />
-        </section>
-      </div>
-
-      {latestJavaWs ? (
-        <OpsNotice
-          text={`${latestJavaWs.tenant_id} · ${latestJavaWs.report_key} · ${
-            latestJavaWs.failure_kind ?? "-"
-          } / phase ${latestJavaWs.failure_phase ?? "-"}: ${
-            latestJavaWs.safe_error_message
-          }`}
-          title="ปัญหา JavaWS ล่าสุด"
-          tone="warning"
-        />
-      ) : (
-        <OpsNotice
-          text="ยังไม่พบปัญหา JavaWS ล่าสุดในข้อมูลที่ระบบส่งกลับมา ถ้าเกิดปัญหารอบถัดไป ระบบจะแสดง phase diagnostic ที่หน้านี้"
-          title="ตัวช่วยวิเคราะห์ JavaWS"
-          tone="success"
-        />
-      )}
-
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <HeavyReportTable runs={heavyRuns.slice(0, 8)} />
-        <TelegramDeliveries
-          deliveries={(data?.operational_alerts?.telegram?.deliveries ?? []).slice(
-            0,
-            8,
-          )}
-        />
-      </section>
-
-      {data?.backup && !data.backup.configured && data.backup.recommendation ? (
-        <OpsNotice
-          text={data.backup.recommendation}
-          title="แนะนำให้ตั้งค่า backup"
-          tone="warning"
-        />
+      {payload ? (
+        <>
+          <OverviewSection payload={payload} />
+          <ActionSection incidents={payload.incidents} />
+          <TenantSection tenants={payload.tenants} />
+          <TechnicalDetails payload={payload} />
+        </>
       ) : null}
-
-      <TelegramOpsManager
-        onChanged={() => void load()}
-        status={data?.operational_alerts?.telegram?.status ?? null}
-      />
-
-      {data?.tenants?.length ? (
-        <PerTenantAudit tenants={data.tenants} />
-      ) : null}
-
-      <AuditLogPanel auditLogs={data?.audit_logs ?? []} />
     </div>
   );
 }
 
-function OpsMetric({
+function WindowSelector({
+  onChange,
+  value,
+}: {
+  onChange: (value: 24 | 72 | 168) => void;
+  value: 24 | 72 | 168;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-white/[0.03]">
+      {WINDOW_OPTIONS.map((option) => (
+        <button
+          className={`rounded-md px-3 py-2 text-theme-xs font-medium transition ${
+            value === option.value
+              ? "bg-brand-500 text-white"
+              : "text-gray-500 hover:bg-gray-50 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+          }`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OverviewSection({ payload }: { payload: HealthCenterPayload }) {
+  return (
+    <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <HealthMetric
+        icon={<CheckCircleIcon className="h-6 w-6" />}
+        label="ภาพรวมวันนี้"
+        tone={payload.overall.status}
+        value={payload.overall.label}
+        detail={`อัปเดต ${formatDateTime(payload.overall.generated_at)}`}
+      />
+      <HealthMetric
+        icon={<AlertIcon className="h-6 w-6" />}
+        label="ต้องแก้"
+        tone={payload.overall.critical_count > 0 ? "critical" : "ok"}
+        value={`${numberFormatter.format(payload.overall.critical_count)} เรื่อง`}
+        detail={`${numberFormatter.format(payload.summary.tenant_critical_count)} ร้าน`}
+      />
+      <HealthMetric
+        icon={<InfoIcon className="h-6 w-6" />}
+        label="ควรตรวจ"
+        tone={payload.overall.warning_count > 0 ? "warning" : "ok"}
+        value={`${numberFormatter.format(payload.overall.warning_count)} เรื่อง`}
+        detail={`${numberFormatter.format(payload.summary.tenant_warning_count)} ร้าน`}
+      />
+      <HealthMetric
+        icon={<BellIcon className="h-6 w-6" />}
+        label="ส่ง LINE ล่าสุด"
+        tone={payload.summary.line_failed_count > 0 ? "critical" : "ok"}
+        value={
+          payload.summary.line_failed_count > 0
+            ? "มีส่งไม่สำเร็จ"
+            : "ไม่พบปัญหา"
+        }
+        detail={`${numberFormatter.format(payload.summary.line_failed_count)} delivery fail`}
+      />
+      <HealthMetric
+        icon={<PlugInIcon className="h-6 w-6" />}
+        label="AI CEO"
+        tone={payload.summary.ai_ceo_warning_count > 0 ? "warning" : "ok"}
+        value={
+          payload.summary.ai_ceo_warning_count > 0
+            ? "ควรตรวจ"
+            : "พร้อมใช้งาน"
+        }
+        detail={`${numberFormatter.format(payload.summary.ai_ceo_warning_count)} ร้านมี warning`}
+      />
+    </section>
+  );
+}
+
+function HealthMetric({
+  detail,
   icon,
   label,
   tone,
   value,
 }: {
+  detail: string;
   icon: ReactNode;
   label: string;
-  tone: "success" | "warning" | "error";
+  tone: HealthSeverity;
   value: string;
 }) {
-  // TailAdmin metric-group-01 pattern: h-12 w-12 rounded-xl icon tile (tone-tinted),
-  // label + badge row, then text-title-sm font-bold value.
-  const tileClass =
-    tone === "success"
-      ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500"
-      : tone === "error"
-        ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
-        : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400";
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+    <Panel className="px-5 pb-5 pt-5 md:px-6 md:pb-6 md:pt-6">
       <div
-        className={`flex h-12 w-12 items-center justify-center rounded-xl ${tileClass}`}
+        className={`flex h-12 w-12 items-center justify-center rounded-xl ${toneTileClass(
+          tone,
+        )}`}
       >
         {icon}
       </div>
       <div className="mt-5 flex items-end justify-between gap-3">
-        <span className="text-sm text-gray-500 dark:text-gray-400">
-          {label}
-        </span>
-        <Badge color={tone}>
-          {tone === "success" ? "ปกติ" : tone === "error" ? "สำคัญ" : "ต้องดู"}
-        </Badge>
+        <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
+        <Badge color={badgeColor(tone)}>{statusLabel(tone)}</Badge>
       </div>
-      <h4 className="mt-2 max-w-full break-words text-theme-xl font-semibold leading-7 text-gray-800 dark:text-white/90">
+      <h4 className="mt-2 break-words text-theme-xl font-semibold leading-7 text-gray-800 dark:text-white/90">
         {value}
       </h4>
+      <p className="mt-1 break-words text-theme-xs text-gray-500 dark:text-gray-400">
+        {detail}
+      </p>
+    </Panel>
+  );
+}
+
+function ActionSection({ incidents }: { incidents: HealthIncident[] }) {
+  return (
+    <Panel>
+      <PanelHeader
+        description="เรียงจากเรื่องที่กระทบการส่งแจ้งเตือนหรือความพร้อมของร้านมากที่สุด"
+        title="สิ่งที่ต้องทำก่อน"
+      />
+      <PanelBody spaced>
+        {incidents.length ? (
+          <div className="space-y-3">
+            {incidents.map((incident) => (
+              <IncidentRow incident={incident} key={incident.id} />
+            ))}
+          </div>
+        ) : (
+          <Notice
+            text="ยังไม่พบเรื่องต้องแก้หรือควรตรวจในช่วงเวลาที่เลือก ระบบแจ้งเตือนและรายงานพร้อมใช้งาน"
+            title="วันนี้ระบบปกติ"
+            tone="success"
+          />
+        )}
+      </PanelBody>
+    </Panel>
+  );
+}
+
+function IncidentRow({ incident }: { incident: HealthIncident }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge color={badgeColor(incident.severity)} size="sm">
+              {incident.severity_label}
+            </Badge>
+            <span className="text-theme-xs text-gray-500 dark:text-gray-400">
+              {incident.tenant_name ?? "ระบบรวม"}
+            </span>
+            {incident.occurred_at ? (
+              <span className="text-theme-xs text-gray-500 dark:text-gray-400">
+                {formatDateTime(incident.occurred_at)}
+              </span>
+            ) : null}
+          </div>
+          <h4 className="mt-2 break-words text-sm font-semibold text-gray-800 dark:text-white/90">
+            {incident.title}
+          </h4>
+          <p className="mt-1 break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {incident.detail}
+          </p>
+        </div>
+        <a className={secondaryActionClass} href={incident.action_href}>
+          {incident.action_label}
+        </a>
+      </div>
     </div>
   );
 }
 
-function OpsNotice({
-  action,
-  text,
-  title,
-  tone,
-}: {
-  action?: ReactNode;
-  text: string;
-  title: string;
-  tone: "success" | "warning" | "error";
-}) {
-  const toneConfig = {
-    error: {
-      className:
-        "border-error-500 bg-error-50 dark:border-error-500/30 dark:bg-error-500/15",
-      icon: <AlertIcon className="size-6 fill-current" />,
-      iconClassName: "text-error-500",
-    },
-    success: {
-      className:
-        "border-success-500 bg-success-50 dark:border-success-500/30 dark:bg-success-500/15",
-      icon: <CheckCircleIcon className="size-6 fill-current" />,
-      iconClassName: "text-success-500",
-    },
-    warning: {
-      className:
-        "border-warning-500 bg-warning-50 dark:border-warning-500/30 dark:bg-warning-500/15",
-      icon: <InfoIcon className="size-6 fill-current" />,
-      iconClassName: "text-warning-500 dark:text-orange-400",
-    },
-  }[tone];
-
+function TenantSection({ tenants }: { tenants: HealthTenant[] }) {
   return (
-    <section className={`rounded-xl border p-4 ${toneConfig.className}`}>
-      <div className="flex items-start gap-3">
-        <div className={`-mt-0.5 shrink-0 ${toneConfig.iconClassName}`}>
-          {toneConfig.icon}
-        </div>
-        <div className="min-w-0">
-          <h3 className="mb-1 text-sm font-semibold text-gray-800 dark:text-white/90">
-            {title}
-          </h3>
-          <p className="break-words text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-            {text}
-          </p>
-          {action}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function HeavyReportTable({
-  runs,
-}: {
-  runs: NonNullable<OperationsStatus["report_health"]>["heavy_report_runs"];
-}) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            รายงานหนักล่าสุด
-          </h3>
-          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            แสดงเฉพาะหลักฐานปลอดภัย ไม่แสดง SQL หรือข้อมูลลูกค้า
-          </p>
-        </div>
-        <Badge color={runs?.length ? "info" : "light"}>
-          {runs?.length ? `${runs.length} รายการ` : "ว่าง"}
-        </Badge>
-      </div>
-
-      {runs?.length ? (
-        <>
-          <div className="space-y-3 md:hidden">
-            {runs.map((run) => (
-              <div
-                className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
-                key={run.id}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
-                      {run.tenant_id}
-                    </p>
-                    <p className="mt-1 break-words text-theme-xs text-gray-500 dark:text-gray-400">
-                      {run.report_key}
-                    </p>
-                  </div>
-                  <Badge color={statusTone(run.status)}>{formatRunStatus(run.status)}</Badge>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
-                  <span className="text-theme-xs text-gray-500 dark:text-gray-400">
-                    ใช้เวลา
-                  </span>
-                  <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">
-                    {durationLabel(run.duration_ms)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="hidden w-full overflow-x-auto md:block">
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-gray-100 border-y dark:border-gray-800">
-                  <TableHead>ร้าน</TableHead>
-                  <TableHead>รายงาน</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead align="right">ใช้เวลา</TableHead>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {runs.map((run) => (
-                  <tr key={run.id}>
-                    <TableCell>
-                      <p className="font-medium text-gray-800 text-theme-sm dark:text-white/90">
-                        {run.tenant_id}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      <p className="text-theme-sm text-gray-500 dark:text-gray-400">
-                        {run.report_key}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge color={statusTone(run.status)}>
-                        {formatRunStatus(run.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell align="right">
-                      <p className="font-medium text-gray-700 text-theme-sm dark:text-gray-300">
-                        {durationLabel(run.duration_ms)}
-                      </p>
-                    </TableCell>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      ) : (
-        <EmptyState text="ยังไม่มี heavy report ล่าสุด" />
-      )}
-    </section>
-  );
-}
-
-function TelegramDeliveries({
-  deliveries,
-}: {
-  deliveries: NonNullable<
-    NonNullable<
-      NonNullable<OperationsStatus["operational_alerts"]>["telegram"]
-    >["deliveries"]
-  >;
-}) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            การส่ง Telegram ล่าสุด
-          </h3>
-          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            แจ้งเตือนสำหรับผู้ดูแลระบบ
-          </p>
-        </div>
-        <BellIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-      </div>
-
-      {deliveries.length ? (
-        <div className="custom-scrollbar flex max-h-[420px] flex-col gap-2 overflow-y-auto">
-          {deliveries.map((delivery) => (
-            <div
-              className="flex items-start justify-between gap-4 rounded-lg p-3 transition hover:bg-gray-50 dark:hover:bg-white/[0.03]"
-              key={`${delivery.alert_type}-${delivery.created_at}`}
-            >
-              <div className="min-w-0">
-                <h4 className="break-words text-sm font-semibold leading-5 text-gray-800 dark:text-white/90">
-                  {delivery.alert_type}
-                </h4>
-                <span className="mt-1 block text-theme-xs text-gray-500 dark:text-gray-400">
-                  {formatDateTime(delivery.created_at)}
-                </span>
-                {delivery.safe_error_message ? (
-                  <p className="mt-2 text-theme-xs leading-5 text-error-600 dark:text-error-400">
-                    {delivery.safe_error_message}
-                  </p>
-                ) : null}
-              </div>
-              <div className="shrink-0 text-right">
-                <Badge color={statusTone(delivery.status)}>
-                  {formatLineDeliveryStatus(delivery.status)}
-                </Badge>
-                <span className="mt-2 block text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-                  {delivery.severity}
-                </span>
-              </div>
+    <Panel>
+      <PanelHeader
+        description="ดูสถานะรายร้านแบบอ่านง่าย หากมีปัญหาให้กดปุ่มในคอลัมน์การแก้ไข"
+        title="สถานะรายร้าน"
+      />
+      <PanelBody>
+        {tenants.length ? (
+          <>
+            <div className="space-y-3 lg:hidden">
+              {tenants.map((tenant) => (
+                <TenantMobileCard key={tenant.tenant_id} tenant={tenant} />
+              ))}
             </div>
+            <div className="hidden w-full overflow-x-auto lg:block">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-gray-100 border-y dark:border-gray-800">
+                    <TableHead>ร้าน</TableHead>
+                    <TableHead>LINE</TableHead>
+                    <TableHead>AI CEO</TableHead>
+                    <TableHead>รายงาน</TableHead>
+                    <TableHead>แหล่งข้อมูล</TableHead>
+                    <TableHead align="right">การแก้ไข</TableHead>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {tenants.map((tenant) => (
+                    <TenantTableRow key={tenant.tenant_id} tenant={tenant} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <Notice
+            text="ยังไม่มีร้านที่เปิดใช้งานในระบบ"
+            title="ยังไม่มีร้านให้ตรวจ"
+            tone="info"
+          />
+        )}
+      </PanelBody>
+    </Panel>
+  );
+}
+
+function TenantTableRow({ tenant }: { tenant: HealthTenant }) {
+  return (
+    <tr>
+      <TableCell>
+        <div className="min-w-0">
+          <p className="font-medium text-gray-800 text-theme-sm dark:text-white/90">
+            {tenant.tenant_name}
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            <Badge color={badgeColor(tenant.status)} size="sm">
+              {tenant.status_label}
+            </Badge>
+            <Badge color="light" size="sm">
+              {formatPlanCode(tenant.plan_code)}
+            </Badge>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <StatusCell
+          detail={`${tenant.line.enabled_targets}/${tenant.line.total_targets} ผู้รับ`}
+          status={tenant.line.status}
+          title={tenant.line.label}
+        />
+      </TableCell>
+      <TableCell>
+        <StatusCell
+          detail={
+            tenant.ai_ceo.enabled
+              ? `${formatTokens(tenant.ai_ceo.window_tokens)} · ${usdFormatter.format(
+                  tenant.ai_ceo.window_cost_usd,
+                )}`
+              : "ยังไม่เปิด"
+          }
+          status={tenant.ai_ceo.status}
+          title={tenant.ai_ceo.label}
+        />
+      </TableCell>
+      <TableCell>
+        <StatusCell
+          detail={
+            tenant.reports.latest_run_at
+              ? formatDateTime(tenant.reports.latest_run_at)
+              : "ยังไม่มีรอบ"
+          }
+          status={tenant.reports.status}
+          title={tenant.reports.label}
+        />
+      </TableCell>
+      <TableCell>
+        <StatusCell
+          detail={tenant.datasource.configured ? "พร้อมรันรายงาน" : "ต้องตั้งค่า"}
+          status={tenant.datasource.status}
+          title={tenant.datasource.label}
+        />
+      </TableCell>
+      <TableCell align="right">
+        <div className="flex flex-wrap justify-end gap-2">
+          {tenant.actions.map((action) => (
+            <a className={secondaryActionClass} href={action.href} key={action.href}>
+              {action.label}
+            </a>
           ))}
         </div>
-      ) : (
-        <EmptyState text="ยังไม่มีประวัติส่ง Telegram ล่าสุด" />
-      )}
-    </section>
+      </TableCell>
+    </tr>
+  );
+}
+
+function TenantMobileCard({ tenant }: { tenant: HealthTenant }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="break-words text-sm font-semibold text-gray-800 dark:text-white/90">
+            {tenant.tenant_name}
+          </h4>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            แพ็กเกจ {formatPlanCode(tenant.plan_code)}
+          </p>
+        </div>
+        <Badge color={badgeColor(tenant.status)}>{tenant.status_label}</Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Fact label="LINE" tone={factTone(tenant.line.status)} value={tenant.line.label} />
+        <Fact
+          label="AI CEO"
+          tone={factTone(tenant.ai_ceo.status)}
+          value={tenant.ai_ceo.label}
+        />
+        <Fact
+          label="รายงาน"
+          tone={factTone(tenant.reports.status)}
+          value={tenant.reports.label}
+        />
+        <Fact
+          label="แหล่งข้อมูล"
+          tone={factTone(tenant.datasource.status)}
+          value={tenant.datasource.label}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {tenant.actions.map((action) => (
+          <a className={secondaryActionClass} href={action.href} key={action.href}>
+            {action.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatusCell({
+  detail,
+  status,
+  title,
+}: {
+  detail: string;
+  status: HealthSeverity;
+  title: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <Badge color={badgeColor(status)} size="sm">
+        {statusLabel(status)}
+      </Badge>
+      <p className="mt-2 break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
+        {title}
+      </p>
+      <p className="mt-1 break-words text-theme-xs text-gray-500 dark:text-gray-400">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function TechnicalDetails({ payload }: { payload: HealthCenterPayload }) {
+  return (
+    <Panel>
+      <details>
+        <summary className="cursor-pointer text-lg font-semibold text-gray-800 dark:text-white/90">
+          รายละเอียดเทคนิค
+        </summary>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Fact
+            label="ช่วงข้อมูล"
+            tone="light"
+            value={`${payload.overall.window_hours} ชั่วโมง`}
+          />
+          <Fact
+            label="ร้านทั้งหมด"
+            tone="light"
+            value={`${numberFormatter.format(payload.summary.tenant_count)} ร้าน`}
+          />
+          <Fact
+            label="Worker"
+            tone={payload.summary.worker_stale ? "error" : "success"}
+            value={payload.summary.worker_stale ? "ควรตรวจทันที" : "ปกติ"}
+          />
+          <Fact
+            label="สร้างข้อมูล"
+            tone="light"
+            value={formatDateTime(payload.overall.generated_at)}
+          />
+        </div>
+        <p className="mt-4 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+          หน้านี้อ่านจากประวัติรอบแจ้งเตือน การส่ง LINE รายงาน และ AI CEO
+          ในระบบหลังบ้านเท่านั้น ไม่รันรายงานใหม่และไม่ดึงข้อมูลลูกค้าจาก SML
+          ตอนเปิดหน้า
+        </p>
+      </details>
+    </Panel>
   );
 }
 
@@ -644,16 +621,8 @@ function TableHead({
   children: ReactNode;
 }) {
   return (
-    <th
-      className={
-        align === "right" ? "py-3 pl-5 text-left" : "py-3 pr-5 text-left"
-      }
-    >
-      <div
-        className={`flex items-center ${
-          align === "right" ? "justify-end" : ""
-        }`}
-      >
+    <th className={align === "right" ? "py-3 pl-5 text-left" : "py-3 pr-5 text-left"}>
+      <div className={`flex items-center ${align === "right" ? "justify-end" : ""}`}>
         <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
           {children}
         </p>
@@ -670,478 +639,100 @@ function TableCell({
   children: ReactNode;
 }) {
   return (
-    <td className={align === "right" ? "py-3 pl-5" : "py-3 pr-5"}>
-      <div
-        className={`flex items-center ${
-          align === "right" ? "justify-end" : ""
-        }`}
-      >
+    <td className={align === "right" ? "py-4 pl-5" : "py-4 pr-5"}>
+      <div className={`flex items-center ${align === "right" ? "justify-end" : ""}`}>
         {children}
       </div>
     </td>
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function HealthCenterSkeleton() {
   return (
-    <div className="rounded-lg bg-gray-50 px-4 py-6 text-center dark:bg-white/[0.02]">
-      <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
-        {text}
-      </p>
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <div className="h-10 w-48 animate-pulse rounded-lg bg-gray-100 dark:bg-white/[0.03]" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div
+            className="h-44 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
+            key={index}
+          />
+        ))}
+      </div>
+      <div className="h-96 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />
     </div>
   );
 }
 
-function statusTone(status: string) {
-  if (status === "success" || status === "ok") {
-    return "success";
-  }
-  if (status === "failed" || status === "error") {
+function badgeColor(severity: HealthSeverity) {
+  if (severity === "critical") {
     return "error";
   }
-  return "warning";
-}
-
-function AuditLogPanel({ auditLogs }: { auditLogs: AuditLogEntry[] }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Audit log ล่าสุด
-        </h3>
-        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-          หลักฐานการรันรายงาน การส่ง LINE การอนุมัติผู้รับ และการรับรองยอด
-        </p>
-      </div>
-      {auditLogs.length ? (
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {auditLogs.slice(0, 12).map((entry) => (
-            <div
-              className="grid min-w-0 gap-1 py-3 lg:grid-cols-[200px_minmax(0,1fr)]"
-              key={`${entry.id ?? entry.created_at}-${entry.action}-${entry.target_id ?? ""}`}
-            >
-              <div className="min-w-0">
-                <p className="break-words text-sm font-medium text-gray-800 dark:text-white/90">
-                  {formatAuditAction(entry.action)}
-                </p>
-                <p className="text-theme-xs text-gray-500 dark:text-gray-400">
-                  {formatDateTime(entry.created_at)}
-                </p>
-              </div>
-              <div className="min-w-0 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                <p className="break-words">
-                  ร้าน: {entry.tenant_id ?? "-"}
-                  {entry.target_id ? ` · ${entry.target_type}: ${entry.target_id}` : ""}
-                </p>
-                <p className="mt-0.5 break-words">{formatAuditMetadata(entry.metadata_json)}</p>
-                <span
-                  className={`mt-1 inline-flex max-w-full break-all rounded-full px-2 py-0.5 text-theme-xs font-medium ${auditActionToneClass(
-                    entry.action,
-                  )}`}
-                >
-                  {entry.action}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState text="ยังไม่มี audit log ล่าสุด" />
-      )}
-    </section>
-  );
-}
-
-function TelegramOpsManager({
-  status,
-  onChanged,
-}: {
-  status:
-    | {
-        configured?: boolean;
-        encryption_configured?: boolean;
-        verified?: boolean;
-        bot_username?: string | null;
-        bot_first_name?: string | null;
-        updated_at?: string | null;
-        targets?: Array<{
-          id?: string;
-          display_name?: string | null;
-          target_id_masked?: string | null;
-          enabled: boolean;
-          updated_at?: string | null;
-        }>;
-      }
-    | null
-    | undefined;
-  onChanged?: () => void;
-}) {
-  const [botToken, setBotToken] = useState("");
-  const [chats, setChats] = useState<TelegramChatPreview[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<{ tone: "success" | "error"; message: string } | null>(null);
-
-  const targets = status?.targets ?? [];
-  const hasTarget = targets.some((target) => target.enabled);
-
-  async function runAction(key: string, fn: () => Promise<void>) {
-    if (busy !== null) {
-      return;
-    }
-    setBusy(key);
-    setResult(null);
-    try {
-      await fn();
-    } catch (error) {
-      setResult({
-        tone: "error",
-        message: error instanceof Error ? error.message : "action ไม่สำเร็จ",
-      });
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function saveToken(event: React.FormEvent) {
-    event.preventDefault();
-    await runAction("token", async () => {
-      await ownerV2Fetch(`/api/owner/operational-alerts/telegram/secrets`, {
-        method: "PUT",
-        body: { bot_token: botToken.trim() },
-      });
-      setBotToken("");
-      setResult({ tone: "success", message: "บันทึก bot token แล้ว" });
-      onChanged?.();
-    });
-  }
-
-  async function loadChats() {
-    await runAction("chats", async () => {
-      const data = await ownerV2Fetch<TelegramChatPreview[]>(
-        `/api/owner/operational-alerts/telegram/updates`,
-      );
-      setChats(Array.isArray(data) ? data : []);
-    });
-  }
-
-  async function saveTarget(chat: TelegramChatPreview) {
-    await runAction(`target-${chat.chat_id}`, async () => {
-      await ownerV2Fetch(`/api/owner/operational-alerts/telegram/targets`, {
-        method: "POST",
-        body: {
-          chat_id: chat.chat_id,
-          display_name: chat.display_name,
-          enabled: true,
-        },
-      });
-      setResult({ tone: "success", message: `เพิ่ม ${chat.display_name} เป็นผู้รับแล้ว` });
-      onChanged?.();
-    });
-  }
-
-  async function sendTest() {
-    if (
-      !window.confirm(
-        "ส่ง Telegram test alert ไปยังผู้รับ ops ที่เปิดใช้งานตอนนี้?",
-      )
-    ) {
-      return;
-    }
-
-    await runAction("test", async () => {
-      await ownerV2Fetch(`/api/owner/operational-alerts/telegram/test`, {
-        method: "POST",
-        body: { message: "Owner UI test" },
-      });
-      setResult({ tone: "success", message: "ส่ง test alert แล้ว" });
-      // A test send updates the "verified" status and delivery history, so
-      // refresh the parent so the page stops showing stale readiness.
-      onChanged?.();
-    });
-  }
-
-  async function runSmoke(alertType: string) {
-    if (
-      !window.confirm(
-        `ส่ง Telegram smoke test ประเภท ${alertType} และบันทึก audit/delivery history?`,
-      )
-    ) {
-      return;
-    }
-
-    await runAction(`smoke-${alertType}`, async () => {
-      await ownerV2Fetch(`/api/owner/operational-alerts/smoke-test`, {
-        method: "POST",
-        body: {
-          alert_type: alertType,
-          severity:
-            alertType === "notification_summary"
-              ? "info"
-              : alertType === "line_delivery_failed" ||
-                  alertType === "heartbeat_stale"
-                ? "critical"
-                : "warning",
-          report_key:
-            alertType === "javaws_diagnostic" ? "sales_goods_services" : undefined,
-        },
-      });
-      setResult({ tone: "success", message: `ส่ง smoke test (${alertType}) แล้ว` });
-      onChanged?.();
-    });
-  }
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          Telegram ops alert
-        </h3>
-        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-          ตั้ง bot token โหลด chat ที่จะรับแจ้งเตือน และทดสอบก่อนเปิดใช้จริง
-        </p>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Fact label="Bot token" tone={status?.configured ? "success" : "warning"} value={status?.configured ? "ตั้งแล้ว" : "ยังไม่ตั้ง"} />
-        <Fact label="Encryption" tone={status?.encryption_configured ? "success" : "warning"} value={status?.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"} />
-        <Fact label="ผู้รับ" tone={hasTarget ? "success" : "warning"} value={`${targets.filter((t) => t.enabled).length}/${targets.length} เปิด`} />
-      </div>
-
-      <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={saveToken}>
-        <input
-          className="owner-v2-input"
-          onChange={(event) => setBotToken(event.target.value)}
-          placeholder="Telegram bot token (ไม่แสดงค่าที่บันทึกไว้)"
-          type="password"
-          value={botToken}
-        />
-        <Button disabled={busy === "token" || !botToken.trim()} type="submit" size="sm">
-          {busy === "token" ? "กำลังบันทึก..." : "บันทึก token"}
-        </Button>
-      </form>
-
-      <div className="mt-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Chat ที่จะรับแจ้งเตือน</p>
-          <Button disabled={busy === "chats"} onClick={() => void loadChats()} size="sm" type="button" variant="outline">
-            {busy === "chats" ? "กำลังโหลด..." : "โหลด chats"}
-          </Button>
-        </div>
-        {chats.length ? (
-          <div className="mt-2 divide-y divide-gray-100 dark:divide-gray-800">
-            {chats.slice(0, 8).map((chat) => (
-              <div className="flex items-center justify-between gap-2 py-2" key={chat.chat_id}>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-800 dark:text-white/90">{chat.display_name}</p>
-                  <p className="truncate text-theme-xs text-gray-500 dark:text-gray-400">{chat.chat_id_masked} · {chat.type}</p>
-                </div>
-                <Button disabled={busy !== null} onClick={() => void saveTarget(chat)} size="sm" type="button" variant="outline">
-                  เลือก
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2 text-theme-xs text-gray-500 dark:text-gray-400">กด “โหลด chats” เพื่อดึงรายการจาก Telegram</p>
-        )}
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button disabled={busy === "test"} onClick={() => void sendTest()} size="sm" type="button">
-          {busy === "test" ? "กำลังส่ง..." : "ส่ง test alert"}
-        </Button>
-        {SMOKE_TEST_ALERTS.map((smoke) => (
-          <Button
-            disabled={busy !== null}
-            key={smoke.alertType}
-            onClick={() => void runSmoke(smoke.alertType)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            {busy === `smoke-${smoke.alertType}` ? "..." : smoke.label}
-          </Button>
-        ))}
-      </div>
-
-      {result ? (
-        <p className={`mt-3 text-theme-sm ${result.tone === "error" ? "text-error-600" : "text-success-600"}`}>
-          {result.message}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-function PerTenantAudit({ tenants }: { tenants: AuditTenantEntry[] }) {
-  const productionTenants = tenants.filter(
-    (tenant) => (tenant.notification_rules_enabled ?? 0) > 0,
-  );
-  const inactiveNotificationTenants = tenants.filter(
-    (tenant) => (tenant.notification_rules_enabled ?? 0) === 0,
-  );
-  return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-4 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-          สถานะร้านล่าสุด
-        </h3>
-        <p className="mt-1 text-theme-sm text-gray-500 dark:text-gray-400">
-          รอบรายงาน การส่ง LINE และสถานะ datasource ต่อร้าน แยกตามการเปิดใช้แจ้งเตือนจริง
-        </p>
-      </div>
-      <div className="space-y-5">
-        <TenantAuditGroup
-          badge="ใช้งานจริง"
-          tenants={productionTenants}
-          title="ใช้งานจริง"
-        />
-        <TenantAuditGroup
-          badge="ยังไม่ได้เปิดแจ้งเตือน"
-          muted
-          tenants={inactiveNotificationTenants}
-          title="ยังไม่ได้เปิดแจ้งเตือน"
-        />
-      </div>
-    </section>
-  );
-}
-
-function TenantAuditGroup({
-  badge,
-  muted = false,
-  tenants,
-  title,
-}: {
-  badge: string;
-  muted?: boolean;
-  tenants: AuditTenantEntry[];
-  title: string;
-}) {
-  if (!tenants.length) {
-    return null;
-  }
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-gray-800 dark:text-white/90">
-          {title}
-        </h4>
-        <Badge color={muted ? "light" : "success"} size="sm">
-          {tenants.length} ร้าน
-        </Badge>
-      </div>
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {tenants.map((tenant) => (
-          <div className="grid gap-2 py-3 lg:grid-cols-[minmax(180px,1fr)_170px_170px_170px] lg:items-center" key={tenant.id}>
-            <div className="min-w-0">
-              <p className="font-semibold text-gray-900 dark:text-white">{tenant.name}</p>
-              <p className="mt-1 truncate text-theme-xs text-gray-500 dark:text-gray-400">{tenant.id}</p>
-            </div>
-            <Fact
-              label="SML"
-              tone={muted ? undefined : tenant.datasource_configured ? "success" : "warning"}
-              value={tenant.datasource_configured ? (tenant.database_name ?? "พร้อม") : "ยังไม่พร้อม"}
-            />
-            <Fact
-              label="LINE"
-              tone={muted ? undefined : tenant.line_configured ? "success" : "warning"}
-              value={tenant.line_configured ? (tenant.line_target_masked ?? "พร้อม") : "ยังไม่พร้อม"}
-            />
-            <Badge color={muted ? "light" : "success"} size="sm">
-              {muted
-                ? badge
-                : `${badge} · ${tenant.notification_rules_enabled ?? 0} แผน`}
-            </Badge>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function formatAuditAction(action: string) {
-  return AUDIT_ACTION_LABELS[action] ?? action;
-}
-
-function auditActionTone(action: string): "success" | "warning" | "error" | "light" {
-  if (action.includes("failed")) {
-    return "error";
-  }
-  if (action.includes("signed_off") || action.includes("succeeded")) {
-    return "success";
-  }
-  if (action.includes("updated") || action.includes("requested")) {
+  if (severity === "warning") {
     return "warning";
+  }
+  if (severity === "ok") {
+    return "success";
+  }
+  return "info";
+}
+
+function factTone(severity: HealthSeverity) {
+  if (severity === "critical") {
+    return "error";
+  }
+  if (severity === "warning") {
+    return "warning";
+  }
+  if (severity === "ok") {
+    return "success";
   }
   return "light";
 }
 
-function auditActionToneClass(action: string) {
-  const tone = auditActionTone(action);
-  const classes: Record<string, string> = {
-    error: "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500",
-    light: "bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-white/80",
-    success: "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500",
-    warning: "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400",
-  };
-  return classes[tone] ?? classes.light;
-}
-
-function formatAuditMetadata(metadata: Record<string, unknown> | null | undefined) {
-  if (!metadata) {
-    return "ไม่มี metadata เพิ่มเติม";
+function statusLabel(severity: HealthSeverity) {
+  if (severity === "critical") {
+    return "ต้องแก้";
   }
-  const parts: string[] = [];
-  const entries: Array<[string, unknown]> = [
-    ["safe_error_message", metadata.safe_error_message],
-    ["date_from", metadata.date_from],
-    ["date_to", metadata.date_to],
-    ["difference_amount", metadata.difference_amount],
-    ["accepted", metadata.accepted],
-    ["access_profile_key", metadata.access_profile_key],
-    ["enabled", metadata.enabled],
-  ];
-  for (const [key, value] of entries) {
-    if (value !== null && value !== undefined && value !== "") {
-      parts.push(`${key}: ${String(value)}`);
-    }
+  if (severity === "warning") {
+    return "ควรตรวจ";
   }
-  return parts.length ? parts.join(" · ") : "ไม่มี metadata เพิ่มเติม";
-}
-
-function formatWorker(worker?: OperationsStatus["worker"]) {
-  if (!worker) {
-    return "ยังไม่ทราบ";
-  }
-  if (worker.status === "ok") {
-    const ageSeconds = worker.age_seconds;
-    if (typeof ageSeconds === "number" && ageSeconds >= 0) {
-      const minutes = Math.max(0, Math.round(ageSeconds / 60));
-      return minutes > 0
-        ? `ปกติ · ${minutes} นาทีที่แล้ว`
-        : "ปกติ · < 1 นาที";
-    }
+  if (severity === "ok") {
     return "ปกติ";
   }
-  return worker.status;
+  return "ข้อมูล";
 }
 
-function durationLabel(durationMs: number | null) {
-  if (durationMs === null) {
-    return "-";
+function toneTileClass(severity: HealthSeverity) {
+  if (severity === "critical") {
+    return "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500";
   }
-  const seconds = Math.max(0, Math.round(durationMs / 1000));
-  if (seconds < 60) {
-    return `${seconds}s`;
+  if (severity === "warning") {
+    return "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-orange-400";
   }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  if (severity === "ok") {
+    return "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500";
+  }
+  return "bg-blue-light-50 text-blue-light-500 dark:bg-blue-light-500/15 dark:text-blue-light-500";
 }
 
-function formatPercent(value?: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "-";
+function formatTokens(value: number) {
+  if (value >= 1_000_000) {
+    return `${numberFormatter.format(Math.round(value / 10_000) / 100)}M tokens`;
   }
-  return `${Math.round(value * 100)}%`;
+  if (value >= 1_000) {
+    return `${numberFormatter.format(Math.round(value / 10) / 100)}K tokens`;
+  }
+  return `${numberFormatter.format(value)} tokens`;
+}
+
+function formatPlanCode(value: string) {
+  const labels: Record<string, string> = {
+    business: "ร้านใหญ่",
+    pro: "ร้านใหญ่ Pro",
+    starter: "ร้านเล็ก",
+  };
+  return labels[value] ?? value;
 }

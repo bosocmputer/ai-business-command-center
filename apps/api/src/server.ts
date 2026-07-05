@@ -273,6 +273,10 @@ import {
   shouldSendNotificationSummaryOpsAlert,
 } from "./notification-ops-alert-policy.js";
 import {
+  buildOwnerHealthCenterPayload,
+  type OwnerHealthCenterTenantSource,
+} from "./owner-health-center.js";
+import {
   countOwnerWorkbenchOpsWarnings,
   projectOwnerWorkbenchSelected,
   projectOwnerWorkbenchTenant,
@@ -4037,6 +4041,27 @@ app.get("/api/owner/operations/status", async (request, reply) => {
 
   return {
     data: await buildOperationsStatus({ includeAuditLogs: true }),
+  };
+});
+
+app.get("/api/owner/health-center", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const query = ownerHealthCenterQuerySchema.safeParse(request.query ?? {});
+  if (!query.success) {
+    return reply.status(400).send({
+      error: "Invalid health center query",
+      details: query.error.flatten().fieldErrors,
+    });
+  }
+
+  return {
+    data: await buildOwnerHealthCenterStatus({
+      windowHours: query.data.window_hours,
+    }),
   };
 });
 
@@ -8603,6 +8628,117 @@ async function buildOperationsStatus(input: { includeAuditLogs: boolean }) {
     tenants: tenantHealth,
     system_config: runtimeStatus,
   };
+}
+
+async function buildOwnerHealthCenterStatus(input: {
+  windowHours: 24 | 72 | 168;
+}) {
+  const now = new Date();
+  const since = new Date(
+    now.getTime() - input.windowHours * 60 * 60 * 1000,
+  ).toISOString();
+  const metricDateFrom = since.slice(0, 10);
+  const tenants = (await systemStore.listTenants()).filter(
+    (tenant) => tenant.status !== "cancelled",
+  );
+  const tenantIds = tenants.map((tenant) => tenant.id);
+
+  const [
+    latestHeartbeat,
+    notificationRules,
+    notificationRuns,
+    lineDeliveries,
+    reportRuns,
+  ] = await Promise.all([
+    systemStore.getLatestWorkerHeartbeat("notification_rule_worker"),
+    systemStore.listNotificationRules(),
+    tenantIds.length
+      ? systemStore.listRecentNotificationRuleRuns({
+          tenantIds,
+          since,
+          limit: Math.min(1_000, Math.max(100, tenantIds.length * 80)),
+        })
+      : Promise.resolve([]),
+    tenantIds.length
+      ? systemStore.listRecentLineDeliveries({
+          deliveryType: "notification_rule",
+          tenantIds,
+          since,
+          limit: Math.min(1_000, Math.max(100, tenantIds.length * 120)),
+        })
+      : Promise.resolve([]),
+    tenantIds.length
+      ? systemStore.listRecentRuns({
+          tenantIds,
+          since,
+          limit: Math.min(1_000, Math.max(100, tenantIds.length * 120)),
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const perTenant = await Promise.all(
+    tenants.map(async (tenant) => {
+      const [
+        datasource,
+        lineChannels,
+        lineTargets,
+        aiProfile,
+        aiRuns,
+        aiUsage,
+        metricSnapshots,
+      ] = await Promise.all([
+        readDatasourceConfigStatus({
+          store: systemStore,
+          tenantId: tenant.id,
+          envConfig: readDatasourceConfig(tenant.id),
+        }),
+        listEffectiveLineChannels(tenant.id),
+        listEffectiveLineTargets(tenant.id),
+        systemStore.getTenantAiProfile(tenant.id),
+        systemStore.listAiAdvisorRuns({ tenantId: tenant.id, limit: 10 }),
+        systemStore.listAiUsageLedger({
+          tenantId: tenant.id,
+          since,
+          limit: 200,
+        }),
+        systemStore.listMetricSnapshots({
+          tenantId: tenant.id,
+          dateFrom: metricDateFrom,
+          limit: 50,
+        }),
+      ]);
+      const enabledLineTargets = lineTargets.filter(
+        (target) =>
+          target.approved &&
+          target.enabled &&
+          target.allowed_actions.includes("receive_morning_brief") &&
+          resolveLineTargetDeliveryReadiness({ lineChannels, target }).ok,
+      );
+      const source: OwnerHealthCenterTenantSource = {
+        tenant,
+        datasource_configured: datasource.kind === "sml_javaws",
+        line_targets_total: lineTargets.length,
+        line_targets_enabled: enabledLineTargets.length,
+        ai_profile: aiProfile,
+      };
+
+      return { source, aiRuns, aiUsage, metricSnapshots };
+    }),
+  );
+
+  return buildOwnerHealthCenterPayload({
+    now,
+    window_hours: input.windowHours,
+    tenants: perTenant.map((item) => item.source),
+    worker_heartbeat: latestHeartbeat,
+    notification_rules: notificationRules,
+    notification_runs: notificationRuns,
+    line_deliveries: lineDeliveries,
+    report_runs: reportRuns,
+    ai_runs: perTenant.flatMap((item) => item.aiRuns),
+    ai_usage: perTenant.flatMap((item) => item.aiUsage),
+    metric_snapshots: perTenant.flatMap((item) => item.metricSnapshots),
+  });
 }
 
 async function buildReportViewerUrl(snapshot: ReportSnapshot) {
@@ -16829,6 +16965,17 @@ const workerHeartbeatSchema = z.object({
   status: z.enum(["ok", "warning", "error"]).default("ok"),
   metadata_json: z.record(z.string(), z.unknown()).optional().default({}),
   checked_at: z.string().datetime().optional(),
+});
+
+const ownerHealthCenterQuerySchema = z.object({
+  window_hours: z.coerce
+    .number()
+    .int()
+    .optional()
+    .default(24)
+    .refine((value): value is 24 | 72 | 168 => [24, 72, 168].includes(value), {
+      message: "window_hours must be one of 24, 72, 168",
+    }),
 });
 
 type FastifyRequestWithRawBody = {
