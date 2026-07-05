@@ -128,16 +128,16 @@ const NOTIFICATION_DIGEST_MODE_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: "action_only",
-    label: "ส่งเรื่องที่ต้องดูเป็นหลัก",
-    description:
-      "ใช้ Action Digest เมื่อเปิด rollout gate ของร้าน ถ้าไม่มีเรื่องต้องดูจะ fallback เป็นรายงานเดิม",
-  },
-  {
     value: "all_reports",
     label: "ส่งครบทุก report",
     description:
-      "ส่งรายงานที่เลือกทุกใบ เหมาะกับช่วงตรวจระบบหรือร้านที่อยากอ่านตัวเลขครบ",
+      "แสดงรายงานเหมือนรอบ 08:00 และยังแนบ AI CEO เมื่อพร้อม",
+  },
+  {
+    value: "action_only",
+    label: "ส่งเฉพาะเรื่องที่ต้องดู",
+    description:
+      "ใช้เฉพาะกรณีอยากลดจำนวนการ์ด LINE ในรอบพิเศษ",
   },
 ];
 
@@ -737,7 +737,7 @@ function NotificationPresetGuide({
       description:
         "เริ่มขาย/พิสูจน์ระบบง่ายที่สุด: ส่งเรื่องสำคัญตอนเช้าให้ผู้บริหารก่อนเปิดร้าน",
       input: {
-        digestMode: "action_only",
+        digestMode: "all_reports",
         enabled: canOpenPreset,
         name: "Owner Daily Brief 08:00",
         reportKeys: ["sales_goods_services", "purchase_goods_payables"],
@@ -752,7 +752,7 @@ function NotificationPresetGuide({
       description:
         "ใช้ดูยอดระหว่างวันหลังปิดรอบงาน เหมาะกับร้านที่เจ้าของอยากเช็คก่อนกลับบ้าน",
       input: {
-        digestMode: "action_only",
+        digestMode: "all_reports",
         enabled: canOpenPreset,
         name: "Evening Sales Check 18:30",
         reportKeys: ["sales_goods_services", "purchase_goods_payables"],
@@ -1756,7 +1756,7 @@ function normalizeNotificationRuleRecord(
 ): ComparableNotificationRule {
   const schedule = rule.schedule[0] ?? { times: [], weekdays: [] };
   return normalizeNotificationRuleDraft({
-    digestMode: rule.digest_mode ?? "action_only",
+    digestMode: rule.digest_mode ?? "all_reports",
     enabled: rule.enabled,
     name: rule.name,
     periodPreset: rule.period_preset,

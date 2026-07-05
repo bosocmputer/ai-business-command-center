@@ -41,6 +41,7 @@ const tenant: Tenant = {
 
 afterEach(() => {
   delete process.env.OPENROUTER_API_KEY;
+  vi.restoreAllMocks();
 });
 
 describe("AI CEO service", () => {
@@ -145,6 +146,71 @@ describe("AI CEO service", () => {
     expect(preview?.text).toContain("ดู: รายงานขายสินค้าและบริการ");
     expect(preview?.flex_message).toBeUndefined();
     expect(JSON.stringify(preview)).not.toContain("api_key");
+  });
+
+  it("records actionable OpenRouter credit and rate-limit failures", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+    const now = new Date().toISOString();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant, now }),
+      selected_model_id: "qwen/qwen3.7-max",
+      ai_enabled: true,
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Insufficient credits",
+              metadata: { error_type: "payment_required" },
+            },
+          }),
+          { status: 402, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Rate limit exceeded",
+              metadata: { error_type: "rate_limit_exceeded" },
+            },
+          }),
+          {
+            status: 429,
+            headers: { "content-type": "application/json", "retry-after": "60" },
+          },
+        ),
+      );
+
+    const creditFailure = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "worker",
+      triggerType: "scheduled",
+    });
+    const rateLimitFailure = await runAiCeoDryRun({
+      store,
+      tenant,
+      request: { scheduled_date: "2026-06-30" },
+      actorId: "worker",
+      triggerType: "scheduled",
+    });
+
+    expect(creditFailure.ok).toBe(false);
+    expect(creditFailure.provider_status).toBe(402);
+    expect(creditFailure.safe_error_message).toContain("เครดิต OpenRouter ไม่พอ");
+    expect(creditFailure.safe_error_message).toContain("HTTP 402");
+    expect(rateLimitFailure.ok).toBe(false);
+    expect(rateLimitFailure.provider_status).toBe(429);
+    expect(rateLimitFailure.safe_error_message).toContain("จำกัดความถี่");
+    expect(rateLimitFailure.safe_error_message).toContain("HTTP 429");
+    expect(rateLimitFailure.safe_error_message).toContain("60");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.usageLedger).toHaveLength(0);
   });
 
   it("renders action report labels only for visible reports in the current LINE target scope", async () => {

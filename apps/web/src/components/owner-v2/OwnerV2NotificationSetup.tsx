@@ -98,14 +98,14 @@ const digestModes: Array<{
   description: string;
 }> = [
   {
-    value: "action_only",
-    label: "ส่งเรื่องที่ต้องดูเป็นหลัก",
-    description: "ถ้าไม่มีเรื่องต้องดู ระบบ fallback เป็นรายงานเดิม",
-  },
-  {
     value: "all_reports",
     label: "ส่งครบทุก report",
-    description: "เหมาะกับช่วงตรวจระบบหรือร้านที่อยากอ่านตัวเลขครบ",
+    description: "แสดงรายงานเหมือนรอบ 08:00 และยังแนบ AI CEO เมื่อพร้อม",
+  },
+  {
+    value: "action_only",
+    label: "ส่งเฉพาะเรื่องที่ต้องดู",
+    description: "ใช้เฉพาะกรณีอยากลดจำนวนการ์ด LINE ในรอบพิเศษ",
   },
 ];
 
@@ -651,7 +651,7 @@ export default function OwnerV2NotificationSetup({
               onClick={() =>
                 applyPreset({
                   name: "Owner Daily Brief 08:00",
-                  digestMode: "action_only",
+                  digestMode: "all_reports",
                   enabled: canOpenPreset,
                   reportKeys: ["sales_goods_services", "purchase_goods_payables"],
                   targetIds: defaultTargetIds,
@@ -668,7 +668,7 @@ export default function OwnerV2NotificationSetup({
               onClick={() =>
                 applyPreset({
                   name: "Evening Sales Check 18:30",
-                  digestMode: "action_only",
+                  digestMode: "all_reports",
                   enabled: canOpenPreset,
                   reportKeys: ["sales_goods_services", "purchase_goods_payables"],
                   targetIds: defaultTargetIds,
@@ -1652,7 +1652,7 @@ function PeriodPreviewTable({
 
 function emptyForm(): NotificationFormState {
   return {
-    digestMode: "action_only",
+    digestMode: "all_reports",
     enabled: true,
     manualDate: "",
     manualTime: "",
@@ -1698,7 +1698,7 @@ function formFromRule(rule: OwnerNotificationRule): NotificationFormState {
     weekdays: weekdays.map((weekday) => weekday.value),
   };
   return {
-    digestMode: rule.digest_mode ?? "action_only",
+    digestMode: rule.digest_mode ?? "all_reports",
     enabled: rule.enabled,
     manualDate: nextDateForWeekday(schedule.weekdays[0] ?? 1),
     manualTime: schedule.times[0] ?? "",

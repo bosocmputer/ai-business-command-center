@@ -407,7 +407,7 @@ create table if not exists notification_rules (
   report_keys_json jsonb not null,
   target_ids_json jsonb not null,
   message_packaging text not null default 'digest',
-  digest_mode text not null default 'action_only',
+  digest_mode text not null default 'all_reports',
   retry_policy_json jsonb not null default '{"max_attempts":2,"retry_delay_minutes":3}'::jsonb,
   last_run_at timestamptz,
   last_run_status text,
@@ -417,7 +417,7 @@ create table if not exists notification_rules (
 );
 
 alter table notification_rules
-  add column if not exists digest_mode text not null default 'action_only';
+  add column if not exists digest_mode text not null default 'all_reports';
 
 create table if not exists notification_rule_runs (
   id text primary key,

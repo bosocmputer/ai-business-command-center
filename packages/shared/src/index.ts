@@ -2117,7 +2117,7 @@ export const notificationRulePayloadSchema = z.object({
   schedule: z.array(notificationScheduleEntrySchema).min(1).max(7),
   report_keys: z.array(reportKeySchema).min(1).max(reportKeyValues.length),
   target_ids: z.array(z.string().trim().min(1).max(180)).max(50).default([]),
-  digest_mode: notificationDigestModeSchema.default("action_only"),
+  digest_mode: notificationDigestModeSchema.default("all_reports"),
 });
 
 export type NotificationPeriodPreset = z.infer<

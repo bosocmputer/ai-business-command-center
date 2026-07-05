@@ -604,7 +604,7 @@ export default function OwnerPortal({
   const [notificationPeriodStrategy, setNotificationPeriodStrategy] =
     useState<NotificationPeriodStrategy>(OWNER_NOTIFICATION_PERIOD_STRATEGY);
   const [notificationDigestMode, setNotificationDigestMode] =
-    useState<NotificationDigestMode>("action_only");
+    useState<NotificationDigestMode>("all_reports");
   const [notificationWeekdays, setNotificationWeekdays] = useState<number[]>([
     1, 2, 3, 4, 5, 6, 7,
   ]);
@@ -976,7 +976,7 @@ export default function OwnerPortal({
       setNotificationEnabled(rule.enabled);
       setNotificationPeriodPreset(rule.period_preset);
       setNotificationPeriodStrategy(OWNER_NOTIFICATION_PERIOD_STRATEGY);
-      setNotificationDigestMode(rule.digest_mode ?? "action_only");
+      setNotificationDigestMode(rule.digest_mode ?? "all_reports");
       setNotificationWeekdays(
         rule.schedule[0]?.weekdays ?? [1, 2, 3, 4, 5, 6, 7],
       );
@@ -1007,7 +1007,7 @@ export default function OwnerPortal({
     setNotificationEnabled(false);
     setNotificationPeriodPreset("yesterday");
     setNotificationPeriodStrategy(OWNER_NOTIFICATION_PERIOD_STRATEGY);
-    setNotificationDigestMode("action_only");
+    setNotificationDigestMode("all_reports");
     setNotificationWeekdays([1, 2, 3, 4, 5, 6, 7]);
     setNotificationTimes(["08:00"]);
     setNotificationTimeInput("08:00");

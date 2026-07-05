@@ -1390,7 +1390,11 @@ async function requestOpenRouterAdvisor(input: {
         ok: false,
         providerStatus: response.status,
         latencyMs: Date.now() - startedAt,
-        safeErrorMessage: safeOpenRouterError(response.status, payload),
+        safeErrorMessage: safeOpenRouterError(
+          response.status,
+          payload,
+          response.headers.get("retry-after"),
+        ),
       };
     }
     const content = extractOpenRouterContent(payload);
@@ -1431,17 +1435,61 @@ function extractOpenRouterContent(payload: Record<string, unknown> | null) {
   return typeof message?.content === "string" ? message.content : null;
 }
 
-function safeOpenRouterError(status: number, payload: Record<string, unknown> | null) {
+function safeOpenRouterError(
+  status: number,
+  payload: Record<string, unknown> | null,
+  retryAfterHeader?: string | null,
+) {
   const error = payload?.error as Record<string, unknown> | undefined;
   const message =
     typeof error?.message === "string" ? error.message.slice(0, 220) : null;
-  if (status === 401 || status === 403) {
-    return "OpenRouter API key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน model นี้";
+  const metadata = error?.metadata as Record<string, unknown> | undefined;
+  const errorType =
+    typeof metadata?.error_type === "string" ? metadata.error_type : null;
+  const retryAfterHint = formatRetryAfterHint(retryAfterHeader);
+  if (status === 401 || errorType === "authentication") {
+    return "OpenRouter API key ไม่ถูกต้องหรือถูกปิดใช้งาน (HTTP 401)";
   }
-  if (status === 402 || status === 429) {
-    return "OpenRouter quota/rate limit ไม่พอ กรุณาเปลี่ยน key หรือ model";
+  if (status === 403 || errorType === "permission_denied") {
+    return "OpenRouter ไม่มีสิทธิ์ใช้ model นี้ หรือ request ถูกบล็อกโดย policy (HTTP 403)";
   }
-  return message ? `OpenRouter error: ${message}` : `OpenRouter error ${status}`;
+  if (status === 402 || errorType === "payment_required") {
+    return "เครดิต OpenRouter ไม่พอสำหรับ API key นี้ (HTTP 402): เติมเครดิตหรือเปลี่ยน API key/model แล้วลองใหม่";
+  }
+  if (status === 429 || errorType === "rate_limit_exceeded") {
+    return `OpenRouter ถูกจำกัดความถี่การเรียกใช้งาน (HTTP 429): รอก่อน retry หรือเปลี่ยน model/กระจายรอบส่ง${retryAfterHint}`;
+  }
+  if (status === 408 || errorType === "timeout") {
+    return "OpenRouter หรือ model provider ตอบช้าเกินเวลา (timeout): ลองใหม่หรือเปลี่ยน model";
+  }
+  if (status === 503 || errorType === "provider_overloaded") {
+    return `OpenRouter/model provider โหลดสูงชั่วคราว (HTTP 503): ลองใหม่ภายหลัง${retryAfterHint}`;
+  }
+  if (errorType === "provider_unavailable") {
+    return "OpenRouter ไม่พบ provider ที่พร้อมให้บริการสำหรับ model นี้: ลองเปลี่ยน model หรือ routing";
+  }
+  const errorTypeHint = errorType ? ` (${errorType})` : "";
+  return message
+    ? `OpenRouter error ${status}${errorTypeHint}: ${message}`
+    : `OpenRouter error ${status}${errorTypeHint}`;
+}
+
+function formatRetryAfterHint(retryAfterHeader?: string | null) {
+  if (!retryAfterHeader) {
+    return "";
+  }
+  const seconds = Number(retryAfterHeader);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return ` อย่างน้อย ${Math.ceil(seconds)} วินาที`;
+  }
+  const retryAt = Date.parse(retryAfterHeader);
+  if (Number.isNaN(retryAt)) {
+    return "";
+  }
+  const secondsUntilRetry = Math.ceil((retryAt - Date.now()) / 1000);
+  return secondsUntilRetry > 0
+    ? ` อย่างน้อย ${secondsUntilRetry} วินาที`
+    : "";
 }
 
 function parseAdvisorResponse(content: string) {
