@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSidebar } from "@/context/SidebarContext";
 import {
   BellIcon,
@@ -26,7 +26,7 @@ type OwnerV2NavSection = {
   items: OwnerV2NavItem[];
 };
 
-const navSections: OwnerV2NavSection[] = [
+const baseNavSections: OwnerV2NavSection[] = [
   {
     label: "เริ่มงาน",
     items: [
@@ -73,6 +73,11 @@ export default function OwnerV2Sidebar() {
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
   const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>({});
   const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const currentTenantId = getTenantIdFromPathname(pathname);
+  const navSections = useMemo(
+    () => buildNavSections(currentTenantId),
+    [currentTenantId],
+  );
 
   const isActive = useCallback(
     (path: string) => {
@@ -85,11 +90,7 @@ export default function OwnerV2Sidebar() {
   );
 
   const isStoreListActive = useCallback(() => {
-    return (
-      pathname === "/owner-v2/stores" ||
-      (pathname.startsWith("/owner-v2/stores/") &&
-        pathname !== "/owner-v2/stores/new")
-    );
+    return pathname === "/owner-v2/stores";
   }, [pathname]);
 
   const isSubItemActive = useCallback(
@@ -310,4 +311,47 @@ export default function OwnerV2Sidebar() {
 
 function menuKey(sectionIndex: number, itemIndex: number) {
   return `${sectionIndex}:${itemIndex}`;
+}
+
+function buildNavSections(currentTenantId: string | null): OwnerV2NavSection[] {
+  if (!currentTenantId) {
+    return baseNavSections;
+  }
+  const tenantPath = `/owner-v2/stores/${encodeURIComponent(currentTenantId)}`;
+  const currentStoreSection: OwnerV2NavSection = {
+    label: "ตั้งค่าร้านนี้",
+    items: [
+      {
+        icon: <PlugInIcon />,
+        name: "งานของร้านนี้",
+        subItems: [
+          { name: "ข้อมูลร้าน", path: tenantPath },
+          { name: "SML", path: `${tenantPath}/sml` },
+          { name: "LINE", path: `${tenantPath}/line` },
+          { name: "แผนแจ้งเตือน", path: `${tenantPath}/notifications` },
+          { name: "รายงาน", path: `${tenantPath}/reports` },
+          { name: "AI CEO", path: `${tenantPath}/ai-ceo` },
+          { name: "สิทธิ์รายงาน", path: `${tenantPath}/permissions` },
+          { name: "FlowAccount", path: `${tenantPath}/flowaccount` },
+        ],
+      },
+    ],
+  };
+  return [
+    ...baseNavSections.slice(0, 2),
+    currentStoreSection,
+    ...baseNavSections.slice(2),
+  ];
+}
+
+function getTenantIdFromPathname(pathname: string) {
+  const match = pathname.match(/^\/owner-v2\/stores\/([^/]+)/);
+  if (!match || match[1] === "new") {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
 }
