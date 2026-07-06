@@ -363,7 +363,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
             <form className="space-y-5" onSubmit={save}>
               <div>
                 <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-                  ค่าสำเร็จรูป (เลือกเพื่อกรอกให้เร็ว)
+                  แม่แบบการเชื่อมต่อ (ช่วยกรอกฟอร์ม)
                 </span>
                 <select
                   className="owner-v2-input"
@@ -383,13 +383,17 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   }}
                   value=""
                 >
-                  <option value="">— เลือกค่าสำเร็จรูป —</option>
+                  <option value="">— เลือกแม่แบบการเชื่อมต่อ —</option>
                   {SML_DATASOURCE_PRESETS.map((preset) => (
                     <option key={preset.id} value={preset.id}>
                       {preset.label} ({preset.description})
                     </option>
                   ))}
                 </select>
+                <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  แม่แบบใช้เติมค่าเริ่มต้นเท่านั้น ยังไม่บันทึกอัตโนมัติ
+                  ให้กดค้นหาฐานข้อมูลและทดสอบก่อนบันทึกทุกครั้ง
+                </p>
               </div>
 
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -1082,8 +1086,8 @@ function formatAuthMode(value: string) {
 const SML_DATASOURCE_PRESETS = [
   {
     id: "seaandhill-demo",
-    label: "Sea & Hill demo",
-    description: "147.50.69.68:80 · SMLConfigDEMO.xml · thapput",
+    label: "แม่แบบ Sea & Hill THAPPUT",
+    description: "ใช้กับร้านนี้เท่านั้น · SMLConfigDEMO.xml · thapput",
     baseUrl: "http://147.50.69.68:80",
     webappPath: "/SMLJavaWebService",
     configFileName: "SMLConfigDEMO.xml",
@@ -1091,8 +1095,8 @@ const SML_DATASOURCE_PRESETS = [
   },
   {
     id: "demo-3bb",
-    label: "3BB demo",
-    description: "demserver.3bbddns.com:47308 · SMLConfigDATA.xml · demo",
+    label: "แม่แบบทดสอบ 3BB",
+    description: "สำหรับทดสอบเท่านั้น · SMLConfigDATA.xml · demo",
     baseUrl: "http://demserver.3bbddns.com:47308",
     webappPath: "/SMLJavaWebService",
     configFileName: "SMLConfigDATA.xml",
