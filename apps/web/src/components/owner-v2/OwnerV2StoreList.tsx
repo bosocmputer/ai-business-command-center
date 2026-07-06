@@ -491,6 +491,7 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
             </Link>
           ) : null}
         </div>
+        <StoreQuickLinks baseHref={href} compact />
       </td>
     </tr>
   );
@@ -566,7 +567,44 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
           </Link>
         ) : null}
       </div>
+      <StoreQuickLinks baseHref={href} />
     </article>
+  );
+}
+
+function StoreQuickLinks({
+  baseHref,
+  compact = false,
+}: {
+  baseHref: string;
+  compact?: boolean;
+}) {
+  const links = [
+    { href: `${baseHref}/line`, label: "LINE" },
+    { href: `${baseHref}/notifications`, label: "แผนแจ้งเตือน" },
+    { href: `${baseHref}/reports`, label: "รายงาน" },
+    { href: `${baseHref}/ai-ceo`, label: "AI CEO" },
+  ];
+  return (
+    <div
+      className={
+        compact
+          ? "mt-2 flex flex-wrap gap-1.5"
+          : "mt-3 grid grid-cols-2 gap-2"
+      }
+    >
+      {links.map((item) => (
+        <Link
+          className={`inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white text-theme-xs font-medium text-gray-700 shadow-theme-xs transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-600 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300 dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10 dark:hover:text-brand-400 ${
+            compact ? "px-2.5 py-1.5" : "px-3 py-2"
+          }`}
+          href={item.href}
+          key={item.href}
+        >
+          {item.label}
+        </Link>
+      ))}
+    </div>
   );
 }
 
