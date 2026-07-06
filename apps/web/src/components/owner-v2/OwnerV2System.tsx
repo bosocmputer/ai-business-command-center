@@ -919,7 +919,7 @@ function formatConfigSource(value?: string | null) {
     return "อ่านจากค่าเริ่มต้น";
   }
   if (value === "env") {
-    return "อ่านจาก environment";
+    return "อ่านจากเครื่องแม่ข่าย";
   }
   return "ยังไม่ทราบ";
 }

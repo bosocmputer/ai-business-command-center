@@ -123,7 +123,7 @@ function DangerZone({
           <Notice
             tone="error"
             title="การยกเลิกร้านเป็น soft delete"
-            text="ระบบจะตั้งสถานะเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ และเก็บ logs, LINE targets, snapshots ไว้ตรวจย้อนหลัง หลังยกเลิกจะไม่ส่ง LINE และไม่เปิด dashboard ลูกค้า"
+            text="ระบบจะตั้งสถานะเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ และเก็บประวัติ ผู้รับ LINE และข้อมูลรายงานไว้ตรวจย้อนหลัง หลังยกเลิกจะไม่ส่ง LINE และไม่เปิดหน้าลูกค้า"
           />
 
           <div className="flex flex-wrap items-center gap-3">
@@ -154,7 +154,7 @@ function DangerZone({
                   value={`${impact.line_targets_enabled}/${impact.line_targets_total} พร้อม`}
                 />
                 <Fact
-                  label="snapshot ล่าสุด"
+                  label="ข้อมูลล่าสุด"
                   value={
                     impact.latest_snapshot_at
                       ? new Intl.DateTimeFormat("th-TH", {

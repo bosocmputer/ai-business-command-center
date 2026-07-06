@@ -232,7 +232,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "warning",
         text: discoveryValidation.ok
-          ? "ยังค้นหา database ไม่ได้"
+          ? "ยังค้นหาฐานข้อมูลไม่ได้"
           : `กรอกข้อมูลให้ครบ: ${discoveryValidation.missing.join(", ")}`,
       });
       return;
@@ -253,8 +253,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: result.ok ? "success" : "warning",
         text: result.ok
-          ? `พบ ${result.databases.length.toLocaleString("th-TH")} database`
-          : result.safe_error_message ?? "ค้นหา database ไม่สำเร็จ",
+          ? `พบ ${result.databases.length.toLocaleString("th-TH")} ฐานข้อมูล`
+          : result.safe_error_message ?? "ค้นหาฐานข้อมูลไม่สำเร็จ",
       });
     } catch (error) {
       setDiscovery(null);
@@ -263,7 +263,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         text:
           error instanceof Error
             ? error.message
-            : "ค้นหา database ไม่สำเร็จ",
+            : "ค้นหาฐานข้อมูลไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -329,7 +329,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 {formatDatasourceSource(config.source)}
               </Badge>
             }
-            description="ตั้งค่า URL, SMLConfig และ database ของร้านนี้ แล้วทดสอบก่อนเปิดใช้รายงานหรือแจ้งเตือน"
+            description="ตั้งค่า URL, ไฟล์ SMLConfig และฐานข้อมูลของร้านนี้ แล้วทดสอบก่อนเปิดใช้รายงานหรือแจ้งเตือน"
             title="SML JavaWS"
           />
           <PanelBody spaced>
@@ -384,7 +384,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 </Field>
                 <Field
                   label="ไฟล์ SMLConfig"
-                  help="ชื่อไฟล์ config ที่ JavaWS ใช้อ่าน connection ของ SML"
+                  help="ชื่อไฟล์ตั้งค่าที่ JavaWS ใช้อ่านการเชื่อมต่อของ SML"
                 >
                   <input
                     className="owner-v2-input"
@@ -400,7 +400,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 </Field>
                 <Field
                   label="ชื่อฐานข้อมูล SML"
-                  help="ใช้ปุ่มค้นหา database เพื่อลดการพิมพ์ผิด"
+                  help="ใช้ปุ่มค้นหาฐานข้อมูลเพื่อลดการพิมพ์ผิด"
                 >
                   <input
                     className="owner-v2-input"
@@ -415,8 +415,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   />
                 </Field>
                 <Field
-                  label="Path JavaWS"
-                  help="โดยทั่วไปใช้ค่าเดิมนี้ ยกเว้นร้านติดตั้ง path อื่น"
+                  label="เส้นทาง JavaWS"
+                  help="โดยทั่วไปใช้ค่าเดิมนี้ ยกเว้นร้านติดตั้งเส้นทางอื่น"
                 >
                   <input
                     className="owner-v2-input"
@@ -438,7 +438,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     รหัสผ่านหน้า JavaWS (ถ้ามี)
                   </h4>
                   <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                    ใช้เฉพาะร้านที่มี proxy, gateway หรือ token ก่อนเข้า JavaWS
+                    ใช้เฉพาะร้านที่มีชั้นล็อกอินหรือรหัสผ่านก่อนเข้า JavaWS
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -454,13 +454,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                       }
                       value={form.authMode}
                     >
-                      <option value="none">ไม่ใช้ auth</option>
-                      <option value="basic">Basic auth</option>
-                      <option value="bearer">Bearer token</option>
+                      <option value="none">ไม่ใช้รหัสผ่าน</option>
+                      <option value="basic">ผู้ใช้และรหัสผ่าน</option>
+                      <option value="bearer">รหัสโทเคน</option>
                     </select>
                   </Field>
                   {form.authMode === "basic" ? (
-                    <Field label="ผู้ใช้ auth">
+                    <Field label="ชื่อผู้ใช้">
                       <input
                         className="owner-v2-input"
                         onChange={(event) =>
@@ -478,13 +478,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     <Field
                       label={
                         form.authMode === "basic"
-                          ? "รหัสผ่าน auth"
-                          : "Bearer token"
+                          ? "รหัสผ่าน"
+                          : "รหัสโทเคน"
                       }
                       help={
                         config.auth_configured
                           ? "กรอกรหัสลับใหม่เมื่อต้องทดสอบหรือบันทึกจากฟอร์ม"
-                          : "รหัสลับจะถูกเข้ารหัสฝั่ง server"
+                          : "รหัสลับจะถูกเข้ารหัสก่อนบันทึก"
                       }
                     >
                       <input
@@ -517,7 +517,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  {busy === "discover" ? "กำลังค้นหา..." : "1 · ค้นหา database"}
+                  {busy === "discover" ? "กำลังค้นหา..." : "1 · ค้นหาฐานข้อมูล"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
@@ -658,8 +658,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 {discovery.latency_ms} ms
               </Badge>
             }
-            description="เลือกชื่อ database ที่พบเพื่อเติมลงฟอร์มโดยไม่ต้องพิมพ์เอง"
-            title="ผลค้นหา database"
+            description="เลือกชื่อฐานข้อมูลที่พบเพื่อเติมลงฟอร์มโดยไม่ต้องพิมพ์เอง"
+            title="ผลค้นหาฐานข้อมูล"
           />
           <PanelBody spaced>
             {discovery.safe_error_message ? (
@@ -694,7 +694,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               </div>
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                ไม่พบ database จาก JavaWS รอบนี้
+                ไม่พบฐานข้อมูลจาก JavaWS รอบนี้
               </p>
             )}
           </PanelBody>
@@ -783,8 +783,8 @@ function SmlActionGuide({
       ok: canDiscover,
     },
     {
-      detail: "ใช้ปุ่มค้นหาเพื่อลดโอกาสพิมพ์ชื่อ database ผิด",
-      label: "เลือก database",
+      detail: "ใช้ปุ่มค้นหาเพื่อลดโอกาสพิมพ์ชื่อฐานข้อมูลผิด",
+      label: "เลือกฐานข้อมูล",
       ok: hasDatabase,
     },
     {
@@ -930,10 +930,10 @@ function validateDraft(form: SmlFormState, includeDatabase: boolean) {
     missing.push("ชื่อฐานข้อมูล SML");
   }
   if (form.authMode === "basic" && !form.authUsername.trim()) {
-    missing.push("ผู้ใช้ auth");
+    missing.push("ชื่อผู้ใช้");
   }
   if (form.authMode !== "none" && !form.authSecret.trim()) {
-    missing.push(form.authMode === "basic" ? "รหัสผ่าน auth" : "Bearer token");
+    missing.push(form.authMode === "basic" ? "รหัสผ่าน" : "รหัสโทเคน");
   }
   return { ok: missing.length === 0, missing };
 }
@@ -959,7 +959,7 @@ function buildActionHelp({
   const items: string[] = [];
   if (!discoveryValidation.ok) {
     items.push(
-      `ปุ่มค้นหา database ต้องกรอก: ${discoveryValidation.missing.join(", ")}`,
+      `ปุ่มค้นหาฐานข้อมูลต้องกรอก: ${discoveryValidation.missing.join(", ")}`,
     );
   }
   if (!validation.ok) {
@@ -1019,7 +1019,7 @@ function formatDatasourceSource(value: string) {
     return "บันทึกในระบบ";
   }
   if (value === "env") {
-    return "จาก environment";
+    return "จากเครื่องแม่ข่าย";
   }
   return "ยังไม่ตั้ง";
 }

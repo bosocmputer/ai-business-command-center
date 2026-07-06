@@ -192,7 +192,7 @@ export default function OwnerV2FlowAccountSetup({
           <Notice
             tone="error"
             title="โหลด FlowAccount ไม่สำเร็จ"
-            text={`${state.message} ตรวจ AI_BCC_SECRET_KEY, API session และ tenant ก่อนลองใหม่`}
+            text={`${state.message} ตรวจกุญแจเข้ารหัส สิทธิ์ผู้ดูแล และข้อมูลร้านก่อนลองใหม่`}
           />
           <Button
             className="mt-4 w-full sm:w-auto"

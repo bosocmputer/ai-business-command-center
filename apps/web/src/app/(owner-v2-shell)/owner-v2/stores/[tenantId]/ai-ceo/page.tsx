@@ -15,7 +15,7 @@ export default async function OwnerV2StoreAiCeoPage({
   const { tenantId } = await params;
   return (
     <OwnerV2Shell
-      subtitle="ตั้งค่า prompt, model, key และทดสอบ AI CEO ก่อนเปิดส่งจริงของร้านนี้"
+      subtitle="ตั้งค่าบทบาท โมเดล รหัส OpenRouter และทดสอบ AI CEO ก่อนเปิดส่งจริงของร้านนี้"
       title="AI CEO / Business Advisor"
     >
       <OwnerV2AiCeoSetup tenantId={tenantId} />

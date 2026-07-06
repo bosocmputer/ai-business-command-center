@@ -18,7 +18,7 @@ export default async function OwnerV2StoreSmlPage({
   const { tenantId } = await params;
   return (
     <OwnerV2Shell
-      subtitle="ตั้งค่า SML JavaWS, ค้นหา database และทดสอบก่อนเปิดรายงานหรือแผนแจ้งเตือน"
+      subtitle="ตั้งค่า SML JavaWS, ค้นหาฐานข้อมูล และทดสอบก่อนเปิดรายงานหรือแผนแจ้งเตือน"
       title="SML JavaWS"
     >
       <OwnerV2SmlSetup tenantId={tenantId} />

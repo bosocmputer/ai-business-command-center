@@ -43,7 +43,7 @@ const quickActions = [
     label: "เพิ่มร้านใหม่",
   },
   {
-    detail: "เลือกร้านก่อนรันทดสอบรายงานหรือดู snapshot ล่าสุด",
+    detail: "เลือกร้านก่อนรันทดสอบรายงานหรือดูข้อมูลล่าสุด",
     href: "/owner-v2/stores",
     keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
     label: "รายงาน",
@@ -61,7 +61,7 @@ const quickActions = [
     label: "LINE OA",
   },
   {
-    detail: "เลือกร้านก่อนตรวจ role และ report permissions",
+    detail: "เลือกร้านก่อนตรวจบทบาทและสิทธิ์รายงาน",
     href: "/owner-v2/stores",
     keywords: "permissions access role สิทธิ์ รายงาน",
     label: "สิทธิ์รายงาน",
@@ -121,7 +121,7 @@ export default function OwnerV2Header() {
         label: "SML ร้านนี้",
       },
       {
-        detail: "รันทดสอบรายงานที่อนุมัติไว้ของร้านนี้",
+    detail: "รันทดสอบรายงานที่เปิดสิทธิ์ไว้ของร้านนี้",
         href: `${tenantPath}/reports`,
         keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
         label: "รายงานร้านนี้",
@@ -133,19 +133,19 @@ export default function OwnerV2Header() {
         label: "LINE ร้านนี้",
       },
       {
-        detail: "ตั้งค่า FlowAccount sandbox ของร้านนี้",
+    detail: "ทดสอบเชื่อมต่อ FlowAccount ของร้านนี้",
         href: `${tenantPath}/flowaccount`,
-        keywords: "flowaccount finance openapi sandbox client credentials",
+    keywords: "flowaccount finance เชื่อมต่อ การเงิน",
         label: "FlowAccount ร้านนี้",
       },
       {
-        detail: "ตั้งค่า prompt, model และ OpenRouter key ของ AI CEO ร้านนี้",
+    detail: "ตั้งค่าบทบาท โมเดล และรหัส OpenRouter ของ AI CEO ร้านนี้",
         href: `${tenantPath}/ai-ceo`,
         keywords: "ai ceo business advisor openrouter prompt model advisor",
         label: "AI CEO ร้านนี้",
       },
       {
-        detail: "ตรวจ role และ report permissions ของร้านนี้",
+    detail: "ตรวจบทบาทและสิทธิ์รายงานของร้านนี้",
         href: `${tenantPath}/permissions`,
         keywords: "permissions access role สิทธิ์ รายงาน",
         label: "สิทธิ์ร้านนี้",

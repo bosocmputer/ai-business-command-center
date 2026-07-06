@@ -123,7 +123,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
     if (!canSave) {
       setMessage({
         tone: "warning",
-        text: "ตรวจแผนร้าน, AI_BCC_SECRET_KEY และ prompt ให้ครบก่อนบันทึก",
+        text: "ตรวจแพ็กเกจร้าน ระบบเข้ารหัส และคำสั่ง AI ให้ครบก่อนบันทึก",
       });
       return;
     }
@@ -144,12 +144,12 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       );
       setState({ status: "success", data: next });
       setForm(formFromStatus(next));
-      setMessage({ tone: "success", text: "บันทึก AI CEO config แล้ว" });
+      setMessage({ tone: "success", text: "บันทึกการตั้งค่า AI CEO แล้ว" });
     } catch (error) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "บันทึก AI CEO config ไม่สำเร็จ",
+          error instanceof Error ? error.message : "บันทึกการตั้งค่า AI CEO ไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -162,7 +162,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       return;
     }
     if (openRouterKey.trim().length < 20) {
-      setMessage({ tone: "warning", text: "กรอก OpenRouter API key ก่อนบันทึก" });
+      setMessage({ tone: "warning", text: "กรอกรหัส OpenRouter ก่อนบันทึก" });
       return;
     }
 
@@ -180,12 +180,12 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setState({ status: "success", data: next });
       setMessage({
         tone: "success",
-        text: "บันทึก OpenRouter API key แบบเข้ารหัสแล้ว",
+        text: "บันทึกรหัส OpenRouter แบบเข้ารหัสแล้ว",
       });
     } catch (error) {
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "บันทึก OpenRouter API key ไม่สำเร็จ",
+        text: error instanceof Error ? error.message : "บันทึกรหัส OpenRouter ไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -222,7 +222,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
     if (!canDryRun) {
       setMessage({
         tone: "warning",
-        text: "ต้องมีแพ็กเกจที่รองรับ, ระบบเข้ารหัส, API key และ prompt ก่อนทดสอบ AI CEO",
+        text: "ต้องมีแพ็กเกจที่รองรับ ระบบเข้ารหัส รหัส OpenRouter และคำสั่ง AI ก่อนทดสอบ AI CEO",
       });
       return;
     }
@@ -317,7 +317,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       <Panel>
         <PanelHeader
           title="AI CEO / Business Advisor"
-          description="ตั้งค่าบทบาท, prompt, โมเดล และงบใช้งานของร้านนี้"
+          description="ตั้งค่าบทบาท คำสั่ง โมเดล และงบใช้งานของร้านนี้"
           action={
             <Link
               className={secondaryActionClass}
@@ -340,7 +340,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               value={data.profile.ai_enabled ? "เปิดใช้งาน" : "ยังไม่เปิด"}
             />
             <Fact
-              label="OpenRouter API key"
+              label="รหัส OpenRouter"
               tone={data.key_configured ? "success" : "warning"}
               value={keySourceLabel(data.key_source)}
             />
@@ -355,14 +355,14 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
             <Notice
               tone="warning"
               title="แผนนี้ยังไม่เปิด AI CEO"
-              text="AI CEO ใช้งานจริงในแผน Business และ Pro เพื่อคุมต้นทุนและ SLA ของ provider"
+              text="AI CEO ใช้งานจริงในแผน Business และ Pro เพื่อคุมต้นทุนและคุณภาพบริการ"
             />
           ) : null}
           {!data.encryption_configured ? (
             <Notice
               tone="error"
-              title="ยังไม่มี AI_BCC_SECRET_KEY"
-              text="ต้องตั้งค่า encryption secret บน server ก่อนบันทึก OpenRouter key หรือเปิด AI CEO"
+              title="ระบบเข้ารหัสยังไม่พร้อม"
+              text="ต้องตั้งค่ากุญแจเข้ารหัสบนเครื่องแม่ข่ายก่อนบันทึกรหัส OpenRouter หรือเปิด AI CEO"
             />
           ) : null}
 
@@ -376,16 +376,16 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                    บทบาทและ model
+                    บทบาทและโมเดล
                   </h4>
                   <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    Prompt นี้จะใช้กับร้านนี้เท่านั้น
+                    คำสั่งนี้จะใช้กับร้านนี้เท่านั้น
                   </p>
                 </div>
                 <Badge color={selectedModel?.recommended_tier === "pro" ? "warning" : "success"}>
                   {selectedModel
                     ? formatPlanCode(selectedModel.recommended_tier)
-                    : "Model"}
+                    : "โมเดล"}
                 </Badge>
               </div>
 
@@ -446,7 +446,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     })}
                   </select>
                 </Field>
-                <Field label="โหมด API key">
+                <Field label="โหมดรหัส OpenRouter">
                   <select
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -458,8 +458,8 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     }
                     value={form.key_mode}
                   >
-                    <option value="system_default">ใช้ key กลางของระบบ</option>
-                    <option value="tenant_override">ใช้ key เฉพาะร้านนี้</option>
+                    <option value="system_default">ใช้รหัสกลางของระบบ</option>
+                    <option value="tenant_override">ใช้รหัสเฉพาะร้านนี้</option>
                   </select>
                 </Field>
               </div>
@@ -581,7 +581,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                       เปิด AI CEO
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                      เปิดใช้หลังทดสอบ key และ prompt แล้ว
+                      เปิดใช้หลังทดสอบรหัส OpenRouter และคำสั่ง AI แล้ว
                     </span>
                   </span>
                 </label>
@@ -610,7 +610,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="mt-4">
-                <Field label="Prompt บทบาท CEO">
+                <Field label="คำสั่งบทบาท CEO">
                   <textarea
                     className="owner-v2-input min-h-72"
                     disabled={!canUseAi || busy !== null}
@@ -647,14 +647,14 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 onSubmit={saveKey}
               >
                 <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                  OpenRouter API key
+                  รหัส OpenRouter
                 </h4>
                 <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                  ช่องนี้เป็น write-only และไม่แสดงค่าที่บันทึกไว้
+                  ช่องนี้ใช้สำหรับบันทึกรหัสลับเท่านั้น และจะไม่แสดงค่าที่บันทึกไว้
                 </p>
                 <div className="mt-4">
                   <Field
-                    label="API key"
+                    label="รหัสลับ"
                     help={data.key_configured ? "กรอกเฉพาะเมื่อต้องการแทนที่ค่าเดิม" : undefined}
                   >
                     <input
@@ -674,7 +674,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   size="sm"
                   type="submit"
                 >
-                  {busy === "key" ? "กำลังบันทึก..." : "บันทึก key เฉพาะร้าน"}
+                  {busy === "key" ? "กำลังบันทึก..." : "บันทึกรหัสเฉพาะร้าน"}
                 </Button>
               </form>
 
@@ -758,10 +758,10 @@ function AiCeoAdminGuide() {
   const sections = [
     {
       title: "สถานะด้านบน",
-      text: "ใช้เช็กความพร้อมก่อนเปิดจริง: แพ็กเกจต้องรองรับ AI CEO, API key ต้องพร้อม และระบบเข้ารหัสต้องพร้อม",
+      text: "ใช้เช็กความพร้อมก่อนเปิดจริง: แพ็กเกจต้องรองรับ AI CEO, รหัส OpenRouter ต้องพร้อม และระบบเข้ารหัสต้องพร้อม",
     },
     {
-      title: "บทบาทและ prompt",
+      title: "บทบาทและคำสั่ง",
       text: "กำหนดตัวตน AI CEO ของร้านนั้น ๆ เช่น ธุรกิจคอนกรีตควรเน้นสต็อก/ลูกหนี้ ส่วนร้านอาหารอาจเน้นยอดขายรายวัน",
     },
     {
@@ -769,8 +769,8 @@ function AiCeoAdminGuide() {
       text: "เลือกสมดุลระหว่างความฉลาด ความเร็ว และต้นทุน ยิ่งโมเดลใหญ่ยิ่งเหมาะกับงานวิเคราะห์ยากแต่ราคาสูงกว่า",
     },
     {
-      title: "โหมด API key",
-      text: "เลือกว่าจะใช้ key กลางของบริษัท หรือ key เฉพาะร้าน ถ้าเป็น key เฉพาะร้านระบบจะเก็บแบบเข้ารหัส",
+      title: "โหมดรหัส OpenRouter",
+      text: "เลือกว่าจะใช้รหัสกลางของบริษัท หรือรหัสเฉพาะร้าน ถ้าเป็นรหัสเฉพาะร้านระบบจะเก็บแบบเข้ารหัส",
     },
     {
       title: "ขอบเขตงบใช้งาน",
@@ -782,11 +782,11 @@ function AiCeoAdminGuide() {
     },
     {
       title: "ทดสอบก่อนส่งจริง",
-      text: "ทดสอบ prompt, โมเดล และ key กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้โทเคนจริงของ OpenRouter",
+      text: "ทดสอบคำสั่ง โมเดล และรหัส OpenRouter กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้โทเคนจริงของ OpenRouter",
     },
     {
       title: "สิ่งที่ AI CEO แนะนำ",
-      text: "เป็นรายการงานที่ AI สร้างจากรอบทดสอบหรือรอบแจ้งเตือนจริง เพื่อให้ admin รับทราบหรือปิดงานได้",
+      text: "เป็นรายการงานที่ AI สร้างจากรอบทดสอบหรือรอบแจ้งเตือนจริง เพื่อให้ผู้ดูแลรับทราบหรือปิดงานได้",
     },
   ];
 
@@ -877,8 +877,8 @@ function AiCeoModelGuide({
                     <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
                       {model.display_name}
                     </h4>
-                    <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
-                      {model.model_id}
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      ผู้ให้บริการ: {model.provider}
                     </p>
                   </div>
                   <Button
@@ -969,7 +969,7 @@ function AiCeoDryRunResultPanel({
           <Fact label="ตรวจเมื่อ" value={formatDateTime(result.checked_at)} />
           <Fact label="เวลาเรียก AI" value={`${result.latency_ms} ms`} />
           <Fact
-            label="Provider"
+            label="สถานะผู้ให้บริการ"
             value={result.provider_status?.toString() ?? "-"}
           />
           <Fact
@@ -1153,7 +1153,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
     "openai/gpt-5.5": {
       bestFor: "ผู้ช่วยผู้บริหารแบบ premium ที่ต้องการคำตอบรอบด้านและสื่อสารดี",
       strengths: [
-        "สมดุลทั้ง reasoning, business writing และการจัดลำดับ action",
+        "สมดุลทั้งการวิเคราะห์เหตุผล การเขียนเชิงธุรกิจ และการจัดลำดับงาน",
         "เหมาะกับคำแนะนำที่ต้องอ่านง่ายสำหรับเจ้าของกิจการ",
       ],
       tradeoffs: [
@@ -1166,7 +1166,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
     "anthropic/claude-sonnet-4.6": {
       bestFor: "ค่า default ของร้าน Pro ที่อยากได้ความละเอียดโดยไม่ไปแพงสุด",
       strengths: [
-        "อ่าน context ยาวและสรุปเหตุผลเป็นระบบ",
+        "อ่านบริบทยาวและสรุปเหตุผลเป็นระบบ",
         "เหมาะกับการชี้ความเสี่ยงและข้อควรตรวจสอบก่อนตัดสินใจ",
       ],
       tradeoffs: [
@@ -1177,56 +1177,56 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "ใช้กับร้านใหญ่ที่อยากได้ AI CEO จริงจัง แต่ยังต้องคุมต้นทุนกว่า Opus",
     },
     "google/gemini-3.1-pro-preview": {
-      bestFor: "งาน context ยาวมาก หรือร้านที่มีข้อมูลหลายมิติในรอบเดียว",
+      bestFor: "งานที่ต้องอ่านข้อมูลยาวมาก หรือร้านที่มีข้อมูลหลายมิติในรอบเดียว",
       strengths: [
-        "context ใหญ่ เหมาะกับการรวมหลายรายงาน",
+        "รองรับบริบทใหญ่ เหมาะกับการรวมหลายรายงาน",
         "ดีสำหรับ structured output และการอ่านข้อมูลจำนวนมาก",
       ],
       tradeoffs: [
-        "เป็น preview จึงควร monitor คุณภาพและราคาเมื่อ provider เปลี่ยน",
+        "เป็นรุ่นพรีวิว จึงควรติดตามคุณภาพและราคาเมื่อผู้ให้บริการเปลี่ยนเงื่อนไข",
         "อาจไม่ใช่ตัวเลือกแรกถ้างานคือ brief สั้นทุกเช้า",
       ],
       recommendation:
-        "ใช้กับงาน long-context หรือทดลองเทียบคุณภาพก่อนเปิดให้ลูกค้าจริง",
+        "ใช้กับงานบริบทยาว หรือทดลองเทียบคุณภาพก่อนเปิดให้ลูกค้าจริง",
     },
     "qwen/qwen3.7-max": {
       bestFor: "AI CEO รายวันสำหรับร้านส่วนใหญ่ที่ต้องการสมดุลต้นทุนและคุณภาพ",
       strengths: [
         "สมดุลราคาและคุณภาพ เหมาะกับรอบส่งเช้าประจำวัน",
-        "context ใหญ่พอสำหรับ 10 รายงานและ business signals",
+        "รองรับบริบทใหญ่พอสำหรับ 10 รายงานและสัญญาณธุรกิจ",
       ],
       tradeoffs: [
         "งานวิเคราะห์ซับซ้อนมากอาจไม่ละเอียดเท่ากลุ่ม Pro premium",
-        "ควรดูผลทดสอบหลังแก้ prompt สำคัญทุกครั้ง",
+        "ควรดูผลทดสอบหลังแก้คำสั่งสำคัญทุกครั้ง",
       ],
       recommendation:
         "แนะนำเป็นค่าเริ่มต้นของแผน Business และร้านที่เริ่มใช้ AI CEO จริง",
     },
     "deepseek/deepseek-v4-pro": {
-      bestFor: "ร้านที่อยากได้ reasoning ดีแต่ยังต้องคุมต้นทุน",
+      bestFor: "ร้านที่อยากได้การวิเคราะห์เหตุผลดีแต่ยังต้องคุมต้นทุน",
       strengths: [
-        "ราคาดีเมื่อเทียบกับความสามารถด้าน reasoning",
-        "เหมาะกับ report synthesis และหาสัญญาณผิดปกติจากตัวเลข",
+        "ราคาดีเมื่อเทียบกับความสามารถด้านวิเคราะห์เหตุผล",
+        "เหมาะกับการรวมผลรายงานและหาสัญญาณผิดปกติจากตัวเลข",
       ],
       tradeoffs: [
-        "ควรตรวจรูปแบบผลลัพธ์หลังเปลี่ยน prompt หรืออัปเดตโมเดล",
-        "style คำแนะนำอาจต้องจูน prompt ให้เข้าภาษาแบรนด์",
+        "ควรตรวจรูปแบบผลลัพธ์หลังเปลี่ยนคำสั่งหรืออัปเดตโมเดล",
+        "สำนวนคำแนะนำอาจต้องปรับคำสั่งให้เข้าภาษาแบรนด์",
       ],
       recommendation:
         "ใช้เป็นทางเลือก Business เมื่ออยากลดต้นทุนจาก Qwen แต่ยังคงคุณภาพวิเคราะห์",
     },
     "x-ai/grok-4.3": {
-      bestFor: "ทางเลือก high-context สำหรับร้านที่ต้องการลอง provider สำรอง",
+      bestFor: "ทางเลือกบริบทใหญ่สำหรับร้านที่ต้องการลองผู้ให้บริการสำรอง",
       strengths: [
-        "context ใหญ่และค่า output น่าสนใจ",
-        "ใช้เป็น fallback เปรียบเทียบคุณภาพกับ Qwen/DeepSeek ได้",
+        "รองรับบริบทใหญ่และค่าตอบกลับน่าสนใจ",
+        "ใช้เป็นตัวสำรองเพื่อเปรียบเทียบคุณภาพกับ Qwen/DeepSeek ได้",
       ],
       tradeoffs: [
-        "style อาจสนทนามาก ต้องคุม prompt ให้ตอบเป็น action business",
-        "ควร monitor ความสม่ำเสมอของคำตอบช่วงแรก",
+        "สำนวนอาจสนทนามาก ต้องคุมคำสั่งให้ตอบเป็นงานที่ควรทำ",
+        "ควรติดตามความสม่ำเสมอของคำตอบช่วงแรก",
       ],
       recommendation:
-        "ใช้ทดลองกับร้าน pilot ก่อน หากผลดีค่อยเปิดเป็น option ให้ admin เลือก",
+        "ใช้ทดลองกับร้านนำร่องก่อน หากผลดีค่อยเปิดเป็นตัวเลือกให้ผู้ดูแลเลือก",
     },
     "mistralai/mistral-large-2512": {
       bestFor: "ข้อความธุรกิจแบบ structured ที่ต้องการราคากลางและ predictable",
@@ -1235,7 +1235,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "ต้นทุนไม่แรงเท่ากลุ่ม Pro premium",
       ],
       tradeoffs: [
-        "context สั้นกว่าหลายตัวในรายการนี้",
+        "รองรับบริบทสั้นกว่าหลายตัวในรายการนี้",
         "ไม่ใช่ตัวเลือกแรกถ้าต้องอ่านข้อมูลยาวมากหลายรอบ",
       ],
       recommendation:
@@ -1245,11 +1245,11 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
       bestFor: "daily brief ราคาประหยัดและต้องการความเร็ว",
       strengths: [
         "เร็วและประหยัด เหมาะกับรอบส่งทุกวัน",
-        "context ใหญ่ เหมาะกับการสรุปหลายรายงานแบบไม่ลึกมาก",
+        "รองรับบริบทใหญ่ เหมาะกับการสรุปหลายรายงานแบบไม่ลึกมาก",
       ],
       tradeoffs: [
         "คำแนะนำเชิงลึกอาจน้อยกว่ากลุ่ม Max/Pro",
-        "ไม่เหมาะกับการตัดสินใจใหญ่ที่ต้องการ reasoning ละเอียด",
+        "ไม่เหมาะกับการตัดสินใจใหญ่ที่ต้องการวิเคราะห์เหตุผลละเอียด",
       ],
       recommendation:
         "ใช้เมื่อร้านเน้นต้นทุนต่ำ หรือใช้เป็นโมเดลสำหรับโหมดทดลองเงียบ/รอบทดสอบจำนวนมาก",
@@ -1257,15 +1257,15 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
     "deepseek/deepseek-v4-flash": {
       bestFor: "โหมดทดลองเงียบต้นทุนต่ำ, รอบทดสอบ และ brief สั้น",
       strengths: [
-        "ต้นทุนต่ำมาก เหมาะกับการทดลอง prompt บ่อย ๆ",
-        "ดีสำหรับเช็ก flow และสร้างคำแนะนำเบื้องต้น",
+        "ต้นทุนต่ำมาก เหมาะกับการทดลองคำสั่งบ่อย ๆ",
+        "ดีสำหรับเช็กขั้นตอนและสร้างคำแนะนำเบื้องต้น",
       ],
       tradeoffs: [
-        "ไม่ควรใช้เป็นตัวหลักสำหรับร้านใหญ่ที่ต้องการ insight ลึก",
-        "ควรให้ admin ตรวจคุณภาพก่อนเปิดส่งจริง",
+        "ไม่ควรใช้เป็นตัวหลักสำหรับร้านใหญ่ที่ต้องการข้อวิเคราะห์ลึก",
+        "ควรให้ผู้ดูแลตรวจคุณภาพก่อนเปิดส่งจริง",
       ],
       recommendation:
-        "ใช้ช่วง onboarding หรือร้านที่ยังทดลอง AI CEO ก่อนอัปเป็น model หลัก",
+        "ใช้ช่วงเริ่มต้นหรือร้านที่ยังทดลอง AI CEO ก่อนอัปเป็นโมเดลหลัก",
     },
   };
 
@@ -1274,13 +1274,13 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
       bestFor: model.use_case,
       strengths: [
         model.intelligence_label,
-        `${model.provider} model พร้อม context ${formatNumber(
+        `โมเดลจาก ${model.provider} รองรับบริบท ${formatNumber(
           model.context_length,
         )} โทเคน`,
       ],
       tradeoffs: [
-        "ยังไม่มี playbook เฉพาะรุ่นในระบบ ควรทดสอบก่อนเปิดส่งจริง",
-        "ตรวจราคาและคุณภาพหลัง sync catalog จาก OpenRouter",
+        "ยังไม่มีแนวทางเฉพาะรุ่นในระบบ ควรทดสอบก่อนเปิดส่งจริง",
+        "ตรวจราคาและคุณภาพหลังอัปเดตรายการโมเดลจาก OpenRouter",
       ],
       recommendation:
         model.recommended_tier === "pro"

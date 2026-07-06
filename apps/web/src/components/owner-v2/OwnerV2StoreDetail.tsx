@@ -418,10 +418,10 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
               <div className="mt-5 flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-                    FlowAccount sandbox
+                    ทดสอบเชื่อมต่อ FlowAccount
                   </p>
                   <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ทดสอบ client credentials และ /company/info แยกจาก readiness หลัก
+                    ทดสอบข้อมูลเชื่อมต่อแยกจากความพร้อมหลักของร้าน
                   </p>
                 </div>
                 <Link
@@ -438,7 +438,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                     AI CEO / Business Advisor
                   </p>
                   <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ตั้งค่าบทบาท AI, model, key และงบใช้งานของร้านนี้
+                    ตั้งค่าบทบาท AI โมเดล รหัส OpenRouter และงบใช้งานของร้านนี้
                   </p>
                 </div>
                 <Link
@@ -452,11 +452,11 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             </PanelBody>
           </Panel>
 
-          {/* Sub-panel 2 — รอบล่าสุด (report / snapshot / delivery / notification) */}
+          {/* Sub-panel 2 — รอบล่าสุดของรายงาน, LINE และแผนแจ้งเตือน */}
           <Panel>
             <PanelHeader
               title="รอบล่าสุด"
-              description="รายงาน, snapshot, LINE delivery และรอบแจ้งเตือนล่าสุด"
+              description="ข้อมูลรายงาน การส่ง LINE และรอบแจ้งเตือนล่าสุด"
             />
             <PanelBody>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -465,19 +465,19 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                   value={
                     health.latest_report_run_at
                       ? `${formatRunStatus(health.latest_report_status)} · ${formatDateTime(health.latest_report_run_at)}`
-                      : "ยังไม่มี run"
+                      : "ยังไม่มีรอบรัน"
                   }
                 />
                 <Fact
-                  label="Snapshot ล่าสุด"
+                  label="ข้อมูลล่าสุด"
                   value={formatDateTime(health.latest_snapshot_at)}
                 />
                 <Fact
-                  label="LINE delivery ล่าสุด"
+                  label="ส่ง LINE ล่าสุด"
                   value={
                     health.latest_line_delivery_at
                       ? `${formatLineDeliveryStatus(health.latest_line_delivery_status)} · ${formatDateTime(health.latest_line_delivery_at)}`
-                      : "ยังไม่มี delivery"
+                      : "ยังไม่มีประวัติส่ง"
                   }
                 />
                 <Fact

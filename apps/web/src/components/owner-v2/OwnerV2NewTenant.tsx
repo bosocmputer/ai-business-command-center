@@ -142,7 +142,7 @@ export default function OwnerV2NewTenant() {
           : !tenantIdFormatOk
             ? "รหัสร้านต้องเป็น lowercase, ตัวเลข, _ หรือ - อย่างน้อย 3 ตัว"
             : !viewerEmailFormatOk
-              ? "รูปแบบอีเมลผู้ดูแดชบอร์ดไม่ถูกต้อง"
+              ? "รูปแบบอีเมลผู้ดูแลแดชบอร์ดไม่ถูกต้อง"
               : "กรอกชื่อร้านและรหัสร้านให้ครบก่อนตรวจตัวอย่าง",
       });
       return;
@@ -218,7 +218,7 @@ export default function OwnerV2NewTenant() {
               {previewMatchesForm ? "ตรวจล่าสุดตรงกับฟอร์มนี้" : "ต้องตรวจก่อน"}
             </Badge>
           }
-          description="สร้างร้านและผู้ดูแดชบอร์ดเริ่มต้นเท่านั้น ยังไม่บันทึกค่าลับของ SML หรือ LINE"
+          description="สร้างร้านและผู้ดูแลแดชบอร์ดเริ่มต้นเท่านั้น ยังไม่บันทึกค่าลับของ SML หรือ LINE"
           title="เพิ่มร้านใหม่"
         />
         <PanelBody spaced>
@@ -285,7 +285,7 @@ export default function OwnerV2NewTenant() {
                   className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
                   htmlFor="new-tenant-email"
                 >
-                  อีเมลผู้ดูแดชบอร์ด
+                  อีเมลผู้ดูแลแดชบอร์ด
                 </label>
                 <input
                   className={`owner-v2-input ${
@@ -311,7 +311,7 @@ export default function OwnerV2NewTenant() {
                 >
                   {viewerEmail.trim() && !viewerEmailFormatOk
                     ? "รูปแบบอีเมลไม่ถูกต้อง"
-                    : "ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแดชบอร์ดให้อัตโนมัติ"}
+                    : "ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแลแดชบอร์ดให้อัตโนมัติ"}
                 </p>
               </div>
             </div>
@@ -445,7 +445,7 @@ export default function OwnerV2NewTenant() {
               >
                 {sensitiveHints.length
                   ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-                  : "ห้ามใส่ข้อมูลลับ เช่น token, password หรือ secret ในช่องนี้"}
+                  : "ห้ามใส่ข้อมูลลับ เช่น รหัสผ่าน โทเคน หรือกุญแจระบบในช่องนี้"}
               </p>
             </div>
 
@@ -528,7 +528,7 @@ export default function OwnerV2NewTenant() {
             <div className="grid grid-cols-1 gap-3">
               <Fact label="แพ็กเกจ" value={formatPlanCode(preview.plan_code)} />
               <Fact label="หน้าแดชบอร์ด" value={preview.dashboard_path} />
-              <Fact label="ผู้ดูแดชบอร์ด" value={preview.viewer_email} />
+              <Fact label="ผู้ดูแลแดชบอร์ด" value={preview.viewer_email} />
             </div>
             <TechnicalDetails embedded title="รายละเอียดเทคนิคของร้านใหม่">
               <Fact label="รหัสร้าน" value={preview.tenant_id} />

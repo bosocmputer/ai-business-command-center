@@ -463,10 +463,10 @@ function SmlStep({ data }: { data: OwnerV2SmlSetupPayload | null }) {
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3">
         <Fact label="ชนิดแหล่งข้อมูล" value={datasource.kind ?? "ยังไม่ตั้ง"} />
-        <Fact label="Database" value={datasource.database ?? "ยังไม่ระบุ"} />
+        <Fact label="ฐานข้อมูล" value={datasource.database ?? "ยังไม่ระบุ"} />
         <Fact
-          label="Auth"
-          value={datasource.auth_configured ? "ตั้งค่าแล้ว" : "ไม่ใช้ auth"}
+          label="รหัสผ่าน"
+          value={datasource.auth_configured ? "ตั้งค่าแล้ว" : "ไม่ใช้รหัสผ่าน"}
         />
       </div>
       {data?.latest_report_run ? (
@@ -493,7 +493,7 @@ function ReportStep({ data }: { data: OwnerV2ReportSetupPayload | null }) {
       <div className="grid gap-3 sm:grid-cols-3">
         <Fact label="รายงานทั้งหมด" value={`${data?.reports?.length ?? 0} รายงาน`} />
         <Fact
-          label="Snapshot ล่าสุด"
+          label="ข้อมูลล่าสุด"
           value={`${data?.latest_snapshots?.length ?? 0} รายงาน`}
         />
       </div>

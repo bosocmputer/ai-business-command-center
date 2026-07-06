@@ -489,7 +489,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-                    ยังไม่มี run
+                    ยังไม่มีรอบรัน
                   </p>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
                     ยังไม่มีประวัติรันของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม

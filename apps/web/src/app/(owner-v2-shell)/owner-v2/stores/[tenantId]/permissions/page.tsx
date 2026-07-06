@@ -18,7 +18,7 @@ export default async function OwnerV2StorePermissionsPage({
   const { tenantId } = await params;
   return (
     <OwnerV2Shell
-      subtitle="ตรวจ role และสิทธิ์รายงานของผู้รับแจ้งเตือน"
+      subtitle="ตรวจบทบาทและสิทธิ์รายงานของผู้รับแจ้งเตือน"
       title="สิทธิ์รายงาน"
     >
       <OwnerV2ReportPermissions tenantId={tenantId} />

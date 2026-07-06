@@ -264,7 +264,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setChannelForm({ displayName: "", scope: "tenant", enabled: true });
       setMessage({
         tone: "success",
-        text: "เพิ่ม LINE OA แล้ว ขั้นต่อไปบันทึก token ส่งข้อความและ secret รับ webhook",
+        text: "เพิ่ม LINE OA แล้ว ขั้นต่อไปบันทึกรหัสส่งข้อความและรหัสรับ Webhook",
       });
       await load();
     } catch (error) {
@@ -286,8 +286,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "warning",
         text: secretForm.channelId
-          ? "กรอก token ส่งข้อความหรือ secret รับ webhook อย่างน้อย 1 ค่า"
-          : "เลือก LINE OA ก่อนบันทึก token/secret",
+          ? "กรอกรหัสส่งข้อความหรือรหัสรับ Webhook อย่างน้อย 1 ค่า"
+          : "เลือก LINE OA ก่อนบันทึกรหัส",
       });
       return;
     }
@@ -320,7 +320,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       }));
       setMessage({
         tone: "success",
-        text: "บันทึก token/secret แล้ว ระบบจะไม่แสดงค่าลับกลับบนหน้าจอ",
+        text: "บันทึกรหัส LINE OA แล้ว ระบบจะไม่แสดงค่าลับกลับบนหน้าจอ",
       });
       await load();
     } catch (error) {
@@ -329,7 +329,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         text:
           error instanceof Error
             ? error.message
-            : "บันทึก token/secret ไม่สำเร็จ กรุณาตรวจ encryption key หรือสิทธิ์ผู้ดูแล",
+            : "บันทึกรหัส LINE OA ไม่สำเร็จ กรุณาตรวจกุญแจเข้ารหัสหรือสิทธิ์ผู้ดูแล",
       });
     } finally {
       setBusy(null);
@@ -715,7 +715,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   {readyCheckCount}/{readinessChecks.length} พร้อม
                 </Badge>
               }
-              description="ตั้งค่า LINE OA, บันทึก token/secret, แล้วเพิ่มผู้รับเข้าร้านก่อนเปิดแผนแจ้งเตือน"
+              description="ตั้งค่า LINE OA, บันทึกรหัสส่งข้อความ/รับ Webhook, แล้วเพิ่มผู้รับเข้าร้านก่อนเปิดแผนแจ้งเตือน"
               title={`LINE OA ของ ${state.data.tenant.name}`}
             />
             <PanelBody spaced>
@@ -910,8 +910,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         <div className="space-y-5 sm:space-y-6">
           <Panel>
             <PanelHeader
-              description="ระบบไม่แสดง token หรือ secret ที่บันทึกไว้กลับมาบนหน้าจอ"
-              title="บันทึก token/secret"
+              description="ระบบไม่แสดงรหัสลับที่บันทึกไว้กลับมาบนหน้าจอ"
+              title="บันทึกรหัส LINE OA"
             />
             <PanelBody spaced>
               <form className="space-y-4" onSubmit={saveChannelSecrets}>
@@ -937,7 +937,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Token ส่งข้อความ">
+                <Field label="รหัสส่งข้อความ">
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
@@ -952,7 +952,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     value={secretForm.channelAccessToken}
                   />
                 </Field>
-                <Field label="Secret รับ webhook">
+                <Field label="รหัสรับ Webhook">
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
@@ -973,7 +973,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   size="sm"
                   type="submit"
                 >
-                  บันทึก token/secret
+                  บันทึกรหัส LINE OA
                 </Button>
                 <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
                   ถ้าเปลี่ยนค่า ให้กรอกเฉพาะช่องที่ต้องการอัปเดตแล้วกดบันทึก
@@ -1149,7 +1149,7 @@ function ChannelTable({
   if (!channels.length) {
     return (
       <EmptyState
-        detail="เริ่มจากเพิ่ม LINE OA ของร้าน แล้วบันทึก token ส่งข้อความและ secret รับ webhook"
+        detail="เริ่มจากเพิ่ม LINE OA ของร้าน แล้วบันทึกรหัสส่งข้อความและรหัสรับ Webhook"
         title="ยังไม่มี LINE OA"
       />
     );
@@ -1170,7 +1170,7 @@ function ChannelTable({
                 </p>
                 <p className="mt-1 break-all font-mono text-theme-xs text-gray-500 dark:text-gray-400">
                   {channel.source === "env"
-                    ? "ตั้งค่าจาก environment"
+                    ? "ตั้งค่าจากเครื่องแม่ข่าย"
                     : channel.id}
                 </p>
               </div>
@@ -1197,11 +1197,11 @@ function ChannelTable({
                 </p>
                 <StatusText
                   ok={channel.channel_access_token_configured}
-                  text="token ส่งข้อความ"
+                  text="รหัสส่งข้อความ"
                 />
                 <StatusText
                   ok={channel.channel_secret_configured}
-                  text="secret รับ webhook"
+                  text="รหัสรับ Webhook"
                 />
               </div>
             </div>
@@ -1243,7 +1243,7 @@ function ChannelTable({
                       {channel.display_name}
                     </p>
                     <p className="mt-1 font-mono text-theme-xs text-gray-500 dark:text-gray-400">
-                      {channel.source === "env" ? "ตั้งค่าจาก environment" : channel.id}
+                      {channel.source === "env" ? "ตั้งค่าจากเครื่องแม่ข่าย" : channel.id}
                     </p>
                   </div>
                 </td>
@@ -1256,11 +1256,11 @@ function ChannelTable({
                   <div className="space-y-1">
                     <StatusText
                       ok={channel.channel_access_token_configured}
-                      text="token ส่งข้อความ"
+                      text="รหัสส่งข้อความ"
                     />
                     <StatusText
                       ok={channel.channel_secret_configured}
-                      text="secret รับ webhook"
+                      text="รหัสรับ Webhook"
                     />
                   </div>
                 </td>
@@ -1799,21 +1799,21 @@ function buildReadinessChecks({
       label: "มี LINE OA",
       detail: channels.length
         ? `${channels.length.toLocaleString("th-TH")} ช่องทางในร้านนี้`
-        : "เพิ่ม LINE OA ก่อนบันทึก token และรับผู้รับจาก webhook",
+        : "เพิ่ม LINE OA ก่อนบันทึกรหัสและรับผู้รับจาก Webhook",
     },
     {
       ok: sendReadyChannels.length > 0,
-      label: "มี token ส่งข้อความ",
+      label: "มีรหัสส่งข้อความ",
       detail: sendReadyChannels.length
         ? `${sendReadyChannels.length}/${channels.length} ช่องทางส่งข้อความได้`
-        : "บันทึก token ส่งข้อความอย่างน้อย 1 ช่องทาง",
+        : "บันทึกรหัสส่งข้อความอย่างน้อย 1 ช่องทาง",
     },
     {
       ok: secretReadyChannels.length > 0,
-      label: "มี secret รับ webhook",
+      label: "มีรหัสรับ Webhook",
       detail: secretReadyChannels.length
-        ? `${secretReadyChannels.length}/${channels.length} ช่องทางมี token และ secret`
-        : "บันทึก secret รับ webhook เพื่อให้ระบบรับ userId หรือ groupId เมื่อผู้รับเพิ่ม OA เป็นเพื่อนหรือส่งข้อความ",
+        ? `${secretReadyChannels.length}/${channels.length} ช่องทางมีรหัสครบ`
+        : "บันทึกรหัสรับ Webhook เพื่อให้ระบบรับ userId หรือ groupId เมื่อผู้รับเพิ่ม OA เป็นเพื่อนหรือส่งข้อความ",
     },
     {
       ok: readyTargets.length > 0,
@@ -1821,7 +1821,7 @@ function buildReadinessChecks({
       detail: readyTargets.length
         ? `${readyTargets.length}/${totalTargets} ผู้รับพร้อมรับรายงาน`
         : approvedTargets.length
-          ? "ผู้รับอนุมัติแล้วแต่ยังติด token, สิทธิ์รับแจ้งเตือน หรือสิทธิ์รายงาน"
+          ? "ผู้รับอนุมัติแล้วแต่ยังติดรหัสส่งข้อความ สิทธิ์รับแจ้งเตือน หรือสิทธิ์รายงาน"
           : "อนุมัติผู้รับ LINE อย่างน้อย 1 รายการก่อนเปิดแผนแจ้งเตือน",
     },
   ];
