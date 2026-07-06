@@ -117,6 +117,8 @@ export default function OwnerV2NewTenant() {
       (viewerEmail.trim() || `viewer+${tenantId.trim()}@ai-business.local`);
   const previewHasBlockingCheck =
     preview?.checks.some((check) => !check.ok) ?? false;
+  const selectedPlanGuide = planAdminGuide(planCode);
+  const selectedStatusGuide = statusAdminGuide(status);
 
   const buildPayload = (): TenantCreateInput => ({
     tenant_id: tenantId.trim(),
@@ -335,6 +337,19 @@ export default function OwnerV2NewTenant() {
                   <option value="business">{formatPlanCode("business")}</option>
                   <option value="pro">{formatPlanCode("pro")}</option>
                 </select>
+                <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge color={selectedPlanGuide.tone} size="sm">
+                      {selectedPlanGuide.badge}
+                    </Badge>
+                    <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+                      {selectedPlanGuide.title}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {selectedPlanGuide.detail}
+                  </p>
+                </div>
               </div>
               <div>
                 <label
@@ -359,6 +374,9 @@ export default function OwnerV2NewTenant() {
                   <option value="past_due">ค้างชำระ</option>
                   <option value="suspended">ระงับ</option>
                 </select>
+                <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {selectedStatusGuide}
+                </p>
               </div>
             </div>
             {status === "trial" ? (
@@ -634,4 +652,61 @@ function formatPreviewViewer(email: string) {
     return "ระบบจะสร้างให้อัตโนมัติ";
   }
   return email;
+}
+
+function planAdminGuide(planCode: PlanCode): {
+  badge: string;
+  detail: string;
+  title: string;
+  tone: "success" | "warning" | "info" | "light";
+} {
+  switch (planCode) {
+    case "starter":
+      return {
+        badge: "ร้านเล็ก",
+        detail:
+          "เหมาะกับร้านที่เริ่มใช้ LINE รายงานหลักก่อน โดยทั่วไปใช้ชุดรายงานสำคัญและยังไม่เปิดความสามารถเต็มทั้งหมด",
+        title: "เริ่มจากรายงานหลักก่อน",
+        tone: "info",
+      };
+    case "business":
+      return {
+        badge: "แนะนำ",
+        detail:
+          "เหมาะกับร้านจริงที่ต้องการชุดรายงานครบและ AI CEO / Business Advisor ตามแผนใช้งานปัจจุบัน",
+        title: "ร้านใหญ่พร้อมใช้จริง",
+        tone: "success",
+      };
+    case "pro":
+      return {
+        badge: "ขั้นสูง",
+        detail:
+          "เหมาะกับร้านที่ต้องการขยายความสามารถระดับสูง เช่น โมเดล AI ที่แพงขึ้นหรือ policy เฉพาะ ควรใช้เมื่อทีมดูแลพร้อมตรวจ cost",
+        title: "สำหรับเคสที่ต้องคุมรายละเอียดมากขึ้น",
+        tone: "warning",
+      };
+    default:
+      return {
+        badge: "ข้อมูล",
+        detail: "ตรวจแพ็กเกจก่อนสร้างร้านจริง",
+        title: formatPlanCode(planCode),
+        tone: "light",
+      };
+  }
+}
+
+function statusAdminGuide(status: Tenant["status"]): string {
+  const labels: Record<Tenant["status"], string> = {
+    active:
+      "ใช้เมื่อลูกค้าพร้อมใช้งานจริงแล้ว และต้องการเปิดรอบแจ้งเตือนตาม config ทันที",
+    cancelled:
+      "ใช้เฉพาะกรณี migrate ร้านเดิมที่ยกเลิกแล้ว ไม่แนะนำสำหรับร้านใหม่",
+    past_due:
+      "ใช้เฉพาะกรณีมีข้อมูลค้างชำระเดิม ไม่แนะนำสำหรับร้านใหม่",
+    suspended:
+      "ใช้เฉพาะกรณีต้องสร้างไว้ก่อนแต่ยังไม่ให้ใช้งานหรือส่งแจ้งเตือน",
+    trial:
+      "เหมาะกับร้านใหม่ที่ยังต้องตั้งค่า SML, LINE, รายงาน และตรวจส่งจริงก่อนใช้งานเต็ม",
+  };
+  return labels[status] ?? "ตรวจสถานะเริ่มต้นก่อนสร้างร้านจริง";
 }
