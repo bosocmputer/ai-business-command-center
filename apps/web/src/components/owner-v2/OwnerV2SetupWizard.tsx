@@ -6,7 +6,7 @@ import { getReportCatalogEntry, isReportKey } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import { AlertIcon, ArrowRightIcon, CheckCircleIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
-import { InlineNotice, primaryActionClass } from "./ui";
+import { InlineNotice, primaryActionClass, TechnicalDetails } from "./ui";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
@@ -89,7 +89,7 @@ type StepPayload =
 
 type StepDetailState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; technicalDetail?: string }
   | { status: "success"; data: StepPayload };
 
 export default function OwnerV2SetupWizard({
@@ -399,9 +399,9 @@ function StepDetailLazy({
         setState({
           status: "error",
           message:
-            error instanceof Error
-              ? error.message
-              : "โหลดรายละเอียดขั้นนี้ไม่สำเร็จ",
+            "โหลดสถานะขั้นนี้ไม่สำเร็จ ลองปิดแล้วเปิด “ดูสถานะ” อีกครั้ง หากยังไม่สำเร็จให้เปิดศูนย์ตรวจระบบ",
+          technicalDetail:
+            error instanceof Error ? error.message : "โหลดรายละเอียดขั้นนี้ไม่สำเร็จ",
         });
       }
     },
@@ -419,11 +419,18 @@ function StepDetailLazy({
   }
   if (state.status === "error") {
     return (
-      <InlineNotice
-        message={`${state.message} ลองปิดแล้วเปิด “ดูสถานะ” อีกครั้ง`}
-        tone="error"
-        title="โหลดสถานะไม่สำเร็จ"
-      />
+      <div className="space-y-3">
+        <InlineNotice
+          message={state.message}
+          tone="error"
+          title="โหลดสถานะไม่สำเร็จ"
+        />
+        {state.technicalDetail ? (
+          <TechnicalDetails embedded title="รายละเอียดสำหรับทีมดูแลระบบ">
+            <Fact label="ข้อความระบบ" value={state.technicalDetail} />
+          </TechnicalDetails>
+        ) : null}
+      </div>
     );
   }
 
