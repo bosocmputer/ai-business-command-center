@@ -2,6 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
@@ -83,18 +84,38 @@ export default function OwnerV2FlowAccountSetup({
   }, [load]);
 
   const statusData = state.status === "success" ? state.data : null;
-  const canSave = clientId.trim().length > 0 && clientSecret.trim().length > 0;
+  const credentialsFormReady =
+    clientId.trim().length > 0 && clientSecret.trim().length > 0;
+  const canSave =
+    Boolean(statusData?.encryption_configured) && credentialsFormReady;
+  const canTest = Boolean(statusData?.credentials_configured);
   const statusTone = useMemo(
     () => flowAccountStatusTone(statusData?.status),
     [statusData?.status],
   );
+  const actionHelp = buildFlowAccountActionHelp({
+    busy,
+    credentialsFormReady,
+    encryptionConfigured: Boolean(statusData?.encryption_configured),
+    hasCredentials: Boolean(statusData?.credentials_configured),
+  });
 
   async function saveConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy !== null) {
       return;
     }
+    if (!statusData?.encryption_configured) {
+      setTechnicalMessage(null);
+      setMessage({
+        tone: "warning",
+        text:
+          "ยังบันทึกรหัสลับไม่ได้ เพราะระบบกลางยังไม่มีกุญแจเข้ารหัส กรุณาตั้งค่าระบบกลางก่อน",
+      });
+      return;
+    }
     if (!canSave) {
+      setTechnicalMessage(null);
       setMessage({
         tone: "warning",
         text: "กรอกรหัสเชื่อมต่อและรหัสลับให้ครบก่อนบันทึก",
@@ -232,6 +253,19 @@ export default function OwnerV2FlowAccountSetup({
   return (
     <div className="space-y-5 sm:space-y-6">
       <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
+      {message ? (
+        <Notice tone={message.tone} title="สถานะ FlowAccount" text={message.text} />
+      ) : null}
+      {technicalMessage ? (
+        <TechnicalDetails embedded title="รายละเอียดการทำรายการ">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </TechnicalDetails>
+      ) : null}
+      <Notice
+        tone="info"
+        title="FlowAccount เป็นช่องทางบัญชีแยกจาก SML"
+        text="หน้านี้ใช้บันทึกและทดสอบรหัสแบบทดสอบเท่านั้น ตอนนี้ยังไม่สร้างเอกสาร, ไม่เชื่อมข้อมูลลูกหนี้/เจ้าหนี้ และไม่กระทบรายงานหรือ LINE จาก SML"
+      />
       <Panel>
         <PanelHeader
           title="ทดสอบเชื่อมต่อ FlowAccount"
@@ -252,6 +286,12 @@ export default function OwnerV2FlowAccountSetup({
               value={data.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"}
             />
           </div>
+
+          <FlowAccountActionGuide
+            credentialsReady={data.credentials_configured}
+            encryptionReady={data.encryption_configured}
+            tested={data.status === "connected"}
+          />
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
@@ -329,7 +369,11 @@ export default function OwnerV2FlowAccountSetup({
                 </Field>
                 <Field
                   label="รหัสเชื่อมต่อ"
-                  help={data.credentials_configured ? "กรอกเฉพาะเมื่อต้องการแทนที่ค่าเดิม" : undefined}
+                  help={
+                    data.credentials_configured
+                      ? "กรอกเฉพาะเมื่อต้องการแทนที่ค่าเดิม"
+                      : "ใช้รหัสเชื่อมต่อจาก FlowAccount แบบทดสอบ"
+                  }
                 >
                   <input
                     autoComplete="off"
@@ -342,7 +386,11 @@ export default function OwnerV2FlowAccountSetup({
                 </Field>
                 <Field
                   label="รหัสลับ"
-                  help={data.credentials_configured ? "ไม่แสดงค่าที่บันทึกไว้" : undefined}
+                  help={
+                    data.credentials_configured
+                      ? "ไม่แสดงค่าที่บันทึกไว้ ถ้าแก้ต้องใส่รหัสลับใหม่"
+                      : "รหัสลับจะถูกเข้ารหัสก่อนบันทึก และไม่แสดงกลับบนหน้าจอ"
+                  }
                 >
                   <input
                     autoComplete="new-password"
@@ -364,7 +412,7 @@ export default function OwnerV2FlowAccountSetup({
                   {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลเชื่อมต่อ"}
                 </Button>
                 <Button
-                  disabled={busy !== null || !data.credentials_configured}
+                  disabled={busy !== null || !canTest}
                   onClick={() => void testConnection()}
                   size="sm"
                   type="button"
@@ -373,21 +421,118 @@ export default function OwnerV2FlowAccountSetup({
                   {busy === "test" ? "กำลังทดสอบ..." : "ทดสอบการเชื่อมต่อ"}
                 </Button>
               </div>
+              {actionHelp.length ? (
+                <ActionHelp items={actionHelp} systemHref="/owner-v2/system" />
+              ) : null}
             </form>
           </div>
         </PanelBody>
       </Panel>
 
-      {message ? (
-        <Notice tone={message.tone} title="สถานะ FlowAccount" text={message.text} />
-      ) : null}
-      {technicalMessage ? (
-        <TechnicalDetails embedded title="รายละเอียดการทำรายการ">
-          <Fact label="ข้อความระบบ" value={technicalMessage} />
-        </TechnicalDetails>
-      ) : null}
-
       {testResult ? <FlowAccountTestResult result={testResult} /> : null}
+    </div>
+  );
+}
+
+function FlowAccountActionGuide({
+  credentialsReady,
+  encryptionReady,
+  tested,
+}: {
+  credentialsReady: boolean;
+  encryptionReady: boolean;
+  tested: boolean;
+}) {
+  const steps = [
+    {
+      detail: "ต้องพร้อมก่อนบันทึกรหัสเชื่อมต่อหรือรหัสลับ",
+      label: "ระบบเข้ารหัสพร้อม",
+      ok: encryptionReady,
+    },
+    {
+      detail: "บันทึกรหัสเชื่อมต่อและรหัสลับของ FlowAccount แบบทดสอบ",
+      label: "บันทึกข้อมูลเชื่อมต่อ",
+      ok: credentialsReady,
+    },
+    {
+      detail: "กดทดสอบเพื่อยืนยันว่า FlowAccount ตอบกลับได้จริง",
+      label: "ทดสอบการเชื่อมต่อ",
+      ok: tested,
+    },
+  ];
+
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            ลำดับตั้งค่า FlowAccount
+          </h4>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            ทำให้ครบก่อนนำข้อมูล FlowAccount ไปใช้ในรายงานการเงินรอบถัดไป
+          </p>
+        </div>
+        <Badge color={tested ? "success" : credentialsReady ? "warning" : "light"}>
+          {tested ? "ทดสอบผ่าน" : credentialsReady ? "รอทดสอบ" : "ยังต้องตั้งค่า"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {steps.map((step, index) => (
+          <div
+            className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
+            key={step.label}
+          >
+            <div className="flex items-start gap-3">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  step.ok
+                    ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
+                    : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300"
+                }`}
+              >
+                {index + 1}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                  {step.label}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {step.detail}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ActionHelp({
+  items,
+  systemHref,
+}: {
+  items: string[];
+  systemHref: string;
+}) {
+  return (
+    <div className="mt-4 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+        ถ้าปุ่มยังปิดอยู่ ให้ตรวจจุดนี้ก่อน
+      </p>
+      <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      {items.some((item) => item.includes("กุญแจเข้ารหัส")) ? (
+        <Link
+          className="mt-3 inline-flex text-xs font-semibold text-brand-600 transition hover:text-brand-700 dark:text-brand-400"
+          href={systemHref}
+        >
+          ไปตั้งค่าระบบกลาง
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -495,6 +640,33 @@ function flowAccountErrorResult(
     return null;
   }
   return maybeResult as OwnerV2FlowAccountTestResult;
+}
+
+function buildFlowAccountActionHelp({
+  busy,
+  credentialsFormReady,
+  encryptionConfigured,
+  hasCredentials,
+}: {
+  busy: "save" | "test" | null;
+  credentialsFormReady: boolean;
+  encryptionConfigured: boolean;
+  hasCredentials: boolean;
+}) {
+  if (busy) {
+    return ["รอให้คำสั่งที่กำลังทำงานอยู่เสร็จก่อน"];
+  }
+  const items: string[] = [];
+  if (!encryptionConfigured) {
+    items.push("ปุ่มบันทึกต้องมีกุญแจเข้ารหัสของระบบกลางก่อน");
+  }
+  if (!credentialsFormReady) {
+    items.push("ปุ่มบันทึกต้องกรอกรหัสเชื่อมต่อและรหัสลับให้ครบ");
+  }
+  if (!hasCredentials) {
+    items.push("ปุ่มทดสอบจะเปิดหลังบันทึกข้อมูลเชื่อมต่อแล้ว");
+  }
+  return items;
 }
 
 function formatFlowAccountLatency(value: number) {
