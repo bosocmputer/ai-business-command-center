@@ -21,38 +21,58 @@ type OwnerV2NavItem = {
   subItems?: Array<{ name: string; path: string }>;
 };
 
-const navItems: OwnerV2NavItem[] = [
+type OwnerV2NavSection = {
+  label: string;
+  items: OwnerV2NavItem[];
+};
+
+const navSections: OwnerV2NavSection[] = [
   {
-    icon: <GridIcon />,
-    name: "เริ่มงาน",
-    path: "/owner-v2",
-  },
-  {
-    icon: <GroupIcon />,
-    name: "ร้านค้า",
-    subItems: [
-      { name: "ร้านทั้งหมด", path: "/owner-v2/stores" },
-      { name: "เพิ่มร้านใหม่", path: "/owner-v2/stores/new" },
+    label: "เริ่มงาน",
+    items: [
+      {
+        icon: <GridIcon />,
+        name: "ภาพรวมวันนี้",
+        path: "/owner-v2",
+      },
+      {
+        icon: <BellIcon />,
+        name: "ศูนย์ตรวจระบบ",
+        path: "/owner-v2/ops",
+      },
     ],
   },
   {
-    icon: <BellIcon />,
-    name: "ศูนย์ตรวจระบบ",
-    path: "/owner-v2/ops",
+    label: "ร้านค้า",
+    items: [
+      {
+        icon: <GroupIcon />,
+        name: "จัดการร้านค้า",
+        subItems: [
+          { name: "ร้านทั้งหมด", path: "/owner-v2/stores" },
+          { name: "เพิ่มร้านใหม่", path: "/owner-v2/stores/new" },
+        ],
+      },
+    ],
   },
   {
-    icon: <PlugInIcon />,
-    name: "ตั้งค่าระบบ",
-    path: "/owner-v2/system",
+    label: "ระบบกลาง",
+    items: [
+      {
+        icon: <PlugInIcon />,
+        name: "ตั้งค่าระบบ",
+        path: "/owner-v2/system",
+      },
+    ],
   },
 ];
 
 export default function OwnerV2Sidebar() {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
-  const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
-  const [subMenuHeight, setSubMenuHeight] = useState<Record<number, number>>({});
-  const subMenuRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
+  const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>({});
+  const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const isActive = useCallback(
     (path: string) => {
@@ -83,10 +103,17 @@ export default function OwnerV2Sidebar() {
   );
 
   useEffect(() => {
-    const matchedSubmenuIndex = navItems.findIndex((nav) =>
-      nav.subItems?.some((item) => isSubItemActive(item.path)),
-    );
-    setOpenSubmenu(matchedSubmenuIndex >= 0 ? matchedSubmenuIndex : null);
+    const matchedSubmenu = navSections
+      .flatMap((section, sectionIndex) =>
+        section.items.map((nav, itemIndex) => ({
+          key: menuKey(sectionIndex, itemIndex),
+          nav,
+        })),
+      )
+      .find(({ nav }) =>
+        nav.subItems?.some((item) => isSubItemActive(item.path)),
+      );
+    setOpenSubmenu(matchedSubmenu?.key ?? null);
   }, [isSubItemActive]);
 
   useEffect(() => {
@@ -138,121 +165,149 @@ export default function OwnerV2Sidebar() {
       <div className="flex flex-col overflow-y-auto duration-300 ease-linear no-scrollbar">
         <nav className="mb-6">
           <div>
-            <h2
-              className={`mb-4 flex text-xs uppercase leading-[20px] text-gray-400 ${
-                sidebarExpanded ? "justify-start" : "justify-center"
-              }`}
-            >
-              {sidebarExpanded ? "งานผู้ดูแล" : <HorizontaLDots />}
-            </h2>
-            <ul className="flex flex-col gap-4">
-              {navItems.map((nav, index) => {
-                const hasActiveSubItem = Boolean(
-                  nav.subItems?.some((item) => isSubItemActive(item.path)),
-                );
-                const active = nav.path ? isActive(nav.path) : hasActiveSubItem;
-                return (
-                  <li key={nav.name}>
-                    {nav.subItems ? (
-                      <button
-                        aria-expanded={openSubmenu === index}
-                        aria-label={sidebarExpanded ? undefined : nav.name}
-                        className={`menu-item group cursor-pointer ${
-                          active ? "menu-item-active" : "menu-item-inactive"
-                        } ${sidebarExpanded ? "lg:justify-start" : "lg:justify-center"}`}
-                        onClick={() =>
-                          setOpenSubmenu((current) =>
-                            current === index ? null : index,
-                          )
-                        }
-                        title={sidebarExpanded ? undefined : nav.name}
-                        type="button"
-                      >
-                        <span
-                          className={
-                            active
-                              ? "menu-item-icon-active"
-                              : "menu-item-icon-inactive"
-                          }
-                        >
-                          {nav.icon}
-                        </span>
-                        {sidebarExpanded ? (
-                          <span className="menu-item-text">{nav.name}</span>
-                        ) : null}
-                        {sidebarExpanded ? (
-                          <ChevronDownIcon
-                            className={`ml-auto h-5 w-5 transition-transform duration-200 ${
-                              openSubmenu === index
-                                ? "rotate-180 text-brand-500"
-                                : "text-gray-500"
+            {navSections.map((section, sectionIndex) => (
+              <div
+                className={sectionIndex === 0 ? undefined : "mt-6"}
+                key={section.label}
+              >
+                <h2
+                  className={`mb-4 flex text-xs uppercase leading-[20px] text-gray-400 ${
+                    sidebarExpanded ? "justify-start" : "justify-center"
+                  }`}
+                >
+                  {sidebarExpanded ? section.label : <HorizontaLDots />}
+                </h2>
+                <ul className="flex flex-col gap-4">
+                  {section.items.map((nav, itemIndex) => {
+                    const key = menuKey(sectionIndex, itemIndex);
+                    const hasActiveSubItem = Boolean(
+                      nav.subItems?.some((item) => isSubItemActive(item.path)),
+                    );
+                    const active = nav.path
+                      ? isActive(nav.path)
+                      : hasActiveSubItem;
+                    return (
+                      <li key={nav.name}>
+                        {nav.subItems ? (
+                          <button
+                            aria-expanded={openSubmenu === key}
+                            aria-label={sidebarExpanded ? undefined : nav.name}
+                            className={`menu-item group cursor-pointer ${
+                              active ? "menu-item-active" : "menu-item-inactive"
+                            } ${
+                              sidebarExpanded
+                                ? "lg:justify-start"
+                                : "lg:justify-center"
                             }`}
-                          />
-                        ) : null}
-                      </button>
-                    ) : nav.path ? (
-                      <Link
-                        aria-current={active ? "page" : undefined}
-                        aria-label={sidebarExpanded ? undefined : nav.name}
-                        className={`menu-item group ${
-                          active ? "menu-item-active" : "menu-item-inactive"
-                        } ${sidebarExpanded ? "lg:justify-start" : "lg:justify-center"}`}
-                        href={nav.path}
-                        title={sidebarExpanded ? undefined : nav.name}
-                      >
-                        <span
-                          className={
-                            active
-                              ? "menu-item-icon-active"
-                              : "menu-item-icon-inactive"
-                          }
-                        >
-                          {nav.icon}
-                        </span>
-                        {sidebarExpanded ? (
-                          <span className="menu-item-text">{nav.name}</span>
-                        ) : null}
-                      </Link>
-                    ) : null}
-
-                    {nav.subItems && sidebarExpanded ? (
-                      <div
-                        className="overflow-hidden transition-all duration-300"
-                        ref={(element) => {
-                          subMenuRefs.current[index] = element;
-                        }}
-                        style={{
-                          height:
-                            openSubmenu === index
-                              ? `${subMenuHeight[index] ?? 0}px`
-                              : "0px",
-                        }}
-                      >
-                        <ul className="ml-9 mt-2 space-y-1">
-                          {nav.subItems.map((item) => (
-                            <li key={item.path}>
-                              <Link
-                                className={`menu-dropdown-item ${
-                                  isSubItemActive(item.path)
-                                    ? "menu-dropdown-item-active"
-                                    : "menu-dropdown-item-inactive"
+                            onClick={() =>
+                              setOpenSubmenu((current) =>
+                                current === key ? null : key,
+                              )
+                            }
+                            title={sidebarExpanded ? undefined : nav.name}
+                            type="button"
+                          >
+                            <span
+                              className={
+                                active
+                                  ? "menu-item-icon-active"
+                                  : "menu-item-icon-inactive"
+                              }
+                            >
+                              {nav.icon}
+                            </span>
+                            {sidebarExpanded ? (
+                              <span className="menu-item-text">{nav.name}</span>
+                            ) : null}
+                            {sidebarExpanded ? (
+                              <ChevronDownIcon
+                                className={`menu-item-arrow h-5 w-5 transition-transform duration-200 ${
+                                  openSubmenu === key
+                                    ? "menu-item-arrow-active"
+                                    : "menu-item-arrow-inactive"
                                 }`}
-                                href={item.path}
-                              >
-                                {item.name}
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
+                              />
+                            ) : null}
+                          </button>
+                        ) : nav.path ? (
+                          <Link
+                            aria-current={active ? "page" : undefined}
+                            aria-label={sidebarExpanded ? undefined : nav.name}
+                            className={`menu-item group ${
+                              active ? "menu-item-active" : "menu-item-inactive"
+                            } ${
+                              sidebarExpanded
+                                ? "lg:justify-start"
+                                : "lg:justify-center"
+                            }`}
+                            href={nav.path}
+                            title={sidebarExpanded ? undefined : nav.name}
+                          >
+                            <span
+                              className={
+                                active
+                                  ? "menu-item-icon-active"
+                                  : "menu-item-icon-inactive"
+                              }
+                            >
+                              {nav.icon}
+                            </span>
+                            {sidebarExpanded ? (
+                              <span className="menu-item-text">{nav.name}</span>
+                            ) : null}
+                          </Link>
+                        ) : null}
+
+                        {nav.subItems && sidebarExpanded ? (
+                          <div
+                            className="overflow-hidden transition-all duration-300"
+                            ref={(element) => {
+                              subMenuRefs.current[key] = element;
+                            }}
+                            style={{
+                              height:
+                                openSubmenu === key
+                                  ? `${subMenuHeight[key] ?? 0}px`
+                                  : "0px",
+                            }}
+                          >
+                            <ul className="ml-9 mt-2 space-y-1">
+                              {nav.subItems.map((item) => {
+                                const activeSubItem = isSubItemActive(item.path);
+                                return (
+                                  <li key={item.path}>
+                                    <Link
+                                      aria-current={
+                                        activeSubItem ? "page" : undefined
+                                      }
+                                      className={`menu-dropdown-item ${
+                                        activeSubItem
+                                          ? "menu-dropdown-item-active"
+                                          : "menu-dropdown-item-inactive"
+                                      }`}
+                                      href={item.path}
+                                    >
+                                      {item.name}
+                                    </Link>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
           </div>
         </nav>
       </div>
     </aside>
   );
+}
+
+function menuKey(sectionIndex: number, itemIndex: number) {
+  return `${sectionIndex}:${itemIndex}`;
 }
