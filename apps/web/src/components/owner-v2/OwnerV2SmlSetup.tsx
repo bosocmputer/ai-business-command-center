@@ -62,11 +62,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setState({ status: "loading" });
       setMessage(null);
+      setTechnicalMessage(null);
       try {
         const [config, setup] = await Promise.all([
           ownerV2Fetch<OwnerV2DatasourceStatus>(
@@ -140,10 +142,12 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               ? "ยังไม่มีข้อมูลที่เปลี่ยน"
               : `กรอกข้อมูลให้ครบ: ${validation.missing.join(", ")}`,
       });
+      setTechnicalMessage(null);
       return;
     }
     setBusy("save");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const config = await ownerV2Fetch<OwnerV2DatasourceStatus>(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/datasource/config`,
@@ -157,6 +161,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         text:
           "บันทึกค่า SML แล้ว กดทดสอบค่าที่บันทึกแล้วเพื่อยืนยันก่อนเปิดแจ้งเตือน",
       });
+      setTechnicalMessage(null);
       setTestResult(null);
       setDiscovery(null);
       const nextForm = formFromConfig(config);
@@ -167,10 +172,9 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "บันทึกค่า SML ไม่สำเร็จ",
+          "บันทึกค่า SML ไม่สำเร็จ ลองตรวจค่าที่กรอกและกุญแจเข้ารหัสบนเครื่องแม่ข่าย",
       });
+      setTechnicalMessage(toSmlTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -191,6 +195,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           ? "ยังทดสอบฟอร์มไม่ได้"
           : `กรอกข้อมูลให้ครบ: ${validation.missing.join(", ")}`,
       });
+      setTechnicalMessage(null);
       return;
     }
     await runTest("test-draft", buildDatasourcePayload(form));
@@ -202,6 +207,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   ) {
     setBusy(mode);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const result = await ownerV2Fetch<OwnerV2DatasourceTestResult>(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/datasource/test`,
@@ -214,15 +220,15 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           ? "ทดสอบ SML ผ่านแล้ว"
           : result.safe_error_message ?? "ทดสอบ SML ไม่ผ่าน",
       });
+      setTechnicalMessage(null);
     } catch (error) {
       setTestResult(null);
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "ทดสอบ SML ไม่สำเร็จ",
+          "ทดสอบ SML ไม่สำเร็จ ตรวจ URL, ไฟล์ SMLConfig, ฐานข้อมูล และสิทธิ์การเข้าถึงแล้วลองใหม่",
       });
+      setTechnicalMessage(toSmlTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -236,10 +242,12 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           ? "ยังค้นหาฐานข้อมูลไม่ได้"
           : `กรอกข้อมูลให้ครบ: ${discoveryValidation.missing.join(", ")}`,
       });
+      setTechnicalMessage(null);
       return;
     }
     setBusy("discover");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const result = await ownerV2Fetch<OwnerV2JavaWsDatabaseDiscoveryResult>(
         `/api/owner/tenants/${encodeURIComponent(
@@ -257,15 +265,15 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           ? `พบ ${result.databases.length.toLocaleString("th-TH")} ฐานข้อมูล`
           : result.safe_error_message ?? "ค้นหาฐานข้อมูลไม่สำเร็จ",
       });
+      setTechnicalMessage(null);
     } catch (error) {
       setDiscovery(null);
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "ค้นหาฐานข้อมูลไม่สำเร็จ",
+          "ค้นหาฐานข้อมูลไม่สำเร็จ ตรวจ URL และไฟล์ SMLConfig ก่อนลองค้นหาใหม่",
       });
+      setTechnicalMessage(toSmlTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -315,6 +323,11 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
     <div className="space-y-5 sm:space-y-6">
       {message ? (
         <Notice tone={message.tone} title="สถานะ SML" text={message.text} />
+      ) : null}
+      {technicalMessage ? (
+        <TechnicalDetails embedded title="รายละเอียดการทำรายการ">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </TechnicalDetails>
       ) : null}
 
       <SmlActionGuide
@@ -1092,12 +1105,12 @@ function buildDraftComparison(
 ): DraftComparison {
   const fieldComparisons = [
     {
-      label: "Base URL",
+      label: "URL SML JavaWS",
       draft: normalize(form.baseUrl),
       saved: normalize(config.base_url ?? ""),
     },
     {
-      label: "Webapp path",
+      label: "เส้นทาง JavaWS",
       draft: normalize(form.webappPath || "/SMLJavaWebService"),
       saved: normalize(config.webapp_path || "/SMLJavaWebService"),
     },
@@ -1107,12 +1120,12 @@ function buildDraftComparison(
       saved: normalize(config.config_file_name ?? ""),
     },
     {
-      label: "Database",
+      label: "ฐานข้อมูล SML",
       draft: normalize(form.database),
       saved: normalize(config.database ?? ""),
     },
     {
-      label: "Auth mode",
+      label: "โหมดรหัสผ่าน",
       draft: form.authMode,
       saved: (config.auth_mode ?? "none") as string,
     },
@@ -1121,7 +1134,7 @@ function buildDraftComparison(
     .filter((item) => item.draft !== item.saved)
     .map((item) => item.label);
   if (form.authMode !== "none" && form.authSecret.trim()) {
-    changedFields.push("Auth secret ใหม่");
+    changedFields.push("รหัสลับใหม่");
   }
   const hasChanges = changedFields.length > 0;
   const isSaved = Boolean(config.base_url);
@@ -1134,6 +1147,10 @@ function buildDraftComparison(
       ? "กดทดสอบก่อนบันทึกเพื่อยืนยันว่าเชื่อมต่อได้"
       : "ค่าเดิมยังใช้ได้ — ไม่จำเป็นต้องบันทึก";
   return { changedFields, hasChanges, nextAction, summary };
+}
+
+function toSmlTechnicalMessage(error: unknown) {
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
 function DraftComparisonBanner({
