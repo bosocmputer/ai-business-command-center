@@ -22,9 +22,11 @@ import {
   formatPlanCode,
   formatRunStatus,
   formatTenantStatus,
+  Fact,
   primaryActionClass,
   secondaryActionClass,
   tenantStatusColor,
+  TechnicalDetails,
 } from "./ui";
 
 type StoreListState =
@@ -131,7 +133,8 @@ export default function OwnerV2StoreList() {
             โหลดรายชื่อร้านใหม่
           </Button>
         }
-        detail={`${state.message} ลองรีเฟรชอีกครั้ง หรือตรวจสิทธิ์ผู้ดูแล`}
+        detail="ลองโหลดรายชื่อร้านใหม่อีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจสิทธิ์ผู้ดูแลและการเชื่อมต่อระบบกลาง"
+        technicalDetail={state.message}
         title="โหลดรายชื่อร้านไม่สำเร็จ"
         tone="error"
       />
@@ -517,11 +520,13 @@ function SummaryMetric({
 function EmptyState({
   action,
   detail,
+  technicalDetail,
   title,
   tone,
 }: {
   action: ReactNode;
   detail: string;
+  technicalDetail?: string;
   title: string;
   tone: "info" | "warning" | "error";
 }) {
@@ -559,6 +564,13 @@ function EmptyState({
             {detail}
           </p>
           <div className="mt-4">{action}</div>
+          {technicalDetail ? (
+            <div className="mt-4">
+              <TechnicalDetails embedded title="รายละเอียดสำหรับทีมดูแลระบบ">
+                <Fact label="ข้อความระบบ" value={technicalDetail} />
+              </TechnicalDetails>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

@@ -5,7 +5,13 @@ import Link from "next/link";
 import { ArrowRightIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
 import OwnerV2Cockpit from "./OwnerV2Cockpit";
-import { InlineNotice, primaryActionClass, secondaryActionClass } from "./ui";
+import {
+  Fact,
+  InlineNotice,
+  primaryActionClass,
+  secondaryActionClass,
+  TechnicalDetails,
+} from "./ui";
 import type {
   OwnerV2CockpitHealthMatrixRow,
   OwnerV2CockpitTone,
@@ -40,7 +46,7 @@ export default function OwnerV2Workbench() {
       }
       setStatus("error");
       setErrorMessage(
-        error instanceof Error ? error.message : "โหลดข้อมูล cockpit ไม่สำเร็จ",
+        error instanceof Error ? error.message : "โหลดภาพรวมร้านค้าไม่สำเร็จ",
       );
     }
   }, []);
@@ -54,8 +60,8 @@ export default function OwnerV2Workbench() {
       <WorkbenchMessage
         actionHref="/signin"
         actionLabel="เข้าสู่ระบบใหม่"
-        message="session หมดอายุ กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง"
-        title="session หมดอายุ"
+        message="สิทธิ์ผู้ดูแลหมดอายุ กรุณาเข้าสู่ระบบใหม่เพื่อดูข้อมูลร้านและสถานะระบบ"
+        title="ต้องเข้าสู่ระบบผู้ดูแล"
         tone="warning"
       />
     );
@@ -69,9 +75,10 @@ export default function OwnerV2Workbench() {
     return (
       <WorkbenchMessage
         actionLabel="รีเฟรช"
-        message={errorMessage}
+        message="ลองโหลดภาพรวมใหม่อีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจสิทธิ์ผู้ดูแลและการเชื่อมต่อระบบกลาง"
         onAction={() => void loadWorkbench()}
-        title="โหลด cockpit ไม่สำเร็จ"
+        technicalDetail={errorMessage}
+        title="โหลดภาพรวมร้านค้าไม่สำเร็จ"
         tone="error"
       />
     );
@@ -458,6 +465,7 @@ function WorkbenchMessage({
   actionLabel,
   message,
   onAction,
+  technicalDetail,
   title,
   tone,
 }: {
@@ -465,6 +473,7 @@ function WorkbenchMessage({
   actionLabel: string;
   message: string;
   onAction?: () => void;
+  technicalDetail?: string;
   title: string;
   tone: OwnerV2CockpitTone;
 }) {
@@ -486,6 +495,13 @@ function WorkbenchMessage({
           </button>
         )}
       </div>
+      {technicalDetail ? (
+        <div className="mt-4">
+          <TechnicalDetails embedded title="รายละเอียดสำหรับทีมดูแลระบบ">
+            <Fact label="ข้อความระบบ" value={technicalDetail} />
+          </TechnicalDetails>
+        </div>
+      ) : null}
     </section>
   );
 }
