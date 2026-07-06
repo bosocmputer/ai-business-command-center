@@ -191,14 +191,14 @@ export default function OwnerV2System() {
         />
         <SystemMetric
           icon={<PlugInIcon className="h-6 w-6" />}
-          label="Worker"
+          label="งานอัตโนมัติ"
           tone={
             data?.worker_heartbeat_token_configured ? "success" : "warning"
           }
           value={
             data?.worker_heartbeat_token_configured
-              ? "พร้อมตรวจ"
-              : "ต้องตั้งรหัส"
+              ? "พร้อม"
+              : "ต้องตั้งค่า"
           }
         />
       </div>
@@ -210,7 +210,7 @@ export default function OwnerV2System() {
         <Notice
           tone="success"
           title="ระบบกลางพร้อมใช้งาน"
-          text="ระบบกลางพร้อมสำหรับการสร้างลิงก์รายงาน, worker heartbeat และการเก็บ config แบบปลอดภัยแล้ว"
+          text="ระบบกลางพร้อมสำหรับการสร้างลิงก์รายงาน ตรวจงานอัตโนมัติ และเก็บค่าระบบแบบปลอดภัยแล้ว"
         />
       )}
 
@@ -253,7 +253,7 @@ export default function OwnerV2System() {
                 value={data?.app_base_url ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"}
               />
               <Fact
-                label="API สำหรับ public link"
+                label="API สำหรับลิงก์รายงาน"
                 value={
                   data?.public_api_base_url ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"
                 }
@@ -439,7 +439,7 @@ function SystemConfigForm({
       });
       setSigningSecret("");
       setHeartbeatToken("");
-      setResult({ tone: "success", text: "บันทึก System Config แล้ว" });
+      setResult({ tone: "success", text: "บันทึกค่าระบบแล้ว" });
       onSaved();
     } catch (error) {
       setResult({
@@ -456,11 +456,10 @@ function SystemConfigForm({
       {/* Header band */}
       <div className="px-5 py-4 sm:px-6 sm:py-5">
         <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-          แก้ค่า System Config
+          แก้ค่าระบบกลาง
         </h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          ค่าที่แก้ที่นี่มีผลทันที ระวังการแก้ signing secret หรือ worker
-          token
+          ค่าที่แก้ที่นี่มีผลทันที ระวังการแก้รหัสเซ็นลิงก์รายงานหรือรหัสตรวจงานอัตโนมัติ
         </p>
       </div>
       {/* Body band */}
@@ -471,7 +470,7 @@ function SystemConfigForm({
         <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
           <label className="block min-w-0" htmlFor="sys-app-base-url">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              App base URL
+              ลิงก์หน้าเว็บหลัก
             </span>
             <input
               className="owner-v2-input"
@@ -483,7 +482,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-public-api">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              Public API base URL
+              ลิงก์ API สำหรับรายงาน
             </span>
             <input
               className="owner-v2-input"
@@ -495,7 +494,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-signing-secret">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              Report signing secret (วางใหม่เพื่อหมุน)
+              รหัสเซ็นลิงก์รายงาน (วางใหม่เพื่อหมุน)
             </span>
             <input
               autoComplete="new-password"
@@ -513,7 +512,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-link-ttl">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              Report link TTL (ชั่วโมง)
+              อายุลิงก์รายงาน (ชั่วโมง)
             </span>
             <input
               className="owner-v2-input"
@@ -527,7 +526,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-worker-id">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              Worker ID
+              ชื่อระบบรันงานอัตโนมัติ
             </span>
             <input
               className="owner-v2-input"
@@ -539,7 +538,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-heartbeat-token">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              Worker heartbeat token (วางใหม่เพื่อหมุน)
+              รหัสตรวจระบบรันงาน (วางใหม่เพื่อหมุน)
             </span>
             <input
               autoComplete="new-password"
@@ -567,7 +566,7 @@ function SystemConfigForm({
             />
             <span className="min-w-0">
               <span className="block font-medium text-gray-800 dark:text-gray-200">
-                ตั้งค่า backup แล้ว
+                ตั้งค่าสำรองข้อมูลแล้ว
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
                 ทำเครื่องหมายเมื่อ backup ระบบพร้อมใช้งานจริง
@@ -576,7 +575,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-last-backup">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              Last backup at
+              เวลาสำรองข้อมูลล่าสุด
             </span>
             <input
               className="owner-v2-input"
@@ -591,10 +590,10 @@ function SystemConfigForm({
         {/* Morning brief fieldset */}
         <fieldset className="space-y-4 rounded-xl border border-gray-100 p-4 dark:border-gray-800">
           <legend className="px-1 text-sm font-semibold text-gray-800 dark:text-white/90">
-            Morning brief — รอบสรุปเช้าข้ามร้าน
+            รอบสรุปเช้าข้ามร้าน
           </legend>
           <p className="-mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
-            ตั้งเวลาและร้านที่จะส่งสรุปอัตโนมัติทุกเช้า (worker จะเริ่มรอบตามเวลานี้)
+            ตั้งเวลาและร้านที่จะส่งสรุปอัตโนมัติทุกเช้า ระบบรันงานจะเริ่มรอบตามเวลานี้
           </p>
           <label className="flex min-w-0 cursor-pointer gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
@@ -608,10 +607,10 @@ function SystemConfigForm({
             />
             <span className="min-w-0">
               <span className="block font-medium text-gray-800 dark:text-gray-200">
-                เปิด morning brief
+                เปิดรอบสรุปเช้า
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                ปิดแล้ว worker จะข้ามรอบสรุปเช้าทั้งหมด
+                ปิดแล้วระบบจะข้ามรอบสรุปเช้าทั้งหมด
               </span>
             </span>
           </label>
@@ -632,7 +631,7 @@ function SystemConfigForm({
             </label>
             <label className="block min-w-0" htmlFor="sys-mb-tz">
               <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-                Timezone
+                เขตเวลา
               </span>
               <input
                 className="owner-v2-input"
@@ -646,7 +645,7 @@ function SystemConfigForm({
             </label>
             <label className="block min-w-0" htmlFor="sys-mb-tenants">
               <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-                รหัสร้านที่ส่ง Morning Brief (คั่นด้วยจุลภาค)
+                รหัสร้านที่ส่งรอบสรุปเช้า (คั่นด้วยจุลภาค)
               </span>
               <input
                 className="owner-v2-input"
@@ -672,8 +671,8 @@ function SystemConfigForm({
                 }
                 value={morningBriefMode}
               >
-                <option value="dry_run">dry_run (ทดลอง ไม่ส่งจริง)</option>
-                <option value="send">send (ส่งจริง)</option>
+                <option value="dry_run">ทดลอง ไม่ส่งจริง</option>
+                <option value="send">ส่งจริง</option>
               </select>
             </label>
           </div>
@@ -692,7 +691,7 @@ function SystemConfigForm({
                 บังคับส่งแม้ยังไม่ครบเงื่อนไข (force)
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                ใช้เฉพาะตอนทดสอบ — ปกติควรปิดเพื่อให้ worker เช็ค readiness ก่อนส่ง
+                ใช้เฉพาะตอนทดสอบ — ปกติควรปิดเพื่อให้ระบบตรวจความพร้อมก่อนส่ง
               </span>
             </span>
           </label>
@@ -701,7 +700,7 @@ function SystemConfigForm({
         {/* Action row */}
         <div className="flex flex-wrap items-center gap-3">
           <Button disabled={!dirty || busy} size="sm" type="submit">
-            {busy ? "กำลังบันทึก..." : "บันทึก System Config"}
+            {busy ? "กำลังบันทึก..." : "บันทึกค่าระบบ"}
           </Button>
           <Link className={secondaryActionClass} href="/owner-v2">
             ยกเลิก
@@ -753,11 +752,11 @@ function buildSystemChecks(data: SystemConfigStatus | null): SystemCheck[] {
         : "ยังไม่พร้อม",
     },
     {
-      action: "ตั้งรหัสตรวจ worker เพื่อให้ระบบรู้ว่า worker ยังทำงาน",
+      action: "ตั้งรหัสตรวจระบบรันงาน เพื่อให้ระบบรู้ว่างานอัตโนมัติยังทำงาน",
       detail:
         "ใช้แยกปัญหาระหว่างระบบแจ้งเตือนหยุดทำงานกับรายงานของร้านมีปัญหา",
       id: "worker-heartbeat",
-      label: "ตรวจ worker ได้",
+      label: "ตรวจงานอัตโนมัติได้",
       ok: Boolean(data?.worker_heartbeat_token_configured),
       priority: "warning",
       status: data?.worker_heartbeat_token_configured
@@ -778,7 +777,7 @@ function buildSystemChecks(data: SystemConfigStatus | null): SystemCheck[] {
           : "ยังไม่ครบ",
     },
     {
-      action: "ตรวจไฟล์เริ่มต้นและค่าเชื่อมต่อฐานข้อมูลระบบบน server",
+      action: "ตรวจไฟล์เริ่มต้นและค่าเชื่อมต่อฐานข้อมูลระบบบนเครื่องแม่ข่าย",
       detail:
         "ระบบต้องอ่านค่าเริ่มต้นได้ก่อนเข้าแหล่งเก็บค่าลับและฐานข้อมูลระบบ",
       id: "bootstrap",
@@ -793,7 +792,7 @@ function buildSystemChecks(data: SystemConfigStatus | null): SystemCheck[] {
       status:
         data?.bootstrap?.exists && !data.bootstrap.read_error
           ? "อ่านได้"
-          : "ต้องตรวจ server",
+          : "ต้องตรวจเครื่องแม่ข่าย",
     },
     {
       action: "ตั้ง backup job หรือยืนยันว่ามี backup ล่าสุดในระบบปฏิบัติการ",
@@ -838,8 +837,7 @@ function ActionPanel({ checks }: { checks: SystemCheck[] }) {
               : "ทุกจุดพร้อมแล้ว"}
           </h3>
           <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            แก้จากค่าระบบบนเครื่องแม่ข่ายหรือแหล่งเก็บค่าลับแบบเข้ารหัสตามรายการด้านล่าง
-            หน้านี้ใช้ดูสถานะเท่านั้น เพื่อไม่ให้แก้ค่าระบบผิดโดยไม่ตั้งใจ
+            ตรวจรายการที่ยังไม่พร้อมก่อนแก้ค่าระบบด้านล่าง หรือแก้จากแหล่งเก็บค่าลับบนเครื่องแม่ข่ายเมื่อเป็นค่าที่ไม่ควรบันทึกผ่านหน้าเว็บ
           </p>
         </div>
       </div>

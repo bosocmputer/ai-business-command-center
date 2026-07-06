@@ -109,7 +109,7 @@ export default function OwnerV2Workbench() {
               <path d="M12 2L2 7l10 5 10-5-10-5zm0 13L2 10v10l10 5 10-5V10l-10 5z" />
             </svg>
           }
-          label="ร้าน active"
+          label="ร้านที่ใช้งาน"
           tone="brand"
           value={`${activeTenantCount}`}
         />
@@ -158,14 +158,14 @@ export default function OwnerV2Workbench() {
               <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
             </svg>
           }
-          label="Telegram ops"
+          label="แจ้งเตือนทีมดูแล"
           tone={telegramReady ? "success" : "warning"}
           trend={
             telegramReady
               ? { label: "พร้อมแจ้งเตือน", tone: "success" }
               : { label: "ยังไม่พร้อม", tone: "warning" }
           }
-          value={workerOk ? "พร้อม" : "ตรวจ worker"}
+          value={workerOk ? "พร้อม" : "ตรวจระบบ"}
         />
       </div>
 
@@ -185,7 +185,7 @@ export default function OwnerV2Workbench() {
           ) : null}
         </div>
 
-        {/* Right rail — quick actions + worker status (TailAdmin right-column pattern) */}
+        {/* Right rail — quick actions + background job status (TailAdmin right-column pattern) */}
         <div className="space-y-5 sm:space-y-6 xl:col-span-5">
           <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
@@ -219,21 +219,21 @@ export default function OwnerV2Workbench() {
 
           <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-              สถานะ worker
+              สถานะงานอัตโนมัติ
             </h3>
             <div className="mt-5 space-y-4">
               <WorkerStatusRow
-                label="Worker heartbeat"
+                label="ระบบรันงานอัตโนมัติ"
                 ok={workerOk}
                 value={formatWorkerStatus(ops?.worker_status)}
               />
               <WorkerStatusRow
-                label="Telegram ops"
+                label="แจ้งเตือนทีมดูแล"
                 ok={telegramReady}
                 value={telegramReady ? "พร้อมแจ้งเตือน" : "ยังไม่พร้อม"}
               />
               <WorkerStatusRow
-                label="ร้าน active"
+                label="ร้านที่ใช้งาน"
                 ok
                 value={`${activeTenantCount} ร้าน`}
               />
