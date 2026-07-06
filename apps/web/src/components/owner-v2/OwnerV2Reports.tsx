@@ -21,6 +21,7 @@ import {
 import type { OwnerV2ReportSetupPayload } from "./types";
 import {
   Fact,
+  Field,
   Notice,
   Panel,
   PanelBody,
@@ -348,7 +349,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
           action={
             <div className="flex flex-wrap gap-2">
               <Badge color={chunkedEnabled ? "success" : "warning"}>
-                {chunkedEnabled ? "รายงานใหญ่พร้อม" : "รายงานใหญ่ปิด"}
+                {chunkedEnabled ? "รันรายงานหนักได้" : "ต้องเปิดรันเบื้องหลัง"}
               </Badge>
               <Badge color={activeRuns ? "info" : "light"}>
                 กำลังทำงาน {activeRuns}
@@ -367,26 +368,33 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
             <Fact label="ไม่สำเร็จล่าสุด" value={failedRuns.toString()} />
           </div>
 
-          <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
-            {reports.map((report) => (
-              <ReportRow
-                key={report.report_key}
-                latestRun={latestRunByReport.get(report.report_key) ?? null}
-                latestSnapshot={latestSnapshotByReport.get(report.report_key) ?? null}
-                onSelect={() => setSelectedReportKey(report.report_key)}
-                report={report}
-                selected={report.report_key === selectedReportKey}
-              />
-            ))}
-          </div>
+          {reports.length ? (
+            <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
+              {reports.map((report) => (
+                <ReportRow
+                  key={report.report_key}
+                  latestRun={latestRunByReport.get(report.report_key) ?? null}
+                  latestSnapshot={latestSnapshotByReport.get(report.report_key) ?? null}
+                  onSelect={() => setSelectedReportKey(report.report_key)}
+                  report={report}
+                  selected={report.report_key === selectedReportKey}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              text="กรุณาตรวจสิทธิ์รายงานหรือแพ็กเกจของร้านก่อนรันรายงานด้วยมือ"
+              title="ยังไม่มีรายงานให้ร้านนี้"
+            />
+          )}
         </PanelBody>
       </Panel>
 
       <div className="space-y-6">
         <Panel>
           <PanelHeader
-            description="กดรันเมื่อพร้อมเท่านั้น รายงานหนักจะรันเบื้องหลังและปิดหน้าได้"
-            title="ควบคุมการรัน"
+            description="ใช้เมื่ออยากอัปเดตข้อมูลทันที รายงานหนักจะรันเบื้องหลังและปิดหน้าได้"
+            title="รันรายงานด้วยมือ"
           />
           <PanelBody spaced>
             {selectedReport ? (
@@ -408,24 +416,22 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    จากวันที่
+                  <Field label="จากวันที่">
                     <input
-                      className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-theme-sm text-gray-800 shadow-theme-xs outline-hidden transition placeholder:text-gray-400 focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
+                      className="owner-v2-input"
                       onChange={(event) => setDateFrom(event.target.value)}
                       type="date"
                       value={dateFrom}
                     />
-                  </label>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    ถึงวันที่
+                  </Field>
+                  <Field label="ถึงวันที่">
                     <input
-                      className="mt-1 h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-theme-sm text-gray-800 shadow-theme-xs outline-hidden transition placeholder:text-gray-400 focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
+                      className="owner-v2-input"
                       onChange={(event) => setDateTo(event.target.value)}
                       type="date"
                       value={dateTo}
                     />
-                  </label>
+                  </Field>
                 </div>
 
                 {dateInvalid ? (
@@ -451,7 +457,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                     ? "กำลังเริ่มรัน..."
                     : selectedIsAsync
                       ? "เริ่มรันเบื้องหลัง"
-                      : "รันทดสอบรายงาน"}
+                      : "รันรายงานนี้"}
                 </Button>
                 <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
                   {runDisabled
@@ -492,7 +498,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                     ยังไม่มีรอบรัน
                   </p>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ยังไม่มีประวัติรันของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม
+                    ยังไม่มีประวัติรันของรายงานนี้ กดรันรายงานเมื่อ SML พร้อม
                   </p>
                 </div>
               </div>
@@ -573,6 +579,24 @@ function ReportRow({
         </div>
       </div>
     </button>
+  );
+}
+
+function EmptyState({ text, title }: { text: string; title: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+        <InfoIcon className="h-6 w-6" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </p>
+        <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {text}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -722,10 +746,10 @@ function ReportSignoffPanel({
       onSubmit={submit}
     >
       <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-        รับรองยอดรายงาน (validation sign-off)
+        รับรองยอดรายงาน
       </p>
       <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-        เทียบยอดขายกับระบบอื่นก่อนส่งผู้บริหาร
+        บันทึกว่าใครตรวจยอดแล้ว และยอดในรายงานตรงกับแหล่งอ้างอิงหรือไม่
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <label className="block">
@@ -826,11 +850,11 @@ function ProgressCard({ progress }: { progress: ChunkedReportProgress }) {
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <Fact
-          label="Chunks"
+          label="ช่วงข้อมูลที่ทำเสร็จ"
           value={`${progress.chunk_summary.done}/${progress.chunk_summary.total}`}
         />
         <Fact
-          label="Rows"
+          label="จำนวนแถวที่อ่านแล้ว"
           value={progress.chunk_summary.rows_processed.toLocaleString("th-TH")}
         />
       </div>
@@ -852,7 +876,7 @@ function ReportsSkeleton() {
         </PanelBody>
       </Panel>
       <Panel>
-        <PanelHeader title="กำลังโหลด run control" />
+        <PanelHeader title="กำลังโหลดเครื่องมือรันรายงาน" />
         <PanelBody spaced>
           <MiniSkeleton rows={4} />
         </PanelBody>
@@ -898,13 +922,13 @@ function formatProgressStage(stage: string | null) {
     return "กำลังเตรียมงาน";
   }
   const labels: Record<string, string> = {
-    chunking: "แบ่ง chunk",
+    chunking: "แบ่งช่วงข้อมูล",
     finalizing: "รวมผลลัพธ์",
     queued: "รอคิว",
     running: "กำลังรัน",
     success: "สำเร็จ",
   };
-  return labels[stage] ?? stage;
+  return labels[stage] ?? "กำลังประมวลผล";
 }
 
 function formatReportPeriod(dateFrom: string, dateTo: string) {
