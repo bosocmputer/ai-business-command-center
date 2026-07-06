@@ -531,11 +531,24 @@ export default function OwnerV2NewTenant() {
           <PanelBody spaced>
             <div className="grid grid-cols-1 gap-3">
               <Fact label="แพ็กเกจ" value={formatPlanCode(preview.plan_code)} />
-              <Fact label="หน้าแดชบอร์ด" value={preview.dashboard_path} />
-              <Fact label="ผู้ดูแลแดชบอร์ด" value={preview.viewer_email} />
+              <Fact
+                label="หน้าแดชบอร์ด"
+                tone={preview.dashboard_path ? "success" : "warning"}
+                value={
+                  preview.dashboard_path
+                    ? "พร้อมสร้างหน้าแดชบอร์ด"
+                    : "ยังไม่พร้อม"
+                }
+              />
+              <Fact
+                label="ผู้ดูแลแดชบอร์ด"
+                value={formatPreviewViewer(preview.viewer_email)}
+              />
             </div>
             <TechnicalDetails embedded title="รายละเอียดเทคนิคของร้านใหม่">
               <Fact label="รหัสร้าน" value={preview.tenant_id} />
+              <Fact label="เส้นทางแดชบอร์ด" value={preview.dashboard_path} />
+              <Fact label="อีเมลบัญชีผู้ดูแล" value={preview.viewer_email} />
             </TechnicalDetails>
             <div className="custom-scrollbar flex max-h-[360px] flex-col gap-2 overflow-y-auto">
               {(preview.checks ?? []).map((check) => (
@@ -614,4 +627,11 @@ export default function OwnerV2NewTenant() {
 
 function technicalErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
+}
+
+function formatPreviewViewer(email: string) {
+  if (/^viewer\+.+@ai-business\.local$/i.test(email)) {
+    return "ระบบจะสร้างให้อัตโนมัติ";
+  }
+  return email;
 }

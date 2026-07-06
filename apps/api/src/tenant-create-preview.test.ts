@@ -29,6 +29,15 @@ describe("tenant create dry-run preview", () => {
       "viewer_user",
       "secrets_not_saved",
     ]);
+    expect(preview.checks.map((check) => check.label)).toEqual([
+      "รหัสร้านไม่ซ้ำ",
+      "หน้าแดชบอร์ดพร้อม",
+      "ผู้ดูแลแดชบอร์ดเริ่มต้น",
+      "ยังไม่บันทึกค่าลับ",
+    ]);
+    expect(preview.checks.map((check) => check.detail).join(" ")).not.toMatch(
+      /tenant_id|dashboard link|viewer|secret/i,
+    );
   });
 
   it("flags duplicate and fallback tenant ids before a real create", () => {
@@ -47,8 +56,8 @@ describe("tenant create dry-run preview", () => {
       detail: "ซ้ำกับร้าน Existing Shop",
     });
     expect(preview.warnings).toEqual([
-      "tenant_id นี้มาจากชื่อร้านที่แปลงเป็น fallback hash ควรแก้ให้อ่านง่ายก่อนสร้างจริง",
-      "ยังสร้างไม่ได้จนกว่าจะเปลี่ยน tenant_id ให้ไม่ซ้ำ",
+      "รหัสร้านนี้มาจากระบบแปลงชื่ออัตโนมัติ ควรแก้ให้อ่านง่ายก่อนสร้างจริง",
+      "ยังสร้างไม่ได้จนกว่าจะเปลี่ยนรหัสร้านให้ไม่ซ้ำ",
     ]);
   });
 });
