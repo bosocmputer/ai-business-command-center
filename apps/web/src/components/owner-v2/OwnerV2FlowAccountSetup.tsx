@@ -145,7 +145,7 @@ export default function OwnerV2FlowAccountSetup({
       setState({ status: "success", data });
       setMessage({
         tone: "success",
-        text: "บันทึกข้อมูลเชื่อมต่อแบบทดสอบแล้ว ยังต้องกดทดสอบก่อนนำผลไปใช้",
+        text: "บันทึกข้อมูลเชื่อมต่อแบบทดสอบแล้ว ยังต้องกดทดสอบก่อนถือว่าช่องทางนี้พร้อม",
       });
       setTechnicalMessage(null);
     } catch (error) {
@@ -469,7 +469,7 @@ function FlowAccountActionGuide({
             ลำดับตั้งค่า FlowAccount
           </h4>
           <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-            ทำให้ครบก่อนนำข้อมูล FlowAccount ไปใช้ในรายงานการเงินรอบถัดไป
+            ทำให้ครบเพื่อเก็บสถานะช่องทางบัญชีไว้ทดสอบ โดยยังไม่กระทบ LINE หรือรายงาน SML ใน v1
           </p>
         </div>
         <Badge color={tested ? "success" : credentialsReady ? "warning" : "light"}>

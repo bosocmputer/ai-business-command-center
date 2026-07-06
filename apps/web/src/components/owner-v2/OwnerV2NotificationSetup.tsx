@@ -43,6 +43,7 @@ import {
   PanelBody,
   PanelHeader,
   TechnicalDetails,
+  secondaryActionClass,
 } from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
@@ -1415,7 +1416,7 @@ function TargetSelector({
           </p>
         </div>
         <Link
-          className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+          className={secondaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/line`}
         >
           ไปตั้งค่า LINE
