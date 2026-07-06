@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon } from "@/icons";
 import { ownerV2Fetch } from "./api";
-import { Fact, Notice } from "./ui";
+import { Fact, Notice, TechnicalDetails, formatDateTime } from "./ui";
 import type { OwnerV2TenantDeleteImpact } from "./types";
 
 /**
@@ -77,7 +77,8 @@ function DangerZone({
   }, [open]);
 
   const canCancel =
-    impact?.can_cancel !== false &&
+    impact !== null &&
+    impact.can_cancel !== false &&
     confirmName.trim() === tenantName &&
     reason.trim().length > 0 &&
     !cancelling;
@@ -112,7 +113,7 @@ function DangerZone({
       >
         <span className="flex items-center gap-2 text-sm font-semibold text-error-700 dark:text-error-400">
           <AlertIcon className="h-4 w-4" />
-          Danger Zone — ยกเลิกร้าน
+          พื้นที่ดำเนินการสำคัญ: ยกเลิกร้าน
         </span>
         <span className="text-theme-xs text-gray-400 transition group-open:rotate-180">
           {open ? "▲" : "▼"}
@@ -122,8 +123,8 @@ function DangerZone({
         <div className="space-y-4 border-t border-error-500/30 p-4 sm:p-6">
           <Notice
             tone="error"
-            title="การยกเลิกร้านเป็น soft delete"
-            text="ระบบจะตั้งสถานะเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ และเก็บประวัติ ผู้รับ LINE และข้อมูลรายงานไว้ตรวจย้อนหลัง หลังยกเลิกจะไม่ส่ง LINE และไม่เปิดหน้าลูกค้า"
+            title="ยกเลิกแบบเก็บประวัติ"
+            text="ระบบจะตั้งสถานะร้านเป็นยกเลิก ปิดแผนแจ้งเตือนที่เปิดอยู่ และเก็บประวัติผู้รับ LINE กับข้อมูลรายงานไว้ตรวจย้อนหลัง หลังยกเลิกจะไม่ส่ง LINE และไม่เปิดหน้าลูกค้า"
           />
 
           <div className="flex flex-wrap items-center gap-3">
@@ -139,7 +140,16 @@ function DangerZone({
           </div>
 
           {impactError ? (
-            <Notice tone="error" title="ตรวจผลกระทบไม่สำเร็จ" text={impactError} />
+            <div className="space-y-3">
+              <Notice
+                tone="error"
+                title="ตรวจผลกระทบไม่สำเร็จ"
+                text="ยังยกเลิกร้านไม่ได้จนกว่าจะตรวจผลกระทบสำเร็จ กรุณาลองใหม่หรือตรวจสิทธิ์ผู้ดูแล"
+              />
+              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                <Fact label="ข้อความระบบ" value={impactError} />
+              </TechnicalDetails>
+            </div>
           ) : null}
 
           {impact ? (
@@ -157,18 +167,26 @@ function DangerZone({
                   label="ข้อมูลล่าสุด"
                   value={
                     impact.latest_snapshot_at
-                      ? new Intl.DateTimeFormat("th-TH", {
-                          dateStyle: "medium",
-                          timeZone: "Asia/Bangkok",
-                        }).format(new Date(impact.latest_snapshot_at))
+                      ? formatDateTime(impact.latest_snapshot_at)
                       : "ยังไม่มี"
                   }
                 />
                 <Fact
-                  label="dashboard ลูกค้า"
-                  value={impact.dashboard_path ?? "ยังไม่มี"}
+                  label="หน้าลูกค้า"
+                  value={impact.dashboard_path ? "มีหน้าลูกค้า" : "ยังไม่มี"}
                 />
               </div>
+
+              {impact.dashboard_path ? (
+                <div className="mt-4">
+                  <TechnicalDetails embedded title="รายละเอียดหน้าลูกค้า">
+                    <Fact
+                      label="เส้นทางหน้าลูกค้า"
+                      value={impact.dashboard_path}
+                    />
+                  </TechnicalDetails>
+                </div>
+              ) : null}
 
               {impact.blockers.length ? (
                 <div className="mt-4 space-y-2">
@@ -218,7 +236,16 @@ function DangerZone({
           </div>
 
           {cancelError ? (
-            <Notice tone="error" title="ยกเลิกร้านไม่สำเร็จ" text={cancelError} />
+            <div className="space-y-3">
+              <Notice
+                tone="error"
+                title="ยกเลิกร้านไม่สำเร็จ"
+                text="ระบบยังไม่สามารถยกเลิกร้านได้ กรุณาตรวจผลกระทบอีกครั้งและลองใหม่"
+              />
+              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                <Fact label="ข้อความระบบ" value={cancelError} />
+              </TechnicalDetails>
+            </div>
           ) : null}
 
           <button
@@ -230,7 +257,7 @@ function DangerZone({
             {cancelling ? "กำลังยกเลิก..." : "ยืนยันยกเลิกร้าน"}
           </button>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            ปุ่มเปิดเมื่อพิมพ์ชื่อร้านตรง ระบุเหตุผล และไม่มี blocker ที่กันยกเลิก
+            ปุ่มเปิดเมื่อกดตรวจผลกระทบแล้ว พิมพ์ชื่อร้านตรง ระบุเหตุผล และไม่มีรายการที่กันยกเลิก
           </p>
         </div>
       ) : null}
