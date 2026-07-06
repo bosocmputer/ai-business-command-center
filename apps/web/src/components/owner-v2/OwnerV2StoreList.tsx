@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import {
@@ -41,11 +42,17 @@ type StoreListState =
 type StoreFilter = "all" | "needs_action" | "ready" | "signals";
 
 const emptyTenants: OwnerV2Tenant[] = [];
+const STORE_FILTERS: StoreFilter[] = ["all", "needs_action", "ready", "signals"];
 
 export default function OwnerV2StoreList() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryParam = searchParams.get("q") ?? "";
+  const filterParam = parseStoreFilter(searchParams.get("filter"));
   const [state, setState] = useState<StoreListState>({ status: "loading" });
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<StoreFilter>("all");
+  const [query, setQuery] = useState(queryParam);
+  const [filter, setFilter] = useState<StoreFilter>(filterParam);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setState({ status: "loading" });
@@ -83,6 +90,11 @@ export default function OwnerV2StoreList() {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  useEffect(() => {
+    setQuery((current) => (current === queryParam ? current : queryParam));
+    setFilter((current) => (current === filterParam ? current : filterParam));
+  }, [filterParam, queryParam]);
 
   const tenants = state.status === "success" ? state.data.tenants : emptyTenants;
   const counts = useMemo(() => summarizeTenants(tenants), [tenants]);
@@ -178,6 +190,27 @@ export default function OwnerV2StoreList() {
     { id: "signals", label: "มีสัญญาณเตือน", count: counts.signals },
   ];
 
+  function updateListUrl(next: { filter?: StoreFilter; query?: string }) {
+    const nextFilter = next.filter ?? filter;
+    const nextQuery = next.query ?? query;
+    const params = new URLSearchParams(searchParams.toString());
+    const trimmedQuery = nextQuery.trim();
+    if (trimmedQuery) {
+      params.set("q", trimmedQuery);
+    } else {
+      params.delete("q");
+    }
+    if (nextFilter === "all") {
+      params.delete("filter");
+    } else {
+      params.set("filter", nextFilter);
+    }
+    const suffix = params.toString();
+    router.replace(suffix ? `${pathname}?${suffix}` : pathname, {
+      scroll: false,
+    });
+  }
+
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -239,7 +272,11 @@ export default function OwnerV2StoreList() {
         <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <input
             className="owner-v2-input xl:max-w-md"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setQuery(value);
+              updateListUrl({ query: value });
+            }}
             placeholder="ค้นหาชื่อร้านหรือสิ่งที่ต้องทำต่อ"
             value={query}
           />
@@ -254,7 +291,10 @@ export default function OwnerV2StoreList() {
                     : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
                 }`}
                 key={item.id}
-                onClick={() => setFilter(item.id)}
+                onClick={() => {
+                  setFilter(item.id);
+                  updateListUrl({ filter: item.id });
+                }}
                 type="button"
               >
                 <span>{item.label}</span>
@@ -344,6 +384,7 @@ export default function OwnerV2StoreList() {
               onClick={() => {
                 setQuery("");
                 setFilter("all");
+                updateListUrl({ filter: "all", query: "" });
               }}
               type="button"
               variant="outline"
@@ -871,4 +912,10 @@ function storePriorityScore(tenant: OwnerV2Tenant) {
 
 function normalizeText(value: string) {
   return value.trim().toLowerCase();
+}
+
+function parseStoreFilter(value: string | null): StoreFilter {
+  return STORE_FILTERS.includes(value as StoreFilter)
+    ? (value as StoreFilter)
+    : "all";
 }
