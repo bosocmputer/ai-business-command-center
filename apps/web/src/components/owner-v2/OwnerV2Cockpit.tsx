@@ -415,6 +415,12 @@ function formatAdminCopy(value?: string | null) {
     return "";
   }
   const replacements: Array<[RegExp, string]> = [
+    [/\bsuccess_with_warnings\b/gi, "สำเร็จพร้อมข้อสังเกต"],
+    [/\bcash_bank_receipts\b/gi, "รายงานรับเงิน"],
+    [/\bcash_bank_payments\b/gi, "รายงานจ่ายเงิน"],
+    [/\bOpenRouter\s*429\b/gi, "AI CEO ถูกจำกัดความถี่ชั่วคราว"],
+    [/\bworker\s+stale\b/gi, "ระบบรันงานไม่อัปเดตตามเวลา"],
+    [/\bJavaWS\b/gi, "ตัวเชื่อมต่อ SML"],
     [/\bbusiness signals?\b/gi, "สัญญาณธุรกิจ"],
     [/\bsnapshots?\s+ล่าสุด\b/gi, "ข้อมูลล่าสุด"],
     [/\bsnapshots?\b/gi, "ข้อมูลล่าสุด"],

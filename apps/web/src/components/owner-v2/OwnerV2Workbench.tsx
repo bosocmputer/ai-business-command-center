@@ -194,6 +194,8 @@ export default function OwnerV2Workbench() {
 
         {/* Right rail — quick actions + background job status (TailAdmin right-column pattern) */}
         <div className="space-y-5 sm:space-y-6 xl:col-span-5">
+          <SelectedTenantQuickActions selected={workbench?.selected ?? null} />
+
           <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
               การจัดการร้าน
@@ -249,6 +251,119 @@ export default function OwnerV2Workbench() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Selected tenant quick actions — one-click setup paths from overview
+/* ------------------------------------------------------------------ */
+
+function SelectedTenantQuickActions({
+  selected,
+}: {
+  selected: OwnerV2WorkbenchPayload["selected"] | null;
+}) {
+  if (!selected) {
+    return null;
+  }
+
+  const encodedTenantId = encodeURIComponent(selected.tenant.id);
+  const progressLabel =
+    selected.tenant.total_steps > 0
+      ? `${selected.tenant.completed_steps}/${selected.tenant.total_steps} ขั้นตอน`
+      : "รอตรวจสถานะ";
+  const nextActionHref =
+    selected.next_action?.href ?? `/owner-v2/stores/${encodedTenantId}`;
+  const nextActionLabel =
+    selected.next_action?.action_label ??
+    (selected.tenant.ready ? "เปิดหน้าร้าน" : "ตรวจระบบร้าน");
+  const quickActions = [
+    {
+      description: "ดูสถานะ SML, LINE, รายงาน และรอบส่งล่าสุด",
+      href: `/owner-v2/stores/${encodedTenantId}?tab=system`,
+      label: "ตรวจระบบร้าน",
+    },
+    {
+      description: "ตั้งค่าผู้รับและช่องทางส่งข้อความ",
+      href: `/owner-v2/stores/${encodedTenantId}/line`,
+      label: "ตั้งค่า LINE",
+    },
+    {
+      description: "กำหนดรอบส่งจริงและลำดับรายงานใน LINE",
+      href: `/owner-v2/stores/${encodedTenantId}/notifications`,
+      label: "แผนแจ้งเตือน",
+    },
+    {
+      description: "เลือกรายงานที่ร้านใช้และตรวจรอบล่าสุด",
+      href: `/owner-v2/stores/${encodedTenantId}/reports`,
+      label: "รายงาน",
+    },
+    {
+      description: "ตั้ง prompt, model และ key สำหรับสรุปผู้บริหาร",
+      href: `/owner-v2/stores/${encodedTenantId}/ai-ceo`,
+      label: "AI CEO",
+    },
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+            ร้านที่เลือก
+          </p>
+          <h3 className="mt-1 truncate text-lg font-semibold text-gray-800 dark:text-white/90">
+            {selected.tenant.name}
+          </h3>
+          <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+            {formatWorkbenchCopy(selected.access_message)}
+          </p>
+        </div>
+        <span className="inline-flex shrink-0 items-center justify-center rounded-full bg-brand-50 px-3 py-1 text-theme-xs font-medium text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
+          {progressLabel}
+        </span>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+        <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+          ควรทำต่อ
+        </p>
+        <p className="mt-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+          {formatWorkbenchCopy(
+            selected.next_action?.label ??
+              (selected.tenant.ready ? "ร้านพร้อมใช้งาน" : "ตรวจความพร้อมร้าน"),
+          )}
+        </p>
+        <p className="mt-1 line-clamp-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+          {formatWorkbenchCopy(
+            selected.next_action?.detail ??
+              "เปิดหน้าร้านเพื่อตรวจสถานะล่าสุดและดูงานที่ต้องทำ",
+          )}
+        </p>
+        <Link className={`${primaryActionClass} mt-3`} href={nextActionHref}>
+          {formatWorkbenchCopy(nextActionLabel)}
+          <ArrowRightIcon className="h-4 w-4" />
+        </Link>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {quickActions.map((item) => (
+          <Link
+            className="group rounded-lg border border-gray-100 p-3 transition hover:border-brand-200 hover:bg-brand-50/60 dark:border-gray-800 dark:hover:border-brand-500/30 dark:hover:bg-brand-500/10"
+            href={item.href}
+            key={item.href}
+          >
+            <span className="flex items-center justify-between gap-2 text-sm font-semibold text-gray-800 group-hover:text-brand-600 dark:text-white/90 dark:group-hover:text-brand-400">
+              {item.label}
+              <ArrowRightIcon className="h-4 w-4 shrink-0" />
+            </span>
+            <span className="mt-1 block text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+              {item.description}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -391,7 +506,7 @@ function StoresNeedingAttention({
                 {row.tenant_name}
               </p>
               <p className="mt-0.5 line-clamp-1 text-theme-xs text-gray-500 dark:text-gray-400">
-                {row.next_action_label}
+                {formatWorkbenchCopy(row.next_action_label)}
               </p>
             </div>
             <div
@@ -438,6 +553,30 @@ function formatWorkerStatus(status?: string | null) {
     return "หยุดทำงาน";
   }
   return "ไม่ทราบสถานะ";
+}
+
+function formatWorkbenchCopy(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+  const replacements: Array<[RegExp, string]> = [
+    [/\bsuccess_with_warnings\b/gi, "สำเร็จพร้อมข้อสังเกต"],
+    [/\bcash_bank_receipts\b/gi, "รายงานรับเงิน"],
+    [/\bcash_bank_payments\b/gi, "รายงานจ่ายเงิน"],
+    [/\bOpenRouter\s*429\b/gi, "AI CEO ถูกจำกัดความถี่ชั่วคราว"],
+    [/\bworker\s+stale\b/gi, "ระบบรันงานไม่อัปเดตตามเวลา"],
+    [/\bJavaWS\b/gi, "ตัวเชื่อมต่อ SML"],
+    [/\bbusiness signals?\b/gi, "สัญญาณธุรกิจ"],
+    [/\bsnapshots?\s+ล่าสุด\b/gi, "ข้อมูลล่าสุด"],
+    [/\bsnapshots?\b/gi, "ข้อมูลล่าสุด"],
+    [/\bblockers?\b/gi, "จุดติดขัด"],
+    [/\bactive\b/gi, "ใช้งาน"],
+  ];
+  return replacements
+    .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value)
+    .replace(/ข้อมูลล่าสุด\s+ล่าสุด/g, "ข้อมูลล่าสุด")
+    .replace(/จัดการ\s+สัญญาณธุรกิจ/g, "จัดการสัญญาณธุรกิจ")
+    .replace(/จาก\s+ข้อมูลล่าสุด/g, "จากข้อมูลล่าสุด");
 }
 
 /* ------------------------------------------------------------------ */
