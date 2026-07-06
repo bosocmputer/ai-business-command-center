@@ -370,19 +370,26 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
               it's the only thing shown — a clean all-green list with no
               fixed-height scroll container. */}
           {readiness.ready ? (
-            <Panel>
-              <PanelHeader
-                title="รายการตรวจสอบความพร้อม"
-                description="ทุกข้อตั้งค่าครบแล้ว — กด “ดู” เพื่อเปิดหน้าตั้งค่าของขั้นนั้น"
+            <>
+              <StoreReadyNextSteps
+                customerDashboardPath={detail.summary.customer_dashboard_path}
+                health={health}
+                tenant={tenant}
               />
-              <PanelBody>
-                <div className="flex flex-col gap-2">
-                  {readiness.checks.map((check) => (
-                    <ReadinessRow check={check} key={check.key} tenantId={tenant.id} />
-                  ))}
-                </div>
-              </PanelBody>
-            </Panel>
+              <Panel>
+                <PanelHeader
+                  title="รายการตรวจสอบความพร้อม"
+                  description="ทุกข้อตั้งค่าครบแล้ว — กด “ดู” เพื่อเปิดหน้าตั้งค่าของขั้นนั้น"
+                />
+                <PanelBody>
+                  <div className="flex flex-col gap-2">
+                    {readiness.checks.map((check) => (
+                      <ReadinessRow check={check} key={check.key} tenantId={tenant.id} />
+                    ))}
+                  </div>
+                </PanelBody>
+              </Panel>
+            </>
           ) : null}
         </div>
       ) : null}
@@ -808,6 +815,132 @@ function StoreQuickActions({ tenantId }: { tenantId: string }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function StoreReadyNextSteps({
+  customerDashboardPath,
+  health,
+  tenant,
+}: {
+  customerDashboardPath: string | null;
+  health: OwnerV2StoreSetupTenantSummary["health"];
+  tenant: Tenant;
+}) {
+  const encodedTenantId = encodeURIComponent(tenant.id);
+  const aiCeoEligible = planSupportsAiCeo(tenant.planCode);
+  const notificationStatus = health.latest_notification_run_at
+    ? `${formatRunStatus(health.latest_notification_run_status)} · ${formatDateTime(
+        health.latest_notification_run_at,
+      )}`
+    : "ยังไม่มีรอบแจ้งเตือน";
+  const cards = [
+    {
+      href: `/owner-v2/stores/${encodedTenantId}/ai-ceo`,
+      label: "AI CEO",
+      tone: aiCeoEligible ? "success" : "light",
+      title: aiCeoEligible ? "ควรตรวจ prompt และ model" : "ยังไม่ใช่งานบังคับ",
+      text: aiCeoEligible
+        ? "แพ็กเกจนี้รองรับ AI CEO ให้ทดสอบข้อความก่อนเปิดส่งจริง"
+        : "ร้านเล็กยังใช้รายงาน LINE หลักได้ก่อน หากอัปแพ็กเกจค่อยเปิด AI CEO",
+      action: aiCeoEligible ? "ตั้งค่า AI CEO" : "ดูการตั้งค่า",
+    },
+    {
+      href: `/owner-v2/stores/${encodedTenantId}?tab=system`,
+      label: "รอบล่าสุด",
+      tone: runStatusFactTone(health.latest_notification_run_status),
+      title: notificationStatus,
+      text: "ดูหลักฐานรอบส่งและเหตุการณ์ระบบล่าสุดของร้านนี้",
+      action: "ตรวจระบบร้าน",
+    },
+    {
+      href: `/owner-v2/stores/${encodedTenantId}/notifications`,
+      label: "แผนแจ้งเตือน",
+      tone: health.notification_rules_enabled > 0 ? "success" : "warning",
+      title: `${health.notification_rules_enabled.toLocaleString("th-TH")} แผนเปิดใช้งาน`,
+      text: "ตรวจเวลา ผู้รับ และลำดับรายงานที่จะแสดงใน LINE",
+      action: "เปิดแผนแจ้งเตือน",
+    },
+    {
+      href: customerDashboardPath ?? `/owner-v2/stores/${encodedTenantId}/reports`,
+      label: "หน้าลูกค้า",
+      tone: customerDashboardPath ? "success" : "warning",
+      title: customerDashboardPath ? "มี dashboard ลูกค้า" : "ยังไม่มีทางเข้า dashboard",
+      text: customerDashboardPath
+        ? "เปิดดูมุมที่ลูกค้าจะเห็นหลังจากกดรายงานใน LINE"
+        : "ตรวจรายงานก่อนเปิดใช้งาน dashboard ลูกค้า",
+      action: customerDashboardPath ? "เปิด dashboard" : "เปิดรายงาน",
+    },
+  ] satisfies Array<{
+    action: string;
+    href: string;
+    label: string;
+    text: string;
+    title: string;
+    tone: "success" | "warning" | "error" | "light";
+  }>;
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="พร้อมแล้วควรดูอะไรต่อ"
+        description="ร้านตั้งค่าหลักครบแล้ว ขั้นถัดไปคือเช็กคุณภาพรอบส่งและงานเสริมที่ลูกค้าจะใช้งานจริง"
+      />
+      <PanelBody>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
+          {cards.map((card) => (
+            <ReadyNextCard card={card} key={card.label} />
+          ))}
+        </div>
+      </PanelBody>
+    </Panel>
+  );
+}
+
+function ReadyNextCard({
+  card,
+}: {
+  card: {
+    action: string;
+    href: string;
+    label: string;
+    text: string;
+    title: string;
+    tone: "success" | "warning" | "error" | "light";
+  };
+}) {
+  return (
+    <Link
+      className="group flex min-h-full flex-col rounded-xl border border-gray-200 bg-gray-50 p-4 transition hover:border-brand-300 hover:bg-white dark:border-gray-800 dark:bg-white/[0.02] dark:hover:border-brand-500/40 dark:hover:bg-white/[0.05]"
+      href={card.href}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+            {card.label}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-gray-800 dark:text-white/90">
+            {card.title}
+          </p>
+        </div>
+        <Badge color={card.tone} size="sm">
+          {card.tone === "success"
+            ? "พร้อม"
+            : card.tone === "warning"
+              ? "ควรตรวจ"
+              : card.tone === "error"
+                ? "ต้องแก้"
+                : "ข้อมูล"}
+        </Badge>
+      </div>
+      <p className="mt-3 flex-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+        {card.text}
+      </p>
+      <span className="mt-4 inline-flex items-center gap-2 text-theme-xs font-medium text-brand-600 transition group-hover:text-brand-700 dark:text-brand-400">
+        {card.action}
+        <ArrowRightIcon className="h-4 w-4" />
+      </span>
+    </Link>
   );
 }
 
@@ -1634,6 +1767,10 @@ function runStatusFactTone(
     return "error";
   }
   return "warning";
+}
+
+function planSupportsAiCeo(planCode: Tenant["planCode"]) {
+  return planCode === "business" || planCode === "pro";
 }
 
 function v2HrefForCheck(tenantId: string, check: OwnerV2StoreSetupCheck) {
