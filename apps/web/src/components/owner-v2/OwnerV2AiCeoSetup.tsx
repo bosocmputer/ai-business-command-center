@@ -19,6 +19,7 @@ import {
   PanelHeader,
   TechnicalDetails,
   formatDateTime,
+  formatPlanCode,
   secondaryActionClass,
 } from "./ui";
 
@@ -329,22 +330,22 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
         <PanelBody spaced>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Fact
-              label="Plan"
+              label="แพ็กเกจ"
               tone={data.plan_eligible ? "success" : "warning"}
-              value={data.tenant.planCode.toUpperCase()}
+              value={formatPlanCode(data.tenant.planCode)}
             />
             <Fact
-              label="AI status"
+              label="สถานะ AI"
               tone={data.profile.ai_enabled ? "success" : "light"}
               value={data.profile.ai_enabled ? "เปิดใช้งาน" : "ยังไม่เปิด"}
             />
             <Fact
-              label="OpenRouter key"
+              label="OpenRouter API key"
               tone={data.key_configured ? "success" : "warning"}
               value={keySourceLabel(data.key_source)}
             />
             <Fact
-              label="Encryption"
+              label="การเข้ารหัส"
               tone={data.encryption_configured ? "success" : "error"}
               value={data.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"}
             />
@@ -382,7 +383,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   </p>
                 </div>
                 <Badge color={selectedModel?.recommended_tier === "pro" ? "warning" : "success"}>
-                  {selectedModel?.recommended_tier.toUpperCase() ?? "MODEL"}
+                  {selectedModel
+                    ? formatPlanCode(selectedModel.recommended_tier)
+                    : "Model"}
                 </Badge>
               </div>
 
@@ -755,7 +758,7 @@ function AiCeoAdminGuide() {
   const sections = [
     {
       title: "สถานะด้านบน",
-      text: "ใช้เช็กความพร้อมก่อนเปิดจริง: plan ต้องเป็น Business/Pro, key ต้องพร้อม และ encryption ต้องพร้อม",
+      text: "ใช้เช็กความพร้อมก่อนเปิดจริง: แพ็กเกจต้องรองรับ AI CEO, API key ต้องพร้อม และระบบเข้ารหัสต้องพร้อม",
     },
     {
       title: "บทบาทและ prompt",
@@ -767,11 +770,11 @@ function AiCeoAdminGuide() {
     },
     {
       title: "API key mode",
-      text: "Key กลางระบบคือใช้ key บริษัท ถ้าเลือก key เฉพาะร้าน ระบบจะใช้ key ของร้านนั้นและเก็บแบบ encrypted",
+      text: "เลือกว่าจะใช้ key กลางของบริษัท หรือ key เฉพาะร้าน ถ้าเป็น key เฉพาะร้านระบบจะเก็บแบบเข้ารหัส",
     },
     {
       title: "ขอบเขตงบใช้งาน",
-      text: "เพดาน token และ USD ใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะ failed แบบปลอดภัย",
+      text: "เพดานโทเคนและค่าใช้จ่ายใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะไม่สำเร็จแบบปลอดภัย",
     },
     {
       title: "Shadow mode",
