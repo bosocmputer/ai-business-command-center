@@ -108,13 +108,21 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   const canUseAi = Boolean(
     statusData?.plan_eligible && statusData.encryption_configured,
   );
-  const canSave = Boolean(form.prompt_text.trim().length >= 80 && canUseAi);
-  const canDryRun = Boolean(
-    statusData?.plan_eligible &&
-      statusData.encryption_configured &&
-      statusData.key_configured &&
-      form.prompt_text.trim().length >= 80,
-  );
+  const configBlockedReason = getAiCeoConfigBlockedReason({
+    canUseAi,
+    form,
+    keyConfigured: Boolean(statusData?.key_configured),
+    selectedModel,
+    tenantPlanCode: statusData?.tenant.planCode ?? "",
+  });
+  const dryRunBlockedReason = getAiCeoDryRunBlockedReason({
+    encryptionConfigured: Boolean(statusData?.encryption_configured),
+    keyConfigured: Boolean(statusData?.key_configured),
+    planEligible: Boolean(statusData?.plan_eligible),
+    promptText: form.prompt_text,
+  });
+  const canSave = configBlockedReason === null;
+  const canDryRun = dryRunBlockedReason === null;
 
   async function saveConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -125,7 +133,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setTechnicalMessage(null);
       setMessage({
         tone: "warning",
-        text: "ตรวจแพ็กเกจร้าน ระบบเข้ารหัส และคำสั่ง AI ให้ครบก่อนบันทึก",
+        text:
+          configBlockedReason ??
+          "ตรวจแพ็กเกจร้าน ระบบเข้ารหัส และคำสั่ง AI ให้ครบก่อนบันทึก",
       });
       return;
     }
@@ -231,7 +241,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setTechnicalMessage(null);
       setMessage({
         tone: "warning",
-        text: "ต้องมีแพ็กเกจที่รองรับ ระบบเข้ารหัส รหัส OpenRouter และคำสั่ง AI ก่อนทดสอบ AI CEO",
+        text:
+          dryRunBlockedReason ??
+          "ต้องมีแพ็กเกจที่รองรับ ระบบเข้ารหัส รหัส OpenRouter และคำสั่ง AI ก่อนทดสอบ AI CEO",
       });
       return;
     }
@@ -391,6 +403,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               text="ต้องตั้งค่ากุญแจเข้ารหัสบนเครื่องแม่ข่ายก่อนบันทึกรหัส OpenRouter หรือเปิด AI CEO"
             />
           ) : null}
+          <AiCeoReadinessSteps data={data} form={form} />
 
           <AiCeoAdminGuide />
 
@@ -416,7 +429,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <Field label="ชื่อผู้ช่วย">
+                <Field
+                  label="ชื่อผู้ช่วย"
+                  help="ชื่อนี้จะขึ้นต้นข้อความที่ส่งไปใน LINE เช่น AI CEO หรือชื่อเฉพาะของร้าน"
+                >
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -429,7 +445,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.advisor_name}
                   />
                 </Field>
-                <Field label="ประเภทธุรกิจ">
+                <Field
+                  label="ประเภทธุรกิจ"
+                  help="ใช้บอกบริบทให้ AI เน้นประเด็นที่เหมาะกับธุรกิจ เช่น วัสดุก่อสร้าง คอนกรีต ร้านอาหาร"
+                >
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -442,7 +461,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.business_type}
                   />
                 </Field>
-                <Field label="โมเดลที่ใช้">
+                <Field
+                  label="โมเดลที่ใช้"
+                  help="เลือกจากความสมดุลระหว่างคุณภาพ ความเร็ว และต้นทุน ดูรายละเอียดแต่ละโมเดลด้านล่าง"
+                >
                   <select
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -472,7 +494,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     })}
                   </select>
                 </Field>
-                <Field label="โหมดรหัส OpenRouter">
+                <Field
+                  label="โหมดรหัส OpenRouter"
+                  help="รหัสกลางใช้ของระบบ ส่วนรหัสเฉพาะร้านใช้เมื่อลูกค้ามีบัญชี OpenRouter ของตนเอง"
+                >
                   <select
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -524,7 +549,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <Field label="เพดานหน่วยใช้งาน AI ต่อวัน">
+                <Field
+                  label="เพดานหน่วยใช้งาน AI ต่อวัน"
+                  help="หยุดเรียก AI เมื่อใช้เกินจำนวนนี้ภายในวันเดียว"
+                >
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -539,7 +567,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.daily_token_budget}
                   />
                 </Field>
-                <Field label="เพดานหน่วยใช้งาน AI ต่อเดือน">
+                <Field
+                  label="เพดานหน่วยใช้งาน AI ต่อเดือน"
+                  help="ต้องมากกว่าหรือเท่ากับเพดานรายวัน"
+                >
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -554,7 +585,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.monthly_token_budget}
                   />
                 </Field>
-                <Field label="งบต่อวัน (USD)">
+                <Field
+                  label="งบต่อวัน (USD)"
+                  help="ใช้คุมค่าใช้จ่าย OpenRouter ต่อวัน"
+                >
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -570,7 +604,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.daily_cost_budget_usd}
                   />
                 </Field>
-                <Field label="งบต่อเดือน (USD)">
+                <Field
+                  label="งบต่อเดือน (USD)"
+                  help="ต้องมากกว่าหรือเท่ากับงบรายวัน"
+                >
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -586,6 +623,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.monthly_cost_budget_usd}
                   />
                 </Field>
+              </div>
+              <div className="mt-4">
+                <AiCeoLiveModeNotice data={data} form={form} />
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -636,7 +676,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="mt-4">
-                <Field label="คำสั่งบทบาท CEO">
+                <Field
+                  label="คำสั่งบทบาท CEO"
+                  help="ใช้ข้อมูลจากรายงานที่อนุมัติเท่านั้น ห้ามสั่งให้ AI เดาตัวเลขหรือ query ฐานข้อมูลเอง"
+                >
                   <textarea
                     className="owner-v2-input min-h-72"
                     disabled={!canUseAi || busy !== null}
@@ -666,7 +709,8 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 </Button>
               </div>
               <p className="mt-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                ถ้าบันทึกไม่ได้ ให้ตรวจแพ็กเกจ ระบบเข้ารหัส และคำสั่งบทบาทให้มีอย่างน้อย 80 ตัวอักษร
+                {configBlockedReason ??
+                  "พร้อมบันทึกแล้ว หลังบันทึกให้กดทดสอบ AI CEO ก่อนเปิดส่งเข้า LINE จริง"}
               </p>
             </form>
 
@@ -679,7 +723,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   รหัส OpenRouter
                 </h4>
                 <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                  ช่องนี้ใช้สำหรับบันทึกรหัสลับเท่านั้น และจะไม่แสดงค่าที่บันทึกไว้
+                  ช่องนี้ใช้สำหรับบันทึกรหัสลับเท่านั้น ระบบจะไม่แสดงค่าที่บันทึกไว้ และการทดสอบจะใช้เครดิตจริงของ OpenRouter
                 </p>
                 <div className="mt-4">
                   <Field
@@ -733,6 +777,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 <h4 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">
                   ทดสอบก่อนส่งจริง
                 </h4>
+                <p className="mb-4 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+                  ใช้ทดสอบ prompt, model, key และงบกับข้อมูลจริงของวันที่เลือก ก่อนให้ข้อความ AI CEO ไปกับรอบ LINE จริง
+                </p>
                 <Field label="จำลองวันที่">
                   <input
                     className="owner-v2-input"
@@ -751,6 +798,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 >
                   {busy === "dry-run" ? "กำลังเรียก AI..." : "ทดสอบ AI CEO"}
                 </Button>
+                {!canDryRun ? (
+                  <p className="mt-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {dryRunBlockedReason}
+                  </p>
+                ) : null}
               </section>
             </div>
           </div>
@@ -847,6 +899,149 @@ function AiCeoAdminGuide() {
         ))}
       </div>
     </section>
+  );
+}
+
+function AiCeoReadinessSteps({
+  data,
+  form,
+}: {
+  data: OwnerV2AiCeoSetupStatus;
+  form: {
+    ai_enabled: boolean;
+    prompt_text: string;
+    shadow_mode_enabled: boolean;
+  };
+}) {
+  const steps = [
+    {
+      done: data.plan_eligible && data.encryption_configured,
+      detail: data.plan_eligible
+        ? data.encryption_configured
+          ? "แพ็กเกจและระบบเข้ารหัสพร้อมแล้ว"
+          : "รอระบบเข้ารหัสบนเครื่องแม่ข่าย"
+        : "แพ็กเกจนี้ยังไม่เปิด AI CEO",
+      title: "1. ความพร้อมระบบ",
+    },
+    {
+      done: data.key_configured,
+      detail: data.key_configured
+        ? `ใช้${keySourceLabel(data.key_source)}`
+        : "ต้องบันทึกรหัส OpenRouter ก่อนทดสอบหรือเปิดใช้",
+      title: "2. รหัส OpenRouter",
+    },
+    {
+      done: form.prompt_text.trim().length >= 80,
+      detail:
+        form.prompt_text.trim().length >= 80
+          ? "คำสั่งยาวพอสำหรับบันทึก"
+          : "เขียนคำสั่งอย่างน้อย 80 ตัวอักษร",
+      title: "3. บทบาทร้านนี้",
+    },
+    {
+      done: Boolean(data.profile.last_dry_run_at),
+      detail: data.profile.last_dry_run_at
+        ? `ทดสอบล่าสุด ${formatDateTime(data.profile.last_dry_run_at)}`
+        : "ควรกดทดสอบก่อนเปิดส่งจริง",
+      title: "4. ทดสอบกับข้อมูลจริง",
+    },
+    {
+      done: form.ai_enabled,
+      detail: form.ai_enabled
+        ? form.shadow_mode_enabled
+          ? "เปิดแล้ว แต่ยังเป็นโหมดทดลองเงียบ"
+          : "เปิดส่ง AI CEO เข้า LINE ตามรอบแจ้งเตือน"
+        : "ยังไม่เปิดใช้งานจริง",
+      title: "5. โหมดส่งจริง",
+    },
+  ];
+
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            ลำดับเปิดใช้งานที่ปลอดภัย
+          </h4>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            ทำจากบนลงล่างก่อนให้ข้อความ AI CEO ไปกับ LINE จริง
+          </p>
+        </div>
+        <Badge color={form.ai_enabled && !form.shadow_mode_enabled ? "warning" : "info"}>
+          {form.ai_enabled && !form.shadow_mode_enabled ? "ส่งจริง" : "ตั้งค่า"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {steps.map((step) => (
+          <div
+            className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
+            key={step.title}
+          >
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                {step.title}
+              </p>
+              <Badge color={step.done ? "success" : "warning"} size="sm">
+                {step.done ? "พร้อม" : "ต้องดู"}
+              </Badge>
+            </div>
+            <p className="text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {step.detail}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AiCeoLiveModeNotice({
+  data,
+  form,
+}: {
+  data: OwnerV2AiCeoSetupStatus;
+  form: {
+    ai_enabled: boolean;
+    key_mode: string;
+    shadow_mode_enabled: boolean;
+  };
+}) {
+  if (form.key_mode === "tenant_override" && data.key_source !== "tenant_override") {
+    return (
+      <Notice
+        tone="warning"
+        title="เลือกใช้รหัสเฉพาะร้าน"
+        text="ถ้าจะใช้รหัสเฉพาะร้าน ให้บันทึกรหัส OpenRouter ในช่องด้านขวาก่อนเปิดใช้งานจริง"
+      />
+    );
+  }
+  if (!form.ai_enabled) {
+    return null;
+  }
+  if (!data.profile.last_dry_run_at) {
+    return (
+      <Notice
+        tone="warning"
+        title="ยังไม่พบผลทดสอบล่าสุด"
+        text="ควรกดทดสอบ AI CEO อย่างน้อย 1 ครั้งก่อนเปิดรอบส่งจริง เพื่อเช็ก prompt, model, key และงบกับข้อมูลจริง"
+      />
+    );
+  }
+  if (form.shadow_mode_enabled) {
+    return (
+      <Notice
+        tone="info"
+        title="เปิด AI CEO แบบทดลองเงียบ"
+        text="ระบบจะวิเคราะห์และบันทึกคำแนะนำ แต่ยังไม่แนบข้อความ AI CEO ไปใน LINE จนกว่าจะปิดโหมดทดลองเงียบ"
+      />
+    );
+  }
+  return (
+    <Notice
+      tone="warning"
+      title="AI CEO จะส่งเข้า LINE จริง"
+      text="รอบแจ้งเตือนถัดไปจะใช้ prompt, model และงบที่บันทึกไว้เพื่อสร้างข้อความ AI CEO ก่อนการ์ดรายงาน"
+    />
   );
 }
 
@@ -1138,6 +1333,68 @@ function AiCeoInbox({
       </PanelBody>
     </Panel>
   );
+}
+
+function getAiCeoConfigBlockedReason(input: {
+  canUseAi: boolean;
+  form: {
+    ai_enabled: boolean;
+    daily_cost_budget_usd: number;
+    daily_token_budget: number;
+    monthly_cost_budget_usd: number;
+    monthly_token_budget: number;
+    prompt_text: string;
+  };
+  keyConfigured: boolean;
+  selectedModel: AiCeoModelCatalogItem | undefined;
+  tenantPlanCode: string;
+}) {
+  if (!input.canUseAi) {
+    return "ตรวจแพ็กเกจร้านและระบบเข้ารหัสก่อนบันทึก AI CEO";
+  }
+  if (!input.selectedModel) {
+    return "เลือกโมเดล AI ก่อนบันทึก";
+  }
+  if (
+    input.selectedModel.recommended_tier === "pro" &&
+    input.tenantPlanCode !== "pro"
+  ) {
+    return "โมเดลนี้ใช้ได้เฉพาะร้านใหญ่ Pro";
+  }
+  if (input.form.prompt_text.trim().length < 80) {
+    return "เขียนคำสั่งบทบาท CEO อย่างน้อย 80 ตัวอักษรก่อนบันทึก";
+  }
+  if (input.form.monthly_token_budget < input.form.daily_token_budget) {
+    return "เพดานหน่วยใช้งานรายเดือนต้องมากกว่าหรือเท่ากับรายวัน";
+  }
+  if (input.form.monthly_cost_budget_usd < input.form.daily_cost_budget_usd) {
+    return "งบรายเดือนต้องมากกว่าหรือเท่ากับงบรายวัน";
+  }
+  if (input.form.ai_enabled && !input.keyConfigured) {
+    return "ต้องมีรหัส OpenRouter ก่อนเปิด AI CEO";
+  }
+  return null;
+}
+
+function getAiCeoDryRunBlockedReason(input: {
+  encryptionConfigured: boolean;
+  keyConfigured: boolean;
+  planEligible: boolean;
+  promptText: string;
+}) {
+  if (!input.planEligible) {
+    return "แพ็กเกจนี้ยังไม่รองรับ AI CEO";
+  }
+  if (!input.encryptionConfigured) {
+    return "ระบบเข้ารหัสยังไม่พร้อมสำหรับรหัส OpenRouter";
+  }
+  if (!input.keyConfigured) {
+    return "บันทึกรหัส OpenRouter ก่อนทดสอบ AI CEO";
+  }
+  if (input.promptText.trim().length < 80) {
+    return "เขียนคำสั่งบทบาท CEO อย่างน้อย 80 ตัวอักษรก่อนทดสอบ";
+  }
+  return null;
 }
 
 function AiCeoSkeleton() {
