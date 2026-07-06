@@ -95,7 +95,7 @@ export default function OwnerV2FlowAccountSetup({
     if (!canSave) {
       setMessage({
         tone: "warning",
-        text: "กรอก client id และ client secret ให้ครบก่อนบันทึก",
+        text: "กรอกรหัสเชื่อมต่อและรหัสลับให้ครบก่อนบันทึก",
       });
       return;
     }
@@ -121,7 +121,7 @@ export default function OwnerV2FlowAccountSetup({
       setState({ status: "success", data });
       setMessage({
         tone: "success",
-        text: "บันทึก FlowAccount sandbox credentials แล้ว ยังต้องกดทดสอบก่อนนำผลไปใช้",
+        text: "บันทึกข้อมูลเชื่อมต่อแบบทดสอบแล้ว ยังต้องกดทดสอบก่อนนำผลไปใช้",
       });
     } catch (error) {
       setMessage({
@@ -129,7 +129,7 @@ export default function OwnerV2FlowAccountSetup({
         text:
           error instanceof Error
             ? error.message
-            : "บันทึก FlowAccount credentials ไม่สำเร็จ",
+            : "บันทึกข้อมูลเชื่อมต่อ FlowAccount ไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -143,7 +143,7 @@ export default function OwnerV2FlowAccountSetup({
     if (!statusData?.credentials_configured) {
       setMessage({
         tone: "warning",
-        text: "บันทึก client credentials ก่อนทดสอบ sandbox API",
+        text: "บันทึกข้อมูลเชื่อมต่อก่อนทดสอบระบบ",
       });
       return;
     }
@@ -159,7 +159,7 @@ export default function OwnerV2FlowAccountSetup({
       setTestResult(data);
       setMessage({
         tone: "success",
-        text: "ทดสอบ FlowAccount sandbox สำเร็จและอัปเดต metadata แล้ว",
+        text: "ทดสอบ FlowAccount สำเร็จและอัปเดตข้อมูลล่าสุดแล้ว",
       });
       await load();
     } catch (error) {
@@ -173,7 +173,7 @@ export default function OwnerV2FlowAccountSetup({
           providerResult?.safe_error_message ??
           (error instanceof Error
             ? error.message
-            : "ทดสอบ FlowAccount sandbox ไม่สำเร็จ"),
+            : "ทดสอบ FlowAccount ไม่สำเร็จ"),
       });
       await load().catch(() => null);
     } finally {
@@ -212,8 +212,8 @@ export default function OwnerV2FlowAccountSetup({
     <div className="space-y-5 sm:space-y-6">
       <Panel>
         <PanelHeader
-          title="FlowAccount Sandbox"
-          description="Client Credentials สำหรับทดสอบ OpenAPI sandbox เท่านั้น"
+          title="ทดสอบเชื่อมต่อ FlowAccount"
+          description="ใช้สำหรับตรวจข้อมูลเชื่อมต่อแบบทดสอบเท่านั้น ระบบจะไม่แสดงค่าลับที่บันทึกไว้"
           action={
             <Link
               className={secondaryActionClass}
@@ -225,15 +225,15 @@ export default function OwnerV2FlowAccountSetup({
         />
         <PanelBody spaced>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Fact label="Environment" tone="light" value="Sandbox" />
-            <Fact label="Auth mode" tone="light" value="Client Credentials" />
+            <Fact label="สภาพแวดล้อม" tone="light" value="ทดสอบ" />
+            <Fact label="วิธีเชื่อมต่อ" tone="light" value="รหัสเชื่อมต่อ" />
             <Fact
-              label="Credentials"
+              label="ข้อมูลเชื่อมต่อ"
               tone={data.credentials_configured ? "success" : "warning"}
               value={data.credentials_configured ? "บันทึกแล้ว" : "ยังไม่มี"}
             />
             <Fact
-              label="Encryption"
+              label="การเข้ารหัส"
               tone={data.encryption_configured ? "success" : "error"}
               value={data.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"}
             />
@@ -244,25 +244,25 @@ export default function OwnerV2FlowAccountSetup({
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                    Metadata ล่าสุด
+                    ข้อมูลล่าสุดที่ปลอดภัย
                   </h4>
                   <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    แสดงเฉพาะค่าที่ปลอดภัยจาก backend
+                    แสดงเฉพาะค่าที่ใช้ตรวจระบบได้ โดยไม่เปิดเผยรหัสลับ
                   </p>
                 </div>
                 <Badge color={statusTone}>{flowAccountStatusLabel(data.status)}</Badge>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Fact label="Company ID" value={data.company_id ?? "-"} />
-                <Fact label="Support code" value={data.support_code ?? "-"} />
+                <Fact label="รหัสบริษัท" value={data.company_id ?? "-"} />
+                <Fact label="รหัสช่วยตรวจ" value={data.support_code ?? "-"} />
                 <Fact
-                  label="Token expires"
+                  label="สิทธิ์เชื่อมต่อหมดอายุ"
                   value={formatDateTime(data.access_token_expires_at)}
                 />
-                <Fact label="Last tested" value={formatDateTime(data.last_tested_at)} />
-                <Fact label="Updated" value={formatDateTime(data.updated_at)} />
+                <Fact label="ทดสอบล่าสุด" value={formatDateTime(data.last_tested_at)} />
+                <Fact label="อัปเดตล่าสุด" value={formatDateTime(data.updated_at)} />
                 <Fact
-                  label="Last error"
+                  label="ข้อผิดพลาดล่าสุด"
                   tone={data.last_error ? "warning" : "success"}
                   value={data.last_error ?? "ไม่มี"}
                 />
@@ -275,53 +275,53 @@ export default function OwnerV2FlowAccountSetup({
             >
               <div className="mb-4">
                 <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                  Client Credentials
+                  ข้อมูลเชื่อมต่อ
                 </h4>
                 <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                  ช่องลับเป็น write-only และจะถูกล้างหลังบันทึก
+                  ช่องรหัสลับจะถูกล้างหลังบันทึก และไม่แสดงค่าที่เคยบันทึกไว้
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <Field label="Environment">
+                <Field label="สภาพแวดล้อม">
                   <input
                     className="owner-v2-input"
                     disabled
                     readOnly
                     type="text"
-                    value="sandbox"
+                    value="ทดสอบ"
                   />
                 </Field>
-                <Field label="Auth mode">
+                <Field label="วิธีเชื่อมต่อ">
                   <input
                     className="owner-v2-input"
                     disabled
                     readOnly
                     type="text"
-                    value="client_credentials"
+                    value="รหัสเชื่อมต่อ"
                   />
                 </Field>
                 <Field
-                  label="Client ID"
+                  label="รหัสเชื่อมต่อ"
                   help={data.credentials_configured ? "กรอกเฉพาะเมื่อต้องการแทนที่ค่าเดิม" : undefined}
                 >
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
                     onChange={(event) => setClientId(event.target.value)}
-                    placeholder="FlowAccount sandbox client id"
+                    placeholder="รหัสเชื่อมต่อ FlowAccount"
                     type="text"
                     value={clientId}
                   />
                 </Field>
                 <Field
-                  label="Client Secret"
+                  label="รหัสลับ"
                   help={data.credentials_configured ? "ไม่แสดงค่าที่บันทึกไว้" : undefined}
                 >
                   <input
                     autoComplete="new-password"
                     className="owner-v2-input"
                     onChange={(event) => setClientSecret(event.target.value)}
-                    placeholder="FlowAccount sandbox client secret"
+                    placeholder="รหัสลับ FlowAccount"
                     type="password"
                     value={clientSecret}
                   />
@@ -334,7 +334,7 @@ export default function OwnerV2FlowAccountSetup({
                   size="sm"
                   type="submit"
                 >
-                  {busy === "save" ? "กำลังบันทึก..." : "บันทึก credentials"}
+                  {busy === "save" ? "กำลังบันทึก..." : "บันทึกข้อมูลเชื่อมต่อ"}
                 </Button>
                 <Button
                   disabled={busy !== null || !data.credentials_configured}
@@ -343,7 +343,7 @@ export default function OwnerV2FlowAccountSetup({
                   type="button"
                   variant="outline"
                 >
-                  {busy === "test" ? "กำลังทดสอบ..." : "ทดสอบ sandbox API"}
+                  {busy === "test" ? "กำลังทดสอบ..." : "ทดสอบการเชื่อมต่อ"}
                 </Button>
               </div>
             </form>
@@ -369,7 +369,7 @@ function FlowAccountTestResult({
     <Panel>
       <PanelHeader
         title="ผลทดสอบล่าสุด"
-        description="ผลจาก token endpoint และ /company/info หลัง sanitize แล้ว"
+        description="แสดงเฉพาะผลตรวจที่ปลอดภัย ไม่แสดงค่าลับหรือข้อมูลดิบจากผู้ให้บริการ"
         action={
           <Badge color={result.ok ? "success" : "error"}>
             {result.ok ? "ผ่าน" : "ไม่ผ่าน"}
@@ -378,20 +378,20 @@ function FlowAccountTestResult({
       />
       <PanelBody>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Fact label="Checked" value={formatDateTime(result.checked_at)} />
-          <Fact label="Latency" value={`${result.latency_ms} ms`} />
+          <Fact label="ตรวจเมื่อ" value={formatDateTime(result.checked_at)} />
+          <Fact label="เวลาเชื่อมต่อ" value={`${result.latency_ms} ms`} />
           <Fact
-            label="Provider status"
+            label="สถานะผู้ให้บริการ"
             value={result.provider_status?.toString() ?? "-"}
           />
-          <Fact label="Company ID" value={result.company_id ?? "-"} />
-          <Fact label="Support code" value={result.support_code ?? "-"} />
+          <Fact label="รหัสบริษัท" value={result.company_id ?? "-"} />
+          <Fact label="รหัสช่วยตรวจ" value={result.support_code ?? "-"} />
         </div>
         {result.safe_error_message ? (
           <div className="mt-4">
             <Notice
               tone="warning"
-              title="Safe error"
+              title="ข้อผิดพลาดที่ตรวจได้"
               text={result.safe_error_message}
             />
           </div>

@@ -241,7 +241,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     if (selectedIsAsync && !chunkedEnabled) {
       setMessage({
         tone: "warning",
-        text: "รายงานหนักยังไม่พร้อม ต้องเปิด sml_chunked_heavy_reports_enabled ก่อนเริ่มรันเบื้องหลัง",
+        text: "รายงานขนาดใหญ่ยังไม่พร้อม กรุณาเปิดโหมดรันเบื้องหลังของร้านก่อนเริ่มงาน",
       });
       return;
     }
@@ -271,9 +271,9 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
         tone: "success",
         text: selectedIsAsync
           ? payload.duplicate
-            ? `${selectedReport.label}: พบ run เดิมที่กำลังทำงาน จะแสดง progress ต่อจาก run นั้น`
+            ? `${selectedReport.label}: พบงานเดิมที่กำลังทำอยู่ จะแสดงความคืบหน้าต่อจากงานนั้น`
             : `${selectedReport.label}: เริ่มรันแล้ว ปิดหน้าได้ ระบบยังรันต่อ`
-          : `${selectedReport.label}: รันสำเร็จและบันทึก snapshot แล้ว`,
+          : `${selectedReport.label}: รันสำเร็จและบันทึกข้อมูลล่าสุดแล้ว`,
       });
       await load();
     } catch (error) {
@@ -355,7 +355,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
               </Badge>
             </div>
           }
-          description="เลือก report, ช่วงวันที่ แล้วรันทดสอบเฉพาะร้านนี้ก่อนนำไปใช้กับ dashboard หรือ LINE"
+          description="เลือกรายงานและช่วงวันที่เพื่อทดสอบข้อมูลของร้านนี้ ก่อนนำไปใช้กับหน้าแดชบอร์ดหรือ LINE"
           title={`รายงานของ ${state.data.tenant.name}`}
         />
         <PanelBody spaced>
@@ -438,7 +438,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 {selectedIsAsync && !chunkedEnabled ? (
                   <Notice
                     tone="warning"
-                    title="ร้านนี้ยังไม่ได้เปิด chunked heavy reports จึงยังไม่ควรรันรายงานหนักจากหน้านี้"
+                    title="ร้านนี้ยังไม่ได้เปิดโหมดรันรายงานขนาดใหญ่ จึงยังไม่ควรรันรายงานหนักจากหน้านี้"
                   />
                 ) : null}
 
@@ -455,8 +455,8 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 </Button>
                 <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
                   {runDisabled
-                    ? "ถ้าปุ่มกดไม่ได้ ให้ตรวจช่วงวันที่, active run, หรือ feature flag ของรายงานหนัก"
-                    : "ระบบจะ query SML JavaWS และบันทึก snapshot ให้ dashboard/LINE ใช้ต่อ"}
+                    ? "ถ้าปุ่มกดไม่ได้ ให้ตรวจช่วงวันที่ งานที่กำลังรันอยู่ หรือโหมดรันรายงานขนาดใหญ่"
+                    : "ระบบจะดึงข้อมูลจาก SML และบันทึกข้อมูลล่าสุดให้หน้าแดชบอร์ด/LINE ใช้ต่อ"}
                 </p>
               </>
             ) : (
@@ -469,8 +469,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                     ยังเลือกรายงานไม่ได้
                   </p>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ยังไม่มี report catalog สำหรับร้านนี้ กรุณาตรวจ API report
-                    setup
+                    ยังไม่มีรายการรายงานสำหรับร้านนี้ กรุณาตรวจการตั้งค่ารายงานของระบบ
                   </p>
                 </div>
               </div>
@@ -493,7 +492,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                     ยังไม่มี run
                   </p>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ยังไม่มี report run ของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม
+                    ยังไม่มีประวัติรันของรายงานนี้ กดรันทดสอบเมื่อ SML พร้อม
                   </p>
                 </div>
               </div>
@@ -566,7 +565,7 @@ function ReportRow({
             value={latestRun ? formatRunStatus(latestRun.status) : "ยังไม่มี"}
           />
           <Fact
-            label="Snapshot ล่าสุด"
+            label="ข้อมูลล่าสุด"
             value={
               latestSnapshot ? formatDateTime(latestSnapshot.generated_at) : "ยังไม่มี"
             }
@@ -623,14 +622,14 @@ function RunDetail({
           value={formatReportPeriod(run.params.date_from, run.params.date_to)}
         />
         <Fact
-          label="Snapshot ล่าสุด"
+          label="ข้อมูลล่าสุด"
           value={snapshot ? formatDateTime(snapshot.generated_at) : "ยังไม่มี"}
         />
       </div>
       {run.failure_phase || run.failure_kind || run.safe_error_message ? (
         <Notice
           tone="error"
-          title={run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจ SML JavaWS แล้วลองใหม่"}
+          title={run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจการเชื่อมต่อ SML แล้วลองใหม่"}
           text="ดูรายละเอียดเทคนิคด้านล่างหากต้องตรวจขั้นตอนที่ล้มเหลว"
         />
       ) : null}

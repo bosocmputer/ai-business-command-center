@@ -3,7 +3,7 @@ import { OwnerV2Shell } from "@/components/owner-v2/OwnerV2Shell";
 import OwnerV2FlowAccountSetup from "@/components/owner-v2/OwnerV2FlowAccountSetup";
 
 export const metadata: Metadata = {
-  title: "FlowAccount Sandbox | Owner Admin v2",
+  title: "ทดสอบเชื่อมต่อ FlowAccount | Owner Admin v2",
 };
 
 type OwnerV2StoreFlowAccountPageProps = {
@@ -18,8 +18,8 @@ export default async function OwnerV2StoreFlowAccountPage({
   const { tenantId } = await params;
   return (
     <OwnerV2Shell
-      subtitle="บันทึก Client Credentials และทดสอบ FlowAccount OpenAPI sandbox แบบไม่แสดงค่าลับ"
-      title="FlowAccount Sandbox"
+      subtitle="ตั้งค่าข้อมูลเชื่อมต่อแบบทดสอบโดยไม่แสดงค่าลับที่บันทึกไว้"
+      title="ทดสอบเชื่อมต่อ FlowAccount"
     >
       <OwnerV2FlowAccountSetup tenantId={tenantId} />
     </OwnerV2Shell>

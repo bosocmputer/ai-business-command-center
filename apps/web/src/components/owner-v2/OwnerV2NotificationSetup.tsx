@@ -100,7 +100,7 @@ const digestModes: Array<{
 }> = [
   {
     value: "all_reports",
-    label: "ส่งครบทุก report",
+    label: "ส่งรายงานครบทุกใบ",
     description: "แสดงรายงานเหมือนรอบ 08:00 และยังแนบ AI CEO เมื่อพร้อม",
   },
   {
@@ -447,7 +447,7 @@ export default function OwnerV2NotificationSetup({
       setSendConfirmRuleId(null);
       setMessage({
         tone: "success",
-        text: `${saved.name}: บันทึกแผนแจ้งเตือนแล้ว`,
+        text: `${formatNotificationRuleName(saved.name)}: บันทึกแผนแจ้งเตือนแล้ว`,
       });
       await load({ preserveMessage: true, silent: true });
     } catch (error) {
@@ -611,7 +611,7 @@ export default function OwnerV2NotificationSetup({
     });
     setMessage({
       tone: "warning",
-      text: `กรอก preset “${preset.name}” ให้แล้ว ตรวจรายละเอียดก่อนบันทึก`,
+      text: `กรอกแผนแนะนำ “${preset.name}” ให้แล้ว ตรวจรายละเอียดก่อนบันทึก`,
     });
   }
 
@@ -651,7 +651,7 @@ export default function OwnerV2NotificationSetup({
               disabled={!canOpenPreset}
               onClick={() =>
                 applyPreset({
-                  name: "Owner Daily Brief 08:00",
+                  name: "สรุปผู้บริหาร 08:00",
                   digestMode: "all_reports",
                   enabled: canOpenPreset,
                   reportKeys: ["sales_goods_services", "purchase_goods_payables"],
@@ -660,7 +660,7 @@ export default function OwnerV2NotificationSetup({
                   weekdays: [1, 2, 3, 4, 5, 6, 7],
                 })
               }
-              title="Owner Daily Brief 08:00"
+              title="สรุปผู้บริหาร 08:00"
             />
             <PresetCard
               badge="รอบเย็น"
@@ -668,7 +668,7 @@ export default function OwnerV2NotificationSetup({
               disabled={!canOpenPreset}
               onClick={() =>
                 applyPreset({
-                  name: "Evening Sales Check 18:30",
+                  name: "เช็กยอดเย็น 18:30",
                   digestMode: "all_reports",
                   enabled: canOpenPreset,
                   reportKeys: ["sales_goods_services", "purchase_goods_payables"],
@@ -677,15 +677,15 @@ export default function OwnerV2NotificationSetup({
                   weekdays: [1, 2, 3, 4, 5, 6, 7],
                 })
               }
-              title="Evening Sales Check 18:30"
+              title="เช็กยอดเย็น 18:30"
             />
             <PresetCard
-              badge="Proof"
-              description="เก็บหลักฐาน production proof แบบครบชุด"
+              badge="หลักฐาน"
+              description="เก็บหลักฐานรอบส่งจริงแบบครบชุด"
               disabled={!canOpenPreset}
               onClick={() =>
                 applyPreset({
-                  name: "7-Day Proof Full Reports",
+                  name: "หลักฐานครบ 7 วัน",
                   digestMode: "all_reports",
                   enabled: false,
                   reportKeys: [
@@ -701,12 +701,12 @@ export default function OwnerV2NotificationSetup({
                   weekdays: [1, 2, 3, 4, 5, 6, 7],
                 })
               }
-              title="7-Day Proof Full Reports"
+              title="หลักฐานครบ 7 วัน"
             />
           </div>
           {!canOpenPreset ? (
             <p className="mt-3 text-theme-xs text-warning-600">
-              ต้องอนุมัติผู้รับอย่างน้อย 1 รายก่อน จึงจะใช้ preset ได้
+              ต้องอนุมัติผู้รับอย่างน้อย 1 รายก่อน จึงจะใช้แผนแนะนำได้
             </p>
           ) : null}
         </PanelBody>
@@ -778,7 +778,7 @@ export default function OwnerV2NotificationSetup({
                 )
               }
               description="ตั้งเวลา เลือกรายงาน และเลือกผู้รับ LINE ก่อนบันทึกหรือทดสอบ"
-              title={selectedRule ? selectedRule.name : "สร้างแผนแจ้งเตือน"}
+              title={selectedRule ? formatNotificationRuleName(selectedRule.name) : "สร้างแผนแจ้งเตือน"}
             />
             <PanelBody spaced>
               <form className="space-y-6" onSubmit={saveRule}>
@@ -1147,7 +1147,7 @@ function RuleList({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-                {rule.name}
+                {formatNotificationRuleName(rule.name)}
               </p>
               <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
                 {formatSchedule(rule)}
@@ -1230,7 +1230,7 @@ function ReportSelector({
               ลำดับที่จะแสดงใน LINE
             </p>
             <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-              ระบบใช้ลำดับนี้กับรายงานแบบ digest และ fallback ของ action-only
+              ระบบใช้ลำดับนี้กับรอบที่ส่งรายงานครบ และรอบพิเศษที่ต้องกลับมาส่งรายงานปกติ
             </p>
           </div>
           <Badge color={selectedReportKeys.length > 1 ? "info" : "light"}>
@@ -2003,6 +2003,16 @@ function formatSchedule(rule: OwnerNotificationRule) {
           .map((weekday) => weekdays.find((item) => item.value === weekday)?.label ?? weekday)
           .join(", ");
   return `${days} · ${schedule.times.join(", ")} · รอบผู้บริหาร`;
+}
+
+function formatNotificationRuleName(name: string) {
+  const legacyNames: Record<string, string> = {
+    "Daily SML digest": "สรุปรายวันจาก SML",
+    "Owner Daily Brief 08:00": "สรุปผู้บริหาร 08:00",
+    "Evening Sales Check 18:30": "เช็กยอดเย็น 18:30",
+    "7-Day Proof Full Reports": "หลักฐานครบ 7 วัน",
+  };
+  return legacyNames[name] ?? name;
 }
 
 function isValidTime(value: string) {
