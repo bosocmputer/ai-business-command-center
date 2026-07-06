@@ -180,12 +180,12 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setState({ status: "success", data: next });
       setMessage({
         tone: "success",
-        text: "บันทึก OpenRouter key แบบ encrypted แล้ว",
+        text: "บันทึก OpenRouter API key แบบเข้ารหัสแล้ว",
       });
     } catch (error) {
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "บันทึก OpenRouter key ไม่สำเร็จ",
+        text: error instanceof Error ? error.message : "บันทึก OpenRouter API key ไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -204,11 +204,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
         { method: "POST" },
       );
       setState({ status: "success", data: next });
-      setMessage({ tone: "success", text: "อัปเดตรายการ model จาก OpenRouter แล้ว" });
+      setMessage({ tone: "success", text: "อัปเดตรายการโมเดลจาก OpenRouter แล้ว" });
     } catch (error) {
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "อัปเดต model ไม่สำเร็จ",
+        text: error instanceof Error ? error.message : "อัปเดตโมเดลไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -222,7 +222,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
     if (!canDryRun) {
       setMessage({
         tone: "warning",
-        text: "ต้องมีแผนที่รองรับ, encryption, API key และ prompt ก่อนทดสอบ AI CEO",
+        text: "ต้องมีแพ็กเกจที่รองรับ, ระบบเข้ารหัส, API key และ prompt ก่อนทดสอบ AI CEO",
       });
       return;
     }
@@ -317,7 +317,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       <Panel>
         <PanelHeader
           title="AI CEO / Business Advisor"
-          description="ตั้งค่าบทบาท, prompt, model และงบใช้งานของร้านนี้"
+          description="ตั้งค่าบทบาท, prompt, โมเดล และงบใช้งานของร้านนี้"
           action={
             <Link
               className={secondaryActionClass}
@@ -416,7 +416,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.business_type}
                   />
                 </Field>
-                <Field label="Model ที่ใช้">
+                <Field label="โมเดลที่ใช้">
                   <select
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -438,7 +438,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                           key={model.model_id}
                           value={model.model_id}
                         >
-                          {model.display_name} · {model.recommended_tier.toUpperCase()} · $
+                          {model.display_name} · {formatPlanCode(model.recommended_tier)} · $
                           {formatPrice(model.price_input_per_m)}/$
                           {formatPrice(model.price_output_per_m)}
                         </option>
@@ -446,7 +446,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     })}
                   </select>
                 </Field>
-                <Field label="API key mode">
+                <Field label="โหมด API key">
                   <select
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -472,9 +472,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                         {selectedModel.intelligence_label}
                       </p>
                       <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                        {selectedModel.use_case} · context{" "}
-                        {formatNumber(selectedModel.context_length)} tokens · input $
-                        {formatPrice(selectedModel.price_input_per_m)}/M · output $
+                        {selectedModel.use_case} · บริบท{" "}
+                        {formatNumber(selectedModel.context_length)} โทเคน · ราคาเข้า $
+                        {formatPrice(selectedModel.price_input_per_m)}/M · ราคาตอบ $
                         {formatPrice(selectedModel.price_output_per_m)}/M
                       </p>
                     </div>
@@ -498,7 +498,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <Field label="เพดาน token ต่อวัน">
+                <Field label="เพดานโทเคนต่อวัน">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -513,7 +513,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.daily_token_budget}
                   />
                 </Field>
-                <Field label="เพดาน token ต่อเดือน">
+                <Field label="เพดานโทเคนต่อเดือน">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -528,7 +528,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.monthly_token_budget}
                   />
                 </Field>
-                <Field label="Daily USD">
+                <Field label="งบต่อวัน (USD)">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -544,7 +544,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.daily_cost_budget_usd}
                   />
                 </Field>
-                <Field label="Monthly USD">
+                <Field label="งบต่อเดือน (USD)">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -600,7 +600,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   />
                   <span>
                     <span className="block text-sm font-semibold text-gray-800 dark:text-white/90">
-                      Shadow mode
+                      โหมดทดลองเงียบ
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
                       ให้ระบบสร้างคำแนะนำก่อนนำไปส่งจริง
@@ -610,7 +610,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="mt-4">
-                <Field label="CEO prompt">
+                <Field label="Prompt บทบาท CEO">
                   <textarea
                     className="owner-v2-input min-h-72"
                     disabled={!canUseAi || busy !== null}
@@ -636,7 +636,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   type="button"
                   variant="outline"
                 >
-                  {busy === "models" ? "กำลังอัปเดต..." : "อัปเดต model"}
+                  {busy === "models" ? "กำลังอัปเดต..." : "อัปเดตโมเดล"}
                 </Button>
               </div>
             </form>
@@ -647,7 +647,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 onSubmit={saveKey}
               >
                 <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                  OpenRouter key
+                  OpenRouter API key
                 </h4>
                 <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
                   ช่องนี้เป็น write-only และไม่แสดงค่าที่บันทึกไว้
@@ -682,11 +682,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 <div className="grid grid-cols-1 gap-3">
                   <Fact
                     label="วันนี้"
-                    value={`${formatNumber(data.usage.today_tokens)} tokens · $${formatPrice(data.usage.today_cost_usd)}`}
+                    value={`${formatNumber(data.usage.today_tokens)} โทเคน · $${formatPrice(data.usage.today_cost_usd)}`}
                   />
                   <Fact
                     label="เดือนนี้"
-                    value={`${formatNumber(data.usage.month_tokens)} tokens · $${formatPrice(data.usage.month_cost_usd)}`}
+                    value={`${formatNumber(data.usage.month_tokens)} โทเคน · $${formatPrice(data.usage.month_cost_usd)}`}
                   />
                   <Fact
                     label="ทดสอบล่าสุด"
@@ -695,7 +695,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   <Fact
                     label="สถานะล่าสุด"
                     tone={data.profile.last_status === "failed" ? "error" : "light"}
-                    value={data.profile.last_status ?? "-"}
+                    value={formatAiRunStatus(data.profile.last_status)}
                   />
                 </div>
               </TechnicalDetails>
@@ -765,11 +765,11 @@ function AiCeoAdminGuide() {
       text: "กำหนดตัวตน AI CEO ของร้านนั้น ๆ เช่น ธุรกิจคอนกรีตควรเน้นสต็อก/ลูกหนี้ ส่วนร้านอาหารอาจเน้นยอดขายรายวัน",
     },
     {
-      title: "Model ที่ใช้วิเคราะห์",
-      text: "เลือกสมดุลระหว่างความฉลาด ความเร็ว และต้นทุน ยิ่ง model ใหญ่ยิ่งเหมาะกับวิเคราะห์ยากแต่ราคาสูงกว่า",
+      title: "โมเดลที่ใช้วิเคราะห์",
+      text: "เลือกสมดุลระหว่างความฉลาด ความเร็ว และต้นทุน ยิ่งโมเดลใหญ่ยิ่งเหมาะกับงานวิเคราะห์ยากแต่ราคาสูงกว่า",
     },
     {
-      title: "API key mode",
+      title: "โหมด API key",
       text: "เลือกว่าจะใช้ key กลางของบริษัท หรือ key เฉพาะร้าน ถ้าเป็น key เฉพาะร้านระบบจะเก็บแบบเข้ารหัส",
     },
     {
@@ -777,12 +777,12 @@ function AiCeoAdminGuide() {
       text: "เพดานโทเคนและค่าใช้จ่ายใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะไม่สำเร็จแบบปลอดภัย",
     },
     {
-      title: "Shadow mode",
+      title: "โหมดทดลองเงียบ",
       text: "เปิดไว้เพื่อให้ AI วิเคราะห์และเก็บคำแนะนำ แต่ไม่แนบการ์ดใน LINE เหมาะกับช่วงทดลองก่อนส่งจริง",
     },
     {
       title: "ทดสอบก่อนส่งจริง",
-      text: "ทดสอบ prompt/model/key กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้ token จริงของ OpenRouter",
+      text: "ทดสอบ prompt, โมเดล และ key กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้โทเคนจริงของ OpenRouter",
     },
     {
       title: "สิ่งที่ AI CEO แนะนำ",
@@ -834,15 +834,15 @@ function AiCeoModelGuide({
   return (
     <Panel>
       <PanelHeader
-        title="คู่มือเลือก Model"
-        description="ราคาแสดงเป็น USD ต่อ 1M input/output tokens จาก catalog ล่าสุดของระบบ ส่วนคำแนะนำใช้สำหรับเลือก model ให้เหมาะกับงานของร้าน"
-        action={<Badge color="info">{models.length} models</Badge>}
+        title="คู่มือเลือกโมเดล"
+        description="ราคาแสดงเป็น USD ต่อ 1M โทเคนเข้า/ออก จาก catalog ล่าสุดของระบบ ส่วนคำแนะนำใช้สำหรับเลือกโมเดลให้เหมาะกับงานของร้าน"
+        action={<Badge color="info">{models.length} โมเดล</Badge>}
       />
       <PanelBody spaced>
         <Notice
           tone="info"
           title="เลือกแบบเร็ว"
-          text="ร้านส่วนใหญ่เริ่มจาก Qwen3.7 Max ได้ ถ้าต้องคุมต้นทุนมากให้ใช้ Gemini Flash หรือ DeepSeek Flash ถ้าต้องวิเคราะห์ยากมากและยอมรับต้นทุนได้ให้ใช้กลุ่ม Pro"
+          text="ร้านส่วนใหญ่เริ่มจาก Qwen3.7 Max ได้ ถ้าต้องคุมต้นทุนมากให้ใช้ Gemini Flash หรือ DeepSeek Flash ถ้าต้องวิเคราะห์ยากมากและยอมรับต้นทุนได้ให้ใช้กลุ่มร้านใหญ่ Pro"
         />
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {models.map((model) => {
@@ -867,7 +867,7 @@ function AiCeoModelGuide({
                           model.recommended_tier === "pro" ? "warning" : "success"
                         }
                       >
-                        {model.recommended_tier.toUpperCase()}
+                        {formatPlanCode(model.recommended_tier)}
                       </Badge>
                       <Badge color={modelCostTone(model)}>
                         {modelCostLabel(model)}
@@ -891,17 +891,17 @@ function AiCeoModelGuide({
                     {selected
                       ? "เลือกอยู่"
                       : disabledByPlan
-                        ? "ต้องใช้ Pro"
-                        : "เลือก model นี้"}
+                        ? "ต้องใช้ร้านใหญ่ Pro"
+                        : "เลือกโมเดลนี้"}
                   </Button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <Fact label="Input" value={`$${formatPrice(model.price_input_per_m)}/M`} />
-                  <Fact label="Output" value={`$${formatPrice(model.price_output_per_m)}/M`} />
+                  <Fact label="ราคาเข้า" value={`$${formatPrice(model.price_input_per_m)}/M`} />
+                  <Fact label="ราคาตอบ" value={`$${formatPrice(model.price_output_per_m)}/M`} />
                   <Fact
-                    label="Context"
-                    value={`${formatNumber(model.context_length)} tokens`}
+                    label="บริบท"
+                    value={`${formatNumber(model.context_length)} โทเคน`}
                   />
                 </div>
 
@@ -966,18 +966,18 @@ function AiCeoDryRunResultPanel({
       />
       <PanelBody spaced>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Fact label="Checked" value={formatDateTime(result.checked_at)} />
-          <Fact label="Latency" value={`${result.latency_ms} ms`} />
+          <Fact label="ตรวจเมื่อ" value={formatDateTime(result.checked_at)} />
+          <Fact label="เวลาเรียก AI" value={`${result.latency_ms} ms`} />
           <Fact
             label="Provider"
             value={result.provider_status?.toString() ?? "-"}
           />
           <Fact
-            label="Tokens"
+            label="โทเคนเข้า/ออก"
             value={`${formatNumber(result.run.input_tokens ?? 0)} / ${formatNumber(result.run.output_tokens ?? 0)}`}
           />
           <Fact
-            label="Cost"
+            label="ค่าใช้จ่าย"
             value={`$${formatPrice(result.run.cost_estimate_usd ?? 0)}`}
           />
         </div>
@@ -1145,7 +1145,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
       ],
       tradeoffs: [
         "ต้นทุนสูงมาก ไม่เหมาะกับ daily brief ทุกเช้าถ้ายังไม่พิสูจน์ ROI",
-        "อาจใช้เวลานานกว่า model กลุ่ม Flash หรือ Business",
+        "อาจใช้เวลานานกว่าโมเดลกลุ่ม Flash หรือกลุ่มร้านใหญ่",
       ],
       recommendation:
         "ใช้เฉพาะร้าน Pro หรือรอบวิเคราะห์พิเศษ เช่น สรุปรายสัปดาห์/รายเดือน",
@@ -1170,7 +1170,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "เหมาะกับการชี้ความเสี่ยงและข้อควรตรวจสอบก่อนตัดสินใจ",
       ],
       tradeoffs: [
-        "ยังแพงกว่ากลุ่ม Business default",
+        "ยังแพงกว่าค่าเริ่มต้นของร้านใหญ่",
         "ถ้าข้อมูลรายวันสั้นมาก อาจเกินความจำเป็น",
       ],
       recommendation:
@@ -1209,7 +1209,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "เหมาะกับ report synthesis และหาสัญญาณผิดปกติจากตัวเลข",
       ],
       tradeoffs: [
-        "ควรตรวจ output format หลังเปลี่ยน prompt หรือ sync model",
+        "ควรตรวจรูปแบบผลลัพธ์หลังเปลี่ยน prompt หรืออัปเดตโมเดล",
         "style คำแนะนำอาจต้องจูน prompt ให้เข้าภาษาแบรนด์",
       ],
       recommendation:
@@ -1252,10 +1252,10 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "ไม่เหมาะกับการตัดสินใจใหญ่ที่ต้องการ reasoning ละเอียด",
       ],
       recommendation:
-        "ใช้เมื่อร้านเน้นต้นทุนต่ำ หรือใช้เป็น model สำหรับ shadow mode/รอบทดสอบจำนวนมาก",
+        "ใช้เมื่อร้านเน้นต้นทุนต่ำ หรือใช้เป็นโมเดลสำหรับโหมดทดลองเงียบ/รอบทดสอบจำนวนมาก",
     },
     "deepseek/deepseek-v4-flash": {
-      bestFor: "shadow mode ต้นทุนต่ำ, รอบทดสอบ และ brief สั้น",
+      bestFor: "โหมดทดลองเงียบต้นทุนต่ำ, รอบทดสอบ และ brief สั้น",
       strengths: [
         "ต้นทุนต่ำมาก เหมาะกับการทดลอง prompt บ่อย ๆ",
         "ดีสำหรับเช็ก flow และสร้างคำแนะนำเบื้องต้น",
@@ -1276,7 +1276,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         model.intelligence_label,
         `${model.provider} model พร้อม context ${formatNumber(
           model.context_length,
-        )} tokens`,
+        )} โทเคน`,
       ],
       tradeoffs: [
         "ยังไม่มี playbook เฉพาะรุ่นในระบบ ควรทดสอบก่อนเปิดส่งจริง",
@@ -1285,7 +1285,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
       recommendation:
         model.recommended_tier === "pro"
           ? "ใช้กับร้าน Pro หรือรอบวิเคราะห์ที่ยอมรับต้นทุนสูงได้"
-          : "ใช้กับร้าน Business ได้ แต่ควรทดสอบกับข้อมูลจริงก่อน",
+          : "ใช้กับร้านใหญ่ได้ แต่ควรทดสอบกับข้อมูลจริงก่อน",
     }
   );
 }
@@ -1316,6 +1316,19 @@ function modelCostTone(model: AiCeoModelCatalogItem) {
     return "warning" as const;
   }
   return "error" as const;
+}
+
+function formatAiRunStatus(status?: string | null) {
+  if (!status) {
+    return "-";
+  }
+  const labels: Record<string, string> = {
+    failed: "ไม่สำเร็จ",
+    success: "สำเร็จ",
+    skipped: "ข้าม",
+    warning: "มีข้อควรตรวจ",
+  };
+  return labels[status] ?? status;
 }
 
 function severityTone(severity: string) {
