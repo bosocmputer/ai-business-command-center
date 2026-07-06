@@ -13,6 +13,7 @@ import OwnerV2SetupWizard from "./OwnerV2SetupWizard";
 import OwnerV2TenantConfigEditor from "./OwnerV2TenantConfigEditor";
 import {
   Fact,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -544,26 +545,24 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
       {activeTab === "advanced" ? (
         <div className="space-y-5 sm:space-y-6">
-          <Panel>
-            <PanelHeader
-              title="แก้ข้อมูลร้าน"
-              description="ชื่อร้าน แพ็กเกจ สถานะ และหมายเหตุ"
+          <FormPanel
+            as="form"
+            description="ชื่อร้าน แพ็กเกจ สถานะ และหมายเหตุ"
+            onSubmit={saveStore}
+            title="แก้ข้อมูลร้าน"
+          >
+            <StoreEditForm
+              busy={busy}
+              dirty={dirty}
+              form={form}
+              initialForm={initialForm}
+              saveDisabled={saveDisabled}
+              sensitiveHints={sensitiveHints}
+              setForm={setForm}
+              setMessage={setMessage}
+              tenant={tenant}
             />
-            <PanelBody spaced>
-              <StoreEditForm
-                busy={busy}
-                dirty={dirty}
-                form={form}
-                initialForm={initialForm}
-                saveDisabled={saveDisabled}
-                sensitiveHints={sensitiveHints}
-                setForm={setForm}
-                setMessage={setMessage}
-                saveStore={saveStore}
-                tenant={tenant}
-              />
-            </PanelBody>
-          </Panel>
+          </FormPanel>
 
           {tenant.status !== "cancelled" ? (
             <OwnerV2TenantConfigEditor
@@ -1005,7 +1004,6 @@ function StoreEditForm({
   sensitiveHints,
   setForm,
   setMessage,
-  saveStore,
   tenant,
 }: {
   busy: "save" | null;
@@ -1021,12 +1019,11 @@ function StoreEditForm({
       text: string;
     } | null>
   >;
-  saveStore: (event: FormEvent<HTMLFormElement>) => void;
   tenant: Tenant;
 }) {
   const cancelled = tenant.status === "cancelled";
   return (
-    <form className="space-y-6" onSubmit={saveStore}>
+    <>
       <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
         <label className="block min-w-0" htmlFor="edit-tenant-name">
           <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -1044,17 +1041,6 @@ function StoreEditForm({
               )
             }
             value={form.name}
-          />
-        </label>
-        <label className="block min-w-0" htmlFor="edit-tenant-id">
-          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-            รหัสร้าน (เทคนิค)
-          </span>
-          <input
-            className="owner-v2-input font-mono"
-            disabled
-            id="edit-tenant-id"
-            value={tenant.id}
           />
         </label>
         <label className="block min-w-0" htmlFor="edit-tenant-plan">
@@ -1276,6 +1262,9 @@ function StoreEditForm({
             : "ห้ามใส่รหัสลับ รหัสผ่าน หรือรหัสเชื่อมต่อในช่องนี้"}
         </span>
       </label>
+      <AdminTechnicalDetails embedded title="รหัสร้านสำหรับทีมดูแลระบบ">
+        <Fact label="รหัสร้าน" value={tenant.id} />
+      </AdminTechnicalDetails>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           className="w-full sm:w-auto"
@@ -1303,7 +1292,7 @@ function StoreEditForm({
           ปุ่มบันทึกเปิดเมื่อข้อมูลเปลี่ยนและไม่มีข้อมูลลับในหมายเหตุ
         </p>
       </div>
-    </form>
+    </>
   );
 }
 

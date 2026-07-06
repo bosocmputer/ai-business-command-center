@@ -271,6 +271,7 @@ export default function OwnerV2StoreList() {
 
         <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <input
+            aria-label="ค้นหาร้าน"
             className="owner-v2-input xl:max-w-md"
             onChange={(event) => {
               const value = event.target.value;
@@ -284,6 +285,9 @@ export default function OwnerV2StoreList() {
           <div className="grid grid-cols-2 items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900 sm:inline-grid sm:grid-cols-4">
             {filters.map((item) => (
               <button
+                aria-label={`${item.label} ${item.count.toLocaleString(
+                  "th-TH",
+                )} ร้าน`}
                 aria-pressed={filter === item.id}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-theme-sm font-medium transition ${
                   filter === item.id
@@ -546,9 +550,12 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
   return (
     <article className="rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-gray-700 dark:hover:bg-white/[0.05]">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-gray-900 dark:text-white">
+        <Link
+          className="break-words text-sm font-semibold text-gray-900 transition hover:text-brand-600 dark:text-white dark:hover:text-brand-400"
+          href={href}
+        >
           {tenant.name}
-        </span>
+        </Link>
         <StatusBadge status={tenant.status} />
         <ReadinessBadge tenant={tenant} />
       </div>
