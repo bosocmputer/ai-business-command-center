@@ -20,6 +20,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   formatDateTime,
   secondaryActionClass,
 } from "./ui";
@@ -592,7 +593,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "บันทึก quota ไม่สำเร็จ",
+          error instanceof Error ? error.message : "บันทึกโควต้าไม่สำเร็จ",
       });
     } finally {
       setBusy(null);
@@ -699,7 +700,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   /api/line/webhook
                 </span>{" "}
                 แล้วเปิด "Use webhook" ใน LINE OA ของร้าน เพื่อให้ระบบรับ
-                events ของผู้รับได้
+                ข้อมูลผู้รับได้
               </>
             }
           />
@@ -811,7 +812,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                 <>
                 <div className="mb-4 flex items-center gap-2">
                   <Badge color="light" size="sm">
-                    Quota: {formatEstimatedMonthlyMessages(quotaSummary)}
+                    โควต้า LINE: {formatEstimatedMonthlyMessages(quotaSummary)}
                   </Badge>
                 </div>
                 <TargetGroup
@@ -1168,10 +1169,8 @@ function ChannelTable({
                 <p className="break-words text-theme-sm font-medium text-gray-800 dark:text-white/90">
                   {channel.display_name}
                 </p>
-                <p className="mt-1 break-all font-mono text-theme-xs text-gray-500 dark:text-gray-400">
-                  {channel.source === "env"
-                    ? "ตั้งค่าจากเครื่องแม่ข่าย"
-                    : channel.id}
+                <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+                  {formatLineChannelSource(channel)}
                 </p>
               </div>
               <Badge color={channel.enabled ? "success" : "warning"}>
@@ -1242,8 +1241,8 @@ function ChannelTable({
                     <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
                       {channel.display_name}
                     </p>
-                    <p className="mt-1 font-mono text-theme-xs text-gray-500 dark:text-gray-400">
-                      {channel.source === "env" ? "ตั้งค่าจากเครื่องแม่ข่าย" : channel.id}
+                    <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+                      {formatLineChannelSource(channel)}
                     </p>
                   </div>
                 </td>
@@ -1284,6 +1283,29 @@ function ChannelTable({
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="mt-4">
+        <TechnicalDetails
+          embedded
+          title="รายละเอียดเทคนิคของ LINE OA"
+          description="ใช้เฉพาะตอนทีมดูแลระบบต้องเทียบรหัสภายในกับฐานข้อมูลหรือบันทึกระบบ"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            {channels.map((channel) => (
+              <div
+                className="rounded-lg bg-white p-3 dark:bg-gray-900"
+                key={channel.id}
+              >
+                <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+                  {channel.display_name}
+                </p>
+                <p className="mt-1 break-all font-mono text-theme-xs text-gray-500 dark:text-gray-400">
+                  {channel.id}
+                </p>
+              </div>
+            ))}
+          </div>
+        </TechnicalDetails>
       </div>
     </div>
   );
@@ -1413,7 +1435,7 @@ function TargetTable({
                     {channel?.display_name ?? "ยังไม่ได้ผูก OA"}
                   </p>
                   <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-                    {target.source} · ล่าสุด{" "}
+                    {formatLineTargetSource(target.source)} · ล่าสุด{" "}
                     {target.last_delivery_at
                       ? formatDateTime(target.last_delivery_at)
                       : "ยังไม่เคยส่ง"}
@@ -1580,7 +1602,7 @@ function TargetTable({
                         {channel?.display_name ?? "ยังไม่ได้ผูก OA"}
                       </p>
                       <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-                        {target.source} · ล่าสุด{" "}
+                        {formatLineTargetSource(target.source)} · ล่าสุด{" "}
                         {target.last_delivery_at
                           ? formatDateTime(target.last_delivery_at)
                           : "ยังไม่เคยส่ง"}
@@ -1813,7 +1835,7 @@ function buildReadinessChecks({
       label: "มีรหัสรับ Webhook",
       detail: secretReadyChannels.length
         ? `${secretReadyChannels.length}/${channels.length} ช่องทางมีรหัสครบ`
-        : "บันทึกรหัสรับ Webhook เพื่อให้ระบบรับ userId หรือ groupId เมื่อผู้รับเพิ่ม OA เป็นเพื่อนหรือส่งข้อความ",
+        : "บันทึกรหัสรับ Webhook เพื่อให้ระบบรับรหัสผู้รับหรือรหัสกลุ่มเมื่อผู้รับเพิ่ม OA เป็นเพื่อนหรือส่งข้อความ",
     },
     {
       ok: readyTargets.length > 0,
@@ -1950,7 +1972,7 @@ function RecipientEstimateCell({
         onClick={() => onSave(value === "" ? null : parsed)}
         type="button"
       >
-        บันทึก quota
+        บันทึกโควต้า
       </button>
     </div>
   );
@@ -1963,6 +1985,24 @@ function getRecipientEstimate(target: LineTargetRecord) {
   return target.target_type === "user" ? 1 : null;
 }
 
+function formatLineChannelSource(channel: LineChannelRecord) {
+  if (channel.source === "env") {
+    return "ตั้งค่าจากเครื่องแม่ข่าย";
+  }
+  return channel.scope === "owner_shared"
+    ? "เพิ่มจากหน้าแอดมิน · ใช้ร่วมหลายร้าน"
+    : "เพิ่มจากหน้าแอดมิน";
+}
+
+function formatLineTargetSource(source: LineTargetRecord["source"]) {
+  const labels: Record<LineTargetRecord["source"], string> = {
+    env_fallback: "ตั้งค่าจากเครื่องแม่ข่าย",
+    manual: "เพิ่มเอง",
+    webhook: "รับจาก Webhook",
+  };
+  return labels[source] ?? "ไม่ทราบที่มา";
+}
+
 function formatEstimatedMonthlyMessages(summary: {
   knownRecipients: number;
   unknownTargets: number;
@@ -1971,7 +2011,7 @@ function formatEstimatedMonthlyMessages(summary: {
   if (summary.unknownTargets) {
     return knownMessages === 0
       ? "รอระบุจำนวนผู้รับ"
-      : `${knownMessages.toLocaleString("th-TH")}+ messages/เดือน`;
+      : `${knownMessages.toLocaleString("th-TH")}+ ข้อความ/เดือน`;
   }
-  return `${knownMessages.toLocaleString("th-TH")} messages/เดือน`;
+  return `${knownMessages.toLocaleString("th-TH")} ข้อความ/เดือน`;
 }
