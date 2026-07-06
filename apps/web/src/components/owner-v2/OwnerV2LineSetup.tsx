@@ -13,6 +13,7 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { CheckCircleIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type { OwnerV2LineSetupPayload } from "./types";
 import {
   Field,
@@ -22,7 +23,6 @@ import {
   PanelHeader,
   TechnicalDetails,
   formatDateTime,
-  secondaryActionClass,
 } from "./ui";
 
 type LineSetupState =
@@ -692,12 +692,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <Link
-        className={secondaryActionClass}
-        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
-      >
-        ← กลับหน้าร้าน
-      </Link>
+      <OwnerV2StoreSetupNav current="line" tenantId={tenantId} />
       {message ? (
         <Notice title="สถานะ LINE OA" tone={message.tone} text={message.text} />
       ) : null}

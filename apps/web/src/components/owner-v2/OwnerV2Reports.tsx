@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   BANGKOK_TIME_ZONE,
   type ReportKey,
@@ -11,6 +10,7 @@ import {
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon, CheckCircleIcon, InfoIcon } from "@/icons";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import {
   isAbortError,
   ownerV2Fetch,
@@ -29,7 +29,6 @@ import {
   TechnicalDetails,
   formatDateTime,
   formatRunStatus,
-  secondaryActionClass,
 } from "./ui";
 
 type ReportSetupState =
@@ -336,12 +335,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <Link
-        className={secondaryActionClass}
-        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
-      >
-        ← กลับหน้าร้าน
-      </Link>
+      <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
       <Panel>
         <PanelHeader

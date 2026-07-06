@@ -30,6 +30,7 @@ import {
   TimeIcon,
 } from "@/icons";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
@@ -42,7 +43,6 @@ import {
   PanelBody,
   PanelHeader,
   TechnicalDetails,
-  secondaryActionClass,
 } from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
@@ -626,12 +626,7 @@ export default function OwnerV2NotificationSetup({
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <Link
-        className={secondaryActionClass}
-        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
-      >
-        ← กลับหน้าร้าน
-      </Link>
+      <OwnerV2StoreSetupNav current="notifications" tenantId={tenantId} />
       {message ? (
         <Notice
           text={message.text}
