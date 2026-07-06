@@ -3998,7 +3998,7 @@ async function testTenantDatasource(
           erp_branch_list: false,
         },
         safe_error_message:
-          "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาไปที่เชื่อม SML แล้วกรอก Tomcat URL, port, SMLConfig และ database",
+          "ยังไม่ได้ตั้งค่า SML JavaWS สำหรับร้านนี้ กรุณาไปที่หน้าเชื่อม SML แล้วกรอก URL, พอร์ต, ไฟล์ SMLConfig และเลือกฐานข้อมูล",
       },
     });
   }
@@ -12141,7 +12141,7 @@ async function executeNotificationRule(input: {
             : "",
         ].filter(Boolean),
         action:
-          "ตรวจ SML JavaWS/Tomcat, SMLConfig, database และสิทธิ์อ่านข้อมูล แล้วรันทดสอบรายงานอีกครั้ง",
+          "ตรวจ SML JavaWS, ไฟล์ SMLConfig, ฐานข้อมูล และสิทธิ์อ่านข้อมูล แล้วรันทดสอบรายงานอีกครั้ง",
       }),
     });
   };
@@ -14053,7 +14053,7 @@ function resolveLineTargetDeliveryReadiness(input: {
         ok: false,
         reason: "line_channel_token_missing",
         message:
-          "LINE OA ที่ผูกกับผู้รับนี้ยังไม่มี access token สำหรับส่งจริง",
+          "LINE OA ที่ผูกกับผู้รับนี้ยังไม่มีรหัสส่งข้อความสำหรับส่งจริง",
       };
     }
     return { ok: true };
@@ -14063,7 +14063,7 @@ function resolveLineTargetDeliveryReadiness(input: {
     return {
       ok: false,
       reason: "line_channel_token_missing",
-      message: "ยังไม่มี LINE OA ที่มี access token สำหรับส่งจริง",
+      message: "ยังไม่มี LINE OA ที่มีรหัสส่งข้อความสำหรับส่งจริง",
     };
   }
   return { ok: true };
@@ -14184,7 +14184,7 @@ async function validateNotificationRulePayload(input: {
     if (!lineChannels.some(isLineChannelSendReady)) {
       details.push({
         reason: "line_channel_token_missing",
-        message: "ยังไม่มี LINE OA ที่มี access token สำหรับส่งจริง",
+        message: "ยังไม่มี LINE OA ที่มีรหัสส่งข้อความสำหรับส่งจริง",
       });
     }
 
