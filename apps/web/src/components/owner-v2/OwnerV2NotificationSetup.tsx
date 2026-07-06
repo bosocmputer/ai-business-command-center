@@ -1393,8 +1393,8 @@ function TargetSelector({
           {selectedTargetIds.length}/{targets.length}
         </Badge>
       </div>
-      <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-[720px]">
+      <div className="hidden w-full overflow-x-auto lg:block">
+        <table className="w-full min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
               {["เลือก", "ผู้รับ", "แชร์ช่อง LINE กับ", "พร้อมส่ง", "เหตุผล"].map((label) => (
@@ -1444,7 +1444,7 @@ function TargetSelector({
                           </span>
                         ))}
                         <p className="mt-1 text-theme-xs text-gray-400 dark:text-gray-500">
-                          quota LINE OA ถูกใช้ร่วมกัน
+                          โควต้า LINE OA ถูกใช้ร่วมกัน
                         </p>
                       </div>
                     ) : (
@@ -1467,7 +1467,93 @@ function TargetSelector({
           </tbody>
         </table>
       </div>
+      <div className="space-y-3 lg:hidden">
+        {targets.map((target) => {
+          const readiness = getLineTargetDeliveryReadiness({
+            channels,
+            reportKeys,
+            target,
+          });
+          return (
+            <TargetMobileCard
+              checked={selectedTargetIds.includes(target.id)}
+              key={target.id}
+              onToggle={() => onToggleTarget(target.id)}
+              readiness={readiness}
+              target={target}
+            />
+          );
+        })}
+      </div>
     </div>
+  );
+}
+
+function TargetMobileCard({
+  checked,
+  onToggle,
+  readiness,
+  target,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  readiness: LineTargetDeliveryReadiness;
+  target: LineTargetRecord & { sibling_tenant_names?: string[] };
+}) {
+  const siblings = target.sibling_tenant_names ?? [];
+  return (
+    <label
+      className={`block cursor-pointer rounded-xl border p-4 transition ${
+        checked
+          ? "border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/10"
+          : "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <input
+          checked={checked}
+          className="mt-1 size-5"
+          onChange={onToggle}
+          type="checkbox"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="break-words text-sm font-semibold text-gray-800 dark:text-white/90">
+              {target.display_name}
+            </p>
+            <Badge color={readiness.ok ? "success" : "warning"}>
+              {readiness.ok ? "พร้อมส่ง" : "ติดเงื่อนไข"}
+            </Badge>
+          </div>
+          <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+            รหัสผู้รับแบบย่อ: {target.target_id_masked}
+          </p>
+          {siblings.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                ใช้ LINE OA ร่วมกับ
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {siblings.map((name) => (
+                  <span
+                    className="inline-block rounded-full bg-warning-50 px-2 py-0.5 text-theme-xs font-medium text-warning-700 dark:bg-warning-500/10 dark:text-warning-300"
+                    key={name}
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-1 text-theme-xs text-gray-400 dark:text-gray-500">
+                โควต้า LINE OA ถูกใช้ร่วมกัน
+              </p>
+            </div>
+          ) : null}
+          <p className="mt-3 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            {readiness.ok ? "ส่งได้ตามรายงานที่เลือก" : readiness.message}
+          </p>
+        </div>
+      </div>
+    </label>
   );
 }
 
@@ -1483,7 +1569,7 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
             ยังไม่มีประวัติรัน
           </p>
           <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-            หลังทดสอบหรือรอบ worker ทำงาน ผลล่าสุดจะแสดงตรงนี้
+            หลังทดสอบหรือรอบอัตโนมัติทำงาน ผลล่าสุดจะแสดงตรงนี้
           </p>
         </div>
       </div>
@@ -1985,7 +2071,7 @@ function getLineTargetDeliveryReadiness({
     return {
       ok: false,
       reason: "line_channel_token_missing",
-      message: "LINE OA ยังไม่มี access token สำหรับส่งจริง",
+      message: "LINE OA ยังไม่มีรหัสส่งข้อความสำหรับส่งจริง",
     };
   }
   return { ok: true };
@@ -2041,7 +2127,7 @@ function getNotificationRunBadges(run: NotificationRuleRunRecord) {
     }
   }
   if (run.status === "failed" && run.next_retry_at && run.delivery_ids.length) {
-    badges.push({ label: "retry LINE", tone: "warning" });
+    badges.push({ label: "รอส่ง LINE ซ้ำ", tone: "warning" });
   }
   return badges;
 }
