@@ -123,12 +123,6 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
 
   const setup = state.status === "success" ? state.data : null;
   const reports = setup?.reports ?? [];
-  // Guard the array slices against null: the API can return explicit null for
-  // unconfigured tenants, and the old `setup?.X.method()` calls crashed on
-  // `null.method()`. The `?? []` only caught the result of `.method`, not the
-  // null input, so these are real crash bugs — fix by guarding the field first.
-  // Memoize the guarded arrays so the downstream useMemo deps stay stable
-  // (a raw `?? []` creates a new array each render and re-triggers the memos).
   const latestRuns = useMemo(
     () => setup?.latest_runs ?? [],
     [setup?.latest_runs],
@@ -177,6 +171,14 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     latestRuns.filter((run) => run.status === "failed").length;
   const activeRuns =
     latestRuns.filter((run) => !isTerminalStatus(run.status)).length;
+  const runActionHelp = buildReportRunActionHelp({
+    busy,
+    chunkedEnabled,
+    dateInvalid,
+    progress,
+    selectedIsAsync,
+    selectedReport,
+  });
 
   const loadProgress = useCallback(
     async (run: Pick<ReportRunRecord, "id" | "tenant_id">) => {
@@ -303,33 +305,41 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
   }
 
   if (state.status === "loading") {
-    return <ReportsSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
+        <ReportsSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody spaced>
-          <Notice
-            tone="error"
-            title="โหลดสถานะรายงานไม่สำเร็จ"
-            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเลือกร้านใหม่"
-          />
-          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-            <Fact label="ข้อความระบบ" value={state.message} />
-          </TechnicalDetails>
-          <div>
-            <Button
-              onClick={() => void load()}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              โหลดใหม่
-            </Button>
-          </div>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
+        <Panel>
+          <PanelBody spaced>
+            <Notice
+              tone="error"
+              title="โหลดสถานะรายงานไม่สำเร็จ"
+              text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเลือกร้านใหม่"
+            />
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <Fact label="ข้อความระบบ" value={state.message} />
+            </TechnicalDetails>
+            <div>
+              <Button
+                onClick={() => void load()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                โหลดใหม่
+              </Button>
+            </div>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 
@@ -337,56 +347,71 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     <div className="space-y-5 sm:space-y-6">
       <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-      <Panel>
-        <PanelHeader
-          action={
-            <div className="flex flex-wrap gap-2">
-              <Badge color={chunkedEnabled ? "success" : "warning"}>
-                {chunkedEnabled ? "รันรายงานหนักได้" : "ต้องเปิดรันเบื้องหลัง"}
-              </Badge>
-              <Badge color={activeRuns ? "info" : "light"}>
-                กำลังทำงาน {activeRuns}
-              </Badge>
-            </div>
-          }
-          description="เลือกรายงานและช่วงวันที่เพื่อทดสอบข้อมูลของร้านนี้ ก่อนนำไปใช้กับหน้าแดชบอร์ดหรือ LINE"
-          title={`รายงานของ ${state.data.tenant.name}`}
-        />
-        <PanelBody spaced>
-          {message ? <Notice tone={message.tone} title={message.text} /> : null}
-          {technicalMessage ? (
-            <TechnicalDetails embedded title="รายละเอียดการรันรายงาน">
-              <Fact label="ข้อความระบบ" value={technicalMessage} />
-            </TechnicalDetails>
-          ) : null}
+        <Panel>
+          <PanelHeader
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Badge color={chunkedEnabled ? "success" : "warning"}>
+                  {chunkedEnabled ? "รันรายงานหนักได้" : "ต้องเปิดรันเบื้องหลัง"}
+                </Badge>
+                <Badge color={activeRuns ? "info" : "light"}>
+                  กำลังทำงาน {activeRuns}
+                </Badge>
+              </div>
+            }
+            description="เลือกรายงานและช่วงวันที่เพื่อทดสอบข้อมูลของร้านนี้ ก่อนนำไปใช้กับหน้าแดชบอร์ดหรือ LINE"
+            title={`รายงานของ ${state.data.tenant.name}`}
+          />
+          <PanelBody spaced>
+            {message ? (
+              <Notice
+                tone={message.tone}
+                title="สถานะการรันรายงาน"
+                text={message.text}
+              />
+            ) : null}
+            {technicalMessage ? (
+              <TechnicalDetails embedded title="รายละเอียดการรันรายงาน">
+                <Fact label="ข้อความระบบ" value={technicalMessage} />
+              </TechnicalDetails>
+            ) : null}
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <Fact label="รายงานที่รองรับ" value={reports.length.toString()} />
-            <Fact label="สำเร็จล่าสุด" value={successRuns.toString()} />
-            <Fact label="ไม่สำเร็จล่าสุด" value={failedRuns.toString()} />
-          </div>
-
-          {reports.length ? (
-            <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
-              {reports.map((report) => (
-                <ReportRow
-                  key={report.report_key}
-                  latestRun={latestRunByReport.get(report.report_key) ?? null}
-                  latestSnapshot={latestSnapshotByReport.get(report.report_key) ?? null}
-                  onSelect={() => setSelectedReportKey(report.report_key)}
-                  report={report}
-                  selected={report.report_key === selectedReportKey}
-                />
-              ))}
+            <div className="grid gap-3 md:grid-cols-3">
+              <Fact label="รายงานที่รองรับ" value={reports.length.toString()} />
+              <Fact label="สำเร็จล่าสุด" value={successRuns.toString()} />
+              <Fact label="ไม่สำเร็จล่าสุด" value={failedRuns.toString()} />
             </div>
-          ) : (
-            <EmptyState
-              text="กรุณาตรวจสิทธิ์รายงานหรือแพ็กเกจของร้านก่อนรันรายงานด้วยมือ"
-              title="ยังไม่มีรายงานให้ร้านนี้"
+
+            <ReportsActionGuide
+              activeRuns={activeRuns}
+              hasReports={reports.length > 0}
+              hasSuccessfulRun={successRuns > 0}
+              selectedReport={selectedReport}
             />
-          )}
-        </PanelBody>
-      </Panel>
+
+            {reports.length ? (
+              <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
+                {reports.map((report) => (
+                  <ReportRow
+                    key={report.report_key}
+                    latestRun={latestRunByReport.get(report.report_key) ?? null}
+                    latestSnapshot={
+                      latestSnapshotByReport.get(report.report_key) ?? null
+                    }
+                    onSelect={() => setSelectedReportKey(report.report_key)}
+                    report={report}
+                    selected={report.report_key === selectedReportKey}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                text="กรุณาตรวจสิทธิ์รายงานหรือแพ็กเกจของร้านก่อนรันรายงานด้วยมือ"
+                title="ยังไม่มีรายงานให้ร้านนี้"
+              />
+            )}
+          </PanelBody>
+        </Panel>
 
       <div className="space-y-6">
         <Panel>
@@ -459,9 +484,12 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
                 </Button>
                 <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
                   {runDisabled
-                    ? "ถ้าปุ่มกดไม่ได้ ให้ตรวจช่วงวันที่ งานที่กำลังรันอยู่ หรือโหมดรันรายงานขนาดใหญ่"
-                    : "ระบบจะดึงข้อมูลจาก SML และบันทึกข้อมูลล่าสุดให้หน้าแดชบอร์ด/LINE ใช้ต่อ"}
+                    ? "ถ้าปุ่มยังปิดอยู่ ให้ตรวจรายการด้านล่างก่อน"
+                    : "ระบบจะดึงข้อมูลจาก SML จริง และบันทึกข้อมูลล่าสุดให้หน้าแดชบอร์ด/LINE ใช้ต่อ"}
                 </p>
+                {runActionHelp.length ? (
+                  <ActionHelp items={runActionHelp} />
+                ) : null}
               </>
             ) : (
               <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
@@ -577,6 +605,108 @@ function ReportRow({
         </div>
       </div>
     </button>
+  );
+}
+
+function ReportsActionGuide({
+  activeRuns,
+  hasReports,
+  hasSuccessfulRun,
+  selectedReport,
+}: {
+  activeRuns: number;
+  hasReports: boolean;
+  hasSuccessfulRun: boolean;
+  selectedReport: OwnerReport | null;
+}) {
+  const steps = [
+    {
+      detail: hasReports
+        ? "มีรายงานให้ร้านนี้แล้ว"
+        : "ตรวจแพ็กเกจและสิทธิ์รายงานของร้านก่อน",
+      label: "มีรายงานให้เลือก",
+      ok: hasReports,
+    },
+    {
+      detail: selectedReport
+        ? `กำลังเลือก ${selectedReport.label}`
+        : "เลือกรายงานที่จะทดสอบก่อน",
+      label: "เลือกรายงาน",
+      ok: Boolean(selectedReport),
+    },
+    {
+      detail: activeRuns > 0 ? "รอรอบที่กำลังรันให้จบก่อน" : "ไม่มีรอบรันค้างอยู่",
+      label: "ระบบพร้อมรัน",
+      ok: activeRuns === 0,
+    },
+    {
+      detail: hasSuccessfulRun
+        ? "มีผลรันสำเร็จให้ LINE และ viewer ใช้ได้"
+        : "รันรายงานอย่างน้อยหนึ่งรายการให้สำเร็จก่อนเปิดรอบแจ้งเตือน",
+      label: "มีผลสำเร็จล่าสุด",
+      ok: hasSuccessfulRun,
+    },
+  ];
+
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            ลำดับทดสอบรายงาน
+          </h4>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            ใช้ลำดับนี้ก่อนเปิดหรือแก้แผนแจ้งเตือน LINE เพื่อกันส่งรายงานผิดรอบ
+          </p>
+        </div>
+        <Badge color={hasSuccessfulRun ? "success" : hasReports ? "warning" : "light"}>
+          {hasSuccessfulRun ? "มีผลสำเร็จ" : hasReports ? "พร้อมทดสอบ" : "ยังไม่มีรายงาน"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {steps.map((step, index) => (
+          <div
+            className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
+            key={step.label}
+          >
+            <div className="flex items-start gap-3">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  step.ok
+                    ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
+                    : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-300"
+                }`}
+              >
+                {index + 1}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                  {step.label}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {step.detail}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ActionHelp({ items }: { items: string[] }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+        ถ้าปุ่มยังปิดอยู่ ให้ตรวจจุดนี้ก่อน
+      </p>
+      <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -993,6 +1123,40 @@ function buildReportRunFailureMessage(
     return `${reportLabel}: รันรายงานไม่สำเร็จ ตรวจการเชื่อมต่อ SML และรายละเอียดระบบก่อนลองใหม่`;
   }
   return `${reportLabel}: รันรายงานไม่สำเร็จ ตรวจช่วงวันที่ การเชื่อมต่อ SML และสถานะระบบรายงานก่อนลองใหม่`;
+}
+
+function buildReportRunActionHelp({
+  busy,
+  chunkedEnabled,
+  dateInvalid,
+  progress,
+  selectedIsAsync,
+  selectedReport,
+}: {
+  busy: ReportKey | null;
+  chunkedEnabled: boolean;
+  dateInvalid: boolean;
+  progress: ChunkedReportProgress | null;
+  selectedIsAsync: boolean;
+  selectedReport: OwnerReport | null;
+}) {
+  if (busy) {
+    return ["รอให้ระบบเริ่มรันรายงานรายการปัจจุบันให้เสร็จก่อน"];
+  }
+  const items: string[] = [];
+  if (!selectedReport) {
+    items.push("เลือกรายงานที่ต้องการรันก่อน");
+  }
+  if (dateInvalid) {
+    items.push("เลือกวันที่เริ่มต้นไม่เกินวันที่สิ้นสุด");
+  }
+  if (selectedIsAsync && !chunkedEnabled) {
+    items.push("รายงานขนาดใหญ่ต้องเปิดโหมดรันเบื้องหลังของร้านก่อน");
+  }
+  if (progress && !isTerminalStatus(progress.run.status)) {
+    items.push("มีรายงานเบื้องหลังกำลังรันอยู่ รอให้จบก่อนเริ่มรอบใหม่");
+  }
+  return items;
 }
 
 function toReportTechnicalMessage(error: unknown) {
