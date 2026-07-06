@@ -471,7 +471,7 @@ function OperationalNotificationDropdown({
   state: HeaderWorkbenchState;
 }) {
   return (
-    <div className="shadow-theme-lg absolute -right-[240px] mt-[17px] flex h-[480px] w-[350px] flex-col rounded-2xl border border-gray-200 bg-white p-3 sm:w-[361px] lg:right-0 dark:border-gray-800 dark:bg-gray-dark">
+    <div className="shadow-theme-lg fixed left-4 right-4 top-20 z-99999 mt-0 flex max-h-[calc(100vh-6rem)] flex-col rounded-2xl border border-gray-200 bg-white p-3 sm:left-auto sm:right-6 sm:w-[361px] lg:absolute lg:left-auto lg:right-0 lg:top-auto lg:mt-[17px] lg:h-[480px] lg:max-h-none dark:border-gray-800 dark:bg-gray-dark">
       <div className="mb-3 flex items-center justify-between border-b border-gray-100 pb-3 dark:border-gray-800">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-white/90">
           งานที่ต้องตรวจ
