@@ -44,12 +44,14 @@ export default function OwnerV2FlowAccountSetup({
   const [clientSecret, setClientSecret] = useState("");
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
   const [message, setMessage] = useState<MessageState | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
   const [testResult, setTestResult] =
     useState<OwnerV2FlowAccountTestResult | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setState({ status: "loading" });
+      setTechnicalMessage(null);
       try {
         const data = await ownerV2Fetch<OwnerV2FlowAccountConfigStatus>(
           `/api/owner/tenants/${encodeURIComponent(tenantId)}/flowaccount/config`,
@@ -58,17 +60,17 @@ export default function OwnerV2FlowAccountSetup({
         if (signal?.aborted) {
           return;
         }
+        setTechnicalMessage(null);
         setState({ status: "success", data });
       } catch (error) {
         if (isAbortError(error)) {
           return;
         }
+        setTechnicalMessage(technicalErrorMessage(error));
         setState({
           status: "error",
           message:
-            error instanceof Error
-              ? error.message
-              : "โหลดสถานะ FlowAccount ไม่สำเร็จ",
+            "โหลดสถานะ FlowAccount ไม่สำเร็จ กรุณารีเฟรชหน้า หรือตรวจสิทธิ์ผู้ดูแลแล้วลองใหม่",
         });
       }
     },
@@ -103,6 +105,7 @@ export default function OwnerV2FlowAccountSetup({
 
     setBusy("save");
     setMessage(null);
+    setTechnicalMessage(null);
     setTestResult(null);
     try {
       const data = await ownerV2Fetch<OwnerV2FlowAccountConfigStatus>(
@@ -124,13 +127,13 @@ export default function OwnerV2FlowAccountSetup({
         tone: "success",
         text: "บันทึกข้อมูลเชื่อมต่อแบบทดสอบแล้ว ยังต้องกดทดสอบก่อนนำผลไปใช้",
       });
+      setTechnicalMessage(null);
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "บันทึกข้อมูลเชื่อมต่อ FlowAccount ไม่สำเร็จ",
+          "บันทึกข้อมูลเชื่อมต่อ FlowAccount ไม่สำเร็จ กรุณาตรวจรหัสเชื่อมต่อ รหัสลับ และสิทธิ์ผู้ดูแลก่อนลองใหม่",
       });
     } finally {
       setBusy(null);
@@ -151,6 +154,7 @@ export default function OwnerV2FlowAccountSetup({
 
     setBusy("test");
     setMessage(null);
+    setTechnicalMessage(null);
     setTestResult(null);
     try {
       const data = await ownerV2Fetch<OwnerV2FlowAccountTestResult>(
@@ -162,21 +166,23 @@ export default function OwnerV2FlowAccountSetup({
         tone: "success",
         text: "ทดสอบ FlowAccount สำเร็จและอัปเดตข้อมูลล่าสุดแล้ว",
       });
+      setTechnicalMessage(null);
       await load();
     } catch (error) {
       const providerResult = flowAccountErrorResult(error);
       if (providerResult) {
         setTestResult(providerResult);
       }
+      const technical = technicalErrorMessage(error);
+      setTechnicalMessage(technical);
       setMessage({
         tone: "error",
         text:
           providerResult?.safe_error_message ??
-          (error instanceof Error
-            ? error.message
-            : "ทดสอบ FlowAccount ไม่สำเร็จ"),
+          "ทดสอบ FlowAccount ไม่สำเร็จ กรุณาตรวจข้อมูลเชื่อมต่อและลองใหม่",
       });
       await load().catch(() => null);
+      setTechnicalMessage(technical);
     } finally {
       setBusy(null);
     }
@@ -193,8 +199,15 @@ export default function OwnerV2FlowAccountSetup({
           <Notice
             tone="error"
             title="โหลด FlowAccount ไม่สำเร็จ"
-            text={`${state.message} ตรวจกุญแจเข้ารหัส สิทธิ์ผู้ดูแล และข้อมูลร้านก่อนลองใหม่`}
+            text={state.message}
           />
+          {technicalMessage ? (
+            <div className="mt-4">
+              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                <Fact label="ข้อความระบบ" value={technicalMessage} />
+              </TechnicalDetails>
+            </div>
+          ) : null}
           <Button
             className="mt-4 w-full sm:w-auto"
             onClick={() => void load()}
@@ -368,6 +381,11 @@ export default function OwnerV2FlowAccountSetup({
       {message ? (
         <Notice tone={message.tone} title="สถานะ FlowAccount" text={message.text} />
       ) : null}
+      {technicalMessage ? (
+        <TechnicalDetails embedded title="รายละเอียดการทำรายการ">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </TechnicalDetails>
+      ) : null}
 
       {testResult ? <FlowAccountTestResult result={testResult} /> : null}
     </div>
@@ -417,7 +435,10 @@ function FlowAccountTestResult({
             description="เปิดดูเมื่อต้องตรวจเวลาเชื่อมต่อหรือสถานะจากผู้ให้บริการ"
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Fact label="เวลาเชื่อมต่อ" value={`${result.latency_ms} ms`} />
+              <Fact
+                label="เวลาเชื่อมต่อ"
+                value={formatFlowAccountLatency(result.latency_ms)}
+              />
               <Fact
                 label="สถานะผู้ให้บริการ"
                 value={result.provider_status?.toString() ?? "-"}
@@ -474,4 +495,28 @@ function flowAccountErrorResult(
     return null;
   }
   return maybeResult as OwnerV2FlowAccountTestResult;
+}
+
+function formatFlowAccountLatency(value: number) {
+  if (value < 1000) {
+    return "น้อยกว่า 1 วินาที";
+  }
+  const seconds = Math.round(value / 1000);
+  if (seconds < 60) {
+    return `${seconds} วินาที`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} นาที ${seconds % 60} วินาที`;
+}
+
+function technicalErrorMessage(error: unknown) {
+  const fetchError = error as OwnerV2FetchError | undefined;
+  const payload = fetchError?.payload;
+  const payloadError =
+    typeof payload?.error === "string" && payload.error.trim()
+      ? payload.error.trim()
+      : null;
+  const fallback = error instanceof Error ? error.message : "ไม่พบรายละเอียด";
+  const message = payloadError ?? fallback;
+  return fetchError?.status ? `HTTP ${fetchError.status}: ${message}` : message;
 }
