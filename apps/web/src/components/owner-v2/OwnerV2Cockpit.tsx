@@ -425,6 +425,7 @@ function formatAdminCopy(value?: string | null) {
     (text, [pattern, replacement]) => text.replace(pattern, replacement),
     value,
   )
+    .replace(/ข้อมูลล่าสุด\s+ล่าสุด/g, "ข้อมูลล่าสุด")
     .replace(/จัดการ\s+สัญญาณธุรกิจ/g, "จัดการสัญญาณธุรกิจ")
     .replace(/จาก\s+ข้อมูลล่าสุด/g, "จากข้อมูลล่าสุด");
 }
