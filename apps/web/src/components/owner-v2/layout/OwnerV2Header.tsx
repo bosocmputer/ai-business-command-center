@@ -28,7 +28,7 @@ const quickActions = [
     detail: "เลือกร้าน ดูความพร้อม และทำขั้นถัดไป",
     href: "/owner-v2",
     keywords: "workbench dashboard readiness next action เริ่มงาน ความพร้อม ทำต่อ",
-    label: "เริ่มงาน",
+    label: "ภาพรวมวันนี้",
   },
   {
     detail: "ดูร้านทั้งหมดและเปิดหน้าตั้งค่าต่อร้าน",
@@ -84,6 +84,13 @@ const quickActions = [
     keywords: "system runtime settings config ระบบกลาง ค่าระบบ",
     label: "ตั้งค่าระบบ",
   },
+];
+
+const headerNavActions = [
+  { href: "/owner-v2", label: "ภาพรวมวันนี้" },
+  { href: "/owner-v2/stores", label: "ร้านทั้งหมด" },
+  { href: "/owner-v2/ops", label: "ศูนย์ตรวจระบบ" },
+  { href: "/owner-v2/system", label: "ตั้งค่าระบบ" },
 ];
 
 export default function OwnerV2Header() {
@@ -359,12 +366,16 @@ export default function OwnerV2Header() {
           } shadow-theme-md w-full items-center justify-between gap-4 px-5 py-4 lg:flex lg:justify-end lg:px-0 lg:shadow-none`}
           ref={actionAreaRef}
         >
-          <div className="flex w-full items-center gap-2 lg:w-auto">
-            <OwnerV2MobileAction href="/owner-v2">เริ่มงาน</OwnerV2MobileAction>
-            <OwnerV2MobileAction href="/owner-v2/stores">ร้านค้า</OwnerV2MobileAction>
-            <OwnerV2MobileAction href="/owner-v2/ops">
-              ศูนย์ตรวจระบบ
-            </OwnerV2MobileAction>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap lg:hidden">
+            {headerNavActions.map((item) => (
+              <OwnerV2MobileAction
+                active={isHeaderNavActive(pathname, item.href)}
+                href={item.href}
+                key={item.href}
+              >
+                {item.label}
+              </OwnerV2MobileAction>
+            ))}
           </div>
 
           <div className="flex items-center gap-2">
@@ -430,21 +441,16 @@ export default function OwnerV2Header() {
                     </span>
                   </div>
                   <ul className="flex flex-col gap-1 border-b border-gray-200 pb-3 pt-4 dark:border-gray-800">
-                    <li>
-                      <OwnerV2UserMenuLink href="/owner-v2">
-                        เริ่มงาน
-                      </OwnerV2UserMenuLink>
-                    </li>
-                    <li>
-                      <OwnerV2UserMenuLink href="/owner-v2/stores">
-                        ร้านค้า
-                      </OwnerV2UserMenuLink>
-                    </li>
-                    <li>
-                      <OwnerV2UserMenuLink href="/owner-v2/ops">
-                        ศูนย์ตรวจระบบ
-                      </OwnerV2UserMenuLink>
-                    </li>
+                    {headerNavActions.map((item) => (
+                      <li key={item.href}>
+                        <OwnerV2UserMenuLink
+                          active={isHeaderNavActive(pathname, item.href)}
+                          href={item.href}
+                        >
+                          {item.label}
+                        </OwnerV2UserMenuLink>
+                      </li>
+                    ))}
                   </ul>
                   <button
                     className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-gray-700 text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
@@ -649,15 +655,22 @@ function MiniSkeleton() {
 }
 
 function OwnerV2MobileAction({
+  active,
   children,
   href,
 }: {
+  active: boolean;
   children: ReactNode;
   href: string;
 }) {
   return (
     <Link
-      className="rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5 lg:hidden"
+      aria-current={active ? "page" : undefined}
+      className={`rounded-lg px-3 py-2 text-center text-sm font-medium lg:hidden ${
+        active
+          ? "bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300"
+          : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5"
+      }`}
       href={href}
     >
       {children}
@@ -666,15 +679,22 @@ function OwnerV2MobileAction({
 }
 
 function OwnerV2UserMenuLink({
+  active,
   children,
   href,
 }: {
+  active: boolean;
   children: ReactNode;
   href: string;
 }) {
   return (
     <Link
-      className="flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-gray-700 text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-theme-sm ${
+        active
+          ? "bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300"
+          : "text-gray-700 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+      }`}
       href={href}
     >
       {children}
@@ -708,6 +728,16 @@ function getTenantIdFromPathname(pathname: string) {
     return null;
   }
   return decodeURIComponent(match[1]);
+}
+
+function isHeaderNavActive(pathname: string, href: string) {
+  if (href === "/owner-v2") {
+    return pathname === href;
+  }
+  if (href === "/owner-v2/stores") {
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 function HamburgerIcon() {
