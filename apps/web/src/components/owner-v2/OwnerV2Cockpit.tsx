@@ -416,6 +416,7 @@ function formatAdminCopy(value?: string | null) {
   }
   const replacements: Array<[RegExp, string]> = [
     [/\bbusiness signals?\b/gi, "สัญญาณธุรกิจ"],
+    [/\bsnapshots?\s+ล่าสุด\b/gi, "ข้อมูลล่าสุด"],
     [/\bsnapshots?\b/gi, "ข้อมูลล่าสุด"],
     [/\bblockers?\b/gi, "จุดติดขัด"],
     [/\bactive\b/gi, "ใช้งาน"],
@@ -423,7 +424,9 @@ function formatAdminCopy(value?: string | null) {
   return replacements.reduce(
     (text, [pattern, replacement]) => text.replace(pattern, replacement),
     value,
-  );
+  )
+    .replace(/จัดการ\s+สัญญาณธุรกิจ/g, "จัดการสัญญาณธุรกิจ")
+    .replace(/จาก\s+ข้อมูลล่าสุด/g, "จากข้อมูลล่าสุด");
 }
 
 function formatDateTime(value?: string | null) {
