@@ -274,7 +274,8 @@ export default function OwnerV2StoreList() {
 
         {filteredTenants.length ? (
           <>
-            {/* Desktop table — TailAdmin table-01 pattern. Whole row is clickable.
+            {/* Desktop table — TailAdmin table-01 pattern. Store name and
+                actions are explicit links so admins have predictable targets.
                 w-full on the table itself so columns fill the card width (the
                 min-w only kicks in on a very narrow lg viewport to allow scroll). */}
             <div className="hidden w-full overflow-x-auto lg:block">
@@ -414,16 +415,20 @@ function StorePriorityPanel({ tenants }: { tenants: OwnerV2Tenant[] }) {
 
 function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
   const href = `/owner-v2/stores/${encodeURIComponent(tenant.id)}`;
+  const systemHref = `${href}?tab=system`;
   const hasCritical = tenant.health.critical_business_signals > 0;
   const nextAction = getPrimaryStoreAction(tenant, href);
   return (
-    <tr className="transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
+    <tr className="group transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
       <td className="py-4 pr-5 align-middle">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="break-words text-sm font-semibold text-gray-900 transition group-hover:text-brand-600 dark:text-white">
+            <Link
+              className="break-words text-sm font-semibold text-gray-900 transition hover:text-brand-600 dark:text-white dark:hover:text-brand-400"
+              href={href}
+            >
               {tenant.name}
-            </span>
+            </Link>
             <StatusBadge status={tenant.status} />
           </div>
           <p className="mt-1 break-all text-theme-xs text-gray-500 dark:text-gray-400">
@@ -475,11 +480,16 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
             </Badge>
           ) : null}
         </div>
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Link className={primaryActionClass} href={nextAction.href}>
             {nextAction.label}
             <ArrowRightIcon className="h-4 w-4" />
           </Link>
+          {nextAction.href !== systemHref ? (
+            <Link className={secondaryActionClass} href={systemHref}>
+              ตรวจระบบร้าน
+            </Link>
+          ) : null}
         </div>
       </td>
     </tr>
@@ -488,6 +498,7 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
 
 function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
   const href = `/owner-v2/stores/${encodeURIComponent(tenant.id)}`;
+  const systemHref = `${href}?tab=system`;
   const hasCritical = tenant.health.critical_business_signals > 0;
   const nextAction = getPrimaryStoreAction(tenant, href);
   return (
@@ -547,6 +558,11 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
         {nextAction.href !== href ? (
           <Link className={secondaryActionClass} href={href}>
             เปิดร้าน
+          </Link>
+        ) : null}
+        {nextAction.href !== systemHref ? (
+          <Link className={secondaryActionClass} href={systemHref}>
+            ตรวจระบบร้าน
           </Link>
         ) : null}
       </div>
