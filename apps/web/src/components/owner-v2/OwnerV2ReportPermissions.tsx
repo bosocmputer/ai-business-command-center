@@ -16,6 +16,7 @@ import {
   ownerV2Fetch,
   type OwnerV2FetchError,
 } from "./api";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type { OwnerV2PermissionSetupPayload } from "./types";
 import {
   Fact,
@@ -24,7 +25,6 @@ import {
   PanelBody,
   PanelHeader,
   TechnicalDetails,
-  secondaryActionClass,
 } from "./ui";
 
 type PermissionSetupState =
@@ -227,213 +227,216 @@ export default function OwnerV2ReportPermissions({
   }
 
   if (state.status === "loading") {
-    return <PermissionsSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="permissions" tenantId={tenantId} />
+        <PermissionsSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody spaced>
-          <EmptyState
-            action={
-              <Button
-                onClick={() => void load()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                โหลดใหม่
-              </Button>
-            }
-            detail="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเลือกร้านใหม่"
-            title="โหลดสิทธิ์รายงานไม่สำเร็จ"
-          />
-          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-            <Fact label="ข้อความระบบ" value={state.message} />
-          </TechnicalDetails>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="permissions" tenantId={tenantId} />
+        <Panel>
+          <PanelBody spaced>
+            <EmptyState
+              action={
+                <Button
+                  onClick={() => void load()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  โหลดใหม่
+                </Button>
+              }
+              detail="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเลือกร้านใหม่"
+              title="โหลดสิทธิ์รายงานไม่สำเร็จ"
+            />
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <Fact label="ข้อความระบบ" value={state.message} />
+            </TechnicalDetails>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <Link
-        className={secondaryActionClass}
-        href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
-      >
-        ← กลับหน้าร้าน
-      </Link>
+      <OwnerV2StoreSetupNav current="permissions" tenantId={tenantId} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <Panel>
-        <PanelHeader
-          action={
-            <div className="flex flex-wrap gap-2">
-              <Badge color={dirty ? "warning" : "success"}>
-                {dirty ? "ยังไม่ได้บันทึก" : "ข้อมูลล่าสุด"}
-              </Badge>
-              <Badge color="light">{reports.length} รายงาน</Badge>
-              <Badge color="light">{roles.length} กลุ่มสิทธิ์</Badge>
-            </div>
-          }
-          description="กำหนดว่าผู้รับแต่ละกลุ่มเปิดดูรายงานใดได้บ้าง สิทธิ์นี้ใช้กับ LINE และหน้าดูรายงานของร้านนี้"
-          title="สิทธิ์ดูรายงาน"
-        />
-        <PanelBody spaced>
-          {message ? (
-            <Notice tone={message.tone} title={message.text} />
-          ) : null}
-          {technicalMessage ? (
-            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-              <Fact label="ข้อความระบบ" value={technicalMessage} />
-            </TechnicalDetails>
-          ) : null}
+        <Panel>
+          <PanelHeader
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Badge color={dirty ? "warning" : "success"}>
+                  {dirty ? "ยังไม่ได้บันทึก" : "ข้อมูลล่าสุด"}
+                </Badge>
+                <Badge color="light">{reports.length} รายงาน</Badge>
+                <Badge color="light">{roles.length} กลุ่มสิทธิ์</Badge>
+              </div>
+            }
+            description="กำหนดว่าผู้รับแต่ละกลุ่มเปิดดูรายงานใดได้บ้าง สิทธิ์นี้ใช้กับ LINE และหน้าดูรายงานของร้านนี้"
+            title="สิทธิ์ดูรายงาน"
+          />
+          <PanelBody spaced>
+            {message ? (
+              <Notice tone={message.tone} title={message.text} />
+            ) : null}
+            {technicalMessage ? (
+              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                <Fact label="ข้อความระบบ" value={technicalMessage} />
+              </TechnicalDetails>
+            ) : null}
 
-          {visibleImpacts.length ? (
-            <ImpactNotice impacts={visibleImpacts} tenantId={tenantId} />
-          ) : null}
+            {visibleImpacts.length ? (
+              <ImpactNotice impacts={visibleImpacts} tenantId={tenantId} />
+            ) : null}
 
-          <div className="hidden overflow-hidden rounded-lg bg-gray-50 px-4 pb-3 pt-4 dark:bg-white/[0.02] sm:px-5 lg:block">
-            <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[760px]">
-                <thead>
-                  <tr className="border-y border-gray-100 dark:border-gray-800">
-                    <th className="w-[34%] py-3 pr-5 text-left sm:pr-6">
-                      <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
-                        รายงาน
-                      </p>
-                    </th>
-                    {roles.map((role) => (
-                      <th
-                        className="min-w-[9.5rem] px-3 py-3 text-center"
-                        key={role.access_profile_key}
-                      >
-                        <span className="block font-medium text-gray-500 text-theme-xs dark:text-gray-400">
-                          {role.label}
-                        </span>
-                        <span className="mt-1 block text-theme-xs font-normal text-gray-400 dark:text-gray-500">
-                          {role.target_count} ผู้รับ
-                        </span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {reports.map((report) => (
-                    <tr key={report.report_key}>
-                      <td className="py-4 pr-5 align-top sm:pr-6">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
-                            {report.label}
-                          </span>
-                          {report.sensitive ? (
-                            <Badge color="warning" size="sm">
-                              ข้อมูลอ่อนไหว
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 max-w-[62ch] text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                          {report.description}
+            <div className="hidden overflow-hidden rounded-lg bg-gray-50 px-4 pb-3 pt-4 dark:bg-white/[0.02] sm:px-5 lg:block">
+              <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[760px]">
+                  <thead>
+                    <tr className="border-y border-gray-100 dark:border-gray-800">
+                      <th className="w-[34%] py-3 pr-5 text-left sm:pr-6">
+                        <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+                          รายงาน
                         </p>
-                      </td>
-                      {roles.map((role) => {
-                        const checked = Boolean(
-                          draft[role.access_profile_key]?.includes(
-                            report.report_key,
-                          ),
-                        );
-                        return (
-                          <td
-                            className="px-3 py-4 text-center align-top"
-                            key={role.access_profile_key}
-                          >
-                            <label className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]">
-                              <span className="sr-only">
-                                {role.label}: {report.label}
-                              </span>
-                              <input
-                                checked={checked}
-                                className="h-5 w-5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                                disabled={busy !== null}
-                                onChange={() =>
-                                  togglePermission(
-                                    role.access_profile_key,
-                                    report.report_key,
-                                  )
-                                }
-                                type="checkbox"
-                              />
-                            </label>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="space-y-3 lg:hidden">
-            {reports.map((report) => (
-              <div
-                className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
-                key={report.report_key}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                    {report.label}
-                  </p>
-                  {report.sensitive ? (
-                    <Badge color="warning" size="sm">
-                      ข้อมูลอ่อนไหว
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  {report.description}
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {roles.map((role) => {
-                    const checked = Boolean(
-                      draft[role.access_profile_key]?.includes(
-                        report.report_key,
-                      ),
-                    );
-                    return (
-                      <label
-                        className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]"
-                        key={role.access_profile_key}
-                      >
-                        <span className="min-w-0">
-                          <span className="block font-medium text-gray-800 dark:text-white/90">
+                      </th>
+                      {roles.map((role) => (
+                        <th
+                          className="min-w-[9.5rem] px-3 py-3 text-center"
+                          key={role.access_profile_key}
+                        >
+                          <span className="block font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                             {role.label}
                           </span>
-                          <span className="block text-xs text-gray-500 dark:text-gray-400">
+                          <span className="mt-1 block text-theme-xs font-normal text-gray-400 dark:text-gray-500">
                             {role.target_count} ผู้รับ
                           </span>
-                        </span>
-                        <input
-                          checked={checked}
-                          className="h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                          disabled={busy !== null}
-                          onChange={() =>
-                            togglePermission(
-                              role.access_profile_key,
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {reports.map((report) => (
+                      <tr key={report.report_key}>
+                        <td className="py-4 pr-5 align-top sm:pr-6">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-theme-sm font-medium text-gray-800 dark:text-white/90">
+                              {report.label}
+                            </span>
+                            {report.sensitive ? (
+                              <Badge color="warning" size="sm">
+                                ข้อมูลอ่อนไหว
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 max-w-[62ch] text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                            {report.description}
+                          </p>
+                        </td>
+                        {roles.map((role) => {
+                          const checked = Boolean(
+                            draft[role.access_profile_key]?.includes(
                               report.report_key,
-                            )
-                          }
-                          type="checkbox"
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
+                            ),
+                          );
+                          return (
+                            <td
+                              className="px-3 py-4 text-center align-top"
+                              key={role.access_profile_key}
+                            >
+                              <label className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-200 bg-white transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]">
+                                <span className="sr-only">
+                                  {role.label}: {report.label}
+                                </span>
+                                <input
+                                  checked={checked}
+                                  className="h-5 w-5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                  disabled={busy !== null}
+                                  onChange={() =>
+                                    togglePermission(
+                                      role.access_profile_key,
+                                      report.report_key,
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                              </label>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
-          </div>
-        </PanelBody>
-      </Panel>
+            </div>
+
+            <div className="space-y-3 lg:hidden">
+              {reports.map((report) => (
+                <div
+                  className="rounded-lg bg-gray-50 p-4 dark:bg-white/[0.02]"
+                  key={report.report_key}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                      {report.label}
+                    </p>
+                    {report.sensitive ? (
+                      <Badge color="warning" size="sm">
+                        ข้อมูลอ่อนไหว
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                    {report.description}
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {roles.map((role) => {
+                      const checked = Boolean(
+                        draft[role.access_profile_key]?.includes(
+                          report.report_key,
+                        ),
+                      );
+                      return (
+                        <label
+                          className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm transition hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-white/[0.03]"
+                          key={role.access_profile_key}
+                        >
+                          <span className="min-w-0">
+                            <span className="block font-medium text-gray-800 dark:text-white/90">
+                              {role.label}
+                            </span>
+                            <span className="block text-xs text-gray-500 dark:text-gray-400">
+                              {role.target_count} ผู้รับ
+                            </span>
+                          </span>
+                          <input
+                            checked={checked}
+                            className="h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                            disabled={busy !== null}
+                            onChange={() =>
+                              togglePermission(
+                                role.access_profile_key,
+                                report.report_key,
+                              )
+                            }
+                            type="checkbox"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </PanelBody>
+        </Panel>
 
       <div className="space-y-6">
         <Panel>

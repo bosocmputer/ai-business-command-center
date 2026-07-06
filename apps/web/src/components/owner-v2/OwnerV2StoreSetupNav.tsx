@@ -5,9 +5,12 @@ import { secondaryActionClass } from "./ui";
 
 type StoreSetupNavKey =
   | "ai-ceo"
+  | "flowaccount"
   | "line"
   | "notifications"
+  | "permissions"
   | "reports"
+  | "sml"
   | "store"
   | "system";
 
@@ -38,6 +41,11 @@ export default function OwnerV2StoreSetupNav({
       label: "ตรวจระบบร้าน",
     },
     {
+      key: "sml",
+      href: `/owner-v2/stores/${encodedTenantId}/sml`,
+      label: "SML",
+    },
+    {
       key: "reports",
       href: `/owner-v2/stores/${encodedTenantId}/reports`,
       label: "รายงาน",
@@ -56,6 +64,16 @@ export default function OwnerV2StoreSetupNav({
       key: "ai-ceo",
       href: `/owner-v2/stores/${encodedTenantId}/ai-ceo`,
       label: "AI CEO",
+    },
+    {
+      key: "permissions",
+      href: `/owner-v2/stores/${encodedTenantId}/permissions`,
+      label: "สิทธิ์",
+    },
+    {
+      key: "flowaccount",
+      href: `/owner-v2/stores/${encodedTenantId}/flowaccount`,
+      label: "FlowAccount",
     },
   ];
 

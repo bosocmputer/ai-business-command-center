@@ -2,10 +2,10 @@
 
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2AiCeoDryRunResult,
   OwnerV2AiCeoSetupStatus,
@@ -20,7 +20,6 @@ import {
   TechnicalDetails,
   formatDateTime,
   formatPlanCode,
-  secondaryActionClass,
 } from "./ui";
 
 type AiCeoState =
@@ -308,30 +307,38 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   );
 
   if (state.status === "loading") {
-    return <AiCeoSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="ai-ceo" tenantId={tenantId} />
+        <AiCeoSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody spaced>
-          <Notice
-            tone="error"
-            title="โหลด AI CEO ไม่สำเร็จ"
-            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือกลับไปหน้าร้าน"
-          />
-          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-            <Fact label="ข้อความระบบ" value={state.message} />
-          </TechnicalDetails>
-          <Button
-            className="w-full sm:w-auto"
-            onClick={() => void load()}
-            type="button"
-          >
-            รีเฟรชสถานะ
-          </Button>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="ai-ceo" tenantId={tenantId} />
+        <Panel>
+          <PanelBody spaced>
+            <Notice
+              tone="error"
+              title="โหลด AI CEO ไม่สำเร็จ"
+              text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือกลับไปหน้าร้าน"
+            />
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <Fact label="ข้อความระบบ" value={state.message} />
+            </TechnicalDetails>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => void load()}
+              type="button"
+            >
+              รีเฟรชสถานะ
+            </Button>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 
@@ -340,18 +347,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      <OwnerV2StoreSetupNav current="ai-ceo" tenantId={tenantId} />
       <Panel>
         <PanelHeader
           title="AI CEO / Business Advisor"
           description="ตั้งค่าบทบาท คำสั่ง โมเดล และงบใช้งานของร้านนี้"
-          action={
-            <Link
-              className={secondaryActionClass}
-              href={`/owner-v2/stores/${encodeURIComponent(tenantId)}?tab=setup`}
-            >
-              กลับการตั้งค่าร้าน
-            </Link>
-          }
         />
         <PanelBody spaced>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

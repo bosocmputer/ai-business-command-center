@@ -8,6 +8,7 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 // removed icons from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2DatasourceStatus,
   OwnerV2DatasourceTestResult,
@@ -280,31 +281,39 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   }
 
   if (state.status === "loading") {
-    return <SmlSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="sml" tenantId={tenantId} />
+        <SmlSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody spaced>
-          <Notice
-            tone="error"
-            title="โหลด SML ไม่สำเร็จ"
-            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
-          />
-          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-            <Fact label="ข้อความระบบ" value={state.message} />
-          </TechnicalDetails>
-          <Button
-            className="mt-4"
-            onClick={() => void load()}
-            size="sm"
-            type="button"
-          >
-            รีเฟรช SML
-          </Button>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="sml" tenantId={tenantId} />
+        <Panel>
+          <PanelBody spaced>
+            <Notice
+              tone="error"
+              title="โหลด SML ไม่สำเร็จ"
+              text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
+            />
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <Fact label="ข้อความระบบ" value={state.message} />
+            </TechnicalDetails>
+            <Button
+              className="mt-4"
+              onClick={() => void load()}
+              size="sm"
+              type="button"
+            >
+              รีเฟรช SML
+            </Button>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 
@@ -321,6 +330,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      <OwnerV2StoreSetupNav current="sml" tenantId={tenantId} />
       {message ? (
         <Notice tone={message.tone} title="สถานะ SML" text={message.text} />
       ) : null}

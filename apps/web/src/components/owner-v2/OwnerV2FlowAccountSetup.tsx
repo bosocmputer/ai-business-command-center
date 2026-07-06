@@ -2,10 +2,10 @@
 
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
+import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2FlowAccountConfigStatus,
   OwnerV2FlowAccountTestResult,
@@ -19,7 +19,6 @@ import {
   PanelHeader,
   TechnicalDetails,
   formatDateTime,
-  secondaryActionClass,
 } from "./ui";
 
 type FlowAccountState =
@@ -189,34 +188,42 @@ export default function OwnerV2FlowAccountSetup({
   }
 
   if (state.status === "loading") {
-    return <FlowAccountSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
+        <FlowAccountSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody>
-          <Notice
-            tone="error"
-            title="โหลด FlowAccount ไม่สำเร็จ"
-            text={state.message}
-          />
-          {technicalMessage ? (
-            <div className="mt-4">
-              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-                <Fact label="ข้อความระบบ" value={technicalMessage} />
-              </TechnicalDetails>
-            </div>
-          ) : null}
-          <Button
-            className="mt-4 w-full sm:w-auto"
-            onClick={() => void load()}
-            type="button"
-          >
-            รีเฟรชสถานะ
-          </Button>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
+        <Panel>
+          <PanelBody>
+            <Notice
+              tone="error"
+              title="โหลด FlowAccount ไม่สำเร็จ"
+              text={state.message}
+            />
+            {technicalMessage ? (
+              <div className="mt-4">
+                <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                  <Fact label="ข้อความระบบ" value={technicalMessage} />
+                </TechnicalDetails>
+              </div>
+            ) : null}
+            <Button
+              className="mt-4 w-full sm:w-auto"
+              onClick={() => void load()}
+              type="button"
+            >
+              รีเฟรชสถานะ
+            </Button>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 
@@ -224,18 +231,11 @@ export default function OwnerV2FlowAccountSetup({
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
       <Panel>
         <PanelHeader
           title="ทดสอบเชื่อมต่อ FlowAccount"
           description="ใช้สำหรับตรวจข้อมูลเชื่อมต่อแบบทดสอบเท่านั้น ระบบจะไม่แสดงค่าลับที่บันทึกไว้"
-          action={
-            <Link
-              className={secondaryActionClass}
-              href={`/owner-v2/stores/${encodeURIComponent(tenantId)}?tab=system`}
-            >
-              กลับสถานะร้าน
-            </Link>
-          }
         />
         <PanelBody spaced>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
