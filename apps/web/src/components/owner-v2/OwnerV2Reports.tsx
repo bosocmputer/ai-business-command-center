@@ -78,12 +78,14 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<ChunkedReportProgress | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setState({ status: "loading" });
       setMessage(null);
+      setTechnicalMessage(null);
       try {
         const data = await ownerV2Fetch<OwnerV2ReportSetupPayload>(
           `/api/owner/tenants/${encodeURIComponent(tenantId)}/report-setup`,
@@ -249,6 +251,7 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
 
     setBusy(selectedReport.report_key);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const payload = await ownerV2Request<ReportRunPayload>(
         selectedIsAsync
@@ -268,15 +271,16 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
       } else {
         setProgress(null);
       }
+      const successMessage = selectedIsAsync
+        ? payload.duplicate
+          ? `${selectedReport.label}: พบงานเดิมที่กำลังทำอยู่ จะแสดงความคืบหน้าต่อจากงานนั้น`
+          : `${selectedReport.label}: เริ่มรันแล้ว ปิดหน้าได้ ระบบยังรันต่อ`
+        : `${selectedReport.label}: รันสำเร็จและบันทึกข้อมูลล่าสุดแล้ว`;
+      await load();
       setMessage({
         tone: "success",
-        text: selectedIsAsync
-          ? payload.duplicate
-            ? `${selectedReport.label}: พบงานเดิมที่กำลังทำอยู่ จะแสดงความคืบหน้าต่อจากงานนั้น`
-            : `${selectedReport.label}: เริ่มรันแล้ว ปิดหน้าได้ ระบบยังรันต่อ`
-          : `${selectedReport.label}: รันสำเร็จและบันทึกข้อมูลล่าสุดแล้ว`,
+        text: successMessage,
       });
-      await load();
     } catch (error) {
       const payload = (error as OwnerV2FetchError).payload as
         | ReportRunPayload
@@ -286,14 +290,14 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
       } else if (payload?.run ?? payload?.active_run) {
         setProgress(null);
       }
+      const failureMessage = buildReportRunFailureMessage(selectedReport.label, payload);
+      const technicalText = toReportTechnicalMessage(error);
+      await load().catch(() => undefined);
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? `${selectedReport.label}: ${error.message}`
-            : `${selectedReport.label}: รันรายงานไม่สำเร็จ`,
+        text: failureMessage,
       });
-      await load().catch(() => undefined);
+      setTechnicalMessage(technicalText);
     } finally {
       setBusy(null);
     }
@@ -356,6 +360,11 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
         />
         <PanelBody spaced>
           {message ? <Notice tone={message.tone} title={message.text} /> : null}
+          {technicalMessage ? (
+            <TechnicalDetails embedded title="รายละเอียดการรันรายงาน">
+              <Fact label="ข้อความระบบ" value={technicalMessage} />
+            </TechnicalDetails>
+          ) : null}
 
           <div className="grid gap-3 md:grid-cols-3">
             <Fact label="รายงานที่รองรับ" value={reports.length.toString()} />
@@ -686,7 +695,11 @@ function ReportSignoffPanel({
   const [referenceTotal, setReferenceTotal] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [result, setResult] = useState<{
+    technicalText?: string;
+    text: string;
+    tone: "success" | "error";
+  } | null>(null);
 
   const system = Number(systemTotal || 0);
   const reference = Number(referenceTotal || 0);
@@ -728,7 +741,8 @@ function ReportSignoffPanel({
     } catch (error) {
       setResult({
         tone: "error",
-        text: error instanceof Error ? error.message : "บันทึกการรับรองไม่สำเร็จ",
+        text: "บันทึกการรับรองไม่สำเร็จ ตรวจสิทธิ์ผู้ดูแลและข้อมูลยอดก่อนลองใหม่",
+        technicalText: toReportTechnicalMessage(error),
       });
     } finally {
       setBusy(false);
@@ -808,11 +822,22 @@ function ReportSignoffPanel({
           {busy ? "กำลังบันทึก..." : "บันทึกการรับรอง"}
         </Button>
         {result ? (
-          <span className={`text-theme-xs ${result.tone === "error" ? "text-error-600" : "text-success-600"}`}>
+          <span
+            className={`text-theme-xs ${
+              result.tone === "error" ? "text-error-600" : "text-success-600"
+            }`}
+          >
             {result.text}
           </span>
         ) : null}
       </div>
+      {result?.technicalText ? (
+        <div className="mt-3">
+          <TechnicalDetails embedded title="รายละเอียดการรับรองยอด">
+            <Fact label="ข้อความระบบ" value={result.technicalText} />
+          </TechnicalDetails>
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -950,14 +975,42 @@ function formatRunDuration(run: ReportRunRecord) {
 
 function formatElapsedMs(value: number) {
   if (value < 1000) {
-    return `${value} ms`;
+    return "น้อยกว่า 1 วินาที";
   }
   const seconds = Math.round(value / 1000);
   if (seconds < 60) {
-    return `${seconds}s`;
+    return `${seconds} วินาที`;
   }
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${seconds % 60}s`;
+  return `${minutes} นาที ${seconds % 60} วินาที`;
+}
+
+function buildReportRunFailureMessage(
+  reportLabel: string,
+  payload: ReportRunPayload | undefined,
+) {
+  if (payload?.progress) {
+    return `${reportLabel}: รันรายงานยังไม่สำเร็จ แต่พบงานเบื้องหลังแล้ว ระบบจะแสดงความคืบหน้าให้ตรวจต่อ`;
+  }
+  if (payload?.active_run) {
+    return `${reportLabel}: ยังมีงานเดิมกำลังรันอยู่ รอให้จบก่อนเริ่มรอบใหม่`;
+  }
+  if (payload?.run?.status === "failed") {
+    return `${reportLabel}: รันรายงานไม่สำเร็จ ตรวจการเชื่อมต่อ SML และรายละเอียดระบบก่อนลองใหม่`;
+  }
+  return `${reportLabel}: รันรายงานไม่สำเร็จ ตรวจช่วงวันที่ การเชื่อมต่อ SML และสถานะระบบรายงานก่อนลองใหม่`;
+}
+
+function toReportTechnicalMessage(error: unknown) {
+  const payload = (error as OwnerV2FetchError | undefined)?.payload;
+  const safeMessage =
+    typeof payload?.message === "string" && payload.message.trim()
+      ? payload.message.trim()
+      : null;
+  if (safeMessage) {
+    return safeMessage;
+  }
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
 function defaultReportDate() {
