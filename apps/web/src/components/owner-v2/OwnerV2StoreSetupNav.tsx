@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { secondaryActionClass } from "./ui";
 
 type StoreSetupNavKey =
   | "ai-ceo"
@@ -14,8 +13,18 @@ type StoreSetupNavKey =
   | "store"
   | "system";
 
-const activeActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-50 px-4 py-2.5 text-theme-sm font-medium text-brand-600 shadow-theme-xs transition dark:bg-brand-500/15 dark:text-brand-400";
+type StoreSetupNavItem = {
+  description: string;
+  href: string;
+  key: StoreSetupNavKey;
+  label: string;
+};
+
+type StoreSetupNavGroup = {
+  helper: string;
+  items: StoreSetupNavItem[];
+  title: string;
+};
 
 export default function OwnerV2StoreSetupNav({
   current,
@@ -25,87 +34,155 @@ export default function OwnerV2StoreSetupNav({
   tenantId: string;
 }) {
   const encodedTenantId = encodeURIComponent(tenantId);
-  const items: Array<{
-    key: StoreSetupNavKey;
-    href: string;
-    label: string;
-  }> = [
+  const groups: StoreSetupNavGroup[] = [
     {
-      key: "store",
-      href: `/owner-v2/stores/${encodedTenantId}`,
-      label: "หน้าร้าน",
+      title: "งานหลัก",
+      helper: "ใช้บ่อยตอนเปิดร้านและดูแลรอบแจ้งเตือน",
+      items: [
+        {
+          key: "store",
+          href: `/owner-v2/stores/${encodedTenantId}`,
+          label: "ภาพรวมร้าน",
+          description: "ดูความพร้อมและสิ่งที่ควรทำต่อ",
+        },
+        {
+          key: "line",
+          href: `/owner-v2/stores/${encodedTenantId}/line`,
+          label: "LINE",
+          description: "ตรวจช่องทางและผู้รับแจ้งเตือน",
+        },
+        {
+          key: "notifications",
+          href: `/owner-v2/stores/${encodedTenantId}/notifications`,
+          label: "แผนแจ้งเตือน",
+          description: "จัดรอบส่งและลำดับรายงานใน LINE",
+        },
+        {
+          key: "reports",
+          href: `/owner-v2/stores/${encodedTenantId}/reports`,
+          label: "รายงาน",
+          description: "ทดสอบรายงานและดูผลรันล่าสุด",
+        },
+        {
+          key: "ai-ceo",
+          href: `/owner-v2/stores/${encodedTenantId}/ai-ceo`,
+          label: "AI CEO",
+          description: "ตั้ง prompt, model และทดสอบคำแนะนำ",
+        },
+        {
+          key: "permissions",
+          href: `/owner-v2/stores/${encodedTenantId}/permissions`,
+          label: "สิทธิ์รายงาน",
+          description: "กำหนดว่าใครเห็นรายงานอะไร",
+        },
+      ],
     },
     {
-      key: "system",
-      href: `/owner-v2/stores/${encodedTenantId}?tab=system`,
-      label: "ตรวจระบบร้าน",
-    },
-    {
-      key: "sml",
-      href: `/owner-v2/stores/${encodedTenantId}/sml`,
-      label: "SML",
-    },
-    {
-      key: "reports",
-      href: `/owner-v2/stores/${encodedTenantId}/reports`,
-      label: "รายงาน",
-    },
-    {
-      key: "notifications",
-      href: `/owner-v2/stores/${encodedTenantId}/notifications`,
-      label: "แผนแจ้งเตือน",
-    },
-    {
-      key: "line",
-      href: `/owner-v2/stores/${encodedTenantId}/line`,
-      label: "LINE",
-    },
-    {
-      key: "ai-ceo",
-      href: `/owner-v2/stores/${encodedTenantId}/ai-ceo`,
-      label: "AI CEO",
-    },
-    {
-      key: "permissions",
-      href: `/owner-v2/stores/${encodedTenantId}/permissions`,
-      label: "สิทธิ์",
-    },
-    {
-      key: "flowaccount",
-      href: `/owner-v2/stores/${encodedTenantId}/flowaccount`,
-      label: "FlowAccount",
+      title: "ระบบและช่องทางเสริม",
+      helper: "ใช้เมื่อตั้งแหล่งข้อมูลหรือตรวจปัญหาเชิงระบบ",
+      items: [
+        {
+          key: "system",
+          href: `/owner-v2/stores/${encodedTenantId}?tab=system`,
+          label: "ตรวจระบบร้าน",
+          description: "ดูสถานะล่าสุดและหลักฐานรอบส่ง",
+        },
+        {
+          key: "sml",
+          href: `/owner-v2/stores/${encodedTenantId}/sml`,
+          label: "SML",
+          description: "ตั้งฐานข้อมูลและทดสอบการเชื่อมต่อ",
+        },
+        {
+          key: "flowaccount",
+          href: `/owner-v2/stores/${encodedTenantId}/flowaccount`,
+          label: "FlowAccount",
+          description: "ช่องทางบัญชีสำหรับแผนต่อไป",
+        },
+      ],
     },
   ];
 
+  const currentItem =
+    groups.flatMap((group) => group.items).find((item) => item.key === current) ??
+    null;
+
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03] sm:p-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0">
-          <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-            งานร้านนี้
+    <section className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03] sm:p-5">
+      <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-1">
+          <p className="text-lg font-semibold text-gray-800 dark:text-white/90">
+            ทางลัดตั้งค่าร้าน
           </p>
-          <p className="mt-1 text-sm font-semibold text-gray-800 dark:text-white/90">
-            สลับหน้าตั้งค่าหลักโดยไม่ต้องกลับไปค้นหาร้านใหม่
+          <p className="max-w-3xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+            ไปหน้าที่ต้องแก้ได้ทันที โดยไม่ต้องกลับไปค้นหาร้านใหม่
           </p>
         </div>
-        <nav className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:justify-end">
-          {items.map((item) => {
-            const active = item.key === current;
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                className={`${
-                  active ? activeActionClass : secondaryActionClass
-                } sm:w-full xl:w-auto`}
-                href={item.href}
-                key={item.key}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-white/[0.02]">
+          <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+            ตอนนี้อยู่ที่
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-gray-800 dark:text-white/90">
+            {currentItem?.label ?? "หน้าร้าน"}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        {groups.map((group) => (
+          <div className="min-w-0" key={group.title}>
+            <div className="mb-2">
+              <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
+                {group.title}
+              </p>
+              <p className="mt-0.5 text-theme-xs text-gray-500 dark:text-gray-400">
+                {group.helper}
+              </p>
+            </div>
+            <nav className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {group.items.map((item) => (
+                <StoreSetupNavLink
+                  active={item.key === current}
+                  item={item}
+                  key={item.key}
+                />
+              ))}
+            </nav>
+          </div>
+        ))}
       </div>
     </section>
+  );
+}
+
+function StoreSetupNavLink({
+  active,
+  item,
+}: {
+  active: boolean;
+  item: StoreSetupNavItem;
+}) {
+  return (
+    <Link
+      aria-current={active ? "page" : undefined}
+      className={
+        active
+          ? "group block rounded-xl border border-brand-500 bg-brand-50 px-3 py-3 shadow-theme-xs transition dark:border-brand-500/40 dark:bg-brand-500/15"
+          : "group block rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-theme-xs transition hover:border-brand-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/40 dark:hover:bg-white/[0.05]"
+      }
+      href={item.href}
+    >
+      <span
+        className={
+          active
+            ? "block text-sm font-semibold text-brand-600 dark:text-brand-400"
+            : "block text-sm font-semibold text-gray-800 group-hover:text-brand-600 dark:text-white/90 dark:group-hover:text-brand-400"
+        }
+      >
+        {item.label}
+      </span>
+      <span className="mt-1 block text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+        {item.description}
+      </span>
+    </Link>
   );
 }
