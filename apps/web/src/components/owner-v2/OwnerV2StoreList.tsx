@@ -23,6 +23,9 @@ import {
   formatRunStatus,
   formatTenantStatus,
   Fact,
+  Panel,
+  PanelBody,
+  PanelHeader,
   primaryActionClass,
   secondaryActionClass,
   tenantStatusColor,
@@ -83,6 +86,17 @@ export default function OwnerV2StoreList() {
 
   const tenants = state.status === "success" ? state.data.tenants : emptyTenants;
   const counts = useMemo(() => summarizeTenants(tenants), [tenants]);
+  const priorityTenants = useMemo(
+    () =>
+      [...tenants]
+        .filter(
+          (tenant) =>
+            !tenant.ready || tenant.health.critical_business_signals > 0,
+        )
+        .sort(compareStorePriority)
+        .slice(0, 3),
+    [tenants],
+  );
   const filteredTenants = useMemo(() => {
     const normalizedQuery = normalizeText(query);
     return tenants.filter((tenant) => {
@@ -192,6 +206,8 @@ export default function OwnerV2StoreList() {
           value={`${counts.signals.toLocaleString("th-TH")} ร้าน`}
         />
       </section>
+
+      <StorePriorityPanel tenants={priorityTenants} />
 
       <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 pb-3 pt-4 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6">
         <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -337,6 +353,62 @@ export default function OwnerV2StoreList() {
         )}
       </section>
     </div>
+  );
+}
+
+function StorePriorityPanel({ tenants }: { tenants: OwnerV2Tenant[] }) {
+  if (!tenants.length) {
+    return null;
+  }
+  return (
+    <Panel>
+      <PanelHeader
+        action={
+          <Badge color="warning" size="sm">
+            {tenants.length.toLocaleString("th-TH")} ร้าน
+          </Badge>
+        }
+        description="หยิบร้านที่ควรตรวจจากความพร้อมและสัญญาณสำคัญ เพื่อให้ทีมเริ่มแก้จากเรื่องที่กระทบการส่ง LINE หรือการใช้งานก่อน"
+        title="สิ่งที่ควรทำก่อน"
+      />
+      <PanelBody>
+        <div className="grid gap-3 lg:grid-cols-3">
+          {tenants.map((tenant) => {
+            const href = `/owner-v2/stores/${encodeURIComponent(tenant.id)}`;
+            const action = getPrimaryStoreAction(tenant, href);
+            const hasCritical = tenant.health.critical_business_signals > 0;
+            return (
+              <article
+                className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
+                key={tenant.id}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-white">
+                    {tenant.name}
+                  </p>
+                  <Badge color={hasCritical ? "error" : "warning"} size="sm">
+                    {hasCritical ? "มีสัญญาณสำคัญ" : "ต้องทำต่อ"}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm font-medium text-gray-800 dark:text-white/90">
+                  {tenant.next_action?.label ?? "ตรวจระบบร้าน"}
+                </p>
+                <p className="mt-1 line-clamp-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                  {tenant.next_action?.detail ??
+                    "เปิดร้านเพื่อตรวจความพร้อม LINE, รายงาน และรอบแจ้งเตือนล่าสุด"}
+                </p>
+                <div className="mt-4">
+                  <Link className={primaryActionClass} href={action.href}>
+                    {action.label}
+                    <ArrowRightIcon className="h-4 w-4" />
+                  </Link>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -718,6 +790,29 @@ function summarizeTenants(tenants: OwnerV2Tenant[]) {
     },
     { total: 0, ready: 0, needsAction: 0, signals: 0 },
   );
+}
+
+function compareStorePriority(left: OwnerV2Tenant, right: OwnerV2Tenant) {
+  return storePriorityScore(right) - storePriorityScore(left);
+}
+
+function storePriorityScore(tenant: OwnerV2Tenant) {
+  let score = 0;
+  score += tenant.health.critical_business_signals * 100;
+  if (!tenant.ready) {
+    score += 50;
+  }
+  score += Math.max(tenant.total_steps - tenant.completed_steps, 0) * 5;
+  if (tenant.health.latest_notification_run_status === "failed") {
+    score += 30;
+  }
+  if (tenant.health.latest_report_status === "failed") {
+    score += 30;
+  }
+  if (tenant.health.line_targets_enabled <= 0) {
+    score += 10;
+  }
+  return score;
 }
 
 function normalizeText(value: string) {
