@@ -56,11 +56,11 @@ function NextActionPanel({ cockpit }: { cockpit: OwnerV2Cockpit }) {
               {toneConfig.icon}
             </span>
             <h2 className="text-theme-lg font-semibold text-gray-800 dark:text-white/90">
-              {action.title}
+              {formatAdminCopy(action.title)}
             </h2>
           </div>
           <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            {action.description}
+            {formatAdminCopy(action.description)}
           </p>
           {action.tenant_name ? (
             <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
@@ -70,7 +70,7 @@ function NextActionPanel({ cockpit }: { cockpit: OwnerV2Cockpit }) {
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Link className={primaryActionClass} href={action.href}>
-            {action.action_label}
+            {formatAdminCopy(action.action_label)}
             <ArrowRightIcon className="h-4 w-4" />
           </Link>
           <Link className={secondaryActionClass} href="/owner-v2/ops">
@@ -94,11 +94,11 @@ function StoreHealthMatrix({ cockpit }: { cockpit: OwnerV2Cockpit }) {
             สถานะร้านทั้งหมด
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            ดู blocker หลักของแต่ละร้านในตารางเดียว คลิกแถวเพื่อจัดการต่อ
+            ดูจุดติดขัดหลักของแต่ละร้านในตารางเดียว คลิกแถวเพื่อจัดการต่อ
           </p>
         </div>
         <Badge color="light">
-          {(cockpit.active_tenant_count ?? 0).toLocaleString("th-TH")} ร้าน active
+          {(cockpit.active_tenant_count ?? 0).toLocaleString("th-TH")} ร้านที่ใช้งาน
         </Badge>
       </div>
       <div className="space-y-3 p-4 lg:hidden">
@@ -156,7 +156,7 @@ function HealthMatrixRow({
           {row.tenant_name}
         </Link>
         <p className="mt-1 line-clamp-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-          {row.next_action_label}
+          {formatAdminCopy(row.next_action_label)}
         </p>
       </td>
       {cells.map((entry) => (
@@ -192,7 +192,7 @@ function HealthMatrixMobileCard({
             {row.tenant_name}
           </Link>
           <p className="mt-1 line-clamp-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-            {row.next_action_label}
+            {formatAdminCopy(row.next_action_label)}
           </p>
         </div>
         <Badge color={tenantStatusColor(row.status)} size="sm">
@@ -408,6 +408,22 @@ function proofDayLabel(status: OwnerV2ProofStrip["days"][number]["status"]) {
     default:
       return "ยังไม่ทราบ";
   }
+}
+
+function formatAdminCopy(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+  const replacements: Array<[RegExp, string]> = [
+    [/\bbusiness signals?\b/gi, "สัญญาณธุรกิจ"],
+    [/\bsnapshots?\b/gi, "ข้อมูลล่าสุด"],
+    [/\bblockers?\b/gi, "จุดติดขัด"],
+    [/\bactive\b/gi, "ใช้งาน"],
+  ];
+  return replacements.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    value,
+  );
 }
 
 function formatDateTime(value?: string | null) {
