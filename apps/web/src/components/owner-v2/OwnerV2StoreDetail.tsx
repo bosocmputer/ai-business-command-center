@@ -31,6 +31,7 @@ import type {
   OwnerV2SetupStep,
   OwnerV2StoreSetupCheck,
   OwnerV2StoreSetupPayload,
+  OwnerV2StoreSetupTenantSummary,
   OwnerV2StepId,
 } from "./types";
 
@@ -210,7 +211,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "warning",
         text: sensitiveHints.length
-          ? "หมายเหตุมีคำที่เหมือนข้อมูลลับ กรุณาลบ token/password/secret ก่อนบันทึก"
+          ? "หมายเหตุมีคำที่เหมือนข้อมูลลับ กรุณาลบรหัสลับ รหัสผ่าน หรือรหัสเชื่อมต่อก่อนบันทึก"
           : "ยังไม่มีข้อมูลที่เปลี่ยน หรือชื่อร้านยังไม่ครบ",
       });
       return;
@@ -298,6 +299,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
         heroTone={heroTone}
         progressPct={progressPct}
         nextAction={nextAction}
+        health={health}
       />
 
       {message ? (
@@ -389,7 +391,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                   tone={detail.datasource.kind === "sml_javaws" ? "success" : "warning"}
                   value={
                     detail.datasource.kind === "sml_javaws"
-                      ? detail.datasource.database ?? "ตั้งค่าแล้ว"
+                      ? "ตั้งค่าแล้ว"
                       : "ยังไม่พร้อม"
                   }
                 />
@@ -438,7 +440,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                     AI CEO / Business Advisor
                   </p>
                   <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ตั้งค่าบทบาท AI โมเดล รหัส OpenRouter และงบใช้งานของร้านนี้
+                    ตั้งค่าบทบาท AI โมเดล รหัสใช้งาน และงบของร้านนี้
                   </p>
                 </div>
                 <Link
@@ -492,7 +494,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             </PanelBody>
           </Panel>
 
-          {/* Sub-panel 3 — technical incidents/proof (เฉพาะเมื่อมีเนื้อหา) */}
+          {/* Sub-panel 3 — รายละเอียดเทคนิคและหลักฐานระบบ (เฉพาะเมื่อมีเนื้อหา) */}
           {detail.latest_javaws_failure ||
           (detail.business_signals ?? []).length > 0 ||
           detail.proof_strip.eligible ? (
@@ -563,6 +565,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 /* ------------------------------------------------------------------ */
 
 function StoreHero({
+  health,
   heroTone,
   nextAction,
   progressPct,
@@ -570,6 +573,7 @@ function StoreHero({
   tenant,
   verdict,
 }: {
+  health: OwnerV2StoreSetupTenantSummary["health"];
   heroTone: StoreVerdict["tone"];
   nextAction: OwnerV2StoreSetupCheck | null;
   progressPct: number;
@@ -629,7 +633,7 @@ function StoreHero({
             {tenant.status === "past_due" && tenant.currentPeriodEnd ? (
               <>
                 <span className="hidden h-3.5 w-px bg-gray-300 dark:bg-gray-700 sm:block" />
-                <span className="font-medium text-red-600 dark:text-red-400">
+                <span className="font-medium text-error-600 dark:text-error-400">
                   ผ่อนผันถึง{" "}
                   {formatDate(
                     new Date(
@@ -640,6 +644,28 @@ function StoreHero({
                 </span>
               </>
             ) : null}
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Fact
+              label="SML"
+              tone={health.datasource_configured ? "success" : "warning"}
+              value={health.datasource_configured ? "พร้อมดึงข้อมูล" : "ยังไม่พร้อม"}
+            />
+            <Fact
+              label="LINE"
+              tone={health.line_targets_enabled > 0 ? "success" : "warning"}
+              value={`${health.line_targets_enabled.toLocaleString("th-TH")} ผู้รับ`}
+            />
+            <Fact
+              label="แผนแจ้งเตือน"
+              tone={health.notification_rules_enabled > 0 ? "success" : "warning"}
+              value={`${health.notification_rules_enabled.toLocaleString("th-TH")} แผนเปิด`}
+            />
+            <Fact
+              label="รอบรายงานล่าสุด"
+              tone={runStatusFactTone(health.latest_report_status)}
+              value={formatRunStatus(health.latest_report_status)}
+            />
           </div>
         </div>
       </div>
@@ -1031,8 +1057,8 @@ function StoreEditForm({
           }`}
         >
           {sensitiveHints.length
-            ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-            : "ห้ามใส่ token/password/secret ในช่องนี้"}
+            ? `พบคำที่เสี่ยงเป็นรหัสลับ: ${sensitiveHints.join(", ")}`
+            : "ห้ามใส่รหัสลับ รหัสผ่าน หรือรหัสเชื่อมต่อในช่องนี้"}
         </span>
       </label>
       <div className="flex flex-wrap items-center gap-3">
@@ -1067,7 +1093,7 @@ function StoreEditForm({
 }
 
 /* ------------------------------------------------------------------ */
-/* System tab — proof strip
+/* System tab — delivery evidence strip
 /* ------------------------------------------------------------------ */
 
 function StoreProofStrip({
@@ -1156,6 +1182,12 @@ const businessSignalSeverityTone: Record<string, "error" | "warning" | "light"> 
   critical: "error",
   warning: "warning",
   info: "light",
+};
+
+const businessSignalSeverityLabel: Record<string, string> = {
+  critical: "ต้องแก้",
+  warning: "ควรตรวจ",
+  info: "ข้อมูล",
 };
 
 function BusinessSignalPanel({
@@ -1257,7 +1289,7 @@ function BusinessSignalPanel({
                   color={businessSignalSeverityTone[signal.severity] ?? "light"}
                   size="sm"
                 >
-                  {signal.severity}
+                  {businessSignalSeverityLabel[signal.severity] ?? "ข้อมูล"}
                 </Badge>
                 <Badge
                   color={businessSignalStatusTone[signal.status]}
@@ -1416,7 +1448,7 @@ function deriveStoreVerdict(
   const tenantId = detail.summary.tenant.id;
   const tenantPath = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
 
-  // SML configured but latest round failed (incident).
+  // SML configured but latest round failed.
   if (
     health.latest_notification_run_status === "failed" ||
     health.latest_report_status === "failed"
@@ -1424,7 +1456,7 @@ function deriveStoreVerdict(
     return {
       tone: "error",
       title: "รอบล่าสุดยังใช้สรุปธุรกิจไม่ได้",
-      text: "ระบบบันทึก incident แล้ว ให้ตรวจสาเหตุจาก SML/JavaWS ก่อนรันใหม่",
+      text: "ระบบบันทึกเหตุการณ์แล้ว ให้ตรวจสาเหตุจาก SML/JavaWS ก่อนรันใหม่",
       actionLabel: "ดูรายละเอียดปัญหา",
       href: detail.latest_javaws_failure
         ? `${tenantPath}/sml`
@@ -1466,7 +1498,7 @@ function deriveStoreVerdict(
     return {
       tone: "success",
       title: "ร้านหลักพร้อมใช้งาน",
-      text: "รอรอบแจ้งเตือนถัดไป หรือเปิดดู proof ล่าสุดได้",
+      text: "รอรอบแจ้งเตือนถัดไป หรือเปิดดูหลักฐานรอบส่งล่าสุดได้",
       actionLabel: "ดูรอบล่าสุด",
       href: `${tenantPath}?step=notifications`,
     };
@@ -1499,6 +1531,21 @@ function heroToneConfig(tone: StoreVerdict["tone"]) {
         iconTile: "bg-warning-500/15 text-warning-600 dark:text-warning-400",
       };
   }
+}
+
+function runStatusFactTone(
+  status?: string | null,
+): "success" | "warning" | "error" | "light" {
+  if (!status) {
+    return "light";
+  }
+  if (status === "success") {
+    return "success";
+  }
+  if (status === "failed") {
+    return "error";
+  }
+  return "warning";
 }
 
 function v2HrefForCheck(tenantId: string, check: OwnerV2StoreSetupCheck) {
