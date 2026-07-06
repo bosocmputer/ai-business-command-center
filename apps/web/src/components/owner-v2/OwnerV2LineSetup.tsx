@@ -645,33 +645,41 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   }
 
   if (state.status === "loading") {
-    return <LineSetupSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="line" tenantId={tenantId} />
+        <LineSetupSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody spaced>
-          <Notice
-            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
-            title="โหลด LINE OA ไม่สำเร็จ"
-            tone="error"
-          />
-          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-            <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
-              {state.message}
-            </p>
-          </TechnicalDetails>
-          <Button
-            className="mt-4"
-            onClick={() => void load()}
-            size="sm"
-            type="button"
-          >
-            รีเฟรช LINE
-          </Button>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="line" tenantId={tenantId} />
+        <Panel>
+          <PanelBody spaced>
+            <Notice
+              text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
+              title="โหลด LINE OA ไม่สำเร็จ"
+              tone="error"
+            />
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+                {state.message}
+              </p>
+            </TechnicalDetails>
+            <Button
+              className="mt-4"
+              onClick={() => void load()}
+              size="sm"
+              type="button"
+            >
+              รีเฟรช LINE
+            </Button>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 

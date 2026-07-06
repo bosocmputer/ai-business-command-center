@@ -13,6 +13,7 @@ import type {
 import {
   Fact,
   Field,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -408,26 +409,19 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
           <AiCeoAdminGuide />
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.55fr)]">
-            <form
-              className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"
-              onSubmit={saveConfig}
-            >
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                    บทบาทและโมเดล
-                  </h4>
-                  <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    คำสั่งนี้จะใช้กับร้านนี้เท่านั้น
-                  </p>
-                </div>
+            <FormPanel
+              action={
                 <Badge color={selectedModel?.recommended_tier === "pro" ? "warning" : "success"}>
                   {selectedModel
                     ? formatPlanCode(selectedModel.recommended_tier)
                     : "โมเดล"}
                 </Badge>
-              </div>
-
+              }
+              as="form"
+              description="คำสั่งนี้จะใช้กับร้านนี้เท่านั้น"
+              onSubmit={saveConfig}
+              title="บทบาทและโมเดล"
+            >
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <Field
                   label="ชื่อผู้ช่วย"
@@ -624,11 +618,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   />
                 </Field>
               </div>
-              <div className="mt-4">
+              <div>
                 <AiCeoLiveModeNotice data={data} form={form} />
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <input
                     checked={form.ai_enabled}
@@ -675,7 +669,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 </label>
               </div>
 
-              <div className="mt-4">
+              <div>
                 <Field
                   label="คำสั่งบทบาท CEO"
                   help="ใช้ข้อมูลจากรายงานที่อนุมัติเท่านั้น ห้ามสั่งให้ AI เดาตัวเลขหรือ query ฐานข้อมูลเอง"
@@ -694,7 +688,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 </Field>
               </div>
 
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button disabled={busy !== null || !canSave} size="sm" type="submit">
                   {busy === "save" ? "กำลังบันทึก..." : "บันทึก AI CEO"}
                 </Button>
@@ -712,44 +706,38 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 {configBlockedReason ??
                   "พร้อมบันทึกแล้ว หลังบันทึกให้กดทดสอบ AI CEO ก่อนเปิดส่งเข้า LINE จริง"}
               </p>
-            </form>
+            </FormPanel>
 
             <div className="space-y-4">
-              <form
-                className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+              <FormPanel
+                as="form"
+                description="ช่องนี้ใช้สำหรับบันทึกรหัสลับเท่านั้น ระบบจะไม่แสดงค่าที่บันทึกไว้ และการทดสอบจะใช้เครดิตจริงของ OpenRouter"
                 onSubmit={saveKey}
+                title="รหัส OpenRouter"
               >
-                <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                  รหัส OpenRouter
-                </h4>
-                <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                  ช่องนี้ใช้สำหรับบันทึกรหัสลับเท่านั้น ระบบจะไม่แสดงค่าที่บันทึกไว้ และการทดสอบจะใช้เครดิตจริงของ OpenRouter
-                </p>
-                <div className="mt-4">
-                  <Field
-                    label="รหัสลับ"
-                    help={data.key_configured ? "กรอกเฉพาะเมื่อต้องการแทนที่ค่าเดิม" : undefined}
-                  >
-                    <input
-                      autoComplete="new-password"
-                      className="owner-v2-input"
-                      disabled={!data.encryption_configured || busy !== null}
-                      onChange={(event) => setOpenRouterKey(event.target.value)}
-                      placeholder="sk-or-v1-..."
-                      type="password"
-                      value={openRouterKey}
-                    />
-                  </Field>
-                </div>
+                <Field
+                  label="รหัสลับ"
+                  help={data.key_configured ? "กรอกเฉพาะเมื่อต้องการแทนที่ค่าเดิม" : undefined}
+                >
+                  <input
+                    autoComplete="new-password"
+                    className="owner-v2-input"
+                    disabled={!data.encryption_configured || busy !== null}
+                    onChange={(event) => setOpenRouterKey(event.target.value)}
+                    placeholder="sk-or-v1-..."
+                    type="password"
+                    value={openRouterKey}
+                  />
+                </Field>
                 <Button
-                  className="mt-4 w-full"
+                  className="w-full"
                   disabled={busy !== null || !data.encryption_configured}
                   size="sm"
                   type="submit"
                 >
                   {busy === "key" ? "กำลังบันทึก..." : "บันทึกรหัสเฉพาะร้าน"}
                 </Button>
-              </form>
+              </FormPanel>
 
               <TechnicalDetails embedded title="ค่าใช้งาน AI และขอบเขตงบ">
                 <div className="grid grid-cols-1 gap-3">
@@ -773,13 +761,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 </div>
               </TechnicalDetails>
 
-              <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-                <h4 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">
-                  ทดสอบก่อนส่งจริง
-                </h4>
-                <p className="mb-4 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                  ใช้ทดสอบ prompt, model, key และงบกับข้อมูลจริงของวันที่เลือก ก่อนให้ข้อความ AI CEO ไปกับรอบ LINE จริง
-                </p>
+              <FormPanel
+                description="ใช้ทดสอบ prompt, model, key และงบกับข้อมูลจริงของวันที่เลือก ก่อนให้ข้อความ AI CEO ไปกับรอบ LINE จริง"
+                title="ทดสอบก่อนส่งจริง"
+              >
                 <Field label="จำลองวันที่">
                   <input
                     className="owner-v2-input"
@@ -803,7 +788,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     {dryRunBlockedReason}
                   </p>
                 ) : null}
-              </section>
+              </FormPanel>
             </div>
           </div>
         </PanelBody>

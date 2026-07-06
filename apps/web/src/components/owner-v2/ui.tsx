@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { FormEventHandler, ReactNode } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import { AlertIcon, CheckCircleIcon, InfoIcon } from "@/icons";
 
@@ -77,6 +77,58 @@ export function PanelBody({
   spaced?: boolean;
 }) {
   return <div className={spaced ? "space-y-5" : undefined}>{children}</div>;
+}
+
+export function FormPanel({
+  action,
+  as = "section",
+  children,
+  description,
+  onSubmit,
+  title,
+}: {
+  action?: ReactNode;
+  as?: "form" | "section";
+  children: ReactNode;
+  description?: ReactNode;
+  onSubmit?: FormEventHandler<HTMLFormElement>;
+  title: ReactNode;
+}) {
+  const content = (
+    <>
+      <div className="px-5 py-4 sm:px-6 sm:py-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
+              {title}
+            </h3>
+            {description ? (
+              <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
+        </div>
+      </div>
+      <div className="space-y-6 border-t border-gray-100 p-5 dark:border-gray-800 sm:p-6">
+        {children}
+      </div>
+    </>
+  );
+
+  const className =
+    "rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]";
+
+  if (as === "form") {
+    return (
+      <form className={className} onSubmit={onSubmit}>
+        {content}
+      </form>
+    );
+  }
+
+  return <section className={className}>{content}</section>;
 }
 
 export function Notice({

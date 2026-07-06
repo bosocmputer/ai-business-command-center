@@ -564,31 +564,39 @@ export default function OwnerV2NotificationSetup({
   }
 
   if (state.status === "loading") {
-    return <NotificationSkeleton />;
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="notifications" tenantId={tenantId} />
+        <NotificationSkeleton />
+      </div>
+    );
   }
 
   if (state.status === "error") {
     return (
-      <Panel>
-        <PanelBody spaced>
-          <Notice
-            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
-            title="โหลดแผนแจ้งเตือนไม่สำเร็จ"
-            tone="error"
-          />
-          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-            <Fact label="ข้อความระบบ" value={state.message} />
-          </TechnicalDetails>
-          <Button
-            className="mt-4"
-            onClick={() => void load()}
-            size="sm"
-            type="button"
-          >
-            รีเฟรชแผนแจ้งเตือน
-          </Button>
-        </PanelBody>
-      </Panel>
+      <div className="space-y-5 sm:space-y-6">
+        <OwnerV2StoreSetupNav current="notifications" tenantId={tenantId} />
+        <Panel>
+          <PanelBody spaced>
+            <Notice
+              text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
+              title="โหลดแผนแจ้งเตือนไม่สำเร็จ"
+              tone="error"
+            />
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <Fact label="ข้อความระบบ" value={state.message} />
+            </TechnicalDetails>
+            <Button
+              className="mt-4"
+              onClick={() => void load()}
+              size="sm"
+              type="button"
+            >
+              รีเฟรชแผนแจ้งเตือน
+            </Button>
+          </PanelBody>
+        </Panel>
+      </div>
     );
   }
 

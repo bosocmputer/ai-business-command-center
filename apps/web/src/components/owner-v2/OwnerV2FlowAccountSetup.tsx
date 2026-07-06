@@ -14,6 +14,7 @@ import type {
 import {
   Fact,
   Field,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -294,18 +295,11 @@ export default function OwnerV2FlowAccountSetup({
           />
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                    ข้อมูลล่าสุดที่ปลอดภัย
-                  </h4>
-                  <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    แสดงเฉพาะค่าที่ใช้ตรวจระบบได้ โดยไม่เปิดเผยรหัสลับ
-                  </p>
-                </div>
-                <Badge color={statusTone}>{flowAccountStatusLabel(data.status)}</Badge>
-              </div>
+            <FormPanel
+              action={<Badge color={statusTone}>{flowAccountStatusLabel(data.status)}</Badge>}
+              description="แสดงเฉพาะค่าที่ใช้ตรวจระบบได้ โดยไม่เปิดเผยรหัสลับ"
+              title="ข้อมูลล่าสุดที่ปลอดภัย"
+            >
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Fact label="รหัสบริษัท" value={data.company_id ?? "-"} />
                 <Fact label="รหัสช่วยตรวจ" value={data.support_code ?? "-"} />
@@ -334,20 +328,14 @@ export default function OwnerV2FlowAccountSetup({
                   </TechnicalDetails>
                 </div>
               ) : null}
-            </section>
+            </FormPanel>
 
-            <form
-              className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+            <FormPanel
+              as="form"
+              description="ช่องรหัสลับจะถูกล้างหลังบันทึก และไม่แสดงค่าที่เคยบันทึกไว้"
               onSubmit={saveConfig}
+              title="ข้อมูลเชื่อมต่อ"
             >
-              <div className="mb-4">
-                <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
-                  ข้อมูลเชื่อมต่อ
-                </h4>
-                <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                  ช่องรหัสลับจะถูกล้างหลังบันทึก และไม่แสดงค่าที่เคยบันทึกไว้
-                </p>
-              </div>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <Field label="สภาพแวดล้อม">
                   <input
@@ -424,7 +412,7 @@ export default function OwnerV2FlowAccountSetup({
               {actionHelp.length ? (
                 <ActionHelp items={actionHelp} systemHref="/owner-v2/system" />
               ) : null}
-            </form>
+            </FormPanel>
           </div>
         </PanelBody>
       </Panel>
