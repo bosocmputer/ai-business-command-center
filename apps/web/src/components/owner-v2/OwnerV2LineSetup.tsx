@@ -98,7 +98,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   const [recipientsState, setRecipientsState] = useState<
     | { status: "idle" }
     | { status: "loading" }
-    | { status: "error"; message: string }
+    | { status: "error"; message: string; technicalMessage?: string }
     | { status: "success"; data: LineRecipientRecord[] }
   >({ status: "idle" });
   const [targetProfileDrafts, setTargetProfileDrafts] = useState<
@@ -109,11 +109,13 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setState({ status: "loading" });
       setMessage(null);
+      setTechnicalMessage(null);
       try {
         const data = await ownerV2Fetch<OwnerV2LineSetupPayload>(
           `/api/owner/tenants/${encodeURIComponent(tenantId)}/line-setup`,
@@ -248,10 +250,12 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         tone: "warning",
         text: "ตั้งชื่อ LINE OA อย่างน้อย 2 ตัวอักษรก่อนสร้างช่องทาง",
       });
+      setTechnicalMessage(null);
       return;
     }
     setBusy("create-channel");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch<LineChannelRecord>("/api/owner/line-channels", {
         method: "POST",
@@ -272,10 +276,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "สร้าง LINE OA ไม่สำเร็จ กรุณาลองใหม่",
+          "สร้าง LINE OA ไม่สำเร็จ ลองตรวจชื่อช่องทางและสิทธิ์ผู้ดูแล แล้วสร้างใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -290,6 +293,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           ? "กรอกรหัสส่งข้อความหรือรหัสรับ Webhook อย่างน้อย 1 ค่า"
           : "เลือก LINE OA ก่อนบันทึกรหัส",
       });
+      setTechnicalMessage(null);
       return;
     }
 
@@ -306,6 +310,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
 
     setBusy("save-secrets");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch<LineChannelRecord>(
         `/api/owner/line-channels/${encodeURIComponent(secretForm.channelId)}/secrets`,
@@ -328,10 +333,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "บันทึกรหัส LINE OA ไม่สำเร็จ กรุณาตรวจกุญแจเข้ารหัสหรือสิทธิ์ผู้ดูแล",
+          "บันทึกรหัส LINE OA ไม่สำเร็จ ลองตรวจค่าที่กรอกและกุญแจเข้ารหัสบนเครื่องแม่ข่าย",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -340,6 +344,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   async function toggleChannel(channel: LineChannelRecord) {
     setBusy(`channel-${channel.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch<LineChannelRecord>(
         `/api/owner/line-channels/${encodeURIComponent(channel.id)}`,
@@ -356,11 +361,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "อัปเดต LINE OA ไม่สำเร็จ กรุณาลองใหม่",
+        text: "อัปเดตสถานะ LINE OA ไม่สำเร็จ ลองรีเฟรชแล้วทำรายการใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -385,8 +388,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setRecipientsState({
         status: "error",
-        message:
-          error instanceof Error ? error.message : "โหลดคลังผู้รับ LINE ไม่สำเร็จ",
+        message: "โหลดคลังผู้รับ LINE ไม่สำเร็จ",
+        technicalMessage: toLineTechnicalMessage(error),
       });
     }
   }
@@ -400,10 +403,12 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           ? "เลือก LINE OA ที่จะใช้ส่งให้ผู้รับนี้ก่อน"
           : "เลือกผู้รับจากคลัง LINE ก่อนเพิ่มเข้าร้าน",
       });
+      setTechnicalMessage(null);
       return;
     }
     setBusy("assign-recipient");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const assigned = await ownerV2Fetch<LineTargetRecord>(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/line-target-assignments`,
@@ -425,10 +430,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "เพิ่มผู้รับ LINE เข้าร้านไม่สำเร็จ",
+          "เพิ่มผู้รับ LINE เข้าร้านไม่สำเร็จ ลองเลือกผู้รับและ LINE OA ใหม่อีกครั้ง",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -438,6 +442,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     const profileKey = targetProfileDrafts[target.id] ?? target.access_profile_key;
     setBusy(`approve-${target.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const updated = await ownerV2Fetch<LineTargetRecord>(
         `/api/line-targets/${encodeURIComponent(target.id)}/approve`,
@@ -457,9 +462,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error ? error.message : "อนุมัติผู้รับ LINE ไม่สำเร็จ",
+        text: "อนุมัติผู้รับ LINE ไม่สำเร็จ ลองรีเฟรชแล้วอนุมัติใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -478,6 +483,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
     setBusy(`test-send-${target.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch(
         `/api/line-targets/${encodeURIComponent(target.id)}/test-send`,
@@ -494,8 +500,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "ส่งข้อความทดสอบไม่สำเร็จ",
+          "ส่งข้อความทดสอบไม่สำเร็จ ตรวจโควต้า LINE OA และสถานะผู้รับก่อนลองใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -508,10 +515,12 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         tone: "warning",
         text: "สิทธิ์ผู้รับยังไม่เปลี่ยน ไม่ต้องบันทึกซ้ำ",
       });
+      setTechnicalMessage(null);
       return;
     }
     setBusy(`profile-${target.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const updated = await ownerV2Fetch<LineTargetRecord>(
         `/api/line-targets/${encodeURIComponent(target.id)}`,
@@ -530,9 +539,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error ? error.message : "อัปเดตสิทธิ์ผู้รับไม่สำเร็จ",
+        text: "อัปเดตสิทธิ์ผู้รับไม่สำเร็จ ลองรีเฟรชแล้วบันทึกใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -541,6 +550,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   async function toggleTarget(target: LineTargetRecord) {
     setBusy(`target-${target.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const updated = await ownerV2Fetch<LineTargetRecord>(
         `/api/line-targets/${encodeURIComponent(target.id)}`,
@@ -559,9 +569,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error ? error.message : "อัปเดตผู้รับ LINE ไม่สำเร็จ",
+        text: "อัปเดตสถานะผู้รับ LINE ไม่สำเร็จ ลองรีเฟรชแล้วทำรายการใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -576,6 +586,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
     setBusy(`estimate-${target.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch(
         `/api/line-targets/${encodeURIComponent(target.id)}`,
@@ -593,8 +604,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "บันทึกโควต้าไม่สำเร็จ",
+          "บันทึกจำนวนผู้รับโดยประมาณไม่สำเร็จ ลองตรวจตัวเลขแล้วบันทึกใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -606,6 +618,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     );
     setBusy(`actions-${target.id}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch<LineTargetRecord>(
         `/api/line-targets/${encodeURIComponent(target.id)}`,
@@ -623,10 +636,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "เปิดสิทธิ์รับแผนแจ้งเตือนไม่สำเร็จ",
+          "เปิดสิทธิ์รับแผนแจ้งเตือนไม่สำเร็จ ลองรีเฟรชแล้วเปิดสิทธิ์ใหม่",
       });
+      setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -688,6 +700,13 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       </Link>
       {message ? (
         <Notice title="สถานะ LINE OA" tone={message.tone} text={message.text} />
+      ) : null}
+      {technicalMessage ? (
+        <TechnicalDetails embedded title="รายละเอียดการทำรายการ">
+          <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {technicalMessage}
+          </p>
+        </TechnicalDetails>
       ) : null}
 
       <Panel>
@@ -1018,11 +1037,20 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               ) : null}
               {recipientsState.status === "loading" ? <MiniSkeleton /> : null}
               {recipientsState.status === "error" ? (
-                <Notice
-                  text={`${recipientsState.message} ลองโหลดใหม่ หรือให้ผู้รับเพิ่ม LINE OA เป็นเพื่อนอีกครั้ง`}
-                  title="โหลดคลังผู้รับไม่สำเร็จ"
-                  tone="error"
-                />
+                <div className="space-y-3">
+                  <Notice
+                    text={`${recipientsState.message} ลองโหลดใหม่ หรือให้ผู้รับเพิ่ม LINE OA เป็นเพื่อนอีกครั้ง`}
+                    title="โหลดคลังผู้รับไม่สำเร็จ"
+                    tone="error"
+                  />
+                  {recipientsState.technicalMessage ? (
+                    <TechnicalDetails embedded title="รายละเอียดคลังผู้รับ">
+                      <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+                        {recipientsState.technicalMessage}
+                      </p>
+                    </TechnicalDetails>
+                  ) : null}
+                </div>
               ) : null}
               {recipientsState.status === "success" ? (
                 <form className="space-y-4" onSubmit={assignRecipient}>
@@ -2006,6 +2034,10 @@ function formatLineTargetSource(source: LineTargetRecord["source"]) {
     webhook: "รับจาก Webhook",
   };
   return labels[source] ?? "ไม่ทราบที่มา";
+}
+
+function toLineTechnicalMessage(error: unknown) {
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
 function formatEstimatedMonthlyMessages(summary: {
