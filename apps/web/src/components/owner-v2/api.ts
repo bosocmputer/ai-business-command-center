@@ -45,7 +45,8 @@ export async function ownerV2Request<TPayload extends OwnerV2FetchErrorPayload>(
 
   if (!response.ok) {
     const error = new Error(
-      payload.error || "โหลดข้อมูลไม่สำเร็จ กรุณารีเฟรชหรือตรวจ session ผู้ดูแล",
+      payload.error ||
+        "โหลดข้อมูลไม่สำเร็จ กรุณารีเฟรชหน้า หรือลงชื่อเข้าใช้อีกครั้ง",
     ) as OwnerV2FetchError;
     error.status = response.status;
     error.details = payload.details;
@@ -58,4 +59,9 @@ export async function ownerV2Request<TPayload extends OwnerV2FetchErrorPayload>(
 
 export function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+export function isOwnerV2AuthError(error: unknown) {
+  const status = (error as OwnerV2FetchError | undefined)?.status;
+  return status === 401 || status === 403;
 }

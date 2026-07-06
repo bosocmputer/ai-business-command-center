@@ -78,11 +78,13 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setDetailState({ status: "loading" });
       setMessage(null);
+      setTechnicalMessage(null);
       try {
         const data = await ownerV2Fetch<OwnerV2StoreSetupPayload>(
           `/api/owner/tenants/${encodeURIComponent(tenantId)}/store-setup`,
@@ -219,6 +221,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
     setBusy("save");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch(`/api/owner/tenants/${encodeURIComponent(tenantId)}`, {
         method: "PATCH",
@@ -239,15 +242,15 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
         tone: "success",
         text: "บันทึกข้อมูลร้านแล้ว ระบบโหลด readiness ล่าสุดให้เรียบร้อย",
       });
+      setTechnicalMessage(null);
       await load();
     } catch (error) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "บันทึกข้อมูลร้านไม่สำเร็จ กรุณาลองใหม่",
+          "บันทึกข้อมูลร้านไม่สำเร็จ ลองตรวจค่าที่กรอกแล้วบันทึกใหม่อีกครั้ง",
       });
+      setTechnicalMessage(toTechnicalErrorMessage(error));
     } finally {
       setBusy(null);
     }
@@ -307,6 +310,11 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
 
       {message ? (
         <Notice tone={message.tone} title="สถานะข้อมูลร้าน" text={message.text} />
+      ) : null}
+      {technicalMessage ? (
+        <AdminTechnicalDetails embedded title="รายละเอียดการบันทึก">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </AdminTechnicalDetails>
       ) : null}
 
       {/* Tab bar — TailAdmin underline style with attention badges.
@@ -924,18 +932,18 @@ function StoreEditForm({
             }}
             value={form.billing_cycle ?? ""}
           >
-            <option value="">ไม่ระบุ (ไม่มี automation)</option>
+            <option value="">ไม่ระบุ (ไม่ให้ระบบจัดการรอบอัตโนมัติ)</option>
             <option value="monthly">รายเดือน</option>
             <option value="yearly">รายปี</option>
             <option value="one_time">ครั้งเดียว</option>
           </select>
           {!form.billing_cycle ? (
             <span className="mt-1.5 block text-xs leading-5 text-warning-600 dark:text-warning-400">
-              ยังไม่ได้ตั้งรูปแบบการชำระ — ระบบจะไม่ auto-manage subscription นี้
+              ยังไม่ได้ตั้งรูปแบบการชำระ ระบบจะไม่จัดการรอบใช้งานให้อัตโนมัติ
             </span>
           ) : (
             <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-              ระบบจะแจ้งเตือนและ suspend อัตโนมัติตามรูปแบบที่เลือก
+              ระบบจะแจ้งเตือนและพักการใช้งานอัตโนมัติตามรูปแบบที่เลือก
             </span>
           )}
         </div>
@@ -971,7 +979,7 @@ function StoreEditForm({
           {form.current_period_end_date &&
           form.current_period_end_date < todayDateString() ? (
             <span className="mt-1.5 block text-xs leading-5 text-warning-600 dark:text-warning-400">
-              วันที่อยู่ในอดีต — ถ้าตั้งใจให้หมดแล้ว ระบบจะ suspend อัตโนมัติในรอบถัดไป
+              วันที่อยู่ในอดีต ถ้าตั้งใจให้หมดรอบแล้ว ระบบจะพักการใช้งานอัตโนมัติในรอบถัดไป
             </span>
           ) : (
             <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
@@ -1207,6 +1215,7 @@ function BusinessSignalPanel({
     tone: "success" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
 
   async function updateStatus(
     signal: BusinessSignalRecord,
@@ -1217,6 +1226,7 @@ function BusinessSignalPanel({
     }
     setBusyId(signal.id);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/business-signals/${encodeURIComponent(signal.id)}`,
@@ -1229,15 +1239,14 @@ function BusinessSignalPanel({
         tone: "success",
         text: `${businessSignalStatusLabel[status]} “${signal.title}” แล้ว`,
       });
+      setTechnicalMessage(null);
       onReload();
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "เปลี่ยนสถานะสัญญาณไม่สำเร็จ",
+        text: "เปลี่ยนสถานะสัญญาณไม่สำเร็จ ลองรีเฟรชแล้วทำรายการใหม่",
       });
+      setTechnicalMessage(toTechnicalErrorMessage(error));
     } finally {
       setBusyId(null);
     }
@@ -1276,6 +1285,11 @@ function BusinessSignalPanel({
         >
           {message.text}
         </p>
+      ) : null}
+      {technicalMessage ? (
+        <AdminTechnicalDetails embedded title="รายละเอียดการเปลี่ยนสถานะ">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </AdminTechnicalDetails>
       ) : null}
       <div className="space-y-2">
         {signals.map((signal) => (
@@ -1639,6 +1653,10 @@ function parseTab(value: string | null): StoreTab {
   return value && VALID_TABS.includes(value as StoreTab)
     ? (value as StoreTab)
     : "setup";
+}
+
+function toTechnicalErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
 /**

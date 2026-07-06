@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRightIcon, PlusIcon } from "@/icons";
-import { isAbortError, ownerV2Fetch } from "./api";
+import { isAbortError, isOwnerV2AuthError, ownerV2Fetch } from "./api";
 import OwnerV2Cockpit from "./OwnerV2Cockpit";
 import {
   Fact,
@@ -40,7 +40,7 @@ export default function OwnerV2Workbench() {
       if (isAbortError(error)) {
         return;
       }
-      if (error instanceof Error && error.message.includes("session")) {
+      if (isOwnerV2AuthError(error)) {
         setStatus("auth_required");
         return;
       }
