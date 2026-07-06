@@ -23,6 +23,7 @@ import type { OwnerV2ReportSetupPayload } from "./types";
 import {
   Fact,
   Field,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -954,32 +955,22 @@ function ReportSignoffPanel({
   }
 
   return (
-    <form
-      className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+    <FormPanel
+      as="form"
+      description="บันทึกว่าใครตรวจยอดแล้ว และยอดในรายงานตรงกับแหล่งอ้างอิงหรือไม่"
       onSubmit={submit}
+      title="รับรองยอดรายงาน"
     >
-      <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-        รับรองยอดรายงาน
-      </p>
-      <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-        บันทึกว่าใครตรวจยอดแล้ว และยอดในรายงานตรงกับแหล่งอ้างอิงหรือไม่
-      </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-            ชื่อผู้รับรอง
-          </span>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="ชื่อผู้รับรอง">
           <input
             className="owner-v2-input"
             onChange={(event) => setSignedBy(event.target.value)}
             placeholder="เช่น คุณสมชาย"
             value={signedBy}
           />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-            ยอดในระบบ (บาท)
-          </span>
+        </Field>
+        <Field label="ยอดในระบบ (บาท)">
           <input
             className="owner-v2-input"
             inputMode="numeric"
@@ -988,11 +979,8 @@ function ReportSignoffPanel({
             type="number"
             value={systemTotal}
           />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-            ยอดอ้างอิง (บาท)
-          </span>
+        </Field>
+        <Field label="ยอดอ้างอิง (บาท)">
           <input
             className="owner-v2-input"
             inputMode="numeric"
@@ -1001,27 +989,24 @@ function ReportSignoffPanel({
             type="number"
             value={referenceTotal}
           />
-        </label>
+        </Field>
       </div>
-      <label className="mt-3 block">
-        <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-          หมายเหตุ
-        </span>
+      <Field label="หมายเหตุ">
         <textarea
           className="owner-v2-input min-h-20"
           onChange={(event) => setNote(event.target.value)}
           placeholder="ถ้าต่างให้บอกสาเหตุ เช่น ยังไม่ปิดรอบ"
           value={note}
         />
-      </label>
+      </Field>
       {referenceTotal && systemTotal ? (
-        <p className={`mt-2 text-theme-xs ${Math.abs(difference) < 1 ? "text-success-600" : "text-warning-600"}`}>
+        <p className={`text-theme-xs ${Math.abs(difference) < 1 ? "text-success-600" : "text-warning-600"}`}>
           {Math.abs(difference) < 1
             ? "ยอดตรง"
             : `ต่าง ${difference.toLocaleString("th-TH")} บาท`}
         </p>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button disabled={busy} size="sm" type="submit">
           {busy ? "กำลังบันทึก..." : "บันทึกการรับรอง"}
         </Button>
@@ -1036,13 +1021,11 @@ function ReportSignoffPanel({
         ) : null}
       </div>
       {result?.technicalText ? (
-        <div className="mt-3">
-          <TechnicalDetails embedded title="รายละเอียดการรับรองยอด">
-            <Fact label="ข้อความระบบ" value={result.technicalText} />
-          </TechnicalDetails>
-        </div>
+        <TechnicalDetails embedded title="รายละเอียดการรับรองยอด">
+          <Fact label="ข้อความระบบ" value={result.technicalText} />
+        </TechnicalDetails>
       ) : null}
-    </form>
+    </FormPanel>
   );
 }
 
