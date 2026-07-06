@@ -14,7 +14,7 @@ import {
   ChevronDownIcon,
   InfoIcon,
 } from "@/icons";
-import { isAbortError, ownerV2Fetch } from "../api";
+import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "../api";
 import type { OwnerV2Tenant, OwnerV2WorkbenchPayload } from "../types";
 
 type HeaderWorkbenchState =
@@ -121,7 +121,7 @@ export default function OwnerV2Header() {
         label: "SML ร้านนี้",
       },
       {
-    detail: "รันทดสอบรายงานที่เปิดสิทธิ์ไว้ของร้านนี้",
+        detail: "รันทดสอบรายงานที่เปิดสิทธิ์ไว้ของร้านนี้",
         href: `${tenantPath}/reports`,
         keywords: "reports report runner snapshot รายงาน ทดสอบรายงาน",
         label: "รายงานร้านนี้",
@@ -133,19 +133,19 @@ export default function OwnerV2Header() {
         label: "LINE ร้านนี้",
       },
       {
-    detail: "ทดสอบเชื่อมต่อ FlowAccount ของร้านนี้",
+        detail: "ทดสอบเชื่อมต่อ FlowAccount ของร้านนี้",
         href: `${tenantPath}/flowaccount`,
-    keywords: "flowaccount finance เชื่อมต่อ การเงิน",
+        keywords: "flowaccount finance เชื่อมต่อ การเงิน",
         label: "FlowAccount ร้านนี้",
       },
       {
-    detail: "ตั้งค่าบทบาท โมเดล และรหัส OpenRouter ของ AI CEO ร้านนี้",
+        detail: "ตั้งค่าบทบาท โมเดล และรหัส AI ของ AI CEO ร้านนี้",
         href: `${tenantPath}/ai-ceo`,
         keywords: "ai ceo business advisor openrouter prompt model advisor",
         label: "AI CEO ร้านนี้",
       },
       {
-    detail: "ตรวจบทบาทและสิทธิ์รายงานของร้านนี้",
+        detail: "ตรวจบทบาทและสิทธิ์รายงานของร้านนี้",
         href: `${tenantPath}/permissions`,
         keywords: "permissions access role สิทธิ์ รายงาน",
         label: "สิทธิ์ร้านนี้",
@@ -225,10 +225,7 @@ export default function OwnerV2Header() {
         }
         setWorkbenchState({
           status: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "โหลดสถานะ operations ไม่สำเร็จ",
+          message: buildWorkbenchHeaderErrorMessage(error),
         });
       });
 
@@ -266,7 +263,7 @@ export default function OwnerV2Header() {
       <div className="flex grow flex-col items-center justify-between lg:flex-row lg:px-6">
         <div className="flex w-full items-center justify-between gap-2 border-b border-gray-200 px-3 py-3 sm:gap-4 lg:justify-normal lg:border-b-0 lg:px-0 lg:py-4 dark:border-gray-800">
           <button
-            aria-label="Toggle sidebar"
+            aria-label="เปิดหรือปิดเมนูด้านข้าง"
             className={`z-99999 flex h-10 w-10 items-center justify-center rounded-lg border-gray-200 text-gray-500 lg:h-11 lg:w-11 lg:border dark:border-gray-800 dark:text-gray-400 ${
               isMobileOpen ? "bg-gray-100 dark:bg-gray-800" : ""
             }`}
@@ -277,7 +274,7 @@ export default function OwnerV2Header() {
           </button>
 
           <Link
-            aria-label="กลับหน้าเริ่มงาน Owner"
+            aria-label="กลับหน้าเริ่มงานผู้ดูแล"
             className="inline-flex min-h-11 min-w-11 flex-col justify-center lg:hidden"
             href="/owner-v2"
           >
@@ -290,7 +287,7 @@ export default function OwnerV2Header() {
           </Link>
 
           <button
-            aria-label="Toggle owner actions"
+            aria-label="เปิดหรือปิดเมนูลัดผู้ดูแล"
             className={`z-99999 flex h-10 w-10 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 lg:hidden dark:text-gray-400 dark:hover:bg-gray-800 ${
               isApplicationMenuOpen ? "bg-gray-100 dark:bg-gray-800" : ""
             }`}
@@ -374,7 +371,7 @@ export default function OwnerV2Header() {
             <ThemeToggleButton />
             <div className="relative">
               <button
-                aria-label="Open operational notifications"
+                aria-label="เปิดงานที่ต้องตรวจ"
                 className="hover:text-dark-900 relative flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
                 onClick={() => {
                   setNotificationOpen((value) => !value);
@@ -400,7 +397,7 @@ export default function OwnerV2Header() {
 
             <div className="relative">
               <button
-                aria-label="Open admin menu"
+                aria-label="เปิดเมนูผู้ดูแล"
                 className="flex items-center text-gray-700 dark:text-gray-400"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -486,7 +483,7 @@ function OperationalNotificationDropdown({
             </span>
           ) : null}
           <button
-            aria-label="Close operational notifications"
+            aria-label="ปิดงานที่ต้องตรวจ"
             className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white"
             onClick={onClose}
             type="button"
@@ -503,7 +500,7 @@ function OperationalNotificationDropdown({
 
         {state.status === "error" ? (
           <NotificationMessage
-            detail={`${state.message} กรุณาเปิดศูนย์ตรวจระบบเพื่อดูสถานะเต็ม`}
+            detail={state.message}
             icon={<AlertIcon className="h-5 w-5" />}
             tone="error"
             title="โหลดสถานะไม่สำเร็จ"
@@ -533,7 +530,7 @@ function OperationalNotificationDropdown({
 
               {state.data.tenants.every((tenant) => !needsAttention(tenant)) ? (
                 <NotificationMessage
-                  detail="ร้านที่โหลดใน workbench ไม่มี critical signal หรือ setup blocker เด่นตอนนี้"
+                  detail="ร้านที่โหลดในรอบนี้ยังไม่พบสัญญาณวิกฤตหรือขั้นตอนตั้งค่าที่ต้องแก้ทันที"
                   icon={<CheckCircleIcon className="h-5 w-5" />}
                   tone="success"
                   title="สถานะรวมดูปกติ"
@@ -692,6 +689,17 @@ function needsAttention(tenant: OwnerV2Tenant) {
     tenant.health.latest_report_status === "failed" ||
     tenant.health.latest_notification_run_status === "failed"
   );
+}
+
+function buildWorkbenchHeaderErrorMessage(error: unknown) {
+  const status = (error as OwnerV2FetchError | undefined)?.status;
+  if (status === 401 || status === 403) {
+    return "สิทธิ์ผู้ดูแลหมดอายุ กรุณาเข้าสู่ระบบใหม่ แล้วเปิดศูนย์ตรวจระบบอีกครั้ง";
+  }
+  if (status && status >= 500) {
+    return "ระบบกลางตอบกลับไม่สำเร็จ กรุณาเปิดศูนย์ตรวจระบบเพื่อตรวจรายละเอียด";
+  }
+  return "โหลดงานที่ต้องตรวจไม่สำเร็จ กรุณาเปิดศูนย์ตรวจระบบเพื่อดูสถานะเต็ม";
 }
 
 function getTenantIdFromPathname(pathname: string) {
