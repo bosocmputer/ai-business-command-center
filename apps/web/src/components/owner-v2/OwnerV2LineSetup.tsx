@@ -476,7 +476,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
     if (
       !window.confirm(
-        `ส่งข้อความทดสอบจริงไปยัง ${target.display_name}?`,
+        `ส่งข้อความทดสอบจริงไปยัง ${target.display_name}? การส่งนี้ใช้โควต้า LINE OA จริง`,
       )
     ) {
       return;
@@ -494,7 +494,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       );
       setMessage({
         tone: "success",
-        text: `ส่งข้อความทดสอบไปยัง ${target.display_name} แล้ว ตรวจ LINE ของผู้รับ`,
+        text: `ส่งข้อความทดสอบจริงไปยัง ${target.display_name} แล้ว ตรวจ LINE ของผู้รับ`,
       });
     } catch (error) {
       setMessage({
@@ -723,6 +723,11 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               </>
             }
           />
+          <Notice
+            tone="info"
+            title="ทดสอบ LINE อย่างปลอดภัย"
+            text="ปุ่มส่งทดสอบเป็นการส่งข้อความจริงและใช้โควต้า LINE OA จริง ควรทดสอบกับผู้รับของทีมก่อนเพิ่มกลุ่มลูกค้าหรือผู้บริหารของร้าน"
+          />
         </PanelBody>
       </Panel>
 
@@ -744,6 +749,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   <ReadinessItem check={check} key={check.label} />
                 ))}
               </div>
+              <LineSetupGuide checks={readinessChecks} quotaSummary={quotaSummary} />
             </PanelBody>
           </Panel>
 
@@ -757,7 +763,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                 className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_180px_120px_auto]"
                 onSubmit={createChannel}
               >
-                <Field label="ชื่อ LINE OA">
+                <Field
+                  label="ชื่อ LINE OA"
+                  help="ตั้งชื่อให้อ่านรู้ทันทีว่าเป็น OA ของร้านไหน หรือเป็น OA กลางของระบบ"
+                >
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -770,7 +779,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     value={channelForm.displayName}
                   />
                 </Field>
-                <Field label="ขอบเขต">
+                <Field
+                  label="ขอบเขต"
+                  help="เลือก OA กลางเฉพาะกรณีตั้งใจใช้ช่องทางเดียวร่วมหลายร้าน เพราะโควต้าจะถูกใช้ร่วมกัน"
+                >
                   <select
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -785,7 +797,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     <option value="owner_shared">OA กลาง</option>
                   </select>
                 </Field>
-                <Field label="สถานะ">
+                <Field
+                  label="สถานะ"
+                  help="ปิดไว้ก่อนได้ระหว่างยังไม่ได้บันทึกรหัสหรือยังไม่ต้องการให้ส่งจริง"
+                >
                   <select
                     className="owner-v2-input"
                     onChange={(event) =>
@@ -935,7 +950,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
             />
             <PanelBody spaced>
               <form className="space-y-4" onSubmit={saveChannelSecrets}>
-                <Field label="เลือก LINE OA">
+                <Field
+                  label="เลือก LINE OA"
+                  help="เลือกรายการที่ต้องการเพิ่มหรือเปลี่ยนรหัสลับ"
+                >
                   <select
                     className="owner-v2-input"
                     disabled={!channels.length}
@@ -957,7 +975,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="รหัสส่งข้อความ">
+                <Field
+                  label="รหัสส่งข้อความ"
+                  help="ใช้สำหรับส่ง LINE จริง ถ้าเปลี่ยนรหัสต้องทดสอบส่งอีกครั้ง"
+                >
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
@@ -972,7 +993,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                     value={secretForm.channelAccessToken}
                   />
                 </Field>
-                <Field label="รหัสรับ Webhook">
+                <Field
+                  label="รหัสรับ Webhook"
+                  help="ใช้ตรวจว่าข้อความ/การเพิ่มเพื่อนมาจาก LINE OA นี้จริง"
+                >
                   <input
                     autoComplete="off"
                     className="owner-v2-input"
@@ -1049,7 +1073,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
               ) : null}
               {recipientsState.status === "success" ? (
                 <form className="space-y-4" onSubmit={assignRecipient}>
-                  <Field label="ผู้รับ">
+                  <Field
+                    label="ผู้รับ"
+                    help="ถ้าไม่พบชื่อ ให้ผู้รับเพิ่ม LINE OA เป็นเพื่อนหรือส่งข้อความหา OA ก่อน"
+                  >
                     <select
                       className="owner-v2-input"
                       disabled={!selectableRecipients.length}
@@ -1074,7 +1101,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       ))}
                     </select>
                   </Field>
-                  <Field label="ส่งผ่าน LINE OA">
+                  <Field
+                    label="ส่งผ่าน LINE OA"
+                    help="ผู้รับนี้จะใช้ OA ที่เลือกในการรับรายงานและข้อความทดสอบ"
+                  >
                     <select
                       className="owner-v2-input"
                       disabled={!channels.length}
@@ -1096,7 +1126,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       ))}
                     </select>
                   </Field>
-                  <Field label="สิทธิ์เริ่มต้น">
+                  <Field
+                    label="สิทธิ์เริ่มต้น"
+                    help="สิทธิ์นี้กำหนดชุดรายงานที่ผู้รับควรเห็นใน LINE และ signed viewer"
+                  >
                     <select
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -1520,7 +1553,7 @@ function TargetTable({
                   >
                     {busy === `test-send-${target.id}`
                       ? "กำลังส่ง..."
-                      : "ส่งทดสอบ"}
+                      : "ส่งทดสอบจริง"}
                   </Button>
                 ) : null}
               </div>
@@ -1687,7 +1720,7 @@ function TargetTable({
                           type="button"
                           variant="outline"
                         >
-                          {busy === `test-send-${target.id}` ? "กำลังส่ง..." : "ส่งทดสอบ"}
+                          {busy === `test-send-${target.id}` ? "กำลังส่ง..." : "ส่งทดสอบจริง"}
                         </Button>
                       ) : null}
                     </div>
@@ -1750,6 +1783,93 @@ function ReadinessItem({
             {check.detail}
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LineSetupGuide({
+  checks,
+  quotaSummary,
+}: {
+  checks: Array<{ ok: boolean; label: string; detail: string }>;
+  quotaSummary: { knownRecipients: number; unknownTargets: number };
+}) {
+  const hasLineOa = Boolean(checks.find((check) => check.label === "มี LINE OA")?.ok);
+  const hasSendSecret = Boolean(
+    checks.find((check) => check.label === "มีรหัสส่งข้อความ")?.ok,
+  );
+  const hasWebhookSecret = Boolean(
+    checks.find((check) => check.label === "มีรหัสรับ Webhook")?.ok,
+  );
+  const hasReadyTarget = Boolean(
+    checks.find((check) => check.label === "มีผู้รับพร้อมส่ง")?.ok,
+  );
+  const guideItems = [
+    {
+      done: hasLineOa,
+      text: hasLineOa ? "มี OA ให้ใช้แล้ว" : "เพิ่ม LINE OA ของร้านหรือ OA กลางก่อน",
+      title: "1. เพิ่ม OA",
+    },
+    {
+      done: hasSendSecret && hasWebhookSecret,
+      text:
+        hasSendSecret && hasWebhookSecret
+          ? "รหัสส่งและรหัส Webhook พร้อม"
+          : "บันทึกรหัสส่งข้อความและรหัสรับ Webhook ให้ครบ",
+      title: "2. บันทึกรหัส",
+    },
+    {
+      done: hasReadyTarget,
+      text: hasReadyTarget
+        ? "มีผู้รับพร้อมรับรายงานแล้ว"
+        : "อนุมัติผู้รับ เปิดรับสรุป และตรวจสิทธิ์รายงาน",
+      title: "3. ผู้รับพร้อมส่ง",
+    },
+    {
+      done: false,
+      text: `ส่งทดสอบใช้โควต้าจริง ตอนนี้คาดการณ์ ${formatEstimatedMonthlyMessages(
+        quotaSummary,
+      )}`,
+      title: "4. ทดสอบกับทีม",
+      warning: true,
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            ลำดับตั้งค่า LINE ที่ปลอดภัย
+          </h4>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            ทำตามลำดับนี้ก่อนเปิดแผนแจ้งเตือนให้ลูกค้าจริง
+          </p>
+        </div>
+        <Badge color={hasReadyTarget ? "success" : "warning"}>
+          {hasReadyTarget ? "พร้อมใช้งาน" : "ยังต้องตรวจ"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {guideItems.map((item) => (
+          <div
+            className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]"
+            key={item.title}
+          >
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                {item.title}
+              </p>
+              <Badge color={item.warning ? "warning" : item.done ? "success" : "warning"} size="sm">
+                {item.warning ? "ระวัง" : item.done ? "พร้อม" : "ต้องดู"}
+              </Badge>
+            </div>
+            <p className="text-sm leading-6 text-gray-700 dark:text-gray-300">
+              {item.text}
+            </p>
+          </div>
+        ))}
       </div>
     </div>
   );
