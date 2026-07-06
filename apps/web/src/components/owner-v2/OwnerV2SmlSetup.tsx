@@ -18,6 +18,7 @@ import type {
 import {
   Fact,
   Field,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -161,8 +162,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       );
       setMessage({
         tone: "success",
-        text:
-          "บันทึกค่า SML แล้ว กดทดสอบค่าที่บันทึกแล้วเพื่อยืนยันก่อนเปิดแจ้งเตือน",
+        text: "บันทึกค่า SML แล้ว กดทดสอบค่าที่บันทึกแล้วเพื่อยืนยันก่อนเปิดแจ้งเตือน",
       });
       setTechnicalMessage(null);
       setTestResult(null);
@@ -174,8 +174,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "บันทึกค่า SML ไม่สำเร็จ ลองตรวจค่าที่กรอกและกุญแจเข้ารหัสบนเครื่องแม่ข่าย",
+        text: "บันทึกค่า SML ไม่สำเร็จ ลองตรวจค่าที่กรอกและกุญแจเข้ารหัสบนเครื่องแม่ข่าย",
       });
       setTechnicalMessage(toSmlTechnicalMessage(error));
     } finally {
@@ -221,15 +220,14 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         tone: result.ok ? "success" : "warning",
         text: result.ok
           ? "ทดสอบ SML ผ่านแล้ว"
-          : result.safe_error_message ?? "ทดสอบ SML ไม่ผ่าน",
+          : (result.safe_error_message ?? "ทดสอบ SML ไม่ผ่าน"),
       });
       setTechnicalMessage(null);
     } catch (error) {
       setTestResult(null);
       setMessage({
         tone: "error",
-        text:
-          "ทดสอบ SML ไม่สำเร็จ ตรวจ URL, ไฟล์ SMLConfig, ฐานข้อมูล และสิทธิ์การเข้าถึงแล้วลองใหม่",
+        text: "ทดสอบ SML ไม่สำเร็จ ตรวจ URL, ไฟล์ SMLConfig, ฐานข้อมูล และสิทธิ์การเข้าถึงแล้วลองใหม่",
       });
       setTechnicalMessage(toSmlTechnicalMessage(error));
     } finally {
@@ -266,15 +264,14 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
         tone: result.ok ? "success" : "warning",
         text: result.ok
           ? `พบ ${result.databases.length.toLocaleString("th-TH")} ฐานข้อมูล`
-          : result.safe_error_message ?? "ค้นหาฐานข้อมูลไม่สำเร็จ",
+          : (result.safe_error_message ?? "ค้นหาฐานข้อมูลไม่สำเร็จ"),
       });
       setTechnicalMessage(null);
     } catch (error) {
       setDiscovery(null);
       setMessage({
         tone: "error",
-        text:
-          "ค้นหาฐานข้อมูลไม่สำเร็จ ตรวจ URL และไฟล์ SMLConfig ก่อนลองค้นหาใหม่",
+        text: "ค้นหาฐานข้อมูลไม่สำเร็จ ตรวจ URL และไฟล์ SMLConfig ก่อนลองค้นหาใหม่",
       });
       setTechnicalMessage(toSmlTechnicalMessage(error));
     } finally {
@@ -320,6 +317,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   }
 
   const { config, setup } = state;
+  const datasourcePresets = getSmlDatasourcePresets(tenantId);
   const actionHelp = buildActionHelp({
     busy,
     canUseSavedConfig,
@@ -351,256 +349,253 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Panel>
-          <PanelHeader
-            action={
-              <Badge color={config.kind === "sml_javaws" ? "success" : "warning"}>
-                {formatDatasourceSource(config.source)}
-              </Badge>
-            }
-            description="ตั้งค่า URL, ไฟล์ SMLConfig และฐานข้อมูลของร้านนี้ แล้วทดสอบก่อนเปิดใช้รายงานหรือแจ้งเตือน"
-            title="SML JavaWS"
-          />
-          <PanelBody spaced>
-            <form className="space-y-5" onSubmit={save}>
-              <div>
-                <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-                  แม่แบบการเชื่อมต่อ (ช่วยกรอกฟอร์ม)
-                </span>
+        <FormPanel
+          action={
+            <Badge color={config.kind === "sml_javaws" ? "success" : "warning"}>
+              {formatDatasourceSource(config.source)}
+            </Badge>
+          }
+          as="form"
+          description="ตั้งค่า URL, ไฟล์ SMLConfig และฐานข้อมูลของร้านนี้ แล้วทดสอบก่อนเปิดใช้รายงานหรือแจ้งเตือน"
+          onSubmit={save}
+          title="SML JavaWS"
+        >
+          {datasourcePresets.length ? (
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
+                แม่แบบการเชื่อมต่อ (ช่วยกรอกฟอร์ม)
+              </span>
+              <select
+                className="owner-v2-input"
+                onChange={(event) => {
+                  const preset = datasourcePresets.find(
+                    (item) => item.id === event.target.value,
+                  );
+                  if (preset) {
+                    setForm((current) => ({
+                      ...current,
+                      baseUrl: preset.baseUrl,
+                      webappPath: preset.webappPath,
+                      configFileName: preset.configFileName,
+                      database: preset.database,
+                    }));
+                  }
+                }}
+                value=""
+              >
+                <option value="">— เลือกแม่แบบการเชื่อมต่อ —</option>
+                {datasourcePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} ({preset.description})
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                แม่แบบใช้เติมค่าเริ่มต้นเท่านั้น ยังไม่บันทึกอัตโนมัติ
+                ให้กดค้นหาฐานข้อมูลและทดสอบก่อนบันทึกทุกครั้ง
+              </p>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <Field
+              label="URL SML JavaWS"
+              help="ใส่ URL ของ Tomcat หรือ reverse proxy ที่เข้าถึง JavaWS ได้"
+            >
+              <input
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    baseUrl: event.target.value,
+                  }))
+                }
+                placeholder="http://127.0.0.1:8080"
+                value={form.baseUrl}
+              />
+            </Field>
+            <Field
+              label="ไฟล์ SMLConfig"
+              help="ชื่อไฟล์ตั้งค่าที่ JavaWS ใช้อ่านการเชื่อมต่อของ SML"
+            >
+              <input
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    configFileName: event.target.value,
+                  }))
+                }
+                placeholder="SMLConfigDATA.xml"
+                value={form.configFileName}
+              />
+            </Field>
+            <Field
+              label="ชื่อฐานข้อมูล SML"
+              help="ใช้ปุ่มค้นหาฐานข้อมูลเพื่อลดการพิมพ์ผิด"
+            >
+              <input
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    database: event.target.value,
+                  }))
+                }
+                placeholder="sml1_2026"
+                value={form.database}
+              />
+            </Field>
+            <Field
+              label="เส้นทาง JavaWS"
+              help="โดยทั่วไปใช้ค่าเดิมนี้ ยกเว้นร้านติดตั้งเส้นทางอื่น"
+            >
+              <input
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    webappPath: event.target.value,
+                  }))
+                }
+                placeholder="/SMLJavaWebService"
+                value={form.webappPath}
+              />
+            </Field>
+          </div>
+
+          <div className="space-y-4 border-t border-gray-100 pt-5 dark:border-gray-800">
+            <div>
+              <h4 className="text-sm font-medium text-gray-800 dark:text-white/90">
+                รหัสผ่านหน้า JavaWS (ถ้ามี)
+              </h4>
+              <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้เฉพาะร้านที่มีชั้นล็อกอินหรือรหัสผ่านก่อนเข้า JavaWS
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+              <Field label="โหมด">
                 <select
                   className="owner-v2-input"
-                  onChange={(event) => {
-                    const preset = SML_DATASOURCE_PRESETS.find(
-                      (item) => item.id === event.target.value,
-                    );
-                    if (preset) {
-                      setForm((current) => ({
-                        ...current,
-                        baseUrl: preset.baseUrl,
-                        webappPath: preset.webappPath,
-                        configFileName: preset.configFileName,
-                        database: preset.database,
-                      }));
-                    }
-                  }}
-                  value=""
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      authMode: event.target.value as JavaWsAuthMode,
+                      authSecret: "",
+                    }))
+                  }
+                  value={form.authMode}
                 >
-                  <option value="">— เลือกแม่แบบการเชื่อมต่อ —</option>
-                  {SML_DATASOURCE_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label} ({preset.description})
-                    </option>
-                  ))}
+                  <option value="none">ไม่ใช้รหัสผ่าน</option>
+                  <option value="basic">ผู้ใช้และรหัสผ่าน</option>
+                  <option value="bearer">รหัสโทเคน</option>
                 </select>
-                <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  แม่แบบใช้เติมค่าเริ่มต้นเท่านั้น ยังไม่บันทึกอัตโนมัติ
-                  ให้กดค้นหาฐานข้อมูลและทดสอบก่อนบันทึกทุกครั้ง
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                <Field
-                  label="URL SML JavaWS"
-                  help="ใส่ URL ของ Tomcat หรือ reverse proxy ที่เข้าถึง JavaWS ได้"
-                >
+              </Field>
+              {form.authMode === "basic" ? (
+                <Field label="ชื่อผู้ใช้">
                   <input
                     className="owner-v2-input"
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
-                        baseUrl: event.target.value,
+                        authUsername: event.target.value,
                       }))
                     }
-                    placeholder="http://127.0.0.1:8080"
-                    value={form.baseUrl}
+                    placeholder="proxy-user"
+                    value={form.authUsername}
                   />
                 </Field>
-                <Field
-                  label="ไฟล์ SMLConfig"
-                  help="ชื่อไฟล์ตั้งค่าที่ JavaWS ใช้อ่านการเชื่อมต่อของ SML"
-                >
-                  <input
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        configFileName: event.target.value,
-                      }))
-                    }
-                    placeholder="SMLConfigDATA.xml"
-                    value={form.configFileName}
-                  />
-                </Field>
-                <Field
-                  label="ชื่อฐานข้อมูล SML"
-                  help="ใช้ปุ่มค้นหาฐานข้อมูลเพื่อลดการพิมพ์ผิด"
-                >
-                  <input
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        database: event.target.value,
-                      }))
-                    }
-                    placeholder="sml1_2026"
-                    value={form.database}
-                  />
-                </Field>
-                <Field
-                  label="เส้นทาง JavaWS"
-                  help="โดยทั่วไปใช้ค่าเดิมนี้ ยกเว้นร้านติดตั้งเส้นทางอื่น"
-                >
-                  <input
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        webappPath: event.target.value,
-                      }))
-                    }
-                    placeholder="/SMLJavaWebService"
-                    value={form.webappPath}
-                  />
-                </Field>
-              </div>
-
-              <div className="space-y-4 border-t border-gray-100 pt-5 dark:border-gray-800">
-                <div>
-                  <h4 className="text-sm font-medium text-gray-800 dark:text-white/90">
-                    รหัสผ่านหน้า JavaWS (ถ้ามี)
-                  </h4>
-                  <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                    ใช้เฉพาะร้านที่มีชั้นล็อกอินหรือรหัสผ่านก่อนเข้า JavaWS
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-                  <Field label="โหมด">
-                    <select
-                      className="owner-v2-input"
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          authMode: event.target.value as JavaWsAuthMode,
-                          authSecret: "",
-                        }))
-                      }
-                      value={form.authMode}
-                    >
-                      <option value="none">ไม่ใช้รหัสผ่าน</option>
-                      <option value="basic">ผู้ใช้และรหัสผ่าน</option>
-                      <option value="bearer">รหัสโทเคน</option>
-                    </select>
-                  </Field>
-                  {form.authMode === "basic" ? (
-                    <Field label="ชื่อผู้ใช้">
-                      <input
-                        className="owner-v2-input"
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            authUsername: event.target.value,
-                          }))
-                        }
-                        placeholder="proxy-user"
-                        value={form.authUsername}
-                      />
-                    </Field>
-                  ) : null}
-                  {form.authMode !== "none" ? (
-                    <Field
-                      label={
-                        form.authMode === "basic"
-                          ? "รหัสผ่าน"
-                          : "รหัสโทเคน"
-                      }
-                      help={
-                        config.auth_configured
-                          ? "กรอกรหัสลับใหม่เมื่อต้องทดสอบหรือบันทึกจากฟอร์ม"
-                          : "รหัสลับจะถูกเข้ารหัสก่อนบันทึก"
-                      }
-                    >
-                      <input
-                        className="owner-v2-input"
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            authSecret: event.target.value,
-                          }))
-                        }
-                        placeholder={
-                          config.auth_configured
-                            ? "กรอกรหัสลับอีกครั้ง"
-                            : "ใส่รหัสลับ"
-                        }
-                        type="password"
-                        value={form.authSecret}
-                      />
-                    </Field>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:flex-wrap sm:items-center dark:border-gray-800">
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={discoverDisabled}
-                  onClick={() => void discoverDatabases()}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {busy === "discover" ? "กำลังค้นหา..." : "1 · ค้นหาฐานข้อมูล"}
-                </Button>
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={draftTestDisabled}
-                  onClick={() => void testDraft()}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {busy === "test-draft" ? "กำลังทดสอบ..." : "2 · ทดสอบก่อนบันทึก"}
-                </Button>
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={saveDisabled}
-                  size="sm"
-                  type="submit"
-                >
-                  {busy === "save" ? "กำลังบันทึก..." : "3 · บันทึก"}
-                </Button>
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={savedTestDisabled}
-                  onClick={() => void testSaved()}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {busy === "test-saved" ? "กำลังทดสอบ..." : "4 · ทดสอบที่บันทึกแล้ว"}
-                </Button>
-                {actionHelp.length ? <ActionHelp items={actionHelp} /> : null}
-              </div>
-
-              {!config.encryption_configured ? (
-                <Notice
-                  tone="warning"
-                  title="ยังบันทึกรหัสลับไม่ได้"
-                  text="ตั้งค่ากุญแจเข้ารหัสของระบบกลางก่อนบันทึกข้อมูลที่มีรหัสลับ"
-                />
               ) : null}
-              {!validation.ok ? (
-                <Notice
-                  tone="warning"
-                  title="ข้อมูลยังไม่ครบ"
-                  text={`กรอก: ${validation.missing.join(", ")}`}
-                />
+              {form.authMode !== "none" ? (
+                <Field
+                  label={form.authMode === "basic" ? "รหัสผ่าน" : "รหัสโทเคน"}
+                  help={
+                    config.auth_configured
+                      ? "กรอกรหัสลับใหม่เมื่อต้องทดสอบหรือบันทึกจากฟอร์ม"
+                      : "รหัสลับจะถูกเข้ารหัสก่อนบันทึก"
+                  }
+                >
+                  <input
+                    className="owner-v2-input"
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        authSecret: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      config.auth_configured
+                        ? "กรอกรหัสลับอีกครั้ง"
+                        : "ใส่รหัสลับ"
+                    }
+                    type="password"
+                    value={form.authSecret}
+                  />
+                </Field>
               ) : null}
-              <DraftComparisonBanner comparison={draftComparison} />
-            </form>
-          </PanelBody>
-        </Panel>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:flex-wrap sm:items-center dark:border-gray-800">
+            <Button
+              className="w-full sm:w-auto"
+              disabled={discoverDisabled}
+              onClick={() => void discoverDatabases()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {busy === "discover" ? "กำลังค้นหา..." : "1 · ค้นหาฐานข้อมูล"}
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={draftTestDisabled}
+              onClick={() => void testDraft()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {busy === "test-draft" ? "กำลังทดสอบ..." : "2 · ทดสอบก่อนบันทึก"}
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={saveDisabled}
+              size="sm"
+              type="submit"
+            >
+              {busy === "save" ? "กำลังบันทึก..." : "3 · บันทึก"}
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={savedTestDisabled}
+              onClick={() => void testSaved()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {busy === "test-saved"
+                ? "กำลังทดสอบ..."
+                : "4 · ทดสอบที่บันทึกแล้ว"}
+            </Button>
+            {actionHelp.length ? <ActionHelp items={actionHelp} /> : null}
+          </div>
+
+          {!config.encryption_configured ? (
+            <Notice
+              tone="warning"
+              title="ยังบันทึกรหัสลับไม่ได้"
+              text="ตั้งค่ากุญแจเข้ารหัสของระบบกลางก่อนบันทึกข้อมูลที่มีรหัสลับ"
+            />
+          ) : null}
+          {!validation.ok ? (
+            <Notice
+              tone="warning"
+              title="ข้อมูลยังไม่ครบ"
+              text={`กรอก: ${validation.missing.join(", ")}`}
+            />
+          ) : null}
+          <DraftComparisonBanner comparison={draftComparison} />
+        </FormPanel>
 
         <div className="space-y-6">
           <Panel>
@@ -615,7 +610,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   tone={config.kind === "sml_javaws" ? "success" : "warning"}
                   value={
                     config.kind === "sml_javaws"
-                      ? config.database ?? "ตั้งค่าแล้ว"
+                      ? (config.database ?? "ตั้งค่าแล้ว")
                       : "ยังไม่ตั้งค่า"
                   }
                 />
@@ -625,14 +620,8 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 />
                 <Fact
                   label="รหัสผ่านหน้า JavaWS"
-                  tone={config.auth_configured ? "success" : "warning"}
-                  value={
-                    config.auth_mode
-                      ? `${formatAuthMode(config.auth_mode)} · ${
-                          config.auth_configured ? "พร้อม" : "ยังไม่พร้อม"
-                        }`
-                      : "ยังไม่ตั้ง"
-                  }
+                  tone={formatAuthStatus(config).tone}
+                  value={formatAuthStatus(config).value}
                 />
                 <Fact
                   label="อัปเดตล่าสุด"
@@ -651,7 +640,10 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               {setup.latest_report_run ? (
                 <div className="space-y-3">
                   <Fact
-                    label={getReportCatalogEntry(setup.latest_report_run.report_key).shortLabel}
+                    label={
+                      getReportCatalogEntry(setup.latest_report_run.report_key)
+                        .shortLabel
+                    }
                     tone={
                       setup.latest_report_run.status === "success"
                         ? "success"
@@ -716,7 +708,9 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                     }
                     type="button"
                   >
-                    <span className="block truncate">{database.database_name}</span>
+                    <span className="block truncate">
+                      {database.database_name}
+                    </span>
                   </button>
                 ))}
                 {discovery.databases.length > 12 ? (
@@ -1081,30 +1075,53 @@ function formatAuthMode(value: string) {
     bearer: "โทเคน",
     none: "ไม่ต้องใช้รหัส",
   };
-  return labels[value] ?? value;
+  return labels[value] ?? "ไม่ทราบโหมด";
 }
 
+function formatAuthStatus(config: OwnerV2DatasourceStatus): {
+  tone: "success" | "warning" | "light";
+  value: string;
+} {
+  if (!config.auth_mode || config.auth_mode === "none") {
+    return { tone: "light", value: "ไม่ต้องใช้รหัส" };
+  }
+  return {
+    tone: config.auth_configured ? "success" : "warning",
+    value: `${formatAuthMode(config.auth_mode)} · ${
+      config.auth_configured ? "พร้อม" : "ยังไม่พร้อม"
+    }`,
+  };
+}
 
 const SML_DATASOURCE_PRESETS = [
   {
     id: "seaandhill-demo",
-    label: "แม่แบบ Sea & Hill THAPPUT",
-    description: "ใช้กับร้านนี้เท่านั้น · SMLConfigDEMO.xml · thapput",
+    tenantIds: ["seaandhill_demo"],
+    label: "แม่แบบร้าน seaandhill THAPPUT",
+    description: "เฉพาะร้านนี้",
     baseUrl: "http://147.50.69.68:80",
     webappPath: "/SMLJavaWebService",
     configFileName: "SMLConfigDEMO.xml",
     database: "thapput",
   },
   {
-    id: "demo-3bb",
-    label: "แม่แบบทดสอบ 3BB",
-    description: "สำหรับทดสอบเท่านั้น · SMLConfigDATA.xml · demo",
+    id: "krabi-demo",
+    tenantIds: ["tenant_demo_remote"],
+    label: "แม่แบบร้านกระบี่",
+    description: "เฉพาะร้านนี้",
     baseUrl: "http://demserver.3bbddns.com:47308",
     webappPath: "/SMLJavaWebService",
     configFileName: "SMLConfigDATA.xml",
     database: "demo",
   },
 ] as const;
+
+function getSmlDatasourcePresets(tenantId: string) {
+  const normalizedTenantId = tenantId.trim();
+  return SML_DATASOURCE_PRESETS.filter((preset) =>
+    preset.tenantIds.some((candidate) => candidate === normalizedTenantId),
+  );
+}
 
 type DraftComparison = {
   changedFields: string[];
