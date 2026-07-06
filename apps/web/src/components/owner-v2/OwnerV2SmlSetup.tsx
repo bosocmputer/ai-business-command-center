@@ -25,6 +25,8 @@ import {
   TechnicalDetails,
   formatDateTime,
   formatRunStatus,
+  primaryActionClass,
+  secondaryActionClass,
 } from "./ui";
 
 type JavaWsAuthMode = "none" | "basic" | "bearer";
@@ -795,14 +797,14 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
       <div className="flex flex-wrap gap-3">
         <Link
-          className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+          className={secondaryActionClass}
           href={`/owner-v2/stores/${encodeURIComponent(tenantId)}`}
         >
           กลับข้อมูลร้าน
         </Link>
         <Link
-          className="inline-flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600"
-          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}?step=reports`}
+          className={primaryActionClass}
+          href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/reports`}
         >
           ไปทดสอบรายงาน
         </Link>
