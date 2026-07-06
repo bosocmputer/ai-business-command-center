@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   BANGKOK_TIME_ZONE,
   type ReportKey,
@@ -9,7 +10,7 @@ import {
 } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { AlertIcon, CheckCircleIcon, InfoIcon } from "@/icons";
+import { AlertIcon, ArrowRightIcon, CheckCircleIcon, InfoIcon } from "@/icons";
 import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import {
   isAbortError,
@@ -29,6 +30,8 @@ import {
   TechnicalDetails,
   formatDateTime,
   formatRunStatus,
+  primaryActionClass,
+  secondaryActionClass,
 } from "./ui";
 
 type ReportSetupState =
@@ -389,6 +392,13 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
               selectedReport={selectedReport}
             />
 
+            <ReportsNextSteps
+              failedRuns={failedRuns}
+              hasReports={reports.length > 0}
+              hasSuccessfulRun={successRuns > 0}
+              tenantId={tenantId}
+            />
+
             {reports.length ? (
               <div className="custom-scrollbar flex max-h-[560px] flex-col gap-2 overflow-y-auto">
                 {reports.map((report) => (
@@ -690,6 +700,76 @@ function ReportsActionGuide({
             </div>
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportsNextSteps({
+  failedRuns,
+  hasReports,
+  hasSuccessfulRun,
+  tenantId,
+}: {
+  failedRuns: number;
+  hasReports: boolean;
+  hasSuccessfulRun: boolean;
+  tenantId: string;
+}) {
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
+  const notificationHref = `${storeHref}/notifications`;
+  const permissionsHref = `${storeHref}/permissions`;
+  const systemHref = `${storeHref}?tab=system`;
+
+  const statusText = hasSuccessfulRun
+    ? "รายงานพร้อมใช้กับ LINE"
+    : hasReports
+      ? "ยังควรรันให้สำเร็จก่อน"
+      : "ยังต้องตรวจสิทธิ์รายงาน";
+  const statusColor = hasSuccessfulRun ? "success" : hasReports ? "warning" : "light";
+  const guidance = hasSuccessfulRun
+    ? "หลังรันสำเร็จ ให้ตรวจแผนแจ้งเตือนและผู้รับ LINE เพื่อให้ลูกค้าเห็นรายงานรอบล่าสุดตามลำดับที่ตั้งไว้"
+    : hasReports
+      ? "เลือกรายงานและช่วงวันที่ด้านขวา แล้วรันอย่างน้อยหนึ่งรายการให้สำเร็จก่อนเปิดหรือแก้แผนแจ้งเตือน"
+      : "ร้านนี้ยังไม่มีรายงานที่ใช้ได้ ให้ตรวจแพ็กเกจและสิทธิ์รายงานก่อน";
+
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+              ขั้นต่อไปหลังทดสอบรายงาน
+            </h4>
+            <Badge color={statusColor}>{statusText}</Badge>
+          </div>
+          <p className="mt-2 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            {guidance}
+          </p>
+          {failedRuns > 0 ? (
+            <p className="mt-2 text-theme-xs leading-5 text-warning-600 dark:text-orange-400">
+              มีรายงานที่รันไม่สำเร็จล่าสุด {failedRuns.toLocaleString("th-TH")} รายการ
+              ควรตรวจระบบร้านก่อนส่งจริง
+            </p>
+          ) : null}
+        </div>
+        <div className="grid shrink-0 gap-2 sm:grid-cols-3 lg:w-[560px] lg:grid-cols-1 xl:grid-cols-3">
+          <Link
+            className={hasSuccessfulRun ? primaryActionClass : secondaryActionClass}
+            href={notificationHref}
+          >
+            แผนแจ้งเตือน
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+          <Link className={secondaryActionClass} href={systemHref}>
+            ตรวจระบบร้าน
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+          <Link className={secondaryActionClass} href={permissionsHref}>
+            สิทธิ์รายงาน
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
     </section>
   );
