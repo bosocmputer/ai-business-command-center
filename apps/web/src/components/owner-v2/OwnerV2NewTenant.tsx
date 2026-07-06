@@ -93,6 +93,7 @@ export default function OwnerV2NewTenant() {
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
 
   const suggestedTenantId = useMemo(() => suggestTenantIdFromName(name), [name]);
   const sensitiveHints = findSensitiveTenantNoteHints(description);
@@ -134,13 +135,14 @@ export default function OwnerV2NewTenant() {
   const runDryRun = async (event?: FormEvent) => {
     event?.preventDefault();
     setMessage(null);
+    setTechnicalMessage(null);
     if (!canDryRun) {
       setMessage({
         tone: "warning",
         text: sensitiveHints.length
           ? "คำอธิบายร้านเหมือนมีข้อมูลลับ กรุณาลบก่อนตรวจตัวอย่าง"
           : !tenantIdFormatOk
-            ? "รหัสร้านต้องเป็น lowercase, ตัวเลข, _ หรือ - อย่างน้อย 3 ตัว"
+            ? "รหัสร้านต้องเป็นตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - อย่างน้อย 3 ตัว"
             : !viewerEmailFormatOk
               ? "รูปแบบอีเมลผู้ดูแลแดชบอร์ดไม่ถูกต้อง"
               : "กรอกชื่อร้านและรหัสร้านให้ครบก่อนตรวจตัวอย่าง",
@@ -167,12 +169,10 @@ export default function OwnerV2NewTenant() {
           : "ยังมีรายการที่ต้องแก้ก่อนสร้างร้านจริง",
       });
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "ตรวจตัวอย่างไม่สำเร็จ กรุณาลองใหม่",
+        text: "ตรวจตัวอย่างไม่สำเร็จ กรุณาตรวจข้อมูลร้านแล้วลองใหม่อีกครั้ง",
       });
     } finally {
       setBusy(null);
@@ -181,6 +181,7 @@ export default function OwnerV2NewTenant() {
 
   const createTenant = async () => {
     setMessage(null);
+    setTechnicalMessage(null);
     if (!preview || !previewMatchesForm || previewHasBlockingCheck) {
       setMessage({
         tone: "warning",
@@ -196,12 +197,10 @@ export default function OwnerV2NewTenant() {
       });
       router.push(`/owner-v2/stores/${encodeURIComponent(tenantId.trim())}`);
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "สร้างร้านไม่สำเร็จ กรุณาลองใหม่",
+        text: "สร้างร้านไม่สำเร็จ กรุณาตรวจตัวอย่างล่าสุดแล้วลองใหม่อีกครั้ง",
       });
     } finally {
       setBusy(null);
@@ -274,10 +273,10 @@ export default function OwnerV2NewTenant() {
                   }`}
                 >
                   {tenantId.trim() && !tenantIdFormatOk
-                    ? "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น (อย่างน้อย 3 ตัว)"
+                    ? "ใช้ตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - เท่านั้น (อย่างน้อย 3 ตัว)"
                     : suggestedTenantId && suggestedTenantId !== tenantId
                       ? `แนะนำ: ${suggestedTenantId}`
-                      : "ใช้ lowercase, ตัวเลข, _ หรือ - เท่านั้น"}
+                      : "ใช้ตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - เท่านั้น"}
                 </p>
               </div>
               <div>
@@ -409,13 +408,13 @@ export default function OwnerV2NewTenant() {
                   }}
                   value={billingCycle ?? ""}
                 >
-                  <option value="">ไม่ระบุ (ไม่มี automation)</option>
+                  <option value="">ไม่ระบุรอบชำระ</option>
                   <option value="monthly">รายเดือน</option>
                   <option value="yearly">รายปี</option>
                   <option value="one_time">ครั้งเดียว</option>
                 </select>
                 <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  กำหนดเพื่อให้ระบบแจ้งเตือนและ auto-suspend เมื่อหมดอายุ
+                  กำหนดเพื่อให้ระบบแจ้งเตือนและระงับอัตโนมัติเมื่อหมดอายุ
                 </p>
               </div>
             )}
@@ -455,6 +454,11 @@ export default function OwnerV2NewTenant() {
                 title="สถานะการสร้างร้าน"
                 text={message.text}
               />
+            ) : null}
+            {technicalMessage ? (
+              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                <Fact label="ข้อความระบบ" value={technicalMessage} />
+              </TechnicalDetails>
             ) : null}
 
             <div className="flex flex-wrap items-center gap-3">
@@ -606,4 +610,8 @@ export default function OwnerV2NewTenant() {
       </Panel>
     </div>
   );
+}
+
+function technicalErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }

@@ -47,6 +47,7 @@ type ModelAdminGuide = {
 export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   const [state, setState] = useState<AiCeoState>({ status: "loading" });
   const [message, setMessage] = useState<MessageState | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
   const [dryRun, setDryRun] = useState<OwnerV2AiCeoDryRunResult | null>(null);
   const [openRouterKey, setOpenRouterKey] = useState("");
@@ -68,6 +69,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setState({ status: "loading" });
+      setTechnicalMessage(null);
       try {
         const data = await ownerV2Fetch<OwnerV2AiCeoSetupStatus>(
           `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/config`,
@@ -121,6 +123,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       return;
     }
     if (!canSave) {
+      setTechnicalMessage(null);
       setMessage({
         tone: "warning",
         text: "ตรวจแพ็กเกจร้าน ระบบเข้ารหัส และคำสั่ง AI ให้ครบก่อนบันทึก",
@@ -130,6 +133,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
 
     setBusy("save");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const next = await ownerV2Fetch<OwnerV2AiCeoSetupStatus>(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/config`,
@@ -146,10 +150,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setForm(formFromStatus(next));
       setMessage({ tone: "success", text: "บันทึกการตั้งค่า AI CEO แล้ว" });
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error ? error.message : "บันทึกการตั้งค่า AI CEO ไม่สำเร็จ",
+        text: "บันทึกการตั้งค่า AI CEO ไม่สำเร็จ ลองตรวจแพ็กเกจ โมเดล งบ และคำสั่ง AI อีกครั้ง",
       });
     } finally {
       setBusy(null);
@@ -162,12 +166,14 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       return;
     }
     if (openRouterKey.trim().length < 20) {
+      setTechnicalMessage(null);
       setMessage({ tone: "warning", text: "กรอกรหัส OpenRouter ก่อนบันทึก" });
       return;
     }
 
     setBusy("key");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const next = await ownerV2Fetch<OwnerV2AiCeoSetupStatus>(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/openrouter-key`,
@@ -183,9 +189,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
         text: "บันทึกรหัส OpenRouter แบบเข้ารหัสแล้ว",
       });
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "บันทึกรหัส OpenRouter ไม่สำเร็จ",
+        text: "บันทึกรหัส OpenRouter ไม่สำเร็จ ลองตรวจรหัสและระบบเข้ารหัสก่อนบันทึกใหม่",
       });
     } finally {
       setBusy(null);
@@ -198,6 +205,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
     }
     setBusy("models");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const next = await ownerV2Fetch<OwnerV2AiCeoSetupStatus>(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/sync-models`,
@@ -206,9 +214,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setState({ status: "success", data: next });
       setMessage({ tone: "success", text: "อัปเดตรายการโมเดลจาก OpenRouter แล้ว" });
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "อัปเดตโมเดลไม่สำเร็จ",
+        text: "อัปเดตรายการโมเดลไม่สำเร็จ ลองใหม่อีกครั้งหรือตรวจสถานะ OpenRouter",
       });
     } finally {
       setBusy(null);
@@ -220,6 +229,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       return;
     }
     if (!canDryRun) {
+      setTechnicalMessage(null);
       setMessage({
         tone: "warning",
         text: "ต้องมีแพ็กเกจที่รองรับ ระบบเข้ารหัส รหัส OpenRouter และคำสั่ง AI ก่อนทดสอบ AI CEO",
@@ -229,6 +239,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
 
     setBusy("dry-run");
     setMessage(null);
+    setTechnicalMessage(null);
     setDryRun(null);
     try {
       const result = await ownerV2Fetch<OwnerV2AiCeoDryRunResult>(
@@ -247,9 +258,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       });
       await load();
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "ทดสอบ AI CEO ไม่สำเร็จ",
+        text: "ทดสอบ AI CEO ไม่สำเร็จ ลองตรวจรหัส โมเดล และวันที่จำลองก่อนทดสอบใหม่",
       });
       await load().catch(() => null);
     } finally {
@@ -263,6 +275,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
     }
     setBusy(`item:${itemId}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       await ownerV2Fetch(
         `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/items/${encodeURIComponent(itemId)}`,
@@ -274,9 +287,10 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       await load();
       setMessage({ tone: "success", text: "อัปเดตสถานะคำแนะนำแล้ว" });
     } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "อัปเดตสถานะไม่สำเร็จ",
+        text: "อัปเดตสถานะคำแนะนำไม่สำเร็จ ลองโหลดข้อมูลใหม่แล้วทำรายการอีกครั้ง",
       });
     } finally {
       setBusy(null);
@@ -295,10 +309,17 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <Panel>
-        <PanelBody>
-          <Notice tone="error" title="โหลด AI CEO ไม่สำเร็จ" text={state.message} />
+        <PanelBody spaced>
+          <Notice
+            tone="error"
+            title="โหลด AI CEO ไม่สำเร็จ"
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือกลับไปหน้าร้าน"
+          />
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={state.message} />
+          </TechnicalDetails>
           <Button
-            className="mt-4 w-full sm:w-auto"
+            className="w-full sm:w-auto"
             onClick={() => void load()}
             type="button"
           >
@@ -741,6 +762,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
 
       {message ? (
         <Notice tone={message.tone} title="สถานะ AI CEO" text={message.text} />
+      ) : null}
+      {technicalMessage ? (
+        <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </TechnicalDetails>
       ) : null}
 
       {dryRun ? <AiCeoDryRunResultPanel result={dryRun} /> : null}
@@ -1392,6 +1418,10 @@ function formatPrice(value: number) {
     maximumFractionDigits: value >= 1 ? 2 : 4,
     minimumFractionDigits: 0,
   }).format(value);
+}
+
+function technicalErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
 function todayDateInput() {

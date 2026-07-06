@@ -18,10 +18,12 @@ import {
 } from "./api";
 import type { OwnerV2PermissionSetupPayload } from "./types";
 import {
+  Fact,
   Notice,
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   secondaryActionClass,
 } from "./ui";
 
@@ -53,6 +55,7 @@ export default function OwnerV2ReportPermissions({
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
   const [saveImpacts, setSaveImpacts] = useState<PermissionImpact[] | null>(
     null,
   );
@@ -61,6 +64,7 @@ export default function OwnerV2ReportPermissions({
     async (signal?: AbortSignal) => {
       setState({ status: "loading" });
       setMessage(null);
+      setTechnicalMessage(null);
       setSaveImpacts(null);
       try {
         const data = await ownerV2Fetch<OwnerV2PermissionSetupPayload>(
@@ -151,6 +155,7 @@ export default function OwnerV2ReportPermissions({
       };
     });
     setMessage(null);
+    setTechnicalMessage(null);
     setSaveImpacts(null);
   }
 
@@ -163,6 +168,7 @@ export default function OwnerV2ReportPermissions({
       [profileKey]: uniqueReportKeys(next),
     }));
     setMessage(null);
+    setTechnicalMessage(null);
     setSaveImpacts(null);
   }
 
@@ -207,14 +213,13 @@ export default function OwnerV2ReportPermissions({
       if (impacts.length) {
         setSaveImpacts(impacts);
       }
+      setTechnicalMessage(error instanceof Error ? error.message : "ไม่พบรายละเอียด");
       setMessage({
         tone: "error",
         text:
           impacts.length > 0
             ? "บันทึกไม่ได้ เพราะแผนแจ้งเตือนที่เปิดอยู่จะส่งรายงานให้ผู้รับที่ไม่มีสิทธิ์ กรุณาแก้ผู้รับ LINE หรือแผนแจ้งเตือนก่อน"
-            : error instanceof Error
-              ? error.message
-              : "บันทึกสิทธิ์รายงานไม่สำเร็จ",
+            : "บันทึกสิทธิ์รายงานไม่สำเร็จ ลองโหลดข้อมูลใหม่แล้วตรวจสิทธิ์ของผู้รับอีกครั้ง",
       });
     } finally {
       setBusy(null);
@@ -240,9 +245,12 @@ export default function OwnerV2ReportPermissions({
                 โหลดใหม่
               </Button>
             }
-            detail={`${state.message} กรุณาตรวจสิทธิ์ผู้ดูแลหรือเลือกร้านใหม่`}
+            detail="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเลือกร้านใหม่"
             title="โหลดสิทธิ์รายงานไม่สำเร็จ"
           />
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={state.message} />
+          </TechnicalDetails>
         </PanelBody>
       </Panel>
     );
@@ -274,6 +282,11 @@ export default function OwnerV2ReportPermissions({
         <PanelBody spaced>
           {message ? (
             <Notice tone={message.tone} title={message.text} />
+          ) : null}
+          {technicalMessage ? (
+            <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+              <Fact label="ข้อความระบบ" value={technicalMessage} />
+            </TechnicalDetails>
           ) : null}
 
           {visibleImpacts.length ? (
@@ -469,6 +482,7 @@ export default function OwnerV2ReportPermissions({
                     tone: "warning",
                     text: "ยกเลิกการเปลี่ยนแปลงบนหน้าจอแล้ว ยังไม่ได้บันทึกอะไร",
                   });
+                  setTechnicalMessage(null);
                   setSaveImpacts(null);
                 }}
                 type="button"
