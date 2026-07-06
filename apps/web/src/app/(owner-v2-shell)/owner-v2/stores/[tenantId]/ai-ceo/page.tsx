@@ -13,8 +13,14 @@ export default async function OwnerV2StoreAiCeoPage({
   params,
 }: OwnerV2StoreAiCeoPageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "AI CEO" },
+      ]}
       subtitle="ตั้งค่าบทบาท โมเดล รหัส OpenRouter และทดสอบ AI CEO ก่อนเปิดส่งจริงของร้านนี้"
       title="AI CEO / Business Advisor"
     >

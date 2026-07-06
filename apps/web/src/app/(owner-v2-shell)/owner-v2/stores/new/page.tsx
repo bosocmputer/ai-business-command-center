@@ -9,6 +9,10 @@ export const metadata: Metadata = {
 export default function OwnerV2NewStorePage() {
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { label: "เพิ่มร้านใหม่" },
+      ]}
       subtitle="สร้างร้านด้วยการตรวจข้อมูลก่อนบันทึกจริง เพื่อให้เห็นเส้นทางใช้งานและสิทธิ์พื้นฐานครบถ้วน"
       title="เพิ่มร้านใหม่"
     >

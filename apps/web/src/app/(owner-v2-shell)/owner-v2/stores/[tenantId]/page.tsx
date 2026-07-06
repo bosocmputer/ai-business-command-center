@@ -18,8 +18,14 @@ export default async function OwnerV2StorePage({
   params,
 }: OwnerV2StorePageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "ข้อมูลร้าน" },
+      ]}
       subtitle="ข้อมูลร้าน สถานะความพร้อม และขั้นตอนที่ควรทำต่อของร้านนี้"
       title="ข้อมูลร้าน"
     >

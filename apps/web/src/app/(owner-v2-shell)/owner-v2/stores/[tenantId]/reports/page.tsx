@@ -16,8 +16,14 @@ export default async function OwnerV2StoreReportsPage({
   params,
 }: OwnerV2StoreReportsPageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "ทดสอบรายงาน" },
+      ]}
       subtitle="ตรวจผลรันรายงานล่าสุดและหลักฐานก่อนเปิดแจ้งเตือน"
       title="ทดสอบรายงาน"
     >

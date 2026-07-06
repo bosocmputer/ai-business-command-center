@@ -16,8 +16,14 @@ export default async function OwnerV2StoreLinePage({
   params,
 }: OwnerV2StoreLinePageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "LINE OA" },
+      ]}
       subtitle="ตรวจสถานะ LINE OA และ target ของร้านนี้"
       title="LINE OA"
     >

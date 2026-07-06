@@ -16,8 +16,14 @@ export default async function OwnerV2StorePermissionsPage({
   params,
 }: OwnerV2StorePermissionsPageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "สิทธิ์รายงาน" },
+      ]}
       subtitle="ตรวจบทบาทและสิทธิ์รายงานของผู้รับแจ้งเตือน"
       title="สิทธิ์รายงาน"
     >

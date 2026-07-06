@@ -16,8 +16,14 @@ export default async function OwnerV2StoreNotificationsPage({
   params,
 }: OwnerV2StoreNotificationsPageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "แผนแจ้งเตือน" },
+      ]}
       subtitle="ตรวจแผนแจ้งเตือนและรอบถัดไปของร้านนี้"
       title="แผนแจ้งเตือน"
     >

@@ -106,6 +106,7 @@ export default function OwnerV2StoreSetupNav({
   const currentItem =
     groups.flatMap((group) => group.items).find((item) => item.key === current) ??
     null;
+  const allItems = groups.flatMap((group) => group.items);
 
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03] sm:p-5">
@@ -127,7 +128,25 @@ export default function OwnerV2StoreSetupNav({
           </p>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+      <details className="lg:hidden">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800 marker:hidden dark:border-gray-800 dark:bg-white/[0.02] dark:text-white/90">
+          เลือกหน้างานของร้านนี้
+          <span className="text-theme-xs font-normal text-gray-500 dark:text-gray-400">
+            แตะเพื่อเปิดเมนู
+          </span>
+        </summary>
+        <nav className="mt-3 grid grid-cols-1 gap-2">
+          {allItems.map((item) => (
+            <StoreSetupNavLink
+              active={item.key === current}
+              compact
+              item={item}
+              key={item.key}
+            />
+          ))}
+        </nav>
+      </details>
+      <div className="hidden grid-cols-1 gap-4 lg:grid xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         {groups.map((group) => (
           <div className="min-w-0" key={group.title}>
             <div className="mb-2">
@@ -156,9 +175,11 @@ export default function OwnerV2StoreSetupNav({
 
 function StoreSetupNavLink({
   active,
+  compact = false,
   item,
 }: {
   active: boolean;
+  compact?: boolean;
   item: StoreSetupNavItem;
 }) {
   return (
@@ -166,8 +187,8 @@ function StoreSetupNavLink({
       aria-current={active ? "page" : undefined}
       className={
         active
-          ? "group block rounded-xl border border-brand-500 bg-brand-50 px-3 py-3 shadow-theme-xs transition dark:border-brand-500/40 dark:bg-brand-500/15"
-          : "group block rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-theme-xs transition hover:border-brand-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/40 dark:hover:bg-white/[0.05]"
+          ? `group block rounded-xl border border-brand-500 bg-brand-50 px-3 ${compact ? "py-2.5" : "py-3"} shadow-theme-xs transition dark:border-brand-500/40 dark:bg-brand-500/15`
+          : `group block rounded-xl border border-gray-200 bg-white px-3 ${compact ? "py-2.5" : "py-3"} shadow-theme-xs transition hover:border-brand-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-brand-500/40 dark:hover:bg-white/[0.05]`
       }
       href={item.href}
     >

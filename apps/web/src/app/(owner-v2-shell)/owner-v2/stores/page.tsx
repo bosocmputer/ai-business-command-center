@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 export default function OwnerV2StoresPage() {
   return (
     <OwnerV2Shell
+      breadcrumbs={[{ label: "ร้านค้า" }]}
       subtitle="ค้นหาร้าน ดูความพร้อม และเปิดงานถัดไปของแต่ละร้านโดยไม่ต้องกลับหน้าแรกก่อน"
       title="ร้านค้า"
     >

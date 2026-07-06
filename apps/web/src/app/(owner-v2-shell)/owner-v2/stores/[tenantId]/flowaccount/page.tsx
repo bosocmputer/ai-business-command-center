@@ -16,8 +16,14 @@ export default async function OwnerV2StoreFlowAccountPage({
   params,
 }: OwnerV2StoreFlowAccountPageProps) {
   const { tenantId } = await params;
+  const storeHref = `/owner-v2/stores/${encodeURIComponent(tenantId)}`;
   return (
     <OwnerV2Shell
+      breadcrumbs={[
+        { href: "/owner-v2/stores", label: "ร้านค้า" },
+        { href: storeHref, label: "ร้านนี้" },
+        { label: "FlowAccount" },
+      ]}
       subtitle="ตั้งค่าข้อมูลเชื่อมต่อแบบทดสอบโดยไม่แสดงค่าลับที่บันทึกไว้"
       title="ทดสอบเชื่อมต่อ FlowAccount"
     >

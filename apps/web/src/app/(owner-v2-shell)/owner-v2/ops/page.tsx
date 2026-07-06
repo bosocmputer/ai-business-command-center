@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 export default function OwnerV2OpsPage() {
   return (
     <OwnerV2Shell
+      breadcrumbs={[{ label: "ศูนย์ตรวจระบบ" }]}
       subtitle="ดูสถานะส่ง LINE, AI CEO, รายงาน และงานระบบ พร้อมคำแนะนำว่าควรแก้อะไรก่อน"
       title="ศูนย์ตรวจระบบ"
     >

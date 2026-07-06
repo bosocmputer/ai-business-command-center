@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 export default function OwnerV2SystemPage() {
   return (
     <OwnerV2Shell
+      breadcrumbs={[{ label: "ตั้งค่าระบบ" }]}
       subtitle="ตรวจเฉพาะสถานะระบบกลางที่ผู้ดูแลต้องรู้ โดยไม่แสดงค่าลับ, รหัสตรวจ, URL เต็ม หรือตำแหน่งไฟล์บนเครื่องแม่ข่าย"
       title="ตั้งค่าระบบ"
     >
