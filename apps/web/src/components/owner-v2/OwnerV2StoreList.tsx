@@ -20,8 +20,10 @@ import type {
 } from "./types";
 import {
   formatPlanCode,
+  formatRunStatus,
   formatTenantStatus,
   primaryActionClass,
+  secondaryActionClass,
   tenantStatusColor,
 } from "./ui";
 
@@ -95,7 +97,9 @@ export default function OwnerV2StoreList() {
         return true;
       }
       return normalizeText(
-        `${tenant.name} ${tenant.id} ${tenant.status} ${tenant.next_action?.label ?? ""}`,
+        `${tenant.name} ${formatPlanCode(tenant.plan_code)} ${formatTenantStatus(
+          tenant.status,
+        )} ${tenant.next_action?.label ?? ""} ${tenant.next_action?.detail ?? ""}`,
       ).includes(normalizedQuery);
     });
   }, [filter, query, tenants]);
@@ -224,6 +228,7 @@ export default function OwnerV2StoreList() {
           <div className="grid grid-cols-2 items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900 sm:inline-grid sm:grid-cols-4">
             {filters.map((item) => (
               <button
+                aria-pressed={filter === item.id}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-theme-sm font-medium transition ${
                   filter === item.id
                     ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-800 dark:text-white"
@@ -254,20 +259,30 @@ export default function OwnerV2StoreList() {
                 w-full on the table itself so columns fill the card width (the
                 min-w only kicks in on a very narrow lg viewport to allow scroll). */}
             <div className="hidden w-full overflow-x-auto lg:block">
-              <table className="w-full min-w-[640px]">
+              <table className="w-full min-w-[920px]">
                 <thead>
                   <tr className="border-y border-gray-100 dark:border-gray-800">
-                    <th className="w-[34%] py-3 pr-5 text-left">
+                    <th className="w-[25%] py-3 pr-5 text-left">
                       <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
                         ร้าน
                       </span>
                     </th>
-                    <th className="w-[20%] px-3 py-3 text-left">
+                    <th className="w-[16%] px-3 py-3 text-left">
                       <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
                         ความพร้อม
                       </span>
                     </th>
-                    <th className="w-[46%] px-3 py-3 text-left">
+                    <th className="w-[17%] px-3 py-3 text-left">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        LINE
+                      </span>
+                    </th>
+                    <th className="w-[19%] px-3 py-3 text-left">
+                      <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+                        รอบล่าสุด
+                      </span>
+                    </th>
+                    <th className="w-[23%] px-3 py-3 text-left">
                       <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
                         สิ่งที่ต้องทำต่อ
                       </span>
@@ -305,6 +320,16 @@ export default function OwnerV2StoreList() {
               <PlusIcon className="h-4 w-4" />
               เพิ่มร้านใหม่
             </Link>
+            <Button
+              onClick={() => {
+                setQuery("");
+                setFilter("all");
+              }}
+              type="button"
+              variant="outline"
+            >
+              ล้างตัวกรอง
+            </Button>
           </div>
         )}
       </section>
@@ -315,15 +340,9 @@ export default function OwnerV2StoreList() {
 function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
   const href = `/owner-v2/stores/${encodeURIComponent(tenant.id)}`;
   const hasCritical = tenant.health.critical_business_signals > 0;
+  const nextAction = getPrimaryStoreAction(tenant, href);
   return (
-    <tr
-      className="cursor-pointer transition hover:bg-gray-50 dark:hover:bg-white/[0.03]"
-      onClick={() => {
-        if (typeof window !== "undefined") {
-          window.location.href = href;
-        }
-      }}
-    >
+    <tr className="transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
       <td className="py-4 pr-5 align-middle">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -338,7 +357,34 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
         </div>
       </td>
       <td className="px-3 py-4 align-middle">
-        <ReadinessBadge tenant={tenant} />
+        <ReadinessCell tenant={tenant} />
+      </td>
+      <td className="px-3 py-4 align-middle">
+        <StatusStack
+          detail={`แผนแจ้งเตือน ${tenant.health.notification_rules_enabled.toLocaleString(
+            "th-TH",
+          )} แผน`}
+          label="ผู้รับ LINE"
+          tone={
+            tenant.health.line_targets_enabled > 0 &&
+            tenant.health.notification_rules_enabled > 0
+              ? "success"
+              : "warning"
+          }
+          value={`${tenant.health.line_targets_enabled.toLocaleString(
+            "th-TH",
+          )} ราย`}
+        />
+      </td>
+      <td className="px-3 py-4 align-middle">
+        <StatusStack
+          detail={`รอบส่ง ${formatRunStatus(
+            tenant.health.latest_notification_run_status,
+          )}`}
+          label="รายงาน"
+          tone={runStatusTone(tenant.health.latest_report_status)}
+          value={formatRunStatus(tenant.health.latest_report_status)}
+        />
       </td>
       <td className="px-3 py-4 align-middle">
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">
@@ -354,6 +400,12 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
             </Badge>
           ) : null}
         </div>
+        <div className="mt-3">
+          <Link className={primaryActionClass} href={nextAction.href}>
+            {nextAction.label}
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </div>
       </td>
     </tr>
   );
@@ -362,11 +414,9 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
 function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
   const href = `/owner-v2/stores/${encodeURIComponent(tenant.id)}`;
   const hasCritical = tenant.health.critical_business_signals > 0;
+  const nextAction = getPrimaryStoreAction(tenant, href);
   return (
-    <Link
-      className="block rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-gray-700 dark:hover:bg-white/[0.05]"
-      href={href}
-    >
+    <article className="rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-gray-700 dark:hover:bg-white/[0.05]">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-gray-900 dark:text-white">
           {tenant.name}
@@ -377,6 +427,28 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
       <p className="mt-1 break-all text-theme-xs text-gray-500 dark:text-gray-400">
         แพ็กเกจ {formatPlanCode(tenant.plan_code)}
       </p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MobileFact
+          label="LINE"
+          value={`${tenant.health.line_targets_enabled.toLocaleString(
+            "th-TH",
+          )} ผู้รับ`}
+        />
+        <MobileFact
+          label="แผนแจ้งเตือน"
+          value={`${tenant.health.notification_rules_enabled.toLocaleString(
+            "th-TH",
+          )} แผน`}
+        />
+        <MobileFact
+          label="รายงานล่าสุด"
+          value={formatRunStatus(tenant.health.latest_report_status)}
+        />
+        <MobileFact
+          label="รอบส่งล่าสุด"
+          value={formatRunStatus(tenant.health.latest_notification_run_status)}
+        />
+      </div>
       <div className="mt-3">
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">
           {tenant.next_action?.label ?? "พร้อมใช้งาน"}
@@ -392,11 +464,18 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
           ) : null}
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-1 text-sm font-semibold text-brand-600 dark:text-brand-400">
-        เปิดร้าน
-        <ArrowRightIcon className="h-4 w-4" />
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <Link className={primaryActionClass} href={nextAction.href}>
+          {nextAction.label}
+          <ArrowRightIcon className="h-4 w-4" />
+        </Link>
+        {nextAction.href !== href ? (
+          <Link className={secondaryActionClass} href={href}>
+            เปิดร้าน
+          </Link>
+        ) : null}
       </div>
-    </Link>
+    </article>
   );
 }
 
@@ -512,12 +591,103 @@ function ReadinessBadge({ tenant }: { tenant: OwnerV2Tenant }) {
   );
 }
 
+function ReadinessCell({ tenant }: { tenant: OwnerV2Tenant }) {
+  const percent =
+    tenant.total_steps > 0
+      ? Math.round((tenant.completed_steps / tenant.total_steps) * 100)
+      : 0;
+  return (
+    <div className="min-w-[140px]">
+      <div className="flex items-center justify-between gap-2">
+        <ReadinessBadge tenant={tenant} />
+        <span className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
+          {percent}%
+        </span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+        <div
+          className={`h-full rounded-full ${
+            tenant.ready ? "bg-success-500" : "bg-warning-500"
+          }`}
+          style={{ width: `${Math.min(Math.max(percent, 0), 100)}%` }}
+        />
+      </div>
+      <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
+        {tenant.completed_steps.toLocaleString("th-TH")}/
+        {tenant.total_steps.toLocaleString("th-TH")} ขั้นตอน
+      </p>
+    </div>
+  );
+}
+
+function StatusStack({
+  detail,
+  label,
+  tone,
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone: "success" | "warning" | "error" | "light";
+  value: string;
+}) {
+  return (
+    <div className="min-w-[130px]">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <div className="mt-1">
+        <Badge color={tone} size="sm">
+          {value}
+        </Badge>
+      </div>
+      <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function MobileFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+      <p className="text-theme-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <Badge color={tenantStatusColor(status)} size="sm">
       {formatTenantStatus(status)}
     </Badge>
   );
+}
+
+function getPrimaryStoreAction(tenant: OwnerV2Tenant, fallbackHref: string) {
+  if (tenant.next_action) {
+    return {
+      href: tenant.next_action.href,
+      label: tenant.next_action.action_label || "ทำขั้นถัดไป",
+    };
+  }
+  return { href: fallbackHref, label: "เปิดร้าน" };
+}
+
+function runStatusTone(
+  status?: string | null,
+): "success" | "warning" | "error" | "light" {
+  if (!status) {
+    return "light";
+  }
+  if (status === "success") {
+    return "success";
+  }
+  if (status === "failed") {
+    return "error";
+  }
+  return "warning";
 }
 
 function summarizeTenants(tenants: OwnerV2Tenant[]) {
