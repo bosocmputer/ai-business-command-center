@@ -29,7 +29,7 @@ import {
   PlusIcon,
   TimeIcon,
 } from "@/icons";
-import { isAbortError, ownerV2Fetch } from "./api";
+import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
@@ -163,6 +163,7 @@ export default function OwnerV2NotificationSetup({
     tone: "success" | "warning" | "error";
     text: string;
   } | null>(null);
+  const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<NotificationRuleRunResult | null>(
     null,
   );
@@ -184,6 +185,7 @@ export default function OwnerV2NotificationSetup({
       }
       if (!options.preserveMessage) {
         setMessage(null);
+        setTechnicalMessage(null);
       }
       try {
         const [notifications, line] = await Promise.all([
@@ -384,6 +386,7 @@ export default function OwnerV2NotificationSetup({
     setRunResult(null);
     setSendConfirmRuleId(null);
     setMessage(null);
+    setTechnicalMessage(null);
   }
 
   function startNewRule() {
@@ -396,6 +399,7 @@ export default function OwnerV2NotificationSetup({
     setInitialForm(nextForm);
     setRunResult(null);
     setSendConfirmRuleId(null);
+    setTechnicalMessage(null);
     setMessage({
       tone: "success",
       text: "เริ่มแผนใหม่แล้ว เลือกเวลา รายงาน และผู้รับก่อนบันทึก",
@@ -414,6 +418,7 @@ export default function OwnerV2NotificationSetup({
 
     setBusy("save-rule");
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const payload = buildRulePayload({ form, tenantId });
       const saved = await ownerV2Fetch<OwnerNotificationRule>(
@@ -453,11 +458,9 @@ export default function OwnerV2NotificationSetup({
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "บันทึกแผนแจ้งเตือนไม่สำเร็จ",
+        text: "บันทึกแผนแจ้งเตือนไม่สำเร็จ ตรวจเวลา ผู้รับ LINE และรายงานที่เลือกก่อนลองใหม่",
       });
+      setTechnicalMessage(toNotificationTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -498,6 +501,7 @@ export default function OwnerV2NotificationSetup({
 
     setBusy(`${mode}-${selectedRuleId}`);
     setMessage(null);
+    setTechnicalMessage(null);
     try {
       const body: {
         client_request_id: string;
@@ -541,10 +545,11 @@ export default function OwnerV2NotificationSetup({
       setMessage({
         tone: "error",
         text:
-          error instanceof Error
-            ? error.message
-            : "รันแผนแจ้งเตือนไม่สำเร็จ",
+          mode === "send"
+            ? "ส่งจริงไม่สำเร็จ ตรวจผู้รับ LINE โควต้า และสถานะระบบก่อนลองใหม่"
+            : "ทดสอบแผนไม่สำเร็จ ตรวจรายงาน ผู้รับ LINE และสถานะระบบก่อนลองใหม่",
       });
+      setTechnicalMessage(toNotificationTechnicalMessage(error));
     } finally {
       setBusy(null);
     }
@@ -612,6 +617,7 @@ export default function OwnerV2NotificationSetup({
       manualDate: "",
       manualTime: "",
     });
+    setTechnicalMessage(null);
     setMessage({
       tone: "warning",
       text: `กรอกแผนแนะนำ “${preset.name}” ให้แล้ว ตรวจรายละเอียดก่อนบันทึก`,
@@ -632,6 +638,11 @@ export default function OwnerV2NotificationSetup({
           title="สถานะแผนแจ้งเตือน"
           tone={message.tone}
         />
+      ) : null}
+      {technicalMessage ? (
+        <TechnicalDetails embedded title="รายละเอียดการทำรายการ">
+          <Fact label="ข้อความระบบ" value={technicalMessage} />
+        </TechnicalDetails>
       ) : null}
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -2275,6 +2286,18 @@ function createClientRequestId() {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function toNotificationTechnicalMessage(error: unknown) {
+  const payload = (error as OwnerV2FetchError | undefined)?.payload;
+  const safeMessage =
+    typeof payload?.message === "string" && payload.message.trim()
+      ? payload.message.trim()
+      : null;
+  if (safeMessage) {
+    return safeMessage;
+  }
+  return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
 function NotificationSkeleton() {
