@@ -369,6 +369,13 @@ export default function OwnerV2NotificationSetup({
     : null;
   const effectiveSendBlockedReason =
     activeRunBlockedReason ?? actionBlockedReason;
+  const formFooterHint = getNotificationFormFooterHint({
+    actionBlockedReason,
+    dirty,
+    effectiveSendBlockedReason,
+    saveBlockedReason,
+    selectedRuleId,
+  });
   const saveDisabled =
     busy !== null || state.status !== "success" || saveBlockedReason !== null;
   const dryRunDisabled =
@@ -639,6 +646,11 @@ export default function OwnerV2NotificationSetup({
           <Fact label="ข้อความระบบ" value={technicalMessage} />
         </TechnicalDetails>
       ) : null}
+      <Notice
+        text="รอบปกติควรใช้ “ส่งรายงานครบทุกใบ” เพื่อให้ลูกค้าเห็น AI CEO ตามด้วยการ์ดรายงานเหมือนรอบ 08:00 ถ้าจะกดส่งจริงเพื่อทดสอบ ให้เลือกปลายทางเป็นผู้รับของทีมก่อนเสมอ"
+        title="การแจ้งเตือน LINE อ้างจากแผนที่บันทึกไว้"
+        tone="info"
+      />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <NotificationStat label="แผนทั้งหมด" value={rules.length} />
@@ -792,7 +804,10 @@ export default function OwnerV2NotificationSetup({
             <PanelBody spaced>
               <form className="space-y-6" onSubmit={saveRule}>
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                  <Field label="ชื่อแผน">
+                  <Field
+                    help="ใช้ชื่อที่ทีมอ่านแล้วรู้รอบทันที เช่น สรุปผู้บริหาร 08:00"
+                    label="ชื่อแผน"
+                  >
                     <input
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -805,7 +820,10 @@ export default function OwnerV2NotificationSetup({
                       value={form.name}
                     />
                   </Field>
-                  <Field label="สถานะ">
+                  <Field
+                    help="ปิดไว้ก่อนได้เมื่อยังตั้งค่า LINE หรือสิทธิ์รายงานไม่ครบ"
+                    label="สถานะ"
+                  >
                     <select
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -820,7 +838,10 @@ export default function OwnerV2NotificationSetup({
                       <option value="false">ปิดไว้ก่อน</option>
                     </select>
                   </Field>
-                  <Field label="รูปแบบสรุป">
+                  <Field
+                    help="รอบปกติของลูกค้าให้ใช้ “ส่งรายงานครบทุกใบ” เพื่อคงรูปแบบเดิม"
+                    label="รูปแบบข้อความใน LINE"
+                  >
                     <select
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -838,7 +859,10 @@ export default function OwnerV2NotificationSetup({
                       ))}
                     </select>
                   </Field>
-                  <Field label="ช่วงข้อมูล">
+                  <Field
+                    help="รอบ 08:00 ใช้เมื่อวาน ส่วนรอบเย็นมักใช้วันนี้ถึงตอนนี้"
+                    label="ช่วงข้อมูลของรายงาน"
+                  >
                     <select
                       className="owner-v2-input"
                       onChange={(event) =>
@@ -858,8 +882,16 @@ export default function OwnerV2NotificationSetup({
                   </Field>
                 </div>
 
+                {form.digestMode === "action_only" ? (
+                  <Notice
+                    text="โหมดนี้จะส่งเฉพาะเรื่องที่ระบบคิดว่าต้องดู และอาจไม่แนบการ์ดรายงานครบทุกใบ เหมาะกับรอบพิเศษเท่านั้น"
+                    title="กำลังใช้โหมดส่งเฉพาะเรื่องที่ต้องดู"
+                    tone="warning"
+                  />
+                ) : null}
+
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
-                  <Field label="เวลาแจ้งเตือน">
+                  <Field help="เวลาทั้งหมดเป็นเวลาไทย Asia/Bangkok" label="เวลาแจ้งเตือน">
                     <div className="flex flex-col gap-3 sm:flex-row">
                       <input
                         className="owner-v2-input"
@@ -904,7 +936,7 @@ export default function OwnerV2NotificationSetup({
                     </div>
                   </Field>
 
-                  <Field label="วันที่ส่ง">
+                  <Field help="เลือกวันที่ระบบต้องส่งอัตโนมัติในแต่ละสัปดาห์" label="วันที่ส่ง">
                     <div className="flex flex-wrap gap-2">
                       {weekdays.map((weekday) => {
                         const checked = form.weekdays.includes(weekday.value);
@@ -973,7 +1005,10 @@ export default function OwnerV2NotificationSetup({
                 />
 
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                  <Field label="จำลองวันที่รอบส่ง">
+                  <Field
+                    help="ใช้เฉพาะปุ่มทดสอบหรือส่งตอนนี้ ไม่เปลี่ยนตารางแจ้งเตือนจริง"
+                    label="จำลองวันที่รอบส่ง"
+                  >
                     <input
                       className="owner-v2-input"
                       onChange={(event) => {
@@ -987,7 +1022,10 @@ export default function OwnerV2NotificationSetup({
                       value={form.manualDate}
                     />
                   </Field>
-                  <Field label="จำลองเวลารอบส่ง">
+                  <Field
+                    help="ถ้าเลือกเวลา ต้องเป็นเวลาที่อยู่ในแผนนี้เพื่อกันส่งผิดรอบ"
+                    label="จำลองเวลารอบส่ง"
+                  >
                     <select
                       className="owner-v2-input"
                       onChange={(event) => {
@@ -1034,9 +1072,7 @@ export default function OwnerV2NotificationSetup({
 
                 <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    {saveBlockedReason ??
-                      effectiveSendBlockedReason ??
-                      "บันทึกแผนก่อนทดสอบหรือส่งจริง เพื่อกันค่าฟอร์มไม่ตรงกับเวลาแจ้งเตือน"}
+                    {formFooterHint}
                   </div>
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
                     <Button
@@ -2014,6 +2050,31 @@ function getActionBlockedReason(input: {
     return input.selectedTargetBlockedReason;
   }
   return null;
+}
+
+function getNotificationFormFooterHint(input: {
+  actionBlockedReason: string | null;
+  dirty: boolean;
+  effectiveSendBlockedReason: string | null;
+  saveBlockedReason: string | null;
+  selectedRuleId: string | null;
+}) {
+  if (input.saveBlockedReason) {
+    return input.saveBlockedReason;
+  }
+  if (!input.selectedRuleId) {
+    return "บันทึกแผนก่อนทดสอบหรือส่งจริง เพื่อให้รอบส่งใช้ค่าที่ถูกต้อง";
+  }
+  if (input.dirty) {
+    return "มีการแก้ไขที่ยังไม่บันทึก กรุณาบันทึกก่อนทดสอบหรือส่งจริง";
+  }
+  if (input.effectiveSendBlockedReason) {
+    return input.effectiveSendBlockedReason;
+  }
+  if (input.actionBlockedReason) {
+    return input.actionBlockedReason;
+  }
+  return "พร้อมทดสอบแล้ว ถ้าจะส่งจริงเพื่อดูหน้าตา LINE ให้เลือกปลายทางเฉพาะผู้รับของทีมก่อน";
 }
 
 function isManualScheduleAllowed(form: NotificationFormState) {
