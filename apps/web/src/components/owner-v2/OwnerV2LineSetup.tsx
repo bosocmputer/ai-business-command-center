@@ -17,6 +17,7 @@ import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type { OwnerV2LineSetupPayload } from "./types";
 import {
   Field,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -134,9 +135,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         setSecretForm((current) => ({
           ...current,
           channelId:
-            current.channelId && dataChannels.some((item) => item.id === current.channelId)
+            current.channelId &&
+            dataChannels.some((item) => item.id === current.channelId)
               ? current.channelId
-              : dataChannels[0]?.id ?? "",
+              : (dataChannels[0]?.id ?? ""),
           channelAccessToken: "",
           channelSecret: "",
         }));
@@ -146,7 +148,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
             current.lineChannelId &&
             dataChannels.some((item) => item.id === current.lineChannelId)
               ? current.lineChannelId
-              : dataChannels[0]?.id ?? "",
+              : (dataChannels[0]?.id ?? ""),
         }));
         setTargetProfileDrafts((current) => {
           const next = { ...current };
@@ -162,7 +164,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         setState({
           status: "error",
           message:
-            error instanceof Error ? error.message : "โหลดการตั้งค่า LINE ไม่สำเร็จ",
+            error instanceof Error
+              ? error.message
+              : "โหลดการตั้งค่า LINE ไม่สำเร็จ",
         });
       }
     },
@@ -187,7 +191,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       void loadRecipients();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, state.status === "success" ? (state.data.targets ?? []).length : 0]);
+  }, [
+    state.status,
+    state.status === "success" ? (state.data.targets ?? []).length : 0,
+  ]);
 
   const setup = state.status === "success" ? state.data : null;
   const channels = setup?.channels ?? emptyChannels;
@@ -200,13 +207,22 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     () => targets.filter((target) => target.approved),
     [targets],
   );
-  const quotaSummary = useMemo(() => calculateQuotaSummary(readyTargets), [readyTargets]);
+  const quotaSummary = useMemo(
+    () => calculateQuotaSummary(readyTargets),
+    [readyTargets],
+  );
   const personalTargets = useMemo(
-    () => targets.filter((target) => target.target_type === "user" && target.approved),
+    () =>
+      targets.filter(
+        (target) => target.target_type === "user" && target.approved,
+      ),
     [targets],
   );
   const teamTargets = useMemo(
-    () => targets.filter((target) => target.target_type !== "user" && target.approved),
+    () =>
+      targets.filter(
+        (target) => target.target_type !== "user" && target.approved,
+      ),
     [targets],
   );
   const pendingTargets = useMemo(
@@ -231,7 +247,9 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       : [];
 
   const createDisabled =
-    busy !== null || state.status !== "success" || channelForm.displayName.trim().length < 2;
+    busy !== null ||
+    state.status !== "success" ||
+    channelForm.displayName.trim().length < 2;
   const saveSecretDisabled =
     busy !== null ||
     state.status !== "success" ||
@@ -275,8 +293,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "สร้าง LINE OA ไม่สำเร็จ ลองตรวจชื่อช่องทางและสิทธิ์ผู้ดูแล แล้วสร้างใหม่",
+        text: "สร้าง LINE OA ไม่สำเร็จ ลองตรวจชื่อช่องทางและสิทธิ์ผู้ดูแล แล้วสร้างใหม่",
       });
       setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
@@ -332,8 +349,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "บันทึกรหัส LINE OA ไม่สำเร็จ ลองตรวจค่าที่กรอกและกุญแจเข้ารหัสบนเครื่องแม่ข่าย",
+        text: "บันทึกรหัส LINE OA ไม่สำเร็จ ลองตรวจค่าที่กรอกและกุญแจเข้ารหัสบนเครื่องแม่ข่าย",
       });
       setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
@@ -382,8 +398,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
           current.sourceTargetId &&
           data.some((item) => item.source_target_id === current.sourceTargetId)
             ? current.sourceTargetId
-            : data.find((item) => !item.assigned_tenant_ids.includes(tenantId))
-                ?.source_target_id ?? "",
+            : (data.find((item) => !item.assigned_tenant_ids.includes(tenantId))
+                ?.source_target_id ?? ""),
       }));
     } catch (error) {
       setRecipientsState({
@@ -429,8 +445,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "เพิ่มผู้รับ LINE เข้าร้านไม่สำเร็จ ลองเลือกผู้รับและ LINE OA ใหม่อีกครั้ง",
+        text: "เพิ่มผู้รับ LINE เข้าร้านไม่สำเร็จ ลองเลือกผู้รับและ LINE OA ใหม่อีกครั้ง",
       });
       setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
@@ -439,7 +454,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   }
 
   async function approveTarget(target: LineTargetRecord) {
-    const profileKey = targetProfileDrafts[target.id] ?? target.access_profile_key;
+    const profileKey =
+      targetProfileDrafts[target.id] ?? target.access_profile_key;
     setBusy(`approve-${target.id}`);
     setMessage(null);
     setTechnicalMessage(null);
@@ -499,8 +515,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "ส่งข้อความทดสอบไม่สำเร็จ ตรวจโควต้า LINE OA และสถานะผู้รับก่อนลองใหม่",
+        text: "ส่งข้อความทดสอบไม่สำเร็จ ตรวจโควต้า LINE OA และสถานะผู้รับก่อนลองใหม่",
       });
       setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
@@ -509,7 +524,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   }
 
   async function updateTargetProfile(target: LineTargetRecord) {
-    const profileKey = targetProfileDrafts[target.id] ?? target.access_profile_key;
+    const profileKey =
+      targetProfileDrafts[target.id] ?? target.access_profile_key;
     if (profileKey === target.access_profile_key) {
       setMessage({
         tone: "warning",
@@ -588,13 +604,10 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     setMessage(null);
     setTechnicalMessage(null);
     try {
-      await ownerV2Fetch(
-        `/api/line-targets/${encodeURIComponent(target.id)}`,
-        {
-          method: "PATCH",
-          body: { recipient_count_estimate: estimate },
-        },
-      );
+      await ownerV2Fetch(`/api/line-targets/${encodeURIComponent(target.id)}`, {
+        method: "PATCH",
+        body: { recipient_count_estimate: estimate },
+      });
       setMessage({
         tone: "success",
         text: `บันทึกจำนวนผู้รับโดยประมาณของ ${target.display_name} แล้ว`,
@@ -603,8 +616,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "บันทึกจำนวนผู้รับโดยประมาณไม่สำเร็จ ลองตรวจตัวเลขแล้วบันทึกใหม่",
+        text: "บันทึกจำนวนผู้รับโดยประมาณไม่สำเร็จ ลองตรวจตัวเลขแล้วบันทึกใหม่",
       });
       setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
@@ -635,8 +647,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     } catch (error) {
       setMessage({
         tone: "error",
-        text:
-          "เปิดสิทธิ์รับแผนแจ้งเตือนไม่สำเร็จ ลองรีเฟรชแล้วเปิดสิทธิ์ใหม่",
+        text: "เปิดสิทธิ์รับแผนแจ้งเตือนไม่สำเร็จ ลองรีเฟรชแล้วเปิดสิทธิ์ใหม่",
       });
       setTechnicalMessage(toLineTechnicalMessage(error));
     } finally {
@@ -757,85 +768,92 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                   <ReadinessItem check={check} key={check.label} />
                 ))}
               </div>
-              <LineSetupGuide checks={readinessChecks} quotaSummary={quotaSummary} />
+              <LineSetupGuide
+                checks={readinessChecks}
+                quotaSummary={quotaSummary}
+              />
             </PanelBody>
           </Panel>
 
+          <FormPanel
+            as="form"
+            description="เพิ่ม OA ของร้านหรือ OA กลาง แล้วเปิดใช้งานเฉพาะช่องทางที่พร้อมส่ง"
+            onSubmit={createChannel}
+            title="เพิ่ม LINE OA"
+          >
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_180px_120px_auto]">
+              <Field
+                label="ชื่อ LINE OA"
+                help="ตั้งชื่อให้อ่านรู้ทันทีว่าเป็น OA ของร้านไหน หรือเป็น OA กลางของระบบ"
+              >
+                <input
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setChannelForm((current) => ({
+                      ...current,
+                      displayName: event.target.value,
+                    }))
+                  }
+                  placeholder="เช่น กระบี่ LINE OA"
+                  value={channelForm.displayName}
+                />
+              </Field>
+              <Field
+                label="ขอบเขต"
+                help="เลือก OA กลางเฉพาะกรณีตั้งใจใช้ช่องทางเดียวร่วมหลายร้าน เพราะโควต้าจะถูกใช้ร่วมกัน"
+              >
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setChannelForm((current) => ({
+                      ...current,
+                      scope: event.target.value as LineChannelRecord["scope"],
+                    }))
+                  }
+                  value={channelForm.scope ?? "tenant"}
+                >
+                  <option value="tenant">ของร้านนี้</option>
+                  <option value="owner_shared">OA กลาง</option>
+                </select>
+              </Field>
+              <Field
+                label="สถานะ"
+                help="ปิดไว้ก่อนได้ระหว่างยังไม่ได้บันทึกรหัสหรือยังไม่ต้องการให้ส่งจริง"
+              >
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setChannelForm((current) => ({
+                      ...current,
+                      enabled: event.target.value === "true",
+                    }))
+                  }
+                  value={channelForm.enabled ? "true" : "false"}
+                >
+                  <option value="true">เปิด</option>
+                  <option value="false">ปิด</option>
+                </select>
+              </Field>
+              <div className="flex items-end">
+                <Button
+                  className="w-full"
+                  disabled={createDisabled}
+                  size="sm"
+                  startIcon={<PlusIcon className="size-4" />}
+                  type="submit"
+                >
+                  เพิ่ม OA
+                </Button>
+              </div>
+            </div>
+          </FormPanel>
+
           <Panel>
             <PanelHeader
-              description="เพิ่ม OA ของร้านหรือ OA กลาง แล้วเปิดใช้งานเฉพาะช่องทางที่พร้อมส่ง"
+              description="ตรวจช่องทางที่บันทึกแล้วและเปิด/ปิดการใช้งานได้จากตรงนี้"
               title="ช่องทาง LINE OA"
             />
-            <PanelBody spaced>
-              <form
-                className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_180px_120px_auto]"
-                onSubmit={createChannel}
-              >
-                <Field
-                  label="ชื่อ LINE OA"
-                  help="ตั้งชื่อให้อ่านรู้ทันทีว่าเป็น OA ของร้านไหน หรือเป็น OA กลางของระบบ"
-                >
-                  <input
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setChannelForm((current) => ({
-                        ...current,
-                        displayName: event.target.value,
-                      }))
-                    }
-                    placeholder="เช่น กระบี่ LINE OA"
-                    value={channelForm.displayName}
-                  />
-                </Field>
-                <Field
-                  label="ขอบเขต"
-                  help="เลือก OA กลางเฉพาะกรณีตั้งใจใช้ช่องทางเดียวร่วมหลายร้าน เพราะโควต้าจะถูกใช้ร่วมกัน"
-                >
-                  <select
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setChannelForm((current) => ({
-                        ...current,
-                        scope: event.target.value as LineChannelRecord["scope"],
-                      }))
-                    }
-                    value={channelForm.scope ?? "tenant"}
-                  >
-                    <option value="tenant">ของร้านนี้</option>
-                    <option value="owner_shared">OA กลาง</option>
-                  </select>
-                </Field>
-                <Field
-                  label="สถานะ"
-                  help="ปิดไว้ก่อนได้ระหว่างยังไม่ได้บันทึกรหัสหรือยังไม่ต้องการให้ส่งจริง"
-                >
-                  <select
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setChannelForm((current) => ({
-                        ...current,
-                        enabled: event.target.value === "true",
-                      }))
-                    }
-                    value={channelForm.enabled ? "true" : "false"}
-                  >
-                    <option value="true">เปิด</option>
-                    <option value="false">ปิด</option>
-                  </select>
-                </Field>
-                <div className="flex items-end">
-                  <Button
-                    className="w-full"
-                    disabled={createDisabled}
-                    size="sm"
-                    startIcon={<PlusIcon className="size-4" />}
-                    type="submit"
-                  >
-                    เพิ่ม OA
-                  </Button>
-                </div>
-              </form>
-
+            <PanelBody>
               <ChannelTable
                 busy={busy}
                 channels={channels}
@@ -852,83 +870,72 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
             <PanelBody spaced>
               {targets.length ? (
                 <>
-                <div className="mb-4 flex items-center gap-2">
-                  <Badge color="light" size="sm">
-                    โควต้า LINE: {formatEstimatedMonthlyMessages(quotaSummary)}
-                  </Badge>
-                </div>
-                <TargetGroup
-
-                  targets={personalTargets}
-                  title="ผู้บริหารรายคน"
-                >
-                  <TargetTable
-                    busy={busy}
-                    channels={channels}
-                    onApproveTarget={approveTarget}
-                    onEnableMorningBriefAction={enableMorningBriefAction}
-                    onTestSendTarget={testSendTarget}
-                    onTargetProfileChange={(targetId, profileKey) =>
-                      setTargetProfileDrafts((current) => ({
-                        ...current,
-                        [targetId]: profileKey,
-                      }))
-                    }
-                    onToggleTarget={toggleTarget}
-                    onUpdateRecipientEstimate={updateRecipientEstimate}
-                    onUpdateTargetProfile={updateTargetProfile}
-                    targetProfileDrafts={targetProfileDrafts}
-                    targets={personalTargets}
-                  />
-                </TargetGroup>
-                <TargetGroup
-
-                  targets={teamTargets}
-                  title="กลุ่มทีมงาน"
-                >
-                  <TargetTable
-                    busy={busy}
-                    channels={channels}
-                    onApproveTarget={approveTarget}
-                    onEnableMorningBriefAction={enableMorningBriefAction}
-                    onTestSendTarget={testSendTarget}
-                    onTargetProfileChange={(targetId, profileKey) =>
-                      setTargetProfileDrafts((current) => ({
-                        ...current,
-                        [targetId]: profileKey,
-                      }))
-                    }
-                    onToggleTarget={toggleTarget}
-                    onUpdateRecipientEstimate={updateRecipientEstimate}
-                    onUpdateTargetProfile={updateTargetProfile}
-                    targetProfileDrafts={targetProfileDrafts}
-                    targets={teamTargets}
-                  />
-                </TargetGroup>
-                <TargetGroup
-
-                  targets={pendingTargets}
-                  title="รออนุมัติ"
-                >
-                  <TargetTable
-                    busy={busy}
-                    channels={channels}
-                    onApproveTarget={approveTarget}
-                    onEnableMorningBriefAction={enableMorningBriefAction}
-                    onTestSendTarget={testSendTarget}
-                    onTargetProfileChange={(targetId, profileKey) =>
-                      setTargetProfileDrafts((current) => ({
-                        ...current,
-                        [targetId]: profileKey,
-                      }))
-                    }
-                    onToggleTarget={toggleTarget}
-                    onUpdateRecipientEstimate={updateRecipientEstimate}
-                    onUpdateTargetProfile={updateTargetProfile}
-                    targetProfileDrafts={targetProfileDrafts}
-                    targets={pendingTargets}
-                  />
-                </TargetGroup>
+                  <div className="mb-4 flex items-center gap-2">
+                    <Badge color="light" size="sm">
+                      โควต้า LINE:{" "}
+                      {formatEstimatedMonthlyMessages(quotaSummary)}
+                    </Badge>
+                  </div>
+                  <TargetGroup targets={personalTargets} title="ผู้บริหารรายคน">
+                    <TargetTable
+                      busy={busy}
+                      channels={channels}
+                      onApproveTarget={approveTarget}
+                      onEnableMorningBriefAction={enableMorningBriefAction}
+                      onTestSendTarget={testSendTarget}
+                      onTargetProfileChange={(targetId, profileKey) =>
+                        setTargetProfileDrafts((current) => ({
+                          ...current,
+                          [targetId]: profileKey,
+                        }))
+                      }
+                      onToggleTarget={toggleTarget}
+                      onUpdateRecipientEstimate={updateRecipientEstimate}
+                      onUpdateTargetProfile={updateTargetProfile}
+                      targetProfileDrafts={targetProfileDrafts}
+                      targets={personalTargets}
+                    />
+                  </TargetGroup>
+                  <TargetGroup targets={teamTargets} title="กลุ่มทีมงาน">
+                    <TargetTable
+                      busy={busy}
+                      channels={channels}
+                      onApproveTarget={approveTarget}
+                      onEnableMorningBriefAction={enableMorningBriefAction}
+                      onTestSendTarget={testSendTarget}
+                      onTargetProfileChange={(targetId, profileKey) =>
+                        setTargetProfileDrafts((current) => ({
+                          ...current,
+                          [targetId]: profileKey,
+                        }))
+                      }
+                      onToggleTarget={toggleTarget}
+                      onUpdateRecipientEstimate={updateRecipientEstimate}
+                      onUpdateTargetProfile={updateTargetProfile}
+                      targetProfileDrafts={targetProfileDrafts}
+                      targets={teamTargets}
+                    />
+                  </TargetGroup>
+                  <TargetGroup targets={pendingTargets} title="รออนุมัติ">
+                    <TargetTable
+                      busy={busy}
+                      channels={channels}
+                      onApproveTarget={approveTarget}
+                      onEnableMorningBriefAction={enableMorningBriefAction}
+                      onTestSendTarget={testSendTarget}
+                      onTargetProfileChange={(targetId, profileKey) =>
+                        setTargetProfileDrafts((current) => ({
+                          ...current,
+                          [targetId]: profileKey,
+                        }))
+                      }
+                      onToggleTarget={toggleTarget}
+                      onUpdateRecipientEstimate={updateRecipientEstimate}
+                      onUpdateTargetProfile={updateTargetProfile}
+                      targetProfileDrafts={targetProfileDrafts}
+                      targets={pendingTargets}
+                    />
+                  </TargetGroup>
                 </>
               ) : (
                 <EmptyState
@@ -951,94 +958,93 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="space-y-5 sm:space-y-6">
-          <Panel>
-            <PanelHeader
-              description="ระบบไม่แสดงรหัสลับที่บันทึกไว้กลับมาบนหน้าจอ"
-              title="บันทึกรหัส LINE OA"
-            />
-            <PanelBody spaced>
-              <form className="space-y-4" onSubmit={saveChannelSecrets}>
-                <Field
-                  label="เลือก LINE OA"
-                  help="เลือกรายการที่ต้องการเพิ่มหรือเปลี่ยนรหัสลับ"
-                >
-                  <select
-                    className="owner-v2-input"
-                    disabled={!channels.length}
-                    onChange={(event) =>
-                      setSecretForm((current) => ({
-                        ...current,
-                        channelId: event.target.value,
-                      }))
-                    }
-                    value={secretForm.channelId}
-                  >
-                    {channels.length ? null : (
-                      <option value="">ยังไม่มี LINE OA</option>
-                    )}
-                    {channels.map((channel) => (
-                      <option key={channel.id} value={channel.id}>
-                        {channel.display_name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field
-                  label="รหัสส่งข้อความ"
-                  help="ใช้สำหรับส่ง LINE จริง ถ้าเปลี่ยนรหัสต้องทดสอบส่งอีกครั้ง"
-                >
-                  <input
-                    autoComplete="off"
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setSecretForm((current) => ({
-                        ...current,
-                        channelAccessToken: event.target.value,
-                      }))
-                    }
-                    placeholder="ไม่แสดงค่าที่บันทึกไว้"
-                    type="password"
-                    value={secretForm.channelAccessToken}
-                  />
-                </Field>
-                <Field
-                  label="รหัสรับ Webhook"
-                  help="ใช้ตรวจว่าข้อความ/การเพิ่มเพื่อนมาจาก LINE OA นี้จริง"
-                >
-                  <input
-                    autoComplete="off"
-                    className="owner-v2-input"
-                    onChange={(event) =>
-                      setSecretForm((current) => ({
-                        ...current,
-                        channelSecret: event.target.value,
-                      }))
-                    }
-                    placeholder="ไม่แสดงค่าที่บันทึกไว้"
-                    type="password"
-                    value={secretForm.channelSecret}
-                  />
-                </Field>
-                <Button
-                  className="w-full"
-                  disabled={saveSecretDisabled}
-                  size="sm"
-                  type="submit"
-                >
-                  บันทึกรหัส LINE OA
-                </Button>
-                <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                  ถ้าเปลี่ยนค่า ให้กรอกเฉพาะช่องที่ต้องการอัปเดตแล้วกดบันทึก
-                </p>
-              </form>
-            </PanelBody>
-          </Panel>
+          <FormPanel
+            as="form"
+            description="ระบบไม่แสดงรหัสลับที่บันทึกไว้กลับมาบนหน้าจอ"
+            onSubmit={saveChannelSecrets}
+            title="บันทึกรหัส LINE OA"
+          >
+            <Field
+              label="เลือก LINE OA"
+              help="เลือกรายการที่ต้องการเพิ่มหรือเปลี่ยนรหัสลับ"
+            >
+              <select
+                className="owner-v2-input"
+                disabled={!channels.length}
+                onChange={(event) =>
+                  setSecretForm((current) => ({
+                    ...current,
+                    channelId: event.target.value,
+                  }))
+                }
+                value={secretForm.channelId}
+              >
+                {channels.length ? null : (
+                  <option value="">ยังไม่มี LINE OA</option>
+                )}
+                {channels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.display_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label="รหัสส่งข้อความ"
+              help="ใช้สำหรับส่ง LINE จริง ถ้าเปลี่ยนรหัสต้องทดสอบส่งอีกครั้ง"
+            >
+              <input
+                autoComplete="off"
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setSecretForm((current) => ({
+                    ...current,
+                    channelAccessToken: event.target.value,
+                  }))
+                }
+                placeholder="ไม่แสดงค่าที่บันทึกไว้"
+                type="password"
+                value={secretForm.channelAccessToken}
+              />
+            </Field>
+            <Field
+              label="รหัสรับ Webhook"
+              help="ใช้ตรวจว่าข้อความ/การเพิ่มเพื่อนมาจาก LINE OA นี้จริง"
+            >
+              <input
+                autoComplete="off"
+                className="owner-v2-input"
+                onChange={(event) =>
+                  setSecretForm((current) => ({
+                    ...current,
+                    channelSecret: event.target.value,
+                  }))
+                }
+                placeholder="ไม่แสดงค่าที่บันทึกไว้"
+                type="password"
+                value={secretForm.channelSecret}
+              />
+            </Field>
+            <Button
+              className="w-full"
+              disabled={saveSecretDisabled}
+              size="sm"
+              type="submit"
+            >
+              บันทึกรหัส LINE OA
+            </Button>
+            <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+              ถ้าเปลี่ยนค่า ให้กรอกเฉพาะช่องที่ต้องการอัปเดตแล้วกดบันทึก
+            </p>
+          </FormPanel>
 
           <Panel>
             <PanelHeader
               action={
                 recipientsState.status === "success" ? (
-                  <Badge color="info">{selectableRecipients.length} เลือกได้</Badge>
+                  <Badge color="info">
+                    {selectableRecipients.length} เลือกได้
+                  </Badge>
                 ) : null
               }
               description="โหลดเฉพาะตอนต้องเพิ่มผู้รับ เพื่อลดเวลาเปิดหน้า LINE"
@@ -1104,7 +1110,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                           key={recipient.source_target_id}
                           value={recipient.source_target_id}
                         >
-                          {recipient.display_name} · {recipient.target_id_masked}
+                          {recipient.display_name} ·{" "}
+                          {recipient.target_id_masked}
                         </option>
                       ))}
                     </select>
@@ -1143,7 +1150,8 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onChange={(event) =>
                         setAssignmentForm((current) => ({
                           ...current,
-                          profileKey: event.target.value as LineAccessProfileKey,
+                          profileKey: event.target
+                            .value as LineAccessProfileKey,
                         }))
                       }
                       value={assignmentForm.profileKey}
@@ -1255,7 +1263,9 @@ function ChannelTable({
                   <Badge
                     color={channel.scope === "owner_shared" ? "info" : "light"}
                   >
-                    {channel.scope === "owner_shared" ? "OA กลาง" : "ของร้านนี้"}
+                    {channel.scope === "owner_shared"
+                      ? "OA กลาง"
+                      : "ของร้านนี้"}
                   </Badge>
                 </div>
               </div>
@@ -1316,8 +1326,12 @@ function ChannelTable({
                   </div>
                 </td>
                 <td className="py-4 pr-5 sm:pr-6">
-                  <Badge color={channel.scope === "owner_shared" ? "info" : "light"}>
-                    {channel.scope === "owner_shared" ? "OA กลาง" : "ของร้านนี้"}
+                  <Badge
+                    color={channel.scope === "owner_shared" ? "info" : "light"}
+                  >
+                    {channel.scope === "owner_shared"
+                      ? "OA กลาง"
+                      : "ของร้านนี้"}
                   </Badge>
                 </td>
                 <td className="py-4 pr-5 sm:pr-6">
@@ -1397,7 +1411,10 @@ function TargetTable({
   channels: LineChannelRecord[];
   onApproveTarget: (target: LineTargetRecord) => void;
   onEnableMorningBriefAction: (target: LineTargetRecord) => void;
-  onTargetProfileChange: (targetId: string, profileKey: LineAccessProfileKey) => void;
+  onTargetProfileChange: (
+    targetId: string,
+    profileKey: LineAccessProfileKey,
+  ) => void;
   onTestSendTarget: (target: LineTargetRecord) => void;
   onToggleTarget: (target: LineTargetRecord) => void;
   onUpdateRecipientEstimate: (
@@ -1436,7 +1453,11 @@ function TargetTable({
                     <span className="font-mono">{target.target_id_masked}</span>
                   </p>
                 </div>
-                <Badge color={ready ? "success" : target.approved ? "warning" : "error"}>
+                <Badge
+                  color={
+                    ready ? "success" : target.approved ? "warning" : "error"
+                  }
+                >
                   {ready
                     ? "พร้อมส่ง"
                     : target.approved
@@ -1467,7 +1488,8 @@ function TargetTable({
                       </option>
                     ))}
                   </select>
-                  {target.approved && profileDraft !== target.access_profile_key ? (
+                  {target.approved &&
+                  profileDraft !== target.access_profile_key ? (
                     <Button
                       className="w-full"
                       disabled={busy !== null}
@@ -1574,15 +1596,20 @@ function TargetTable({
         <table className="min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
-              {["ผู้รับ", "สิทธิ์", "ความพร้อม", "ส่งผ่าน", "ประมาณการ", "จัดการ"].map(
-                (label) => (
-                  <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
-                    <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
-                      {label}
-                    </p>
-                  </th>
-                ),
-              )}
+              {[
+                "ผู้รับ",
+                "สิทธิ์",
+                "ความพร้อม",
+                "ส่งผ่าน",
+                "ประมาณการ",
+                "จัดการ",
+              ].map((label) => (
+                <th className="py-3 pr-5 text-left sm:pr-6" key={label}>
+                  <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
+                    {label}
+                  </p>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -1605,7 +1632,9 @@ function TargetTable({
                       </p>
                       <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
                         {formatTargetType(target.target_type)} ·{" "}
-                        <span className="font-mono">{target.target_id_masked}</span>
+                        <span className="font-mono">
+                          {target.target_id_masked}
+                        </span>
                       </p>
                     </div>
                   </td>
@@ -1628,7 +1657,8 @@ function TargetTable({
                           </option>
                         ))}
                       </select>
-                      {target.approved && profileDraft !== target.access_profile_key ? (
+                      {target.approved &&
+                      profileDraft !== target.access_profile_key ? (
                         <Button
                           className="w-full"
                           disabled={busy !== null}
@@ -1644,7 +1674,15 @@ function TargetTable({
                   </td>
                   <td className="py-4 pr-5 sm:pr-6">
                     <div className="space-y-2">
-                      <Badge color={ready ? "success" : target.approved ? "warning" : "error"}>
+                      <Badge
+                        color={
+                          ready
+                            ? "success"
+                            : target.approved
+                              ? "warning"
+                              : "error"
+                        }
+                      >
                         {ready
                           ? "พร้อมส่ง"
                           : target.approved
@@ -1728,7 +1766,9 @@ function TargetTable({
                           type="button"
                           variant="outline"
                         >
-                          {busy === `test-send-${target.id}` ? "กำลังส่ง..." : "ส่งทดสอบจริง"}
+                          {busy === `test-send-${target.id}`
+                            ? "กำลังส่ง..."
+                            : "ส่งทดสอบจริง"}
                         </Button>
                       ) : null}
                     </div>
@@ -1742,7 +1782,6 @@ function TargetTable({
     </div>
   );
 }
-
 
 function EmptyState({
   action,
@@ -1803,7 +1842,9 @@ function LineSetupGuide({
   checks: Array<{ ok: boolean; label: string; detail: string }>;
   quotaSummary: { knownRecipients: number; unknownTargets: number };
 }) {
-  const hasLineOa = Boolean(checks.find((check) => check.label === "มี LINE OA")?.ok);
+  const hasLineOa = Boolean(
+    checks.find((check) => check.label === "มี LINE OA")?.ok,
+  );
   const hasSendSecret = Boolean(
     checks.find((check) => check.label === "มีรหัสส่งข้อความ")?.ok,
   );
@@ -1816,7 +1857,9 @@ function LineSetupGuide({
   const guideItems = [
     {
       done: hasLineOa,
-      text: hasLineOa ? "มี OA ให้ใช้แล้ว" : "เพิ่ม LINE OA ของร้านหรือ OA กลางก่อน",
+      text: hasLineOa
+        ? "มี OA ให้ใช้แล้ว"
+        : "เพิ่ม LINE OA ของร้านหรือ OA กลางก่อน",
       title: "1. เพิ่ม OA",
     },
     {
@@ -1869,7 +1912,12 @@ function LineSetupGuide({
               <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
                 {item.title}
               </p>
-              <Badge color={item.warning ? "warning" : item.done ? "success" : "warning"} size="sm">
+              <Badge
+                color={
+                  item.warning ? "warning" : item.done ? "success" : "warning"
+                }
+                size="sm"
+              >
                 {item.warning ? "ระวัง" : item.done ? "พร้อม" : "ต้องดู"}
               </Badge>
             </div>
@@ -1887,7 +1935,9 @@ function StatusText({ ok, text }: { ok: boolean; text: string }) {
   return (
     <p
       className={`text-theme-xs ${
-        ok ? "text-success-600 dark:text-success-400" : "text-gray-500 dark:text-gray-400"
+        ok
+          ? "text-success-600 dark:text-success-400"
+          : "text-gray-500 dark:text-gray-400"
       }`}
     >
       {ok ? "พร้อม" : "ยังไม่ครบ"} · {text}
@@ -1920,7 +1970,9 @@ function NextAction({
             {text}
           </p>
         </div>
-        <Badge color={ok ? "success" : "warning"}>{ok ? "ต่อได้" : "รอก่อน"}</Badge>
+        <Badge color={ok ? "success" : "warning"}>
+          {ok ? "ต่อได้" : "รอก่อน"}
+        </Badge>
       </div>
     </Link>
   );
@@ -2014,16 +2066,19 @@ function isLineTargetReady(
     : null;
   return Boolean(
     target.approved &&
-      target.enabled &&
-      target.allowed_actions.includes("receive_morning_brief") &&
-      target.allowed_report_keys.length > 0 &&
-      channel?.enabled &&
-      channel.channel_access_token_configured,
+    target.enabled &&
+    target.allowed_actions.includes("receive_morning_brief") &&
+    target.allowed_report_keys.length > 0 &&
+    channel?.enabled &&
+    channel.channel_access_token_configured,
   );
 }
 
 function formatProfileKey(profileKey: LineAccessProfileKey) {
-  return profileOptions.find((profile) => profile.value === profileKey)?.label ?? profileKey;
+  return (
+    profileOptions.find((profile) => profile.value === profileKey)?.label ??
+    profileKey
+  );
 }
 
 function formatTargetType(targetType: LineTargetRecord["target_type"]) {
@@ -2035,7 +2090,6 @@ function formatTargetType(targetType: LineTargetRecord["target_type"]) {
   }
   return "รายคน";
 }
-
 
 function TargetGroup({
   children,
