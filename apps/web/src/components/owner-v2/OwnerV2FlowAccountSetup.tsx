@@ -17,6 +17,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   formatDateTime,
   secondaryActionClass,
 } from "./ui";
@@ -264,9 +265,22 @@ export default function OwnerV2FlowAccountSetup({
                 <Fact
                   label="ข้อผิดพลาดล่าสุด"
                   tone={data.last_error ? "warning" : "success"}
-                  value={data.last_error ?? "ไม่มี"}
+                  value={data.last_error ? "มีข้อควรตรวจ" : "ไม่มี"}
                 />
               </div>
+              {data.last_error ? (
+                <div className="mt-4">
+                  <TechnicalDetails
+                    embedded
+                    title="รายละเอียดเทคนิคของข้อผิดพลาด"
+                    description="เปิดดูเมื่อต้องส่งข้อมูลให้ทีมดูแลระบบหรือเทียบกับบันทึกจาก FlowAccount"
+                  >
+                    <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+                      {data.last_error}
+                    </p>
+                  </TechnicalDetails>
+                </div>
+              ) : null}
             </section>
 
             <form
@@ -377,12 +391,12 @@ function FlowAccountTestResult({
         }
       />
       <PanelBody>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Fact label="ตรวจเมื่อ" value={formatDateTime(result.checked_at)} />
-          <Fact label="เวลาเชื่อมต่อ" value={`${result.latency_ms} ms`} />
           <Fact
-            label="สถานะผู้ให้บริการ"
-            value={result.provider_status?.toString() ?? "-"}
+            label="ผลทดสอบ"
+            tone={result.ok ? "success" : "error"}
+            value={result.ok ? "เชื่อมต่อได้" : "ควรตรวจ"}
           />
           <Fact label="รหัสบริษัท" value={result.company_id ?? "-"} />
           <Fact label="รหัสช่วยตรวจ" value={result.support_code ?? "-"} />
@@ -396,6 +410,21 @@ function FlowAccountTestResult({
             />
           </div>
         ) : null}
+        <div className="mt-4">
+          <TechnicalDetails
+            embedded
+            title="รายละเอียดเทคนิคของการทดสอบ FlowAccount"
+            description="เปิดดูเมื่อต้องตรวจเวลาเชื่อมต่อหรือสถานะจากผู้ให้บริการ"
+          >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Fact label="เวลาเชื่อมต่อ" value={`${result.latency_ms} ms`} />
+              <Fact
+                label="สถานะผู้ให้บริการ"
+                value={result.provider_status?.toString() ?? "-"}
+              />
+            </div>
+          </TechnicalDetails>
+        </div>
       </PanelBody>
     </Panel>
   );

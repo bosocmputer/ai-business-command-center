@@ -21,6 +21,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   formatDateTime,
   formatRunStatus,
 } from "./ui";
@@ -210,7 +211,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: result.ok ? "success" : "warning",
         text: result.ok
-          ? `ทดสอบ SML ผ่าน ${result.latency_ms} ms`
+          ? "ทดสอบ SML ผ่านแล้ว"
           : result.safe_error_message ?? "ทดสอบ SML ไม่ผ่าน",
       });
     } catch (error) {
@@ -595,7 +596,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                   tone={config.auth_configured ? "success" : "warning"}
                   value={
                     config.auth_mode
-                      ? `${config.auth_mode} · ${
+                      ? `${formatAuthMode(config.auth_mode)} · ${
                           config.auth_configured ? "พร้อม" : "ยังไม่พร้อม"
                         }`
                       : "ยังไม่ตั้ง"
@@ -655,7 +656,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           <PanelHeader
             action={
               <Badge color={discovery.ok ? "success" : "warning"}>
-                {discovery.latency_ms} ms
+                {discovery.ok ? "พบฐานข้อมูล" : "ควรตรวจ"}
               </Badge>
             }
             description="เลือกชื่อฐานข้อมูลที่พบเพื่อเติมลงฟอร์มโดยไม่ต้องพิมพ์เอง"
@@ -697,6 +698,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 ไม่พบฐานข้อมูลจาก JavaWS รอบนี้
               </p>
             )}
+            <TechnicalDetails
+              embedded
+              title="รายละเอียดเทคนิคของการค้นหาฐานข้อมูล"
+              description="เปิดดูเมื่อต้องตรวจเวลาเชื่อมต่อ JavaWS หรือเทียบกับ log ฝั่งระบบ"
+            >
+              <Fact label="เวลาตอบกลับ" value={`${discovery.latency_ms} ms`} />
+            </TechnicalDetails>
           </PanelBody>
         </Panel>
       ) : null}
@@ -714,7 +722,11 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           />
           <PanelBody spaced>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Fact label="เวลาตอบกลับ" value={`${testResult.latency_ms} ms`} />
+              <Fact
+                label="ผลทดสอบ"
+                tone={testResult.ok ? "success" : "error"}
+                value={testResult.ok ? "เชื่อมต่อได้" : "ควรตรวจ"}
+              />
               <Fact
                 label="ชื่อฐานข้อมูล SML"
                 value={testResult.database_name ?? "ยังไม่ทราบ"}
@@ -740,6 +752,13 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
                 text={testResult.safe_error_message}
               />
             ) : null}
+            <TechnicalDetails
+              embedded
+              title="รายละเอียดเทคนิคของการทดสอบ SML"
+              description="เปิดดูเมื่อต้องตรวจเวลาเชื่อมต่อ JavaWS หรือส่งข้อมูลให้ทีมดูแลระบบ"
+            >
+              <Fact label="เวลาตอบกลับ" value={`${testResult.latency_ms} ms`} />
+            </TechnicalDetails>
           </PanelBody>
         </Panel>
       ) : null}
@@ -1022,6 +1041,15 @@ function formatDatasourceSource(value: string) {
     return "จากเครื่องแม่ข่าย";
   }
   return "ยังไม่ตั้ง";
+}
+
+function formatAuthMode(value: string) {
+  const labels: Record<string, string> = {
+    basic: "ชื่อผู้ใช้/รหัสผ่าน",
+    bearer: "โทเคน",
+    none: "ไม่ต้องใช้รหัส",
+  };
+  return labels[value] ?? value;
 }
 
 
