@@ -202,6 +202,46 @@ export function Field({
   );
 }
 
+export function TechnicalDetails({
+  children,
+  defaultOpen = false,
+  description,
+  embedded = false,
+  title = "รายละเอียดเทคนิค",
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean;
+  description?: ReactNode;
+  embedded?: boolean;
+  title?: ReactNode;
+}) {
+  return (
+    <details
+      className={
+        embedded
+          ? "rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]"
+          : "rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03] sm:p-5"
+      }
+      open={defaultOpen}
+    >
+      <summary className="cursor-pointer list-none text-base font-medium text-gray-800 marker:hidden dark:text-white/90">
+        <span className="inline-flex items-center gap-2">
+          {title}
+          <span className="text-theme-xs font-normal text-gray-500 dark:text-gray-400">
+            กดเพื่อดูข้อมูลสำหรับทีมดูแลระบบ
+          </span>
+        </span>
+      </summary>
+      {description ? (
+        <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {description}
+        </p>
+      ) : null}
+      <div className="mt-4">{children}</div>
+    </details>
+  );
+}
+
 function noticeToneConfig(tone: NoticeTone): {
   className: string;
   icon: ReactNode;
@@ -301,4 +341,16 @@ export function formatLineDeliveryStatus(status?: string | null): string {
     success: "ส่งแล้ว",
   };
   return labels[status] ?? status;
+}
+
+export function formatPlanCode(value?: string | null): string {
+  if (!value) {
+    return "ไม่ระบุแพ็กเกจ";
+  }
+  const labels: Record<string, string> = {
+    business: "ร้านใหญ่",
+    pro: "ร้านใหญ่ Pro",
+    starter: "ร้านเล็ก",
+  };
+  return labels[value] ?? value;
 }

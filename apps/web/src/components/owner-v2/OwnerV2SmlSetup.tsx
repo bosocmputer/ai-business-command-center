@@ -3,6 +3,7 @@
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { getReportCatalogEntry } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 // removed icons from "@/icons";
@@ -617,7 +618,7 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
               {setup.latest_report_run ? (
                 <div className="space-y-3">
                   <Fact
-                    label={setup.latest_report_run.report_key}
+                    label={getReportCatalogEntry(setup.latest_report_run.report_key).shortLabel}
                     tone={
                       setup.latest_report_run.status === "success"
                         ? "success"

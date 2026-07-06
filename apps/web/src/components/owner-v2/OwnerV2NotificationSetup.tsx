@@ -41,6 +41,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   secondaryActionClass,
 } from "./ui";
 
@@ -1066,18 +1067,25 @@ export default function OwnerV2NotificationSetup({
           </Panel>
 
           {runResult ? (
-            <Notice
-              text={`รหัสงาน ${runResult.run_id ?? runResult.run?.id ?? "-"} · ${
-                runResult.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"
-              } · ${formatNotificationRunStatus(
-                latestRunResultRun?.status ??
-                  runResult.run?.status ??
-                  (runResult.status as NotificationRuleRunRecord["status"]) ??
-                  "queued",
-              )}`}
-              title="รับงานรันแผนแล้ว"
-              tone="success"
-            />
+            <>
+              <Notice
+                text={`${runResult.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"} · ${formatNotificationRunStatus(
+                  latestRunResultRun?.status ??
+                    runResult.run?.status ??
+                    (runResult.status as NotificationRuleRunRecord["status"]) ??
+                    "queued",
+                )}`}
+                title="รับงานรันแผนแล้ว"
+                tone="success"
+              />
+              <TechnicalDetails title="รายละเอียดงานรันล่าสุด">
+                <Fact
+                  label="รหัสงาน"
+                  tone="light"
+                  value={runResult.run_id ?? runResult.run?.id ?? "-"}
+                />
+              </TechnicalDetails>
+            </>
           ) : null}
 
           {activeRuns.length ? (

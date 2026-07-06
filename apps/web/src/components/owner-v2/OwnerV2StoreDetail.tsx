@@ -17,8 +17,10 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails as AdminTechnicalDetails,
   formatDateTime,
   formatLineDeliveryStatus,
+  formatPlanCode,
   formatRunStatus,
   formatTenantStatus,
   primaryActionClass,
@@ -383,7 +385,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             <PanelBody>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Fact
-                  label="SML datasource"
+                  label="แหล่งข้อมูล SML"
                   tone={detail.datasource.kind === "sml_javaws" ? "success" : "warning"}
                   value={
                     detail.datasource.kind === "sml_javaws"
@@ -402,7 +404,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                   value={`${health.notification_rules_enabled}/${health.notification_rules_total} แผนเปิด`}
                 />
                 <Fact
-                  label="Business signals"
+                  label="สัญญาณธุรกิจ"
                   tone={
                     health.critical_business_signals > 0
                       ? "error"
@@ -436,7 +438,7 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                     AI CEO / Business Advisor
                   </p>
                   <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                    ตั้งค่า prompt, OpenRouter model, key และงบใช้งานของร้านนี้
+                    ตั้งค่าบทบาท AI, model, key และงบใช้งานของร้านนี้
                   </p>
                 </div>
                 <Link
@@ -490,21 +492,20 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
             </PanelBody>
           </Panel>
 
-          {/* Sub-panel 3 — Incidents & Proof (เฉพาะเมื่อมีเนื้อหา) */}
+          {/* Sub-panel 3 — technical incidents/proof (เฉพาะเมื่อมีเนื้อหา) */}
           {detail.latest_javaws_failure ||
           (detail.business_signals ?? []).length > 0 ||
           detail.proof_strip.eligible ? (
-            <Panel>
-              <PanelHeader
-                title="Incidents & Proof"
-                description="incident ล่าสุด, สัญญาณธุรกิจ และหลักฐาน 7 วัน"
-              />
-              <PanelBody spaced>
+            <AdminTechnicalDetails
+              title="เหตุการณ์และหลักฐานระบบ"
+              description="ใช้เมื่อต้องตรวจสาเหตุเชิงระบบ เช่น JavaWS, สัญญาณธุรกิจ หรือหลักฐานรอบส่งย้อนหลัง"
+            >
+              <div className="space-y-5">
                 {detail.latest_javaws_failure ? (
                   <Notice
                     tone="error"
-                    title={`JavaWS incident ล่าสุด: ${detail.latest_javaws_failure.failure_phase ?? "unknown"}`}
-                    text={`รายงาน ${detail.latest_javaws_failure.report_key} phase ${detail.latest_javaws_failure.failure_phase ?? "unknown"} · ${detail.latest_javaws_failure.safe_error_message ?? "ไม่มีรายละเอียดปลอดภัย"} · ${formatDateTime(detail.latest_javaws_failure.finished_at)}`}
+                    title="พบปัญหา JavaWS ล่าสุด"
+                    text={`ขั้นตอน ${detail.latest_javaws_failure.failure_phase ?? "ไม่ทราบขั้นตอน"} · ${detail.latest_javaws_failure.safe_error_message ?? "ไม่มีรายละเอียดปลอดภัย"} · ${formatDateTime(detail.latest_javaws_failure.finished_at)}`}
                   />
                 ) : null}
                 <BusinessSignalPanel
@@ -515,8 +516,8 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
                 {detail.proof_strip.eligible ? (
                   <StoreProofStrip strip={detail.proof_strip} />
                 ) : null}
-              </PanelBody>
-            </Panel>
+              </div>
+            </AdminTechnicalDetails>
           ) : null}
         </div>
       ) : null}
@@ -599,7 +600,7 @@ function StoreHero({
             <Badge color={tenantStatusColor(tenant.status)}>
               {formatTenantStatus(tenant.status)}
             </Badge>
-            <Badge color="light">{tenant.planCode}</Badge>
+            <Badge color="light">{formatPlanCode(tenant.planCode)}</Badge>
             {tenant.status === "cancelled" ? null : (
               <Badge color={ready ? "success" : "warning"}>
                 {ready ? "พร้อมใช้งาน" : `${readiness.completed}/${readiness.total} พร้อม`}
@@ -607,8 +608,6 @@ function StoreHero({
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            <span className="font-mono break-all">{tenant.id}</span>
-            <span className="hidden h-3.5 w-px bg-gray-300 dark:bg-gray-700 sm:block" />
             <span>
               {ready
                 ? `พร้อมใช้งานครบ ${readiness.total}/${readiness.total}`
@@ -808,7 +807,7 @@ function StoreEditForm({
         </label>
         <label className="block min-w-0" htmlFor="edit-tenant-id">
           <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-            tenant_id
+            รหัสร้าน (เทคนิค)
           </span>
           <input
             className="owner-v2-input font-mono"
@@ -819,7 +818,7 @@ function StoreEditForm({
         </label>
         <label className="block min-w-0" htmlFor="edit-tenant-plan">
           <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-            Plan
+            แพ็กเกจ
           </span>
           <select
             className="owner-v2-input"
@@ -837,9 +836,9 @@ function StoreEditForm({
             }
             value={form.plan_code}
           >
-            <option value="starter">starter</option>
-            <option value="business">business</option>
-            <option value="pro">pro</option>
+            <option value="starter">ร้านเล็ก</option>
+            <option value="business">ร้านใหญ่</option>
+            <option value="pro">ร้านใหญ่ Pro</option>
           </select>
         </label>
         <label className="block min-w-0" htmlFor="edit-tenant-status">
@@ -1081,7 +1080,7 @@ function StoreProofStrip({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-            Proof 7 วัน
+            หลักฐานรอบส่ง 7 วัน
           </p>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
             วันที่มีรอบส่งจริงของร้านนี้ ย้อนหลัง 7 วัน
@@ -1105,7 +1104,7 @@ function StoreProofStrip({
               day.status,
             )}`}
             key={day.day}
-            title={`Day ${day.day} · ${day.date} · ${storeProofDayLabel(day.status)}`}
+            title={`วันที่ ${day.day} · ${day.date} · ${storeProofDayLabel(day.status)}`}
           >
             D{day.day}
           </span>
@@ -1202,7 +1201,7 @@ function BusinessSignalPanel({
         text:
           error instanceof Error
             ? error.message
-            : "เปลี่ยนสถานะ signal ไม่สำเร็จ",
+            : "เปลี่ยนสถานะสัญญาณไม่สำเร็จ",
       });
     } finally {
       setBusyId(null);
@@ -1213,7 +1212,7 @@ function BusinessSignalPanel({
     return (
       <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
         <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-          Business signals
+          สัญญาณธุรกิจ
         </p>
         <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
           ยังไม่มีสัญญาณเตือนธุรกิจสำหรับร้านนี้ในสแนปชอตล่าสุด
@@ -1227,10 +1226,10 @@ function BusinessSignalPanel({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-            Business signals ({signals.length})
+            สัญญาณธุรกิจ ({signals.length})
           </p>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-            จัดการสถานะเรื่องที่ต้องตรวจ — สถานะบันทึกลง audit log เพื่อให้ cockpit ตรงกัน
+            จัดการสถานะเรื่องที่ต้องตรวจ ระบบจะบันทึกประวัติไว้ให้ทีมดูแลตรวจย้อนหลัง
           </p>
         </div>
       </div>

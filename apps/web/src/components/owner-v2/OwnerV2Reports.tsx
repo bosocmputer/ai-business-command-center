@@ -25,6 +25,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   formatDateTime,
   formatRunStatus,
   secondaryActionClass,
@@ -561,11 +562,11 @@ function ReportRow({
         </div>
         <div className="grid shrink-0 grid-cols-2 gap-2 text-xs sm:min-w-72">
           <Fact
-            label="Run"
+            label="รอบรัน"
             value={latestRun ? formatRunStatus(latestRun.status) : "ยังไม่มี"}
           />
           <Fact
-            label="Snapshot"
+            label="Snapshot ล่าสุด"
             value={
               latestSnapshot ? formatDateTime(latestSnapshot.generated_at) : "ยังไม่มี"
             }
@@ -610,19 +611,19 @@ function RunDetail({
             {formatRunStatus(run.status)}
           </p>
           <p className="mt-1 break-words text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-            {run.id}
+            ใช้สำหรับตรวจสถานะรายงานก่อนเปิดรอบแจ้งเตือน
           </p>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Fact label="Rows" value={run.row_count.toLocaleString("th-TH")} />
-        <Fact label="Duration" value={formatRunDuration(run)} />
+        <Fact label="จำนวนแถว" value={run.row_count.toLocaleString("th-TH")} />
+        <Fact label="เวลาที่ใช้" value={formatRunDuration(run)} />
         <Fact
-          label="Period"
+          label="ช่วงข้อมูล"
           value={formatReportPeriod(run.params.date_from, run.params.date_to)}
         />
         <Fact
-          label="Snapshot"
+          label="Snapshot ล่าสุด"
           value={snapshot ? formatDateTime(snapshot.generated_at) : "ยังไม่มี"}
         />
       </div>
@@ -630,14 +631,24 @@ function RunDetail({
         <Notice
           tone="error"
           title={run.safe_error_message ?? "รันไม่สำเร็จ กรุณาตรวจ SML JavaWS แล้วลองใหม่"}
-          text={[
-            run.failure_phase ? `ขั้นตอนที่ผิดพลาด: ${run.failure_phase}` : null,
-            run.failure_kind ? `ประเภทปัญหา: ${run.failure_kind}` : null,
-          ]
-            .filter(Boolean)
-            .join(". ")}
+          text="ดูรายละเอียดเทคนิคด้านล่างหากต้องตรวจขั้นตอนที่ล้มเหลว"
         />
       ) : null}
+      <TechnicalDetails embedded title="รายละเอียดเทคนิคของรอบรัน">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Fact label="รหัสรอบ" tone="light" value={run.id} />
+          <Fact
+            label="ขั้นตอนระบบ"
+            tone="light"
+            value={run.failure_phase ?? "ไม่มีข้อผิดพลาด"}
+          />
+          <Fact
+            label="ประเภทปัญหา"
+            tone="light"
+            value={run.failure_kind ?? "ไม่มีข้อผิดพลาด"}
+          />
+        </div>
+      </TechnicalDetails>
       {run.report_key === "sales_goods_services" && run.status === "success" ? (
         <ReportSignoffPanel run={run} tenantId={tenantId} />
       ) : null}

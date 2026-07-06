@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export default function OwnerV2NewStorePage() {
   return (
     <OwnerV2Shell
-      subtitle="สร้างร้านด้วย dry-run ก่อนเสมอ เพื่อเห็น tenant id, dashboard path และ viewer ก่อนบันทึกจริง"
+      subtitle="สร้างร้านด้วยการตรวจข้อมูลก่อนบันทึกจริง เพื่อให้เห็นเส้นทางใช้งานและสิทธิ์พื้นฐานครบถ้วน"
       title="เพิ่มร้านใหม่"
     >
       <OwnerV2NewTenant />

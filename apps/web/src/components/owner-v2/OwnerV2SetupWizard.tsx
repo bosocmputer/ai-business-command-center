@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { getReportCatalogEntry, isReportKey } from "@ai-bcc/shared";
 import Badge from "@/components/ui/badge/Badge";
 import { AlertIcon, ArrowRightIcon, CheckCircleIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
-import { InlineNotice } from "./ui";
+import { InlineNotice, primaryActionClass } from "./ui";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
@@ -74,9 +75,6 @@ const stepActionLabel: Record<OwnerV2StepId, string> = {
   permissions: "เปิดแก้สิทธิ์",
   notifications: "เปิดตั้งแผน",
 };
-
-const primaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
 
 const outlineActionClass =
   "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-theme-xs font-medium text-gray-600 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/[0.03] dark:hover:text-gray-100 sm:w-auto";
@@ -464,7 +462,7 @@ function SmlStep({ data }: { data: OwnerV2SmlSetupPayload | null }) {
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Fact label="ชนิด datasource" value={datasource.kind ?? "ยังไม่ตั้ง"} />
+        <Fact label="ชนิดแหล่งข้อมูล" value={datasource.kind ?? "ยังไม่ตั้ง"} />
         <Fact label="Database" value={datasource.database ?? "ยังไม่ระบุ"} />
         <Fact
           label="Auth"
@@ -473,7 +471,7 @@ function SmlStep({ data }: { data: OwnerV2SmlSetupPayload | null }) {
       </div>
       {data?.latest_report_run ? (
         <InlineNotice
-          message={`${data.latest_report_run.report_key} · ${data.latest_report_run.row_count.toLocaleString("th-TH")} แถว`}
+          message={`${formatReportLabel(data.latest_report_run.report_key)} · ${data.latest_report_run.row_count.toLocaleString("th-TH")} แถว`}
           title={`รายงานล่าสุด: ${formatReportRunStatus(data.latest_report_run.status)}`}
           tone={data.latest_report_run.status === "success" ? "success" : "warning"}
         />
@@ -501,8 +499,8 @@ function ReportStep({ data }: { data: OwnerV2ReportSetupPayload | null }) {
       </div>
       {latestRun ? (
         <InlineNotice
-          message={`${latestRun.report_key} · ${latestRun.row_count.toLocaleString("th-TH")} แถว${
-            latestRun.failure_phase ? ` · phase ${latestRun.failure_phase}` : ""
+          message={`${formatReportLabel(latestRun.report_key)} · ${latestRun.row_count.toLocaleString("th-TH")} แถว${
+            latestRun.failure_phase ? " · มีข้อสังเกตจากระบบ" : ""
           }`}
           title={`รายงานล่าสุด: ${formatReportRunStatus(latestRun.status)}`}
           tone={latestRun.status === "success" ? "success" : "warning"}
@@ -681,4 +679,12 @@ function formatReportRunStatus(status: string) {
     failed: "ล้มเหลว",
   };
   return labels[status] ?? status;
+}
+
+function formatReportLabel(reportKey: string) {
+  if (!isReportKey(reportKey)) {
+    return "รายงาน";
+  }
+  const entry = getReportCatalogEntry(reportKey);
+  return entry.shortLabel ?? entry.label;
 }

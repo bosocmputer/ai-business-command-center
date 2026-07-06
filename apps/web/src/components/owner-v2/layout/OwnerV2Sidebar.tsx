@@ -37,12 +37,12 @@ const navItems: OwnerV2NavItem[] = [
   },
   {
     icon: <BellIcon />,
-    name: "ตรวจระบบและ Audit",
+    name: "ศูนย์ตรวจระบบ",
     path: "/owner-v2/ops",
   },
   {
     icon: <PlugInIcon />,
-    name: "ระบบกลาง",
+    name: "ตั้งค่าระบบ",
     path: "/owner-v2/system",
   },
 ];

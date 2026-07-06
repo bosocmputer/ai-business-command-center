@@ -17,6 +17,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   formatDateTime,
   secondaryActionClass,
 } from "./ui";
@@ -220,7 +221,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
     if (!canDryRun) {
       setMessage({
         tone: "warning",
-        text: "ต้องมีแผนที่รองรับ, encryption, API key และ prompt ก่อน dry-run",
+        text: "ต้องมีแผนที่รองรับ, encryption, API key และ prompt ก่อนทดสอบ AI CEO",
       });
       return;
     }
@@ -240,14 +241,14 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: result.ok ? "success" : "warning",
         text: result.ok
-          ? "AI CEO dry-run สำเร็จ"
-          : (result.safe_error_message ?? "AI CEO dry-run ไม่สำเร็จ"),
+          ? "ทดสอบ AI CEO สำเร็จ"
+          : (result.safe_error_message ?? "ทดสอบ AI CEO ไม่สำเร็จ"),
       });
       await load();
     } catch (error) {
       setMessage({
         tone: "error",
-        text: error instanceof Error ? error.message : "AI CEO dry-run ไม่สำเร็จ",
+        text: error instanceof Error ? error.message : "ทดสอบ AI CEO ไม่สำเร็จ",
       });
       await load().catch(() => null);
     } finally {
@@ -315,7 +316,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       <Panel>
         <PanelHeader
           title="AI CEO / Business Advisor"
-          description="ตั้งค่าบทบาท, prompt, OpenRouter model และงบใช้งานของร้านนี้"
+          description="ตั้งค่าบทบาท, prompt, model และงบใช้งานของร้านนี้"
           action={
             <Link
               className={secondaryActionClass}
@@ -412,7 +413,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.business_type}
                   />
                 </Field>
-                <Field label="OpenRouter model">
+                <Field label="Model ที่ใช้">
                   <select
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -494,7 +495,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <Field label="Daily tokens">
+                <Field label="เพดาน token ต่อวัน">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -509,7 +510,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.daily_token_budget}
                   />
                 </Field>
-                <Field label="Monthly tokens">
+                <Field label="เพดาน token ต่อเดือน">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -674,34 +675,31 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 </Button>
               </form>
 
-              <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-                <h4 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">
-                  Usage guardrail
-                </h4>
+              <TechnicalDetails embedded title="ค่าใช้งาน AI และขอบเขตงบ">
                 <div className="grid grid-cols-1 gap-3">
                   <Fact
-                    label="Today"
+                    label="วันนี้"
                     value={`${formatNumber(data.usage.today_tokens)} tokens · $${formatPrice(data.usage.today_cost_usd)}`}
                   />
                   <Fact
-                    label="This month"
+                    label="เดือนนี้"
                     value={`${formatNumber(data.usage.month_tokens)} tokens · $${formatPrice(data.usage.month_cost_usd)}`}
                   />
                   <Fact
-                    label="Last dry-run"
+                    label="ทดสอบล่าสุด"
                     value={formatDateTime(data.profile.last_dry_run_at)}
                   />
                   <Fact
-                    label="Last status"
+                    label="สถานะล่าสุด"
                     tone={data.profile.last_status === "failed" ? "error" : "light"}
                     value={data.profile.last_status ?? "-"}
                   />
                 </div>
-              </section>
+              </TechnicalDetails>
 
               <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
                 <h4 className="mb-4 text-base font-semibold text-gray-800 dark:text-white/90">
-                  Dry-run
+                  ทดสอบก่อนส่งจริง
                 </h4>
                 <Field label="จำลองวันที่">
                   <input
@@ -764,7 +762,7 @@ function AiCeoAdminGuide() {
       text: "กำหนดตัวตน AI CEO ของร้านนั้น ๆ เช่น ธุรกิจคอนกรีตควรเน้นสต็อก/ลูกหนี้ ส่วนร้านอาหารอาจเน้นยอดขายรายวัน",
     },
     {
-      title: "OpenRouter model",
+      title: "Model ที่ใช้วิเคราะห์",
       text: "เลือกสมดุลระหว่างความฉลาด ความเร็ว และต้นทุน ยิ่ง model ใหญ่ยิ่งเหมาะกับวิเคราะห์ยากแต่ราคาสูงกว่า",
     },
     {
@@ -772,7 +770,7 @@ function AiCeoAdminGuide() {
       text: "Key กลางระบบคือใช้ key บริษัท ถ้าเลือก key เฉพาะร้าน ระบบจะใช้ key ของร้านนั้นและเก็บแบบ encrypted",
     },
     {
-      title: "Usage guardrail",
+      title: "ขอบเขตงบใช้งาน",
       text: "เพดาน token และ USD ใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะ failed แบบปลอดภัย",
     },
     {
@@ -780,12 +778,12 @@ function AiCeoAdminGuide() {
       text: "เปิดไว้เพื่อให้ AI วิเคราะห์และเก็บคำแนะนำ แต่ไม่แนบการ์ดใน LINE เหมาะกับช่วงทดลองก่อนส่งจริง",
     },
     {
-      title: "Dry-run",
+      title: "ทดสอบก่อนส่งจริง",
       text: "ทดสอบ prompt/model/key กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้ token จริงของ OpenRouter",
     },
     {
       title: "สิ่งที่ AI CEO แนะนำ",
-      text: "เป็น inbox งานที่ AI สร้างจากรอบ dry-run หรือ scheduled run เพื่อให้ admin รับทราบหรือปิดงานได้",
+      text: "เป็นรายการงานที่ AI สร้างจากรอบทดสอบหรือรอบแจ้งเตือนจริง เพื่อให้ admin รับทราบหรือปิดงานได้",
     },
   ];
 
@@ -833,7 +831,7 @@ function AiCeoModelGuide({
   return (
     <Panel>
       <PanelHeader
-        title="คู่มือเลือก OpenRouter model"
+        title="คู่มือเลือก Model"
         description="ราคาแสดงเป็น USD ต่อ 1M input/output tokens จาก catalog ล่าสุดของระบบ ส่วนคำแนะนำใช้สำหรับเลือก model ให้เหมาะกับงานของร้าน"
         action={<Badge color="info">{models.length} models</Badge>}
       />
@@ -1080,7 +1078,7 @@ function AiCeoInbox({
           <Notice
             tone="info"
             title="ยังไม่มีคำแนะนำค้างอยู่"
-            text="เมื่อ dry-run หรือรอบส่ง AI CEO สำเร็จ รายการที่ควรทำจะมาอยู่ตรงนี้"
+            text="เมื่อทดสอบหรือรอบส่ง AI CEO สำเร็จ รายการที่ควรทำจะมาอยู่ตรงนี้"
           />
         )}
       </PanelBody>
@@ -1189,14 +1187,14 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "ใช้กับงาน long-context หรือทดลองเทียบคุณภาพก่อนเปิดให้ลูกค้าจริง",
     },
     "qwen/qwen3.7-max": {
-      bestFor: "daily AI CEO สำหรับร้านส่วนใหญ่ที่ต้องการ cost/performance ดี",
+      bestFor: "AI CEO รายวันสำหรับร้านส่วนใหญ่ที่ต้องการสมดุลต้นทุนและคุณภาพ",
       strengths: [
         "สมดุลราคาและคุณภาพ เหมาะกับรอบส่งเช้าประจำวัน",
         "context ใหญ่พอสำหรับ 10 รายงานและ business signals",
       ],
       tradeoffs: [
         "งานวิเคราะห์ซับซ้อนมากอาจไม่ละเอียดเท่ากลุ่ม Pro premium",
-        "ควรดูผล dry-run หลังแก้ prompt สำคัญทุกครั้ง",
+        "ควรดูผลทดสอบหลังแก้ prompt สำคัญทุกครั้ง",
       ],
       recommendation:
         "แนะนำเป็นค่าเริ่มต้นของแผน Business และร้านที่เริ่มใช้ AI CEO จริง",
@@ -1217,7 +1215,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
     "x-ai/grok-4.3": {
       bestFor: "ทางเลือก high-context สำหรับร้านที่ต้องการลอง provider สำรอง",
       strengths: [
-        "context ใหญ่และ output cost น่าสนใจ",
+        "context ใหญ่และค่า output น่าสนใจ",
         "ใช้เป็น fallback เปรียบเทียบคุณภาพกับ Qwen/DeepSeek ได้",
       ],
       tradeoffs: [
@@ -1251,10 +1249,10 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         "ไม่เหมาะกับการตัดสินใจใหญ่ที่ต้องการ reasoning ละเอียด",
       ],
       recommendation:
-        "ใช้เมื่อร้านเน้นต้นทุนต่ำ หรือใช้เป็น model สำหรับ shadow/dry-run จำนวนมาก",
+        "ใช้เมื่อร้านเน้นต้นทุนต่ำ หรือใช้เป็น model สำหรับ shadow mode/รอบทดสอบจำนวนมาก",
     },
     "deepseek/deepseek-v4-flash": {
-      bestFor: "lowest-cost shadow mode, dry-run และ brief สั้น",
+      bestFor: "shadow mode ต้นทุนต่ำ, รอบทดสอบ และ brief สั้น",
       strengths: [
         "ต้นทุนต่ำมาก เหมาะกับการทดลอง prompt บ่อย ๆ",
         "ดีสำหรับเช็ก flow และสร้างคำแนะนำเบื้องต้น",
@@ -1278,7 +1276,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         )} tokens`,
       ],
       tradeoffs: [
-        "ยังไม่มี playbook เฉพาะรุ่นในระบบ ควร dry-run ก่อนเปิดส่งจริง",
+        "ยังไม่มี playbook เฉพาะรุ่นในระบบ ควรทดสอบก่อนเปิดส่งจริง",
         "ตรวจราคาและคุณภาพหลัง sync catalog จาก OpenRouter",
       ],
       recommendation:

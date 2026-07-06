@@ -37,7 +37,7 @@ const quickActions = [
     label: "ร้านทั้งหมด",
   },
   {
-    detail: "เพิ่มร้านใหม่พร้อม dry-run preview",
+    detail: "เพิ่มร้านใหม่พร้อมตรวจข้อมูลก่อนบันทึก",
     href: "/owner-v2/stores/new",
     keywords: "new tenant add store เพิ่มร้าน ร้านใหม่",
     label: "เพิ่มร้านใหม่",
@@ -73,16 +73,16 @@ const quickActions = [
     label: "แผนแจ้งเตือน",
   },
   {
-    detail: "ดู incidents, worker, Telegram และ audit log",
+    detail: "ดูสถานะส่ง LINE, AI CEO, รายงาน และงานระบบ",
     href: "/owner-v2/ops",
     keywords: "ops operations worker incident telegram line audit ตรวจระบบ แจ้งเตือน",
-    label: "ตรวจระบบและ Audit",
+    label: "ศูนย์ตรวจระบบ",
   },
   {
     detail: "ดูความพร้อมของค่าระบบกลางแบบไม่แสดงค่าลับ",
     href: "/owner-v2/system",
     keywords: "system runtime settings config ระบบกลาง ค่าระบบ",
-    label: "ระบบกลาง",
+    label: "ตั้งค่าระบบ",
   },
 ];
 
@@ -366,7 +366,7 @@ export default function OwnerV2Header() {
             <OwnerV2MobileAction href="/owner-v2">เริ่มงาน</OwnerV2MobileAction>
             <OwnerV2MobileAction href="/owner-v2/stores">ร้านค้า</OwnerV2MobileAction>
             <OwnerV2MobileAction href="/owner-v2/ops">
-              ตรวจระบบและ Audit
+              ศูนย์ตรวจระบบ
             </OwnerV2MobileAction>
           </div>
 
@@ -445,7 +445,7 @@ export default function OwnerV2Header() {
                     </li>
                     <li>
                       <OwnerV2UserMenuLink href="/owner-v2/ops">
-                        ตรวจระบบและ Audit
+                        ศูนย์ตรวจระบบ
                       </OwnerV2UserMenuLink>
                     </li>
                   </ul>
@@ -503,7 +503,7 @@ function OperationalNotificationDropdown({
 
         {state.status === "error" ? (
           <NotificationMessage
-            detail={`${state.message} กรุณาเปิดหน้าตรวจระบบและ Audit เพื่อดูสถานะเต็ม`}
+            detail={`${state.message} กรุณาเปิดศูนย์ตรวจระบบเพื่อดูสถานะเต็ม`}
             icon={<AlertIcon className="h-5 w-5" />}
             tone="error"
             title="โหลดสถานะไม่สำเร็จ"
@@ -549,7 +549,7 @@ function OperationalNotificationDropdown({
           className="flex items-center justify-center rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-600"
           href="/owner-v2/ops"
         >
-          เปิดหน้าตรวจระบบและ Audit
+          เปิดศูนย์ตรวจระบบ
         </Link>
       </div>
     </div>

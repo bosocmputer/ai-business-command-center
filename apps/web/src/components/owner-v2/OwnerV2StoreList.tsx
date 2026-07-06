@@ -18,6 +18,12 @@ import type {
   OwnerV2Tenant,
   OwnerV2WorkbenchPayload,
 } from "./types";
+import {
+  formatPlanCode,
+  formatTenantStatus,
+  primaryActionClass,
+  tenantStatusColor,
+} from "./ui";
 
 type StoreListState =
   | { status: "loading" }
@@ -28,9 +34,6 @@ type StoreListState =
 type StoreFilter = "all" | "needs_action" | "ready" | "signals";
 
 const emptyTenants: OwnerV2Tenant[] = [];
-
-const primaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
 
 export default function OwnerV2StoreList() {
   const [state, setState] = useState<StoreListState>({ status: "loading" });
@@ -214,11 +217,11 @@ export default function OwnerV2StoreList() {
           <input
             className="owner-v2-input xl:max-w-md"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="ค้นหาชื่อร้าน, tenant id หรือสิ่งที่ต้องทำต่อ"
+            placeholder="ค้นหาชื่อร้านหรือสิ่งที่ต้องทำต่อ"
             value={query}
           />
           {/* Segmented filter toggle — TailAdmin chart-03 pattern */}
-          <div className="inline-flex w-fit items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900">
+          <div className="grid grid-cols-2 items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900 sm:inline-grid sm:grid-cols-4">
             {filters.map((item) => (
               <button
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-theme-sm font-medium transition ${
@@ -330,7 +333,7 @@ function StoreTableRow({ tenant }: { tenant: OwnerV2Tenant }) {
             <StatusBadge status={tenant.status} />
           </div>
           <p className="mt-1 break-all text-theme-xs text-gray-500 dark:text-gray-400">
-            {tenant.id}
+            แพ็กเกจ {formatPlanCode(tenant.plan_code)}
           </p>
         </div>
       </td>
@@ -372,7 +375,7 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
         <ReadinessBadge tenant={tenant} />
       </div>
       <p className="mt-1 break-all text-theme-xs text-gray-500 dark:text-gray-400">
-        {tenant.id}
+        แพ็กเกจ {formatPlanCode(tenant.plan_code)}
       </p>
       <div className="mt-3">
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">
@@ -390,7 +393,7 @@ function StoreCard({ tenant }: { tenant: OwnerV2Tenant }) {
         </div>
       </div>
       <div className="mt-3 flex items-center gap-1 text-sm font-semibold text-brand-600 dark:text-brand-400">
-        จัดการ
+        เปิดร้าน
         <ArrowRightIcon className="h-4 w-4" />
       </div>
     </Link>
@@ -537,30 +540,4 @@ function summarizeTenants(tenants: OwnerV2Tenant[]) {
 
 function normalizeText(value: string) {
   return value.trim().toLowerCase();
-}
-
-function formatTenantStatus(status: string) {
-  const labels: Record<string, string> = {
-    active: "ใช้งาน",
-    cancelled: "ยกเลิก",
-    past_due: "ค้างชำระ",
-    suspended: "ระงับ",
-    trial: "ทดลองใช้",
-  };
-  return labels[status] ?? status;
-}
-
-function tenantStatusColor(
-  status: string,
-): "success" | "warning" | "error" | "light" {
-  if (status === "active" || status === "trial") {
-    return "success";
-  }
-  if (status === "past_due") {
-    return "warning";
-  }
-  if (status === "suspended" || status === "cancelled") {
-    return "error";
-  }
-  return "light";
 }

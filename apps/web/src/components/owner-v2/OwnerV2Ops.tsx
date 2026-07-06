@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import {
@@ -20,7 +21,10 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails as AdminTechnicalDetails,
   formatDateTime,
+  formatRunStatus,
+  primaryActionClass,
   secondaryActionClass,
 } from "./ui";
 
@@ -125,10 +129,16 @@ const usdFormatter = new Intl.NumberFormat("th-TH", {
 });
 
 export default function OwnerV2Ops() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryWindowHours = parseWindowHours(searchParams.get("window_hours"));
   const [status, setStatus] = useState<"loading" | "success" | "error">(
     "loading",
   );
-  const [windowHours, setWindowHours] = useState<24 | 72 | 168>(24);
+  const [windowHours, setWindowHours] = useState<24 | 72 | 168>(
+    queryWindowHours,
+  );
   const [data, setData] = useState<HealthCenterPayload | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -161,6 +171,19 @@ export default function OwnerV2Ops() {
     void load(controller.signal);
     return () => controller.abort();
   }, [windowHours]);
+
+  useEffect(() => {
+    setWindowHours((current) =>
+      current === queryWindowHours ? current : queryWindowHours,
+    );
+  }, [queryWindowHours]);
+
+  function selectWindowHours(value: 24 | 72 | 168) {
+    setWindowHours(value);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("window_hours", value.toString());
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
 
   if (status === "loading" && !data) {
     return <HealthCenterSkeleton />;
@@ -195,8 +218,9 @@ export default function OwnerV2Ops() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <WindowSelector value={windowHours} onChange={setWindowHours} />
+          <WindowSelector value={windowHours} onChange={selectWindowHours} />
           <Button
+            disabled={status === "loading"}
             onClick={() => void load()}
             size="sm"
             type="button"
@@ -212,7 +236,7 @@ export default function OwnerV2Ops() {
           <OverviewSection payload={payload} />
           <ActionSection incidents={payload.incidents} />
           <TenantSection tenants={payload.tenants} />
-          <TechnicalDetails payload={payload} />
+          <HealthTechnicalDetails payload={payload} />
         </>
       ) : null}
     </div>
@@ -227,7 +251,7 @@ function WindowSelector({
   value: 24 | 72 | 168;
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-white/[0.03]">
+    <div className="grid w-full grid-cols-3 rounded-lg border border-gray-200 bg-white p-1 dark:border-gray-800 dark:bg-white/[0.03] sm:inline-grid sm:w-auto">
       {WINDOW_OPTIONS.map((option) => (
         <button
           className={`rounded-md px-3 py-2 text-theme-xs font-medium transition ${
@@ -279,7 +303,7 @@ function OverviewSection({ payload }: { payload: HealthCenterPayload }) {
             ? "มีส่งไม่สำเร็จ"
             : "ไม่พบปัญหา"
         }
-        detail={`${numberFormatter.format(payload.summary.line_failed_count)} delivery fail`}
+        detail={`${numberFormatter.format(payload.summary.line_failed_count)} รายการส่งไม่สำเร็จ`}
       />
       <HealthMetric
         icon={<PlugInIcon className="h-6 w-6" />}
@@ -383,7 +407,7 @@ function IncidentRow({ incident }: { incident: HealthIncident }) {
             {incident.detail}
           </p>
         </div>
-        <a className={secondaryActionClass} href={incident.action_href}>
+        <a className={primaryActionClass} href={incident.action_href}>
           {incident.action_label}
         </a>
       </div>
@@ -439,6 +463,8 @@ function TenantSection({ tenants }: { tenants: HealthTenant[] }) {
 }
 
 function TenantTableRow({ tenant }: { tenant: HealthTenant }) {
+  const primaryAction = tenant.actions[0];
+  const secondaryActionCount = Math.max(0, tenant.actions.length - 1);
   return (
     <tr>
       <TableCell>
@@ -467,9 +493,7 @@ function TenantTableRow({ tenant }: { tenant: HealthTenant }) {
         <StatusCell
           detail={
             tenant.ai_ceo.enabled
-              ? `${formatTokens(tenant.ai_ceo.window_tokens)} · ${usdFormatter.format(
-                  tenant.ai_ceo.window_cost_usd,
-                )}`
+              ? aiCeoAdminDetail(tenant.ai_ceo)
               : "ยังไม่เปิด"
           }
           status={tenant.ai_ceo.status}
@@ -495,12 +519,24 @@ function TenantTableRow({ tenant }: { tenant: HealthTenant }) {
         />
       </TableCell>
       <TableCell align="right">
-        <div className="flex flex-wrap justify-end gap-2">
-          {tenant.actions.map((action) => (
-            <a className={secondaryActionClass} href={action.href} key={action.href}>
-              {action.label}
+        <div className="flex flex-col items-end gap-1">
+          {primaryAction ? (
+            <a className={primaryActionClass} href={primaryAction.href}>
+              {primaryAction.label}
             </a>
-          ))}
+          ) : (
+            <a
+              className={secondaryActionClass}
+              href={`/owner-v2/stores/${encodeURIComponent(tenant.tenant_id)}`}
+            >
+              เปิดร้าน
+            </a>
+          )}
+          {secondaryActionCount > 0 ? (
+            <span className="text-theme-xs text-gray-500 dark:text-gray-400">
+              มีอีก {numberFormatter.format(secondaryActionCount)} ทางเลือกในหน้าร้าน
+            </span>
+          ) : null}
         </div>
       </TableCell>
     </tr>
@@ -508,6 +544,8 @@ function TenantTableRow({ tenant }: { tenant: HealthTenant }) {
 }
 
 function TenantMobileCard({ tenant }: { tenant: HealthTenant }) {
+  const primaryAction = tenant.actions[0];
+  const secondaryActionCount = Math.max(0, tenant.actions.length - 1);
   return (
     <div className="rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
       <div className="flex items-start justify-between gap-3">
@@ -539,12 +577,24 @@ function TenantMobileCard({ tenant }: { tenant: HealthTenant }) {
           value={tenant.datasource.label}
         />
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {tenant.actions.map((action) => (
-          <a className={secondaryActionClass} href={action.href} key={action.href}>
-            {action.label}
+      <div className="mt-3 space-y-2">
+        {primaryAction ? (
+          <a className={primaryActionClass} href={primaryAction.href}>
+            {primaryAction.label}
           </a>
-        ))}
+        ) : (
+          <a
+            className={secondaryActionClass}
+            href={`/owner-v2/stores/${encodeURIComponent(tenant.tenant_id)}`}
+          >
+            เปิดร้าน
+          </a>
+        )}
+        {secondaryActionCount > 0 ? (
+          <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+            มีอีก {numberFormatter.format(secondaryActionCount)} ทางเลือกในหน้าร้าน
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -574,13 +624,17 @@ function StatusCell({
   );
 }
 
-function TechnicalDetails({ payload }: { payload: HealthCenterPayload }) {
+function HealthTechnicalDetails({ payload }: { payload: HealthCenterPayload }) {
+  const totalAiTokens = payload.tenants.reduce(
+    (sum, tenant) => sum + tenant.ai_ceo.window_tokens,
+    0,
+  );
+  const totalAiCost = payload.tenants.reduce(
+    (sum, tenant) => sum + tenant.ai_ceo.window_cost_usd,
+    0,
+  );
   return (
-    <Panel>
-      <details>
-        <summary className="cursor-pointer text-lg font-semibold text-gray-800 dark:text-white/90">
-          รายละเอียดเทคนิค
-        </summary>
+    <AdminTechnicalDetails description="ข้อมูลนี้ใช้สำหรับทีมดูแลระบบเมื่อจำเป็นต้องตรวจ worker, ช่วงข้อมูล หรือค่าใช้งาน AI">
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Fact
             label="ช่วงข้อมูล"
@@ -602,14 +656,18 @@ function TechnicalDetails({ payload }: { payload: HealthCenterPayload }) {
             tone="light"
             value={formatDateTime(payload.overall.generated_at)}
           />
+          <Fact
+            label="ค่าใช้งาน AI ในช่วงนี้"
+            tone="light"
+            value={`${formatTokens(totalAiTokens)} · ${usdFormatter.format(totalAiCost)}`}
+          />
         </div>
         <p className="mt-4 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
           หน้านี้อ่านจากประวัติรอบแจ้งเตือน การส่ง LINE รายงาน และ AI CEO
           ในระบบหลังบ้านเท่านั้น ไม่รันรายงานใหม่และไม่ดึงข้อมูลลูกค้าจาก SML
           ตอนเปิดหน้า
         </p>
-      </details>
-    </Panel>
+    </AdminTechnicalDetails>
   );
 }
 
@@ -726,6 +784,28 @@ function formatTokens(value: number) {
     return `${numberFormatter.format(Math.round(value / 10) / 100)}K tokens`;
   }
   return `${numberFormatter.format(value)} tokens`;
+}
+
+function aiCeoAdminDetail(aiCeo: HealthTenant["ai_ceo"]) {
+  if (aiCeo.action_hint) {
+    return aiCeo.action_hint;
+  }
+  if (aiCeo.latest_run_at) {
+    return `รอบล่าสุด ${formatDateTime(aiCeo.latest_run_at)}`;
+  }
+  return aiCeo.latest_run_status
+    ? `สถานะ ${formatRunStatus(aiCeo.latest_run_status)}`
+    : "เปิดใช้งานแล้ว";
+}
+
+function parseWindowHours(value: string | null): 24 | 72 | 168 {
+  if (value === "72") {
+    return 72;
+  }
+  if (value === "168") {
+    return 168;
+  }
+  return 24;
 }
 
 function formatPlanCode(value: string) {

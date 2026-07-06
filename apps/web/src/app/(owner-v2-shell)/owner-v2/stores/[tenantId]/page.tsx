@@ -20,7 +20,7 @@ export default async function OwnerV2StorePage({
   const { tenantId } = await params;
   return (
     <OwnerV2Shell
-      subtitle="ข้อมูลร้านและสถานะ readiness ของ tenant นี้"
+      subtitle="ข้อมูลร้าน สถานะความพร้อม และขั้นตอนที่ควรทำต่อของร้านนี้"
       title="ข้อมูลร้าน"
     >
       {/* OwnerV2StoreDetail reads useSearchParams (?step=) so it must sit inside

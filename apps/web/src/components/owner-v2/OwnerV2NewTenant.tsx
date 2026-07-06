@@ -21,6 +21,8 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
+  formatPlanCode,
   primaryActionClass,
   secondaryActionClass,
 } from "./ui";
@@ -330,9 +332,9 @@ export default function OwnerV2NewTenant() {
                   }}
                   value={planCode}
                 >
-                  <option value="starter">starter</option>
-                  <option value="business">business</option>
-                  <option value="pro">pro</option>
+                  <option value="starter">{formatPlanCode("starter")}</option>
+                  <option value="business">{formatPlanCode("business")}</option>
+                  <option value="pro">{formatPlanCode("pro")}</option>
                 </select>
               </div>
               <div>
@@ -524,10 +526,13 @@ export default function OwnerV2NewTenant() {
         {preview ? (
           <PanelBody spaced>
             <div className="grid grid-cols-1 gap-3">
-              <Fact label="รหัสร้าน" value={preview.tenant_id} />
+              <Fact label="แพ็กเกจ" value={formatPlanCode(preview.plan_code)} />
               <Fact label="หน้าแดชบอร์ด" value={preview.dashboard_path} />
               <Fact label="ผู้ดูแดชบอร์ด" value={preview.viewer_email} />
             </div>
+            <TechnicalDetails embedded title="รายละเอียดเทคนิคของร้านใหม่">
+              <Fact label="รหัสร้าน" value={preview.tenant_id} />
+            </TechnicalDetails>
             <div className="custom-scrollbar flex max-h-[360px] flex-col gap-2 overflow-y-auto">
               {(preview.checks ?? []).map((check) => (
                 <div

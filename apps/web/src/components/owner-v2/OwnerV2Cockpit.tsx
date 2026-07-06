@@ -10,12 +10,12 @@ import type {
   OwnerV2CockpitTone,
   OwnerV2ProofStrip,
 } from "./types";
-
-const primaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-theme-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 sm:w-auto";
-
-const secondaryActionClass =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs transition hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 sm:w-auto";
+import {
+  formatTenantStatus,
+  primaryActionClass,
+  secondaryActionClass,
+  tenantStatusColor,
+} from "./ui";
 
 export default function OwnerV2Cockpit({ cockpit }: { cockpit: OwnerV2Cockpit }) {
   // Defensive guard: if a future API change ever returns a cockpit without
@@ -74,7 +74,7 @@ function NextActionPanel({ cockpit }: { cockpit: OwnerV2Cockpit }) {
             <ArrowRightIcon className="h-4 w-4" />
           </Link>
           <Link className={secondaryActionClass} href="/owner-v2/ops">
-            ตรวจระบบและ Audit
+            ศูนย์ตรวจระบบ
           </Link>
         </div>
       </div>
@@ -101,7 +101,12 @@ function StoreHealthMatrix({ cockpit }: { cockpit: OwnerV2Cockpit }) {
           {(cockpit.active_tenant_count ?? 0).toLocaleString("th-TH")} ร้าน active
         </Badge>
       </div>
-      <div className="overflow-x-auto">
+      <div className="space-y-3 p-4 lg:hidden">
+        {cockpit.health_matrix.map((row) => (
+          <HealthMatrixMobileCard key={row.tenant_id} row={row} />
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[760px]">
           <thead>
             <tr className="border-b border-gray-100 dark:border-gray-800">
@@ -140,15 +145,7 @@ function HealthMatrixRow({
 }: {
   row: OwnerV2Cockpit["health_matrix"][number];
 }) {
-  const cells: Array<{ label: string; key: string; cell: OwnerV2CockpitHealthCell }> = [
-    { label: "SML", key: "sml", cell: row.sml },
-    { label: "LINE", key: "line", cell: row.line },
-    { label: "แผน", key: "schedule", cell: row.schedule },
-    { label: "รอบล่าสุด", key: "latest_run", cell: row.latest_run },
-    { label: "Incident", key: "incident", cell: row.incident },
-    { label: "Signals", key: "signals", cell: row.signals },
-    { label: "Proof", key: "proof", cell: row.proof },
-  ];
+  const cells = healthMatrixCells(row);
   return (
     <tr className="transition hover:bg-gray-50 dark:hover:bg-white/[0.03]">
       <td className="px-4 py-3 align-top sm:px-6">
@@ -179,6 +176,68 @@ function HealthMatrixRow({
   );
 }
 
+function HealthMatrixMobileCard({
+  row,
+}: {
+  row: OwnerV2Cockpit["health_matrix"][number];
+}) {
+  return (
+    <article className="rounded-xl bg-gray-50 p-4 dark:bg-white/[0.02]">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link
+            className="text-sm font-semibold text-gray-900 transition hover:text-brand-600 dark:text-white"
+            href={row.href}
+          >
+            {row.tenant_name}
+          </Link>
+          <p className="mt-1 line-clamp-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+            {row.next_action_label}
+          </p>
+        </div>
+        <Badge color={tenantStatusColor(row.status)} size="sm">
+          {formatTenantStatus(row.status)}
+        </Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {healthMatrixCells(row).map((entry) => (
+          <div
+            className="rounded-lg bg-white p-2.5 dark:bg-white/[0.03]"
+            key={entry.key}
+          >
+            <p className="text-theme-xs text-gray-500 dark:text-gray-400">
+              {entry.label}
+            </p>
+            <Badge color={entry.cell.tone} size="sm">
+              {entry.cell.label}
+            </Badge>
+          </div>
+        ))}
+      </div>
+      <Link className={`${primaryActionClass} mt-3`} href={row.href}>
+        เปิดร้าน
+        <ArrowRightIcon className="h-4 w-4" />
+      </Link>
+    </article>
+  );
+}
+
+function healthMatrixCells(row: OwnerV2Cockpit["health_matrix"][number]): Array<{
+  label: string;
+  key: string;
+  cell: OwnerV2CockpitHealthCell;
+}> {
+  return [
+    { label: "SML", key: "sml", cell: row.sml },
+    { label: "LINE", key: "line", cell: row.line },
+    { label: "แผน", key: "schedule", cell: row.schedule },
+    { label: "รอบล่าสุด", key: "latest_run", cell: row.latest_run },
+    { label: "เหตุการณ์", key: "incident", cell: row.incident },
+    { label: "สัญญาณ", key: "signals", cell: row.signals },
+    { label: "หลักฐาน", key: "proof", cell: row.proof },
+  ];
+}
+
 function ProofStripBoard({ proofStrips }: { proofStrips: OwnerV2ProofStrip[] }) {
   const eligible = proofStrips.filter((strip) => strip.eligible);
   if (!eligible.length) {
@@ -197,7 +256,7 @@ function ProofStripBoard({ proofStrips }: { proofStrips: OwnerV2ProofStrip[] }) 
       <div className="flex flex-col gap-2 border-b border-gray-100 px-4 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
           <h3 className="text-base font-semibold text-gray-800 dark:text-white/90">
-            Proof 7 วัน
+            หลักฐานรอบส่ง 7 วัน
           </h3>
           <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
             วันที่มีรอบส่งจริงของร้านที่พร้อมเข้ารอบ ย้อนหลัง 7 วัน
@@ -229,7 +288,7 @@ function ProofStripRow({ strip }: { strip: OwnerV2ProofStrip }) {
           className="text-sm font-semibold text-gray-900 transition hover:text-brand-600 dark:text-white"
           href={`/owner-v2/stores/${encodeURIComponent(strip.tenant_id)}`}
         >
-          {strip.tenant_name ?? strip.tenant_id}
+          {strip.tenant_name ?? "ร้านไม่ระบุชื่อ"}
         </Link>
         <div className="flex flex-wrap gap-2">
           <Badge color="light" size="sm">
@@ -254,7 +313,7 @@ function ProofStripRow({ strip }: { strip: OwnerV2ProofStrip }) {
               day.status,
             )}`}
             key={day.day}
-            title={`Day ${day.day} · ${day.date} · ${proofDayLabel(day.status)}`}
+            title={`วันที่ ${day.day} · ${day.date} · ${proofDayLabel(day.status)}`}
           >
             D{day.day}
           </span>
@@ -279,9 +338,9 @@ const HEALTH_MATRIX_COLUMNS = [
   { key: "line", label: "LINE" },
   { key: "schedule", label: "แผน" },
   { key: "latest_run", label: "รอบล่าสุด" },
-  { key: "incident", label: "Incident" },
-  { key: "signals", label: "Signals" },
-  { key: "proof", label: "Proof" },
+  { key: "incident", label: "เหตุการณ์" },
+  { key: "signals", label: "สัญญาณ" },
+  { key: "proof", label: "หลักฐาน" },
 ] as const;
 
 function toneConfigFor(tone: OwnerV2CockpitTone): {

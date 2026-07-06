@@ -646,7 +646,7 @@ function SystemConfigForm({
             </label>
             <label className="block min-w-0" htmlFor="sys-mb-tenants">
               <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-                tenant_ids (คั่นด้วยจุลภาค)
+                รหัสร้านที่ส่ง Morning Brief (คั่นด้วยจุลภาค)
               </span>
               <input
                 className="owner-v2-input"
