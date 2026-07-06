@@ -264,8 +264,11 @@ export default function OwnerV2StoreDetail({ tenantId }: { tenantId: string }) {
           <Notice
             tone="error"
             title="โหลดข้อมูลร้านไม่สำเร็จ"
-            text={`${detailState.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
           />
+          <AdminTechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={detailState.message} />
+          </AdminTechnicalDetails>
           <Button
             className="mt-4 w-full sm:w-auto"
             onClick={() => void load()}

@@ -282,8 +282,11 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
           <Notice
             tone="error"
             title="โหลด SML ไม่สำเร็จ"
-            text={`${state.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
           />
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={state.message} />
+          </TechnicalDetails>
           <Button
             className="mt-4"
             onClick={() => void load()}

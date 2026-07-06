@@ -307,28 +307,23 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
     return (
       <Panel>
         <PanelBody spaced>
-          <div className="flex flex-col items-center gap-3 rounded-lg bg-gray-50 p-5 text-center dark:bg-white/[0.02] sm:p-6">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-              <InfoIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-white/90">
-                โหลดสถานะรายงานไม่สำเร็จ
-              </p>
-              <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-500 dark:text-gray-400">
-                {`${state.message} กรุณาตรวจ session ผู้ดูแลหรือเลือกร้านใหม่`}
-              </p>
-            </div>
-            <div className="mt-1 flex justify-center">
-              <Button
-                onClick={() => void load()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                โหลดใหม่
-              </Button>
-            </div>
+          <Notice
+            tone="error"
+            title="โหลดสถานะรายงานไม่สำเร็จ"
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเลือกร้านใหม่"
+          />
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={state.message} />
+          </TechnicalDetails>
+          <div>
+            <Button
+              onClick={() => void load()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              โหลดใหม่
+            </Button>
           </div>
         </PanelBody>
       </Panel>

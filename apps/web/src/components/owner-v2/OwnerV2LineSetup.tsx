@@ -641,10 +641,15 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
       <Panel>
         <PanelBody spaced>
           <Notice
-            text={`${state.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
             title="โหลด LINE OA ไม่สำเร็จ"
             tone="error"
           />
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <p className="break-words text-sm leading-6 text-gray-500 dark:text-gray-400">
+              {state.message}
+            </p>
+          </TechnicalDetails>
           <Button
             className="mt-4"
             onClick={() => void load()}

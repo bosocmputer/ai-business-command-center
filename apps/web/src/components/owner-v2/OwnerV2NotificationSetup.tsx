@@ -559,10 +559,13 @@ export default function OwnerV2NotificationSetup({
       <Panel>
         <PanelBody spaced>
           <Notice
-            text={`${state.message} ลองรีเฟรชหน้านี้ หรือตรวจ session ผู้ดูแล`}
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เปิดศูนย์ตรวจระบบหรือเข้าสู่ระบบผู้ดูแลใหม่"
             title="โหลดแผนแจ้งเตือนไม่สำเร็จ"
             tone="error"
           />
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={state.message} />
+          </TechnicalDetails>
           <Button
             className="mt-4"
             onClick={() => void load()}

@@ -191,16 +191,18 @@ export default function OwnerV2Ops() {
 
   if (status === "error" && !data) {
     return (
-      <Notice
-        text={
-          <span>
-            {errorMessage} กรุณารีเฟรชอีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ session
-            ผู้ดูแลหรือสถานะ API
-          </span>
-        }
-        title="โหลดศูนย์ตรวจระบบไม่สำเร็จ"
-        tone="error"
-      />
+      <Panel>
+        <PanelBody spaced>
+          <Notice
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จ ให้เข้าสู่ระบบผู้ดูแลใหม่หรือตรวจสถานะเครื่องแม่ข่าย"
+            title="โหลดศูนย์ตรวจระบบไม่สำเร็จ"
+            tone="error"
+          />
+          <AdminTechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={errorMessage} />
+          </AdminTechnicalDetails>
+        </PanelBody>
+      </Panel>
     );
   }
 
