@@ -472,6 +472,26 @@ function SystemConfigForm({
         className="space-y-6"
         onSubmit={save}
       >
+        <Notice
+          tone="warning"
+          title="ก่อนแก้ค่าระบบกลาง"
+          text="ค่าหน้านี้มีผลกับลิงก์ที่เปิดจาก LINE, หน้ารายงานผู้บริหาร และการตรวจงานอัตโนมัติ ควรแก้เฉพาะตอนมีแผนทดสอบและ rollback ชัดเจน"
+        />
+        <div className="grid gap-3 lg:grid-cols-3">
+          <Fact
+            label="URL หน้าเว็บและบริการรายงาน"
+            value="กระทบปุ่มเปิดรายงานใน LINE และลิงก์ signed viewer ทุกใบ"
+          />
+          <Fact
+            label="รหัสเซ็นลิงก์และรหัสตรวจงาน"
+            value="วางค่าใหม่เฉพาะตอนหมุนรหัส เว้นว่างเพื่อคงค่าเดิม"
+          />
+          <Fact
+            label="สถานะสำรองข้อมูล"
+            value="ใช้เป็นหลักฐานให้ทีมดูแลระบบ ไม่ได้สั่ง backup จากหน้าเว็บ"
+          />
+        </div>
+
         <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
           <label className="block min-w-0" htmlFor="sys-app-base-url">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -484,6 +504,9 @@ function SystemConfigForm({
               placeholder="https://..."
               value={appBaseUrl}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้เป็นที่อยู่หลักของหลังบ้านและหน้ารายงานที่ผู้ดูแลเปิดจาก browser
+            </span>
           </label>
           <label className="block min-w-0" htmlFor="sys-public-api">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -496,6 +519,9 @@ function SystemConfigForm({
               placeholder="https://..."
               value={publicApiBaseUrl}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้สร้างปุ่มเปิดรายละเอียดใน LINE ถ้าผิด ผู้บริหารอาจกดเปิดรายงานไม่ได้
+            </span>
           </label>
           <label className="block min-w-0" htmlFor="sys-signing-secret">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -514,6 +540,9 @@ function SystemConfigForm({
               type="password"
               value={signingSecret}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ไม่แสดงค่าเดิมบนหน้าเว็บ วางเฉพาะเมื่อจะเปลี่ยนรหัสใหม่เท่านั้น
+            </span>
           </label>
           <label className="block min-w-0" htmlFor="sys-link-ttl">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -528,6 +557,9 @@ function SystemConfigForm({
               type="number"
               value={linkTtl}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              แนะนำ 72 ชั่วโมงสำหรับ LINE เพราะผู้บริหารมักย้อนเปิดรายงานภายหลัง
+            </span>
           </label>
           <label className="block min-w-0" htmlFor="sys-worker-id">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -540,6 +572,9 @@ function SystemConfigForm({
               placeholder="ชื่อที่ตั้งไว้บนเครื่องแม่ข่าย"
               value={workerId}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ใช้ระบุ worker ที่ส่ง LINE, รันรายงาน และอัปเดต heartbeat ให้ศูนย์ตรวจระบบ
+            </span>
           </label>
           <label className="block min-w-0" htmlFor="sys-heartbeat-token">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -558,6 +593,9 @@ function SystemConfigForm({
               type="password"
               value={heartbeatToken}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              ไม่ต้องกรอกซ้ำทุกครั้ง เว้นว่างไว้ถ้าต้องการใช้รหัสเดิมบนเครื่องแม่ข่าย
+            </span>
           </label>
           <label className="flex min-w-0 cursor-pointer gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
@@ -589,6 +627,9 @@ function SystemConfigForm({
               placeholder="2026-06-19T01:00:00Z"
               value={lastBackupAt}
             />
+            <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              เป็นเวลาหลักฐานล่าสุดเท่านั้น การสำรองข้อมูลจริงต้องตั้งที่เครื่องแม่ข่าย
+            </span>
           </label>
         </div>
 
@@ -600,6 +641,11 @@ function SystemConfigForm({
           <p className="-mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
             ตั้งเวลาและร้านที่จะส่งสรุปอัตโนมัติทุกเช้า ระบบรันงานจะเริ่มรอบตามเวลานี้
           </p>
+          <Notice
+            tone="info"
+            title="ถ้าแก้แผนแจ้งเตือนรายร้าน ให้ไปหน้าร้านนั้น"
+            text="ส่วนนี้เป็นรอบกลางข้ามร้านเท่านั้น ส่วนลำดับรายงาน, ผู้รับ LINE และ dry-run/send จริงของแต่ละร้านควรแก้ที่หน้าแผนแจ้งเตือนของร้าน"
+          />
           <label className="flex min-w-0 cursor-pointer gap-3 rounded-lg border border-gray-100 p-3 text-sm dark:border-gray-800">
             <input
               checked={morningBriefEnabled}
@@ -661,6 +707,9 @@ function SystemConfigForm({
                 placeholder="คั่นแต่ละร้านด้วยจุลภาค"
                 value={morningBriefTenantIds}
               />
+              <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+                ใช้ tenant id เฉพาะร้านที่ต้องอยู่ในรอบกลางนี้ และควรทดสอบส่งหา admin ก่อนส่งลูกค้า
+              </span>
             </label>
             <label className="block min-w-0" htmlFor="sys-mb-mode">
               <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
@@ -729,6 +778,9 @@ function SystemConfigForm({
             </div>
           ) : null}
         </div>
+        <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+          ปุ่มบันทึกจะเปิดเมื่อมีการเปลี่ยนค่า หลังบันทึกแล้วให้ตรวจศูนย์ตรวจระบบและลองเปิดรายงานจาก LINE อย่างน้อยหนึ่งร้าน
+        </p>
       </form>
     </TechnicalDetails>
   );
