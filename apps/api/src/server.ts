@@ -14952,8 +14952,8 @@ function buildStoreSetupReadinessChecks(input: {
       label: "เชื่อม SML ผ่าน JavaWS",
       detail:
         input.datasource.kind === "sml_javaws"
-          ? `${input.datasource.base_url ?? "Tomcat"} · ${input.datasource.database ?? "database"}`
-          : "กรอก Tomcat URL, port, SMLConfig และ database",
+          ? "เชื่อมต่อ SML แล้ว พร้อมใช้ดึงรายงาน"
+          : "กรอก URL SML JavaWS, พอร์ต, ไฟล์ SMLConfig และเลือกฐานข้อมูล",
       href: `/owner/sml-connections?tenant=${encodeURIComponent(
         input.summary.tenant.id,
       )}`,
@@ -14974,8 +14974,8 @@ function buildStoreSetupReadinessChecks(input: {
       ok: sendReadyLineChannels.length > 0,
       label: "มี LINE OA",
       detail: input.lineChannels.length
-        ? `${sendReadyLineChannels.length}/${input.lineChannels.length} LINE OA มี token พร้อมส่งจริง`
-        : "ใช้ LINE OA กลางหรือเพิ่ม LINE OA ของร้าน แล้วบันทึก access token",
+        ? `${sendReadyLineChannels.length}/${input.lineChannels.length} LINE OA พร้อมส่งจริง`
+        : "ใช้ LINE OA กลางหรือเพิ่ม LINE OA ของร้าน แล้วบันทึกรหัสส่งข้อความ",
       href: `/owner/line?tenant=${encodeURIComponent(input.summary.tenant.id)}`,
     },
     {
@@ -14990,7 +14990,7 @@ function buildStoreSetupReadinessChecks(input: {
       ok: input.notificationRules.some((rule) => rule.enabled),
       label: "มีแผนแจ้งเตือนที่เปิดใช้งาน",
       detail: input.notificationRules.length
-        ? "มี draft แล้ว เปิดใช้งานเมื่อ readiness ผ่าน"
+        ? "มีแบบร่างแล้ว เปิดใช้งานเมื่อความพร้อมผ่านครบ"
         : "กำหนดรายงาน ผู้รับ วัน และเวลา",
       href: `/owner/notifications?tenant=${encodeURIComponent(
         input.summary.tenant.id,
