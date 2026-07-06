@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { isAbortError, ownerV2Fetch } from "./api";
+import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
 import type {
   OwnerV2AiCeoDryRunResult,
   OwnerV2AiCeoSetupStatus,
@@ -250,20 +250,25 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
         },
       );
       setDryRun(result);
-      setMessage({
+      const nextMessage: MessageState = {
         tone: result.ok ? "success" : "warning",
         text: result.ok
           ? "ทดสอบ AI CEO สำเร็จ"
-          : (result.safe_error_message ?? "ทดสอบ AI CEO ไม่สำเร็จ"),
-      });
+          : "ทดสอบ AI CEO ยังไม่สำเร็จ ตรวจรหัส โมเดล งบใช้งาน และคำสั่ง AI ก่อนลองใหม่",
+      };
+      const nextTechnicalMessage =
+        !result.ok && result.safe_error_message ? result.safe_error_message : null;
       await load();
+      setMessage(nextMessage);
+      setTechnicalMessage(nextTechnicalMessage);
     } catch (error) {
-      setTechnicalMessage(technicalErrorMessage(error));
+      const nextTechnicalMessage = technicalErrorMessage(error);
+      await load().catch(() => null);
       setMessage({
         tone: "error",
         text: "ทดสอบ AI CEO ไม่สำเร็จ ลองตรวจรหัส โมเดล และวันที่จำลองก่อนทดสอบใหม่",
       });
-      await load().catch(() => null);
+      setTechnicalMessage(nextTechnicalMessage);
     } finally {
       setBusy(null);
     }
@@ -494,8 +499,8 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                       </p>
                       <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
                         {selectedModel.use_case} · บริบท{" "}
-                        {formatNumber(selectedModel.context_length)} โทเคน · ราคาเข้า $
-                        {formatPrice(selectedModel.price_input_per_m)}/M · ราคาตอบ $
+                        {formatNumber(selectedModel.context_length)} หน่วยใช้งาน · ข้อความเข้า $
+                        {formatPrice(selectedModel.price_input_per_m)}/M · ข้อความตอบ $
                         {formatPrice(selectedModel.price_output_per_m)}/M
                       </p>
                     </div>
@@ -519,7 +524,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
-                <Field label="เพดานโทเคนต่อวัน">
+                <Field label="เพดานหน่วยใช้งาน AI ต่อวัน">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -534,7 +539,7 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                     value={form.daily_token_budget}
                   />
                 </Field>
-                <Field label="เพดานโทเคนต่อเดือน">
+                <Field label="เพดานหน่วยใช้งาน AI ต่อเดือน">
                   <input
                     className="owner-v2-input"
                     disabled={!canUseAi || busy !== null}
@@ -660,6 +665,9 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                   {busy === "models" ? "กำลังอัปเดต..." : "อัปเดตโมเดล"}
                 </Button>
               </div>
+              <p className="mt-2 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                ถ้าบันทึกไม่ได้ ให้ตรวจแพ็กเกจ ระบบเข้ารหัส และคำสั่งบทบาทให้มีอย่างน้อย 80 ตัวอักษร
+              </p>
             </form>
 
             <div className="space-y-4">
@@ -703,11 +711,11 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
                 <div className="grid grid-cols-1 gap-3">
                   <Fact
                     label="วันนี้"
-                    value={`${formatNumber(data.usage.today_tokens)} โทเคน · $${formatPrice(data.usage.today_cost_usd)}`}
+                    value={`${formatNumber(data.usage.today_tokens)} หน่วย · $${formatPrice(data.usage.today_cost_usd)}`}
                   />
                   <Fact
                     label="เดือนนี้"
-                    value={`${formatNumber(data.usage.month_tokens)} โทเคน · $${formatPrice(data.usage.month_cost_usd)}`}
+                    value={`${formatNumber(data.usage.month_tokens)} หน่วย · $${formatPrice(data.usage.month_cost_usd)}`}
                   />
                   <Fact
                     label="ทดสอบล่าสุด"
@@ -800,7 +808,7 @@ function AiCeoAdminGuide() {
     },
     {
       title: "ขอบเขตงบใช้งาน",
-      text: "เพดานโทเคนและค่าใช้จ่ายใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะไม่สำเร็จแบบปลอดภัย",
+      text: "เพดานหน่วยใช้งานและค่าใช้จ่ายใช้กันไม่ให้บิล OpenRouter ไหล ถ้าเกินงบ AI จะหยุดและบันทึกสถานะไม่สำเร็จแบบปลอดภัย",
     },
     {
       title: "โหมดทดลองเงียบ",
@@ -808,7 +816,7 @@ function AiCeoAdminGuide() {
     },
     {
       title: "ทดสอบก่อนส่งจริง",
-      text: "ทดสอบคำสั่ง โมเดล และรหัส OpenRouter กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้โทเคนจริงของ OpenRouter",
+      text: "ทดสอบคำสั่ง โมเดล และรหัส OpenRouter กับวันที่จำลองก่อนรอบจริง การกดทดสอบจะใช้หน่วยใช้งานจริงของ OpenRouter",
     },
     {
       title: "สิ่งที่ AI CEO แนะนำ",
@@ -827,7 +835,7 @@ function AiCeoAdminGuide() {
             ใช้ส่วนนี้เป็น checklist ก่อนเปิด AI CEO ให้ร้านจริง
           </p>
         </div>
-        <Badge color="info">Admin guide</Badge>
+        <Badge color="info">คู่มือ</Badge>
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {sections.map((section) => (
@@ -861,7 +869,7 @@ function AiCeoModelGuide({
     <Panel>
       <PanelHeader
         title="คู่มือเลือกโมเดล"
-        description="ราคาแสดงเป็น USD ต่อ 1M โทเคนเข้า/ออก จาก catalog ล่าสุดของระบบ ส่วนคำแนะนำใช้สำหรับเลือกโมเดลให้เหมาะกับงานของร้าน"
+        description="ราคาแสดงเป็น USD ต่อ 1M หน่วยใช้งาน แยกข้อความเข้า/ข้อความตอบ จากรายการล่าสุดของระบบ ส่วนคำแนะนำใช้เลือกโมเดลให้เหมาะกับงานของร้าน"
         action={<Badge color="info">{models.length} โมเดล</Badge>}
       />
       <PanelBody spaced>
@@ -923,11 +931,11 @@ function AiCeoModelGuide({
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <Fact label="ราคาเข้า" value={`$${formatPrice(model.price_input_per_m)}/M`} />
-                  <Fact label="ราคาตอบ" value={`$${formatPrice(model.price_output_per_m)}/M`} />
+                  <Fact label="ข้อความเข้า" value={`$${formatPrice(model.price_input_per_m)}/M`} />
+                  <Fact label="ข้อความตอบ" value={`$${formatPrice(model.price_output_per_m)}/M`} />
                   <Fact
                     label="บริบท"
-                    value={`${formatNumber(model.context_length)} โทเคน`}
+                    value={`${formatNumber(model.context_length)} หน่วย`}
                   />
                 </div>
 
@@ -1031,16 +1039,16 @@ function AiCeoDryRunResultPanel({
         <TechnicalDetails
           embedded
           title="รายละเอียดเทคนิคของการทดสอบ AI"
-          description="เปิดดูเมื่อต้องตรวจการเรียก OpenRouter, โทเคน, ค่าใช้จ่าย หรือสถานะจากผู้ให้บริการ"
+          description="เปิดดูเมื่อต้องตรวจการเรียก OpenRouter, หน่วยใช้งาน, ค่าใช้จ่าย หรือสถานะจากผู้ให้บริการ"
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Fact label="เวลาเรียก AI" value={`${result.latency_ms} ms`} />
+            <Fact label="เวลาเรียก AI" value={formatAiLatency(result.latency_ms)} />
             <Fact
               label="สถานะผู้ให้บริการ"
               value={result.provider_status?.toString() ?? "-"}
             />
             <Fact
-              label="โทเคนเข้า/ออก"
+              label="หน่วยเข้า/ออก"
               value={`${formatNumber(result.run.input_tokens ?? 0)} / ${formatNumber(result.run.output_tokens ?? 0)}`}
             />
             <Fact
@@ -1335,7 +1343,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
         model.intelligence_label,
         `โมเดลจาก ${formatProviderLabel(model.provider)} รองรับบริบท ${formatNumber(
           model.context_length,
-        )} โทเคน`,
+        )} หน่วยใช้งาน`,
       ],
       tradeoffs: [
         "ยังไม่มีแนวทางเฉพาะรุ่นในระบบ ควรทดสอบก่อนเปิดส่งจริง",
@@ -1420,7 +1428,27 @@ function formatPrice(value: number) {
   }).format(value);
 }
 
+function formatAiLatency(value: number) {
+  if (value < 1000) {
+    return "น้อยกว่า 1 วินาที";
+  }
+  const seconds = Math.round(value / 1000);
+  if (seconds < 60) {
+    return `${seconds} วินาที`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} นาที ${seconds % 60} วินาที`;
+}
+
 function technicalErrorMessage(error: unknown) {
+  const payload = (error as OwnerV2FetchError | undefined)?.payload;
+  const safeMessage =
+    typeof payload?.message === "string" && payload.message.trim()
+      ? payload.message.trim()
+      : null;
+  if (safeMessage) {
+    return safeMessage;
+  }
   return error instanceof Error ? error.message : "ไม่พบรายละเอียด";
 }
 
