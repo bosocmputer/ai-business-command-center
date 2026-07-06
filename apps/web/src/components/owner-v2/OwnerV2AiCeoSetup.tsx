@@ -878,7 +878,7 @@ function AiCeoModelGuide({
                       {model.display_name}
                     </h4>
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      ผู้ให้บริการ: {model.provider}
+                      ผู้ให้บริการ: {formatProviderLabel(model.provider)}
                     </p>
                   </div>
                   <Button
@@ -965,20 +965,16 @@ function AiCeoDryRunResultPanel({
         }
       />
       <PanelBody spaced>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Fact label="ตรวจเมื่อ" value={formatDateTime(result.checked_at)} />
-          <Fact label="เวลาเรียก AI" value={`${result.latency_ms} ms`} />
           <Fact
-            label="สถานะผู้ให้บริการ"
-            value={result.provider_status?.toString() ?? "-"}
+            label="ผลทดสอบ"
+            tone={result.ok ? "success" : "error"}
+            value={result.ok ? "พร้อมส่งจริง" : "ควรตรวจ"}
           />
           <Fact
-            label="โทเคนเข้า/ออก"
-            value={`${formatNumber(result.run.input_tokens ?? 0)} / ${formatNumber(result.run.output_tokens ?? 0)}`}
-          />
-          <Fact
-            label="ค่าใช้จ่าย"
-            value={`$${formatPrice(result.run.cost_estimate_usd ?? 0)}`}
+            label="งานที่ AI แนะนำ"
+            value={`${formatNumber(result.response?.top_actions.length ?? 0)} เรื่อง`}
           />
         </div>
         {result.response?.top_actions.length ? (
@@ -993,7 +989,7 @@ function AiCeoDryRunResultPanel({
                     {action.title}
                   </h4>
                   <Badge color={severityTone(action.severity)}>
-                    {action.severity}
+                    {severityLabel(action.severity)}
                   </Badge>
                 </div>
                 <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
@@ -1006,6 +1002,27 @@ function AiCeoDryRunResultPanel({
             ))}
           </div>
         ) : null}
+        <TechnicalDetails
+          embedded
+          title="รายละเอียดเทคนิคของการทดสอบ AI"
+          description="เปิดดูเมื่อต้องตรวจการเรียก OpenRouter, โทเคน, ค่าใช้จ่าย หรือสถานะจากผู้ให้บริการ"
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Fact label="เวลาเรียก AI" value={`${result.latency_ms} ms`} />
+            <Fact
+              label="สถานะผู้ให้บริการ"
+              value={result.provider_status?.toString() ?? "-"}
+            />
+            <Fact
+              label="โทเคนเข้า/ออก"
+              value={`${formatNumber(result.run.input_tokens ?? 0)} / ${formatNumber(result.run.output_tokens ?? 0)}`}
+            />
+            <Fact
+              label="ค่าใช้จ่ายโดยประมาณ"
+              value={`$${formatPrice(result.run.cost_estimate_usd ?? 0)}`}
+            />
+          </div>
+        </TechnicalDetails>
       </PanelBody>
     </Panel>
   );
@@ -1038,7 +1055,7 @@ function AiCeoInbox({
                   <div className="min-w-0">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <Badge color={severityTone(item.severity)}>
-                        {item.severity}
+                        {severityLabel(item.severity)}
                       </Badge>
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {formatDateTime(item.created_at)}
@@ -1127,12 +1144,28 @@ function defaultPrompt(data: OwnerV2AiCeoSetupStatus) {
 
 function keySourceLabel(source: OwnerV2AiCeoSetupStatus["key_source"]) {
   const labels: Record<OwnerV2AiCeoSetupStatus["key_source"], string> = {
-    tenant_override: "Key เฉพาะร้าน",
-    system_default: "Key กลางระบบ",
-    env: "ENV",
+    tenant_override: "รหัสเฉพาะร้าน",
+    system_default: "รหัสกลางระบบ",
+    env: "ค่าจากเครื่องแม่ข่าย",
     missing: "ยังไม่มี",
   };
   return labels[source];
+}
+
+function formatProviderLabel(provider?: string | null) {
+  if (!provider) {
+    return "-";
+  }
+  const labels: Record<string, string> = {
+    anthropic: "Anthropic",
+    deepseek: "DeepSeek",
+    google: "Google",
+    mistralai: "Mistral AI",
+    openai: "OpenAI",
+    qwen: "Qwen",
+    "x-ai": "xAI",
+  };
+  return labels[provider] ?? provider;
 }
 
 function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
@@ -1274,7 +1307,7 @@ function modelAdminGuide(model: AiCeoModelCatalogItem): ModelAdminGuide {
       bestFor: model.use_case,
       strengths: [
         model.intelligence_label,
-        `โมเดลจาก ${model.provider} รองรับบริบท ${formatNumber(
+        `โมเดลจาก ${formatProviderLabel(model.provider)} รองรับบริบท ${formatNumber(
           model.context_length,
         )} โทเคน`,
       ],
@@ -1339,6 +1372,15 @@ function severityTone(severity: string) {
     return "warning" as const;
   }
   return "light" as const;
+}
+
+function severityLabel(severity: string) {
+  const labels: Record<string, string> = {
+    critical: "ต้องแก้",
+    warning: "ควรตรวจ",
+    info: "ข้อมูล",
+  };
+  return labels[severity] ?? severity;
 }
 
 function formatNumber(value: number) {
