@@ -594,6 +594,26 @@ function StoreHero({
 }) {
   const toneClass = heroToneConfig(heroTone);
   const ready = readiness.ready;
+  const bandTitle =
+    verdict?.title ??
+    (nextAction ? `ขั้นต่อไป: ${nextAction.label}` : "ร้านนี้พร้อมใช้งานครบทุกข้อ");
+  const bandText =
+    verdict?.text ??
+    (nextAction
+      ? nextAction.detail
+      : "ตรวจหน้าลูกค้าหรือรอบแจ้งเตือนได้จากหน้านี้");
+  const bandHref =
+    verdict?.href ?? (nextAction ? v2HrefForCheck(tenant.id, nextAction) : null);
+  const bandActionLabel =
+    verdict?.actionLabel ?? (nextAction ? "เปิดขั้นนี้" : null);
+  const bandTone = verdict?.tone ?? (nextAction ? "warning" : "success");
+  const BandIcon = bandTone === "success" ? CheckCircleIcon : AlertIcon;
+  const bandIconClass =
+    bandTone === "success"
+      ? "text-success-500"
+      : bandTone === "error"
+        ? "text-error-600 dark:text-error-400"
+        : "text-warning-600 dark:text-warning-400";
   return (
     <section className={`overflow-hidden rounded-2xl border ${toneClass.border} ${toneClass.bg}`}>
       {/* Identity row */}
@@ -656,7 +676,7 @@ function StoreHero({
               </>
             ) : null}
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <Fact
               label="SML"
               tone={health.datasource_configured ? "success" : "warning"}
@@ -677,46 +697,43 @@ function StoreHero({
               tone={runStatusFactTone(health.latest_report_status)}
               value={formatRunStatus(health.latest_report_status)}
             />
+            <Fact
+              label="แจ้งเตือนล่าสุด"
+              tone={runStatusFactTone(health.latest_notification_run_status)}
+              value={
+                health.latest_notification_run_at
+                  ? `${formatRunStatus(health.latest_notification_run_status)} · ${formatDateTime(health.latest_notification_run_at)}`
+                  : "ยังไม่มีรอบ"
+              }
+            />
           </div>
         </div>
       </div>
 
       {/* Next-action band — the single thing the admin should do next */}
       <div className={`border-t ${toneClass.divider} px-5 py-4 lg:px-6`}>
-        {nextAction ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3">
-              <AlertIcon className="mt-0.5 h-5 w-5 shrink-0 text-warning-600 dark:text-warning-400" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                  ขั้นต่อไป: {nextAction.label}
-                </p>
-                <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  {nextAction.detail}
-                </p>
-              </div>
-            </div>
-            <Link
-              className={primaryActionClass}
-              href={v2HrefForCheck(tenant.id, nextAction)}
-            >
-              {verdict?.actionLabel ?? "เปิดขั้นนี้"}
-              <ArrowRightIcon className="h-4 w-4" />
-            </Link>
-          </div>
-        ) : (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <CheckCircleIcon className="mt-0.5 h-5 w-5 shrink-0 text-success-500" />
+            <BandIcon className={`mt-0.5 h-5 w-5 shrink-0 ${bandIconClass}`} />
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                ร้านนี้พร้อมใช้งานครบทุกข้อ
+                {bandTitle}
               </p>
               <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                {verdict?.text ?? "ตรวจหน้าลูกค้าหรือรอบแจ้งเตือนได้จากหน้านี้"}
+                {bandText}
               </p>
             </div>
           </div>
-        )}
+          {bandHref && bandActionLabel ? (
+            <Link
+              className={primaryActionClass}
+              href={bandHref}
+            >
+              {bandActionLabel}
+              <ArrowRightIcon className="h-4 w-4" />
+            </Link>
+          ) : null}
+        </div>
 
         <StoreQuickActions tenantId={tenant.id} />
 
@@ -1571,7 +1588,7 @@ function deriveStoreVerdict(
       title: "ร้านหลักพร้อมใช้งาน",
       text: "รอรอบแจ้งเตือนถัดไป หรือเปิดดูหลักฐานรอบส่งล่าสุดได้",
       actionLabel: "ดูรอบล่าสุด",
-      href: `${tenantPath}?step=notifications`,
+      href: `${tenantPath}?tab=system`,
     };
   }
 
