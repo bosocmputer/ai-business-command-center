@@ -19,6 +19,7 @@ import {
   Panel,
   PanelBody,
   PanelHeader,
+  TechnicalDetails,
   formatDateTime,
   secondaryActionClass,
 } from "./ui";
@@ -120,8 +121,18 @@ export default function OwnerV2System() {
           <Notice
             tone="error"
             title="โหลดสถานะระบบกลางไม่สำเร็จ"
-            text={`${errorMessage} ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ API และสิทธิ์ผู้ดูแล`}
+            text="ลองโหลดใหม่อีกครั้ง ถ้ายังไม่สำเร็จให้ตรวจ session ผู้ดูแลและการเชื่อมต่อระบบกลาง"
           />
+          <TechnicalDetails
+            description="เก็บข้อความจริงไว้ให้ทีมดูแลระบบใช้วิเคราะห์ โดยไม่แสดงเป็นข้อความหลักของหน้า"
+            embedded
+            title="รายละเอียดสำหรับทีมดูแลระบบ"
+          >
+            <Fact
+              label="ข้อความระบบ"
+              value={errorMessage || "ไม่พบรายละเอียด"}
+            />
+          </TechnicalDetails>
           <div>
             <Button
               className="w-full sm:w-auto"
@@ -253,7 +264,7 @@ export default function OwnerV2System() {
                 value={data?.app_base_url ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"}
               />
               <Fact
-                label="API สำหรับลิงก์รายงาน"
+                label="ลิงก์เปิดรายงานจาก LINE"
                 value={
                   data?.public_api_base_url ? "ตั้งค่าแล้ว" : "ยังไม่ตั้ง"
                 }
@@ -278,7 +289,7 @@ export default function OwnerV2System() {
         </div>
       </div>
 
-      {/* Config form */}
+      {/* Advanced config form */}
       <SystemConfigForm data={data} onSaved={() => void load()} />
     </div>
   );
@@ -367,7 +378,7 @@ function SystemConfigForm({
   );
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<
-    { tone: "success" | "error"; text: string } | null
+    { detail?: string; tone: "success" | "error"; text: string } | null
   >(null);
 
   useEffect(() => {
@@ -444,7 +455,8 @@ function SystemConfigForm({
     } catch (error) {
       setResult({
         tone: "error",
-        text: error instanceof Error ? error.message : "บันทึกไม่สำเร็จ",
+        text: "บันทึกไม่สำเร็จ ตรวจค่าที่กรอกและสิทธิ์ผู้ดูแล แล้วลองอีกครั้ง",
+        detail: error instanceof Error ? error.message : "ไม่พบรายละเอียด",
       });
     } finally {
       setBusy(false);
@@ -452,19 +464,12 @@ function SystemConfigForm({
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-      {/* Header band */}
-      <div className="px-5 py-4 sm:px-6 sm:py-5">
-        <h3 className="text-base font-medium text-gray-800 dark:text-white/90">
-          แก้ค่าระบบกลาง
-        </h3>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          ค่าที่แก้ที่นี่มีผลทันที ระวังการแก้รหัสเซ็นลิงก์รายงานหรือรหัสตรวจงานอัตโนมัติ
-        </p>
-      </div>
-      {/* Body band */}
+    <TechnicalDetails
+      description="สำหรับทีมดูแลระบบเท่านั้น ค่าบางส่วนมีผลกับลิงก์รายงาน, งานแจ้งเตือน และรอบสรุปเช้า ควรแก้หลังตรวจ production URL และแผน rollback แล้ว"
+      title="ตั้งค่าระบบขั้นสูง"
+    >
       <form
-        className="space-y-6 border-t border-gray-100 p-5 sm:p-6 dark:border-gray-800"
+        className="space-y-6"
         onSubmit={save}
       >
         <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
@@ -482,7 +487,7 @@ function SystemConfigForm({
           </label>
           <label className="block min-w-0" htmlFor="sys-public-api">
             <span className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
-              ลิงก์ API สำหรับรายงาน
+              ลิงก์บริการเปิดรายงาน
             </span>
             <input
               className="owner-v2-input"
@@ -532,7 +537,7 @@ function SystemConfigForm({
               className="owner-v2-input"
               id="sys-worker-id"
               onChange={(event) => setWorkerId(event.target.value)}
-              placeholder="bcc-worker"
+              placeholder="ชื่อที่ตั้งไว้บนเครื่องแม่ข่าย"
               value={workerId}
             />
           </label>
@@ -653,7 +658,7 @@ function SystemConfigForm({
                 onChange={(event) =>
                   setMorningBriefTenantIds(event.target.value)
                 }
-                placeholder="tenant_demo_remote, seaandhill_demo"
+                placeholder="คั่นแต่ละร้านด้วยจุลภาค"
                 value={morningBriefTenantIds}
               />
             </label>
@@ -688,10 +693,10 @@ function SystemConfigForm({
             />
             <span className="min-w-0">
               <span className="block font-medium text-gray-800 dark:text-gray-200">
-                บังคับส่งแม้ยังไม่ครบเงื่อนไข (force)
+                ข้ามเงื่อนไขความพร้อมตอนทดสอบ
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                ใช้เฉพาะตอนทดสอบ — ปกติควรปิดเพื่อให้ระบบตรวจความพร้อมก่อนส่ง
+                ใช้เฉพาะตอนทดสอบระบบ ปกติควรปิดเพื่อให้ระบบตรวจความพร้อมก่อนส่ง
               </span>
             </span>
           </label>
@@ -706,19 +711,26 @@ function SystemConfigForm({
             ยกเลิก
           </Link>
           {result ? (
-            <span
-              className={`text-theme-xs ${
-                result.tone === "error"
-                  ? "text-error-600"
-                  : "text-success-600"
-              }`}
-            >
-              {result.text}
-            </span>
+            <div className="min-w-0">
+              <span
+                className={`text-theme-xs ${
+                  result.tone === "error"
+                    ? "text-error-600"
+                    : "text-success-600"
+                }`}
+              >
+                {result.text}
+              </span>
+              {result.detail ? (
+                <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+                  <Fact label="ข้อความระบบ" value={result.detail} />
+                </TechnicalDetails>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </form>
-    </div>
+    </TechnicalDetails>
   );
 }
 
