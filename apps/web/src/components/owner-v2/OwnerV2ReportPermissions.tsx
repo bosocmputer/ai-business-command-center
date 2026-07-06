@@ -133,6 +133,12 @@ export default function OwnerV2ReportPermissions({
   const visibleImpacts =
     saveImpacts ?? setup?.impacted_notification_plans ?? [];
   const saveDisabled = busy !== null || state.status !== "success" || !dirty;
+  const saveHelpText =
+    busy === "save"
+      ? "กำลังบันทึก กรุณารอผลล่าสุดก่อนกดซ้ำ"
+      : !dirty
+        ? "ยังไม่มีการเปลี่ยนแปลงให้บันทึก"
+        : "พร้อมบันทึก ระบบจะตรวจแผนแจ้งเตือนที่เปิดอยู่ก่อนเสมอ";
 
   function togglePermission(
     profileKey: LineAccessProfileKey,
@@ -283,6 +289,16 @@ export default function OwnerV2ReportPermissions({
             title="สิทธิ์ดูรายงาน"
           />
           <PanelBody spaced>
+            <Notice
+              text="ถ้าปิดรายงานจากกลุ่มใด ผู้รับกลุ่มนั้นจะไม่เห็นรายงานใน LINE และเปิดหน้ารายละเอียดไม่ได้ ระบบจะตรวจแผนแจ้งเตือนก่อนบันทึกเพื่อกันส่งผิดสิทธิ์"
+              title="สิทธิ์นี้มีผลกับ LINE และหน้าดูรายงาน"
+              tone="info"
+            />
+            <PermissionsActionGuide
+              reportCount={reports.length}
+              roleCount={roles.length}
+              targetCount={totalTargets}
+            />
             {message ? (
               <Notice tone={message.tone} title={message.text} />
             ) : null}
@@ -494,11 +510,7 @@ export default function OwnerV2ReportPermissions({
                 ย้อนกลับค่าเดิม
               </Button>
               <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {saveDisabled
-                  ? dirty
-                    ? "กำลังทำงาน กรุณารอสถานะล่าสุดก่อน"
-                    : "ยังไม่มีการเปลี่ยนแปลงให้บันทึก"
-                  : "พร้อมบันทึก ระบบจะตรวจแผนแจ้งเตือนที่เปิดอยู่ก่อนเสมอ"}
+                {saveHelpText}
               </p>
             </div>
           </PanelBody>
@@ -550,6 +562,70 @@ export default function OwnerV2ReportPermissions({
         </Panel>
       </div>
     </div>
+    </div>
+  );
+}
+
+function PermissionsActionGuide({
+  reportCount,
+  roleCount,
+  targetCount,
+}: {
+  reportCount: number;
+  roleCount: number;
+  targetCount: number;
+}) {
+  const steps = [
+    {
+      detail: `มี ${targetCount} ผู้รับใน ${roleCount} กลุ่มสิทธิ์`,
+      title: "ตรวจผู้รับ LINE",
+    },
+    {
+      detail: `เลือกจากรายงานที่เปิดใช้ในร้านนี้ ${reportCount} รายงาน`,
+      title: "เปิดเฉพาะที่ควรเห็น",
+    },
+    {
+      detail: "ต้นทุน กำไร ลูกหนี้ และเงินสดควรให้เฉพาะผู้บริหาร",
+      title: "ระวังข้อมูลอ่อนไหว",
+    },
+    {
+      detail: "บันทึกแล้วระบบจะกันแผนแจ้งเตือนที่ส่งผิดสิทธิ์",
+      title: "ตรวจผลกระทบก่อนบันทึก",
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            ลำดับตรวจสิทธิ์รายงาน
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            ใช้ลำดับนี้ทุกครั้งก่อนบันทึก เพื่อไม่ให้ผู้รับ LINE เห็นรายงานเกินสิทธิ์
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {steps.map((step, index) => (
+          <div
+            className="rounded-lg bg-white p-3 dark:bg-gray-900"
+            key={step.title}
+          >
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
+                {index + 1}
+              </span>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                {step.title}
+              </p>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {step.detail}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
