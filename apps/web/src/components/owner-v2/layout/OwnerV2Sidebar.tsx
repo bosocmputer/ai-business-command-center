@@ -88,7 +88,13 @@ export default function OwnerV2Sidebar() {
   );
 
   const isStoreListActive = useCallback(() => {
-    return pathname === "/owner-v2/stores";
+    const isCreateStorePath =
+      pathname === "/owner-v2/stores/new" ||
+      pathname.startsWith("/owner-v2/stores/new/");
+    return (
+      pathname === "/owner-v2/stores" ||
+      (pathname.startsWith("/owner-v2/stores/") && !isCreateStorePath)
+    );
   }, [pathname]);
 
   const isSubItemActive = useCallback(
