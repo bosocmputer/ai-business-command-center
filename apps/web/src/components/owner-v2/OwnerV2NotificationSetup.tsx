@@ -38,6 +38,7 @@ import type {
 import {
   Fact,
   Field,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -47,7 +48,9 @@ import {
 } from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
-type LineTargetWithSiblings = LineTargetRecord & { sibling_tenant_names: string[] };
+type LineTargetWithSiblings = LineTargetRecord & {
+  sibling_tenant_names: string[];
+};
 
 type NotificationSetupState =
   | { status: "loading" }
@@ -76,7 +79,8 @@ type NotificationRuleRunResult = {
   ok: boolean;
   accepted?: boolean;
   reused?: boolean;
-  status?: NotificationRuleRunRecord["status"] | "sent" | "processed" | "skipped";
+  status?:
+    NotificationRuleRunRecord["status"] | "sent" | "processed" | "skipped";
   run_id?: string;
   run?: NotificationRuleRunRecord;
   mode?: "dry_run" | "send";
@@ -145,7 +149,9 @@ const categoryLabels: Record<string, string> = {
 const emptyNotificationRuns: NotificationRuleRunRecord[] = [];
 const emptyNotificationRules: OwnerNotificationRule[] = [];
 const emptyChannels: LineChannelRecord[] = [];
-const emptyTargets: Array<LineTargetRecord & { sibling_tenant_names: string[] }> = [];
+const emptyTargets: Array<
+  LineTargetRecord & { sibling_tenant_names: string[] }
+> = [];
 
 export default function OwnerV2NotificationSetup({
   tenantId,
@@ -206,7 +212,10 @@ export default function OwnerV2NotificationSetup({
         }
         setState({ status: "success", notifications, line });
         setSelectedRuleId((current) => {
-          if (current && notifications.rules.some((rule) => rule.id === current)) {
+          if (
+            current &&
+            notifications.rules.some((rule) => rule.id === current)
+          ) {
             return current;
           }
           const firstRule = notifications.rules[0] ?? null;
@@ -249,42 +258,46 @@ export default function OwnerV2NotificationSetup({
   // derived arrays are always real arrays.
   const rules =
     state.status === "success"
-      ? state.notifications.rules ?? emptyNotificationRules
+      ? (state.notifications.rules ?? emptyNotificationRules)
       : emptyNotificationRules;
   const recentRuns =
     state.status === "success"
-      ? state.notifications.recent_runs ?? emptyNotificationRuns
+      ? (state.notifications.recent_runs ?? emptyNotificationRuns)
       : emptyNotificationRuns;
   const lineTargets =
     state.status === "success"
-      ? state.line.targets ?? emptyTargets
+      ? (state.line.targets ?? emptyTargets)
       : emptyTargets;
   const lineChannels =
-    state.status === "success" ? state.line.channels ?? emptyChannels : emptyChannels;
+    state.status === "success"
+      ? (state.line.channels ?? emptyChannels)
+      : emptyChannels;
   const manualRunTargetOptions = useMemo(
     () =>
-      lineTargets.filter((target) =>
-        getLineTargetDeliveryReadiness({
-          channels: lineChannels,
-          reportKeys: form.reportKeys,
-          target,
-        }).ok,
+      lineTargets.filter(
+        (target) =>
+          getLineTargetDeliveryReadiness({
+            channels: lineChannels,
+            reportKeys: form.reportKeys,
+            target,
+          }).ok,
       ),
     [form.reportKeys, lineChannels, lineTargets],
   );
   const manualRunTarget =
     manualRunTargetId && manualRunTargetOptions.length
-      ? manualRunTargetOptions.find((target) => target.id === manualRunTargetId) ??
-        null
+      ? (manualRunTargetOptions.find(
+          (target) => target.id === manualRunTargetId,
+        ) ?? null)
       : null;
   const selectedRule = selectedRuleId
-    ? rules.find((rule) => rule.id === selectedRuleId) ?? null
+    ? (rules.find((rule) => rule.id === selectedRuleId) ?? null)
     : null;
   const activeRuns = recentRuns.filter(isNotificationRunActive);
   const latestRunResultRun = runResult
-    ? recentRuns.find(
+    ? (recentRuns.find(
         (run) => run.id === (runResult.run_id ?? runResult.run?.id ?? ""),
-      ) ?? null
+      ) ?? null)
     : null;
 
   useEffect(() => {
@@ -337,7 +350,9 @@ export default function OwnerV2NotificationSetup({
     } => !item.readiness.ok,
   );
   const selectedTargetBlockedReason = blockedTarget
-    ? (!blockedTarget.readiness.ok ? blockedTarget.readiness.message : null)
+    ? !blockedTarget.readiness.ok
+      ? blockedTarget.readiness.message
+      : null
     : null;
   const dirty = !sameForm(form, initialForm);
   const saveBlockedReason = getSaveBlockedReason({
@@ -354,14 +369,14 @@ export default function OwnerV2NotificationSetup({
   const activeScheduledSendRun = useMemo(
     () =>
       selectedRuleId && form.manualDate && form.manualTime
-        ? recentRuns.find(
+        ? (recentRuns.find(
             (run) =>
               isNotificationRunActive(run) &&
               run.rule_id === selectedRuleId &&
               run.mode === "send" &&
               run.scheduled_local_date === form.manualDate &&
               run.scheduled_local_time === form.manualTime,
-          ) ?? null
+          ) ?? null)
         : null,
     [form.manualDate, form.manualTime, recentRuns, selectedRuleId],
   );
@@ -484,7 +499,9 @@ export default function OwnerV2NotificationSetup({
       setMessage({
         tone: "warning",
         text: `ตรวจแผนและผู้รับอีกครั้ง แล้วกดปุ่มอีกครั้งเพื่อยืนยัน ระบบจะส่ง LINE ${
-          manualRunTarget ? `เฉพาะ ${manualRunTarget.display_name}` : "ไปยังผู้รับในแผน"
+          manualRunTarget
+            ? `เฉพาะ ${manualRunTarget.display_name}`
+            : "ไปยังผู้รับในแผน"
         } ทันที`,
       });
       return;
@@ -544,7 +561,9 @@ export default function OwnerV2NotificationSetup({
         text:
           mode === "send"
             ? `รับงานส่งจริงแล้ว ระบบกำลังรันรายงานและส่ง LINE ${
-                manualRunTarget ? `เฉพาะ ${manualRunTarget.display_name}` : "ตามผู้รับในแผน"
+                manualRunTarget
+                  ? `เฉพาะ ${manualRunTarget.display_name}`
+                  : "ตามผู้รับในแผน"
               }`
             : "รับงานทดสอบแล้ว ระบบกำลังรันรายงานโดยไม่ส่ง LINE จริง",
       });
@@ -606,9 +625,7 @@ export default function OwnerV2NotificationSetup({
     .filter((target) => target.approved && target.enabled)
     .slice(0, 1)
     .map((target) => target.id);
-  const canOpenPreset = lineTargets.some(
-    (target) => target.approved,
-  );
+  const canOpenPreset = lineTargets.some((target) => target.approved);
 
   function applyPreset(preset: {
     name: string;
@@ -663,9 +680,21 @@ export default function OwnerV2NotificationSetup({
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <NotificationStat label="แผนทั้งหมด" value={rules.length} />
-        <NotificationStat label="เปิดใช้งาน" tone="success" value={enabledRules.length} />
-        <NotificationStat label="รอบล้มเหลว" tone={failedRuns.length ? "error" : "success"} value={failedRuns.length} />
-        <NotificationStat label="ผู้รับพร้อมส่ง" tone={canOpenPreset ? "success" : "warning"} value={state.notifications.enabled_target_count} />
+        <NotificationStat
+          label="เปิดใช้งาน"
+          tone="success"
+          value={enabledRules.length}
+        />
+        <NotificationStat
+          label="รอบล้มเหลว"
+          tone={failedRuns.length ? "error" : "success"}
+          value={failedRuns.length}
+        />
+        <NotificationStat
+          label="ผู้รับพร้อมส่ง"
+          tone={canOpenPreset ? "success" : "warning"}
+          value={state.notifications.enabled_target_count}
+        />
       </section>
 
       <Panel>
@@ -684,7 +713,10 @@ export default function OwnerV2NotificationSetup({
                   name: "สรุปผู้บริหาร 08:00",
                   digestMode: "all_reports",
                   enabled: canOpenPreset,
-                  reportKeys: ["sales_goods_services", "purchase_goods_payables"],
+                  reportKeys: [
+                    "sales_goods_services",
+                    "purchase_goods_payables",
+                  ],
                   targetIds: defaultTargetIds,
                   times: ["08:00"],
                   weekdays: [1, 2, 3, 4, 5, 6, 7],
@@ -701,7 +733,10 @@ export default function OwnerV2NotificationSetup({
                   name: "เช็กยอดเย็น 18:30",
                   digestMode: "all_reports",
                   enabled: canOpenPreset,
-                  reportKeys: ["sales_goods_services", "purchase_goods_payables"],
+                  reportKeys: [
+                    "sales_goods_services",
+                    "purchase_goods_payables",
+                  ],
                   targetIds: defaultTargetIds,
                   times: ["18:30"],
                   weekdays: [1, 2, 3, 4, 5, 6, 7],
@@ -771,7 +806,9 @@ export default function OwnerV2NotificationSetup({
                 <Fact
                   label="ผู้รับพร้อมส่ง"
                   tone={
-                    state.notifications.enabled_target_count ? "success" : "warning"
+                    state.notifications.enabled_target_count
+                      ? "success"
+                      : "warning"
                   }
                   value={`${state.notifications.enabled_target_count}/${state.notifications.target_count}`}
                 />
@@ -796,329 +833,341 @@ export default function OwnerV2NotificationSetup({
         </div>
 
         <div className="space-y-5 sm:space-y-6">
-          <Panel>
-            <PanelHeader
-              action={
-                selectedRule ? (
-                  <Badge color={selectedRule.enabled ? "success" : "warning"}>
-                    {selectedRule.enabled ? "เปิดใช้งาน" : "ปิดอยู่"}
-                  </Badge>
-                ) : (
-                  <Badge color="info">แผนใหม่</Badge>
-                )
-              }
-              description="ตั้งเวลา เลือกรายงาน และเลือกผู้รับ LINE ก่อนบันทึกหรือทดสอบ"
-              title={selectedRule ? formatNotificationRuleName(selectedRule.name) : "สร้างแผนแจ้งเตือน"}
-            />
-            <PanelBody spaced>
-              <form className="space-y-6" onSubmit={saveRule}>
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                  <Field
-                    help="ใช้ชื่อที่ทีมอ่านแล้วรู้รอบทันที เช่น สรุปผู้บริหาร 08:00"
-                    label="ชื่อแผน"
-                  >
-                    <input
-                      className="owner-v2-input"
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                      placeholder="เช่น Executive Brief 08:00"
-                      value={form.name}
-                    />
-                  </Field>
-                  <Field
-                    help="ปิดไว้ก่อนได้เมื่อยังตั้งค่า LINE หรือสิทธิ์รายงานไม่ครบ"
-                    label="สถานะ"
-                  >
-                    <select
-                      className="owner-v2-input"
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          enabled: event.target.value === "true",
-                        }))
-                      }
-                      value={form.enabled ? "true" : "false"}
-                    >
-                      <option value="true">เปิดใช้งาน</option>
-                      <option value="false">ปิดไว้ก่อน</option>
-                    </select>
-                  </Field>
-                  <Field
-                    help="รอบปกติของลูกค้าให้ใช้ “ส่งรายงานครบทุกใบ” เพื่อคงรูปแบบเดิม"
-                    label="รูปแบบข้อความใน LINE"
-                  >
-                    <select
-                      className="owner-v2-input"
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          digestMode: event.target.value as NotificationDigestMode,
-                        }))
-                      }
-                      value={form.digestMode}
-                    >
-                      {digestModes.map((mode) => (
-                        <option key={mode.value} value={mode.value}>
-                          {mode.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field
-                    help="รอบ 08:00 ใช้เมื่อวาน ส่วนรอบเย็นมักใช้วันนี้ถึงตอนนี้"
-                    label="ช่วงข้อมูลของรายงาน"
-                  >
-                    <select
-                      className="owner-v2-input"
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          periodPreset: event.target.value as NotificationPeriodPreset,
-                        }))
-                      }
-                      value={form.periodPreset}
-                    >
-                      {periodPresets.map((preset) => (
-                        <option key={preset.value} value={preset.value}>
-                          {preset.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
+          <FormPanel
+            action={
+              selectedRule ? (
+                <Badge color={selectedRule.enabled ? "success" : "warning"}>
+                  {selectedRule.enabled ? "เปิดใช้งาน" : "ปิดอยู่"}
+                </Badge>
+              ) : (
+                <Badge color="info">แผนใหม่</Badge>
+              )
+            }
+            as="form"
+            description="ตั้งเวลา เลือกรายงาน และเลือกผู้รับ LINE ก่อนบันทึกหรือทดสอบ"
+            onSubmit={saveRule}
+            title={
+              selectedRule
+                ? formatNotificationRuleName(selectedRule.name)
+                : "สร้างแผนแจ้งเตือน"
+            }
+          >
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <Field
+                help="ใช้ชื่อที่ทีมอ่านแล้วรู้รอบทันที เช่น สรุปผู้บริหาร 08:00"
+                label="ชื่อแผน"
+              >
+                <input
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="เช่น Executive Brief 08:00"
+                  value={form.name}
+                />
+              </Field>
+              <Field
+                help="ปิดไว้ก่อนได้เมื่อยังตั้งค่า LINE หรือสิทธิ์รายงานไม่ครบ"
+                label="สถานะ"
+              >
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      enabled: event.target.value === "true",
+                    }))
+                  }
+                  value={form.enabled ? "true" : "false"}
+                >
+                  <option value="true">เปิดใช้งาน</option>
+                  <option value="false">ปิดไว้ก่อน</option>
+                </select>
+              </Field>
+              <Field
+                help="รอบปกติของลูกค้าให้ใช้ “ส่งรายงานครบทุกใบ” เพื่อคงรูปแบบเดิม"
+                label="รูปแบบข้อความใน LINE"
+              >
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      digestMode: event.target.value as NotificationDigestMode,
+                    }))
+                  }
+                  value={form.digestMode}
+                >
+                  {digestModes.map((mode) => (
+                    <option key={mode.value} value={mode.value}>
+                      {mode.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field
+                help="รอบ 08:00 ใช้เมื่อวาน ส่วนรอบเย็นมักใช้วันนี้ถึงตอนนี้"
+                label="ช่วงข้อมูลของรายงาน"
+              >
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      periodPreset: event.target
+                        .value as NotificationPeriodPreset,
+                    }))
+                  }
+                  value={form.periodPreset}
+                >
+                  {periodPresets.map((preset) => (
+                    <option key={preset.value} value={preset.value}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
 
-                {form.digestMode === "action_only" ? (
-                  <Notice
-                    text="โหมดนี้จะส่งเฉพาะเรื่องที่ระบบคิดว่าต้องดู และอาจไม่แนบการ์ดรายงานครบทุกใบ เหมาะกับรอบพิเศษเท่านั้น"
-                    title="กำลังใช้โหมดส่งเฉพาะเรื่องที่ต้องดู"
-                    tone="warning"
+            {form.digestMode === "action_only" ? (
+              <Notice
+                text="โหมดนี้จะส่งเฉพาะเรื่องที่ระบบคิดว่าต้องดู และอาจไม่แนบการ์ดรายงานครบทุกใบ เหมาะกับรอบพิเศษเท่านั้น"
+                title="กำลังใช้โหมดส่งเฉพาะเรื่องที่ต้องดู"
+                tone="warning"
+              />
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <Field
+                help="เวลาทั้งหมดเป็นเวลาไทย Asia/Bangkok"
+                label="เวลาแจ้งเตือน"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <input
+                    className="owner-v2-input"
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        timeInput: event.target.value,
+                      }))
+                    }
+                    type="time"
+                    value={form.timeInput}
                   />
-                ) : null}
-
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
-                  <Field help="เวลาทั้งหมดเป็นเวลาไทย Asia/Bangkok" label="เวลาแจ้งเตือน">
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <input
-                        className="owner-v2-input"
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            timeInput: event.target.value,
-                          }))
-                        }
-                        type="time"
-                        value={form.timeInput}
-                      />
-                      <Button
-                        className="w-full shrink-0 sm:w-auto"
-                        onClick={() =>
-                          setForm((current) => addNotificationTime(current))
-                        }
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        เพิ่มเวลา
-                      </Button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {form.times.map((time) => (
-                        <button
-                          className="min-h-11 rounded-full bg-brand-50 px-3 py-2 text-theme-xs font-medium text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300"
-                          key={time}
-                          onClick={() =>
-                            setForm((current) => ({
-                              ...current,
-                              times: current.times.filter((item) => item !== time),
-                            }))
-                          }
-                          aria-label={`ลบเวลา ${time}`}
-                          type="button"
-                        >
-                          {time} ลบ
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-
-                  <Field help="เลือกวันที่ระบบต้องส่งอัตโนมัติในแต่ละสัปดาห์" label="วันที่ส่ง">
-                    <div className="flex flex-wrap gap-2">
-                      {weekdays.map((weekday) => {
-                        const checked = form.weekdays.includes(weekday.value);
-                        return (
-                          <button
-                            className={`min-h-11 min-w-11 rounded-lg px-3 text-sm font-medium ${
-                              checked
-                                ? "bg-brand-500 text-white"
-                                : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
-                            }`}
-                            key={weekday.value}
-                            onClick={() =>
-                              setForm((current) => toggleWeekday(current, weekday.value))
-                            }
-                            type="button"
-                          >
-                            {weekday.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </Field>
+                  <Button
+                    className="w-full shrink-0 sm:w-auto"
+                    onClick={() =>
+                      setForm((current) => addNotificationTime(current))
+                    }
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    เพิ่มเวลา
+                  </Button>
                 </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {form.times.map((time) => (
+                    <button
+                      className="min-h-11 rounded-full bg-brand-50 px-3 py-2 text-theme-xs font-medium text-brand-600 hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300"
+                      key={time}
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          times: current.times.filter((item) => item !== time),
+                        }))
+                      }
+                      aria-label={`ลบเวลา ${time}`}
+                      type="button"
+                    >
+                      {time} ลบ
+                    </button>
+                  ))}
+                </div>
+              </Field>
 
-                <ReportSelector
-                  disabled={busy !== null}
-                  onApplyPreset={(presetKey) => {
+              <Field
+                help="เลือกวันที่ระบบต้องส่งอัตโนมัติในแต่ละสัปดาห์"
+                label="วันที่ส่ง"
+              >
+                <div className="flex flex-wrap gap-2">
+                  {weekdays.map((weekday) => {
+                    const checked = form.weekdays.includes(weekday.value);
+                    return (
+                      <button
+                        className={`min-h-11 min-w-11 rounded-lg px-3 text-sm font-medium ${
+                          checked
+                            ? "bg-brand-500 text-white"
+                            : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300"
+                        }`}
+                        key={weekday.value}
+                        onClick={() =>
+                          setForm((current) =>
+                            toggleWeekday(current, weekday.value),
+                          )
+                        }
+                        type="button"
+                      >
+                        {weekday.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            </div>
+
+            <ReportSelector
+              disabled={busy !== null}
+              onApplyPreset={(presetKey) => {
+                setSendConfirmRuleId(null);
+                setForm((current) => ({
+                  ...current,
+                  reportKeys: uniqueReportKeysInOrder(
+                    getReportPresetEntry(presetKey).reportKeys,
+                  ),
+                }));
+              }}
+              onMoveReport={(reportKey, direction) => {
+                setSendConfirmRuleId(null);
+                setForm((current) =>
+                  moveReportKey(current, reportKey, direction),
+                );
+              }}
+              onToggleReport={(reportKey) => {
+                setSendConfirmRuleId(null);
+                setForm((current) => toggleReport(current, reportKey));
+              }}
+              selectedReportKeys={form.reportKeys}
+            />
+
+            <div className="mt-5">
+              <PeriodPreviewTable
+                periodPreset={form.periodPreset}
+                times={form.times}
+                weekdays={form.weekdays}
+              />
+            </div>
+
+            <TargetSelector
+              channels={lineChannels}
+              onToggleTarget={(targetId) =>
+                setForm((current) => toggleTarget(current, targetId))
+              }
+              reportKeys={form.reportKeys}
+              selectedTargetIds={form.targetIds}
+              targets={lineTargets}
+              tenantId={tenantId}
+            />
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <Field
+                help="ใช้เฉพาะปุ่มทดสอบหรือส่งตอนนี้ ไม่เปลี่ยนตารางแจ้งเตือนจริง"
+                label="จำลองวันที่รอบส่ง"
+              >
+                <input
+                  className="owner-v2-input"
+                  onChange={(event) => {
                     setSendConfirmRuleId(null);
                     setForm((current) => ({
                       ...current,
-                      reportKeys: uniqueReportKeysInOrder(
-                        getReportPresetEntry(presetKey).reportKeys,
-                      ),
+                      manualDate: event.target.value,
                     }));
                   }}
-                  onMoveReport={(reportKey, direction) => {
-                    setSendConfirmRuleId(null);
-                    setForm((current) =>
-                      moveReportKey(current, reportKey, direction),
-                    );
-                  }}
-                  onToggleReport={(reportKey) => {
-                    setSendConfirmRuleId(null);
-                    setForm((current) => toggleReport(current, reportKey));
-                  }}
-                  selectedReportKeys={form.reportKeys}
+                  type="date"
+                  value={form.manualDate}
                 />
+              </Field>
+              <Field
+                help="ถ้าเลือกเวลา ต้องเป็นเวลาที่อยู่ในแผนนี้เพื่อกันส่งผิดรอบ"
+                label="จำลองเวลารอบส่ง"
+              >
+                <select
+                  className="owner-v2-input"
+                  onChange={(event) => {
+                    setSendConfirmRuleId(null);
+                    setForm((current) => ({
+                      ...current,
+                      manualTime: event.target.value,
+                    }));
+                  }}
+                  value={form.manualTime}
+                >
+                  <option value="">ใช้เวลาปัจจุบัน</option>
+                  {form.times.map((time) => (
+                    <option key={time} value={time}>
+                      {time}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
 
-                <div className="mt-5">
-                  <PeriodPreviewTable
-                    periodPreset={form.periodPreset}
-                    times={form.times}
-                    weekdays={form.weekdays}
-                  />
-                </div>
+            <Field label="ปลายทางสำหรับรันทดสอบ/ส่งตอนนี้">
+              <select
+                className="owner-v2-input"
+                disabled={busy !== null}
+                onChange={(event) => {
+                  setSendConfirmRuleId(null);
+                  setManualRunTargetId(event.target.value);
+                }}
+                value={manualRunTargetId}
+              >
+                <option value="">ผู้รับทั้งหมดในแผน</option>
+                {manualRunTargetOptions.map((target) => (
+                  <option key={target.id} value={target.id}>
+                    {target.display_name} · {target.target_id_masked}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">
+                ใช้เฉพาะการกดปุ่มทดสอบหรือส่งตอนนี้ ไม่เปลี่ยนผู้รับ LINE
+                ที่บันทึกในแผน
+              </p>
+            </Field>
 
-                <TargetSelector
-                  channels={lineChannels}
-                  onToggleTarget={(targetId) =>
-                    setForm((current) => toggleTarget(current, targetId))
+            <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+                {formFooterHint}
+              </div>
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
+                <Button
+                  disabled={saveDisabled}
+                  className="w-full sm:w-auto"
+                  size="sm"
+                  type="submit"
+                >
+                  บันทึกแผน
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={dryRunDisabled}
+                  onClick={() => void executeRule("dry_run")}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  ทดสอบไม่ส่งจริง
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={sendDisabled}
+                  onClick={() => void executeRule("send")}
+                  size="sm"
+                  type="button"
+                  variant={
+                    sendConfirmRuleId === selectedRuleId ? "primary" : "outline"
                   }
-                  reportKeys={form.reportKeys}
-                  selectedTargetIds={form.targetIds}
-                  targets={lineTargets}
-                  tenantId={tenantId}
-                />
-
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                  <Field
-                    help="ใช้เฉพาะปุ่มทดสอบหรือส่งตอนนี้ ไม่เปลี่ยนตารางแจ้งเตือนจริง"
-                    label="จำลองวันที่รอบส่ง"
-                  >
-                    <input
-                      className="owner-v2-input"
-                      onChange={(event) => {
-                        setSendConfirmRuleId(null);
-                        setForm((current) => ({
-                          ...current,
-                          manualDate: event.target.value,
-                        }));
-                      }}
-                      type="date"
-                      value={form.manualDate}
-                    />
-                  </Field>
-                  <Field
-                    help="ถ้าเลือกเวลา ต้องเป็นเวลาที่อยู่ในแผนนี้เพื่อกันส่งผิดรอบ"
-                    label="จำลองเวลารอบส่ง"
-                  >
-                    <select
-                      className="owner-v2-input"
-                      onChange={(event) => {
-                        setSendConfirmRuleId(null);
-                        setForm((current) => ({
-                          ...current,
-                          manualTime: event.target.value,
-                        }));
-                      }}
-                      value={form.manualTime}
-                    >
-                      <option value="">ใช้เวลาปัจจุบัน</option>
-                      {form.times.map((time) => (
-                        <option key={time} value={time}>
-                          {time}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-
-                <Field label="ปลายทางสำหรับรันทดสอบ/ส่งตอนนี้">
-                  <select
-                    className="owner-v2-input"
-                    disabled={busy !== null}
-                    onChange={(event) => {
-                      setSendConfirmRuleId(null);
-                      setManualRunTargetId(event.target.value);
-                    }}
-                    value={manualRunTargetId}
-                  >
-                    <option value="">ผู้รับทั้งหมดในแผน</option>
-                    {manualRunTargetOptions.map((target) => (
-                      <option key={target.id} value={target.id}>
-                        {target.display_name} · {target.target_id_masked}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">
-                    ใช้เฉพาะการกดปุ่มทดสอบหรือส่งตอนนี้ ไม่เปลี่ยนผู้รับ LINE
-                    ที่บันทึกในแผน
-                  </p>
-                </Field>
-
-                <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-sm leading-6 text-gray-500 dark:text-gray-400">
-                    {formFooterHint}
-                  </div>
-                  <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
-                    <Button
-                      disabled={saveDisabled}
-                      className="w-full sm:w-auto"
-                      size="sm"
-                      type="submit"
-                    >
-                      บันทึกแผน
-                    </Button>
-                    <Button
-                      className="w-full sm:w-auto"
-                      disabled={dryRunDisabled}
-                      onClick={() => void executeRule("dry_run")}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      ทดสอบไม่ส่งจริง
-                    </Button>
-                    <Button
-                      className="w-full sm:w-auto"
-                      disabled={sendDisabled}
-                      onClick={() => void executeRule("send")}
-                      size="sm"
-                      type="button"
-                      variant={sendConfirmRuleId === selectedRuleId ? "primary" : "outline"}
-                    >
-                      {sendConfirmRuleId === selectedRuleId
-                        ? "กดอีกครั้งเพื่อส่งจริง"
-                        : "ส่งจริงตอนนี้"}
-                    </Button>
-                  </div>
-                </div>
-              </form>
-            </PanelBody>
-          </Panel>
+                >
+                  {sendConfirmRuleId === selectedRuleId
+                    ? "กดอีกครั้งเพื่อส่งจริง"
+                    : "ส่งจริงตอนนี้"}
+                </Button>
+              </div>
+            </div>
+          </FormPanel>
 
           {runResult ? (
             <>
@@ -1231,10 +1280,7 @@ function ReportSelector({
 }: {
   disabled: boolean;
   onApplyPreset: (presetKey: ReportPresetKey) => void;
-  onMoveReport: (
-    reportKey: ReportKey,
-    direction: "up" | "down",
-  ) => void;
+  onMoveReport: (reportKey: ReportKey, direction: "up" | "down") => void;
   onToggleReport: (reportKey: ReportKey) => void;
   selectedReportKeys: ReportKey[];
 }) {
@@ -1284,7 +1330,8 @@ function ReportSelector({
               ลำดับที่จะแสดงใน LINE
             </p>
             <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-              ระบบใช้ลำดับนี้กับรอบที่ส่งรายงานครบ และรอบพิเศษที่ต้องกลับมาส่งรายงานปกติ
+              ระบบใช้ลำดับนี้กับรอบที่ส่งรายงานครบ
+              และรอบพิเศษที่ต้องกลับมาส่งรายงานปกติ
             </p>
           </div>
           <Badge color={selectedReportKeys.length > 1 ? "info" : "light"}>
@@ -1295,7 +1342,8 @@ function ReportSelector({
           <div className="mt-3 space-y-2">
             {selectedReportKeys.map((reportKey, index) => {
               const report = getReportCatalogEntry(reportKey);
-              const category = categoryLabels[report.category] ?? report.category;
+              const category =
+                categoryLabels[report.category] ?? report.category;
               return (
                 <div
                   className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
@@ -1326,7 +1374,9 @@ function ReportSelector({
                     <button
                       aria-label={`เลื่อน ${report.shortLabel} ลง`}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
-                      disabled={disabled || index === selectedReportKeys.length - 1}
+                      disabled={
+                        disabled || index === selectedReportKeys.length - 1
+                      }
                       onClick={() => onMoveReport(reportKey, "down")}
                       title={`เลื่อน ${report.shortLabel} ลง`}
                       type="button"
@@ -1451,8 +1501,17 @@ function TargetSelector({
         <table className="w-full min-w-full">
           <thead>
             <tr className="border-y border-gray-100 dark:border-gray-800">
-              {["เลือก", "ผู้รับ", "แชร์ช่อง LINE กับ", "พร้อมส่ง", "เหตุผล"].map((label) => (
-                <th className="py-3 pr-5 text-left last:pr-0 sm:pr-6" key={label}>
+              {[
+                "เลือก",
+                "ผู้รับ",
+                "แชร์ช่อง LINE กับ",
+                "พร้อมส่ง",
+                "เหตุผล",
+              ].map((label) => (
+                <th
+                  className="py-3 pr-5 text-left last:pr-0 sm:pr-6"
+                  key={label}
+                >
                   <p className="font-medium text-gray-500 text-theme-xs dark:text-gray-400">
                     {label}
                   </p>
@@ -1502,7 +1561,9 @@ function TargetSelector({
                         </p>
                       </div>
                     ) : (
-                      <span className="text-theme-xs text-gray-400 dark:text-gray-500">—</span>
+                      <span className="text-theme-xs text-gray-400 dark:text-gray-500">
+                        —
+                      </span>
                     )}
                   </td>
                   <td className="py-4 pr-5 last:pr-0 sm:pr-6">
@@ -1512,7 +1573,9 @@ function TargetSelector({
                   </td>
                   <td className="py-4 pr-5 last:pr-0 sm:pr-6">
                     <p className="max-w-md text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
-                      {readiness.ok ? "ส่งได้ตามรายงานที่เลือก" : readiness.message}
+                      {readiness.ok
+                        ? "ส่งได้ตามรายงานที่เลือก"
+                        : readiness.message}
                     </p>
                   </td>
                 </tr>
@@ -1645,8 +1708,8 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
                   {run.scheduled_local_date} {run.scheduled_local_time}
                 </p>
                 <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">
-                  {run.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"} · ครั้งที่{" "}
-                  {run.attempt} · {formatElapsed(run)}
+                  {run.mode === "send" ? "ส่งจริง" : "ทดสอบไม่ส่งจริง"} ·
+                  ครั้งที่ {run.attempt} · {formatElapsed(run)}
                 </p>
                 {runBadges.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1686,7 +1749,6 @@ function RunList({ runs }: { runs: NotificationRuleRunRecord[] }) {
     </div>
   );
 }
-
 
 function NotificationStat({
   label,
@@ -1740,7 +1802,9 @@ function PresetCard({
       type="button"
     >
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-gray-800 dark:text-white/90">{title}</span>
+        <span className="text-sm font-semibold text-gray-800 dark:text-white/90">
+          {title}
+        </span>
         {badge ? (
           <span className="rounded-full bg-brand-100 px-2 py-0.5 text-theme-xs font-medium text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
             {badge}
@@ -1919,7 +1983,9 @@ function buildRulePayload({
     schedule: [
       {
         times: [...new Set(form.times)].sort(),
-        weekdays: [...new Set(form.weekdays)].sort((left, right) => left - right),
+        weekdays: [...new Set(form.weekdays)].sort(
+          (left, right) => left - right,
+        ),
       },
     ],
     target_ids: [...new Set(form.targetIds)].sort(),
@@ -1929,7 +1995,9 @@ function buildRulePayload({
 }
 
 function sameForm(left: NotificationFormState, right: NotificationFormState) {
-  return JSON.stringify(normalizeForm(left)) === JSON.stringify(normalizeForm(right));
+  return (
+    JSON.stringify(normalizeForm(left)) === JSON.stringify(normalizeForm(right))
+  );
 }
 
 function normalizeForm(form: NotificationFormState) {
@@ -2094,8 +2162,7 @@ function isManualScheduleAllowed(form: NotificationFormState) {
 }
 
 type LineTargetDeliveryReadiness =
-  | { ok: true }
-  | { ok: false; message: string; reason: string };
+  { ok: true } | { ok: false; message: string; reason: string };
 
 function getLineTargetDeliveryReadiness({
   channels,
@@ -2107,10 +2174,18 @@ function getLineTargetDeliveryReadiness({
   target: LineTargetRecord;
 }): LineTargetDeliveryReadiness {
   if (!target.approved) {
-    return { ok: false, reason: "target_not_approved", message: "ยังไม่ได้อนุมัติผู้รับ LINE" };
+    return {
+      ok: false,
+      reason: "target_not_approved",
+      message: "ยังไม่ได้อนุมัติผู้รับ LINE",
+    };
   }
   if (!target.enabled) {
-    return { ok: false, reason: "target_disabled", message: "ผู้รับ LINE ถูกปิดใช้งาน" };
+    return {
+      ok: false,
+      reason: "target_disabled",
+      message: "ผู้รับ LINE ถูกปิดใช้งาน",
+    };
   }
   if (!target.allowed_actions.includes("receive_morning_brief")) {
     return {
@@ -2131,7 +2206,9 @@ function getLineTargetDeliveryReadiness({
   }
   const channel = target.line_channel_id
     ? channels.find((item) => item.id === target.line_channel_id)
-    : channels.find((item) => item.enabled && item.channel_access_token_configured);
+    : channels.find(
+        (item) => item.enabled && item.channel_access_token_configured,
+      );
   if (!channel) {
     return {
       ok: false,
@@ -2165,7 +2242,10 @@ function formatSchedule(rule: OwnerNotificationRule) {
     schedule.weekdays.length === 7
       ? "ทุกวัน"
       : schedule.weekdays
-          .map((weekday) => weekdays.find((item) => item.value === weekday)?.label ?? weekday)
+          .map(
+            (weekday) =>
+              weekdays.find((item) => item.value === weekday)?.label ?? weekday,
+          )
           .join(", ");
   return `${days} · ${schedule.times.join(", ")} · รอบผู้บริหาร`;
 }
@@ -2189,8 +2269,10 @@ function isNotificationRunActive(run: NotificationRuleRunRecord) {
 }
 
 function getNotificationRunBadges(run: NotificationRuleRunRecord) {
-  const badges: Array<{ label: string; tone: "success" | "warning" | "light" }> =
-    [];
+  const badges: Array<{
+    label: string;
+    tone: "success" | "warning" | "light";
+  }> = [];
   if (isNotificationRunActive(run)) {
     if (
       !run.progress_stage ||
@@ -2215,7 +2297,8 @@ function getNotificationRunElapsedMs(run: NotificationRuleRunRecord) {
   const startedAt =
     run.started_at ?? run.claimed_at ?? run.queued_at ?? run.created_at;
   const finishedAt = run.finished_at ?? new Date().toISOString();
-  const elapsedMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+  const elapsedMs =
+    new Date(finishedAt).getTime() - new Date(startedAt).getTime();
   return Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
 }
 
