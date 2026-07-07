@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSidebar } from "@/context/SidebarContext";
 import {
   BellIcon,
@@ -71,13 +71,11 @@ export default function OwnerV2Sidebar() {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
-  const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>({});
-  const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const currentTenantId = getTenantIdFromPathname(pathname);
-  const navSections = useMemo(
-    () => buildNavSections(currentTenantId),
-    [currentTenantId],
+  const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>(
+    {},
   );
+  const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const navSections = baseNavSections;
 
   const isActive = useCallback(
     (path: string) => {
@@ -274,7 +272,9 @@ export default function OwnerV2Sidebar() {
                           >
                             <ul className="ml-9 mt-2 space-y-1">
                               {nav.subItems.map((item) => {
-                                const activeSubItem = isSubItemActive(item.path);
+                                const activeSubItem = isSubItemActive(
+                                  item.path,
+                                );
                                 return (
                                   <li key={item.path}>
                                     <Link
@@ -311,47 +311,4 @@ export default function OwnerV2Sidebar() {
 
 function menuKey(sectionIndex: number, itemIndex: number) {
   return `${sectionIndex}:${itemIndex}`;
-}
-
-function buildNavSections(currentTenantId: string | null): OwnerV2NavSection[] {
-  if (!currentTenantId) {
-    return baseNavSections;
-  }
-  const tenantPath = `/owner-v2/stores/${encodeURIComponent(currentTenantId)}`;
-  const currentStoreSection: OwnerV2NavSection = {
-    label: "ตั้งค่าร้านนี้",
-    items: [
-      {
-        icon: <PlugInIcon />,
-        name: "งานของร้านนี้",
-        subItems: [
-          { name: "ข้อมูลร้าน", path: tenantPath },
-          { name: "SML", path: `${tenantPath}/sml` },
-          { name: "LINE", path: `${tenantPath}/line` },
-          { name: "แผนแจ้งเตือน", path: `${tenantPath}/notifications` },
-          { name: "รายงาน", path: `${tenantPath}/reports` },
-          { name: "AI CEO", path: `${tenantPath}/ai-ceo` },
-          { name: "สิทธิ์รายงาน", path: `${tenantPath}/permissions` },
-          { name: "FlowAccount", path: `${tenantPath}/flowaccount` },
-        ],
-      },
-    ],
-  };
-  return [
-    ...baseNavSections.slice(0, 2),
-    currentStoreSection,
-    ...baseNavSections.slice(2),
-  ];
-}
-
-function getTenantIdFromPathname(pathname: string) {
-  const match = pathname.match(/^\/owner-v2\/stores\/([^/]+)/);
-  if (!match || match[1] === "new") {
-    return null;
-  }
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
