@@ -16,7 +16,6 @@ import {
   ownerV2Fetch,
   type OwnerV2FetchError,
 } from "./api";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type { OwnerV2PermissionSetupPayload } from "./types";
 import {
   Fact,
@@ -235,7 +234,6 @@ export default function OwnerV2ReportPermissions({
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="permissions" tenantId={tenantId} />
         <PermissionsSkeleton />
       </div>
     );
@@ -244,7 +242,6 @@ export default function OwnerV2ReportPermissions({
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="permissions" tenantId={tenantId} />
         <Panel>
           <PanelBody spaced>
             <EmptyState
@@ -272,7 +269,6 @@ export default function OwnerV2ReportPermissions({
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="permissions" tenantId={tenantId} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Panel>
           <PanelHeader

@@ -30,7 +30,6 @@ import {
   TimeIcon,
 } from "@/icons";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
@@ -585,7 +584,6 @@ export default function OwnerV2NotificationSetup({
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="notifications" tenantId={tenantId} />
         <NotificationSkeleton />
       </div>
     );
@@ -594,7 +592,6 @@ export default function OwnerV2NotificationSetup({
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="notifications" tenantId={tenantId} />
         <Panel>
           <PanelBody spaced>
             <Notice
@@ -659,7 +656,6 @@ export default function OwnerV2NotificationSetup({
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="notifications" tenantId={tenantId} />
       {message ? (
         <Notice
           text={message.text}

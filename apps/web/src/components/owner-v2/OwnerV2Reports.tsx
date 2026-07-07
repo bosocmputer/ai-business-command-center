@@ -11,7 +11,6 @@ import {
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon, ArrowRightIcon, CheckCircleIcon, InfoIcon } from "@/icons";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import {
   isAbortError,
   ownerV2Fetch,
@@ -311,7 +310,6 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
         <ReportsSkeleton />
       </div>
     );
@@ -320,7 +318,6 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
         <Panel>
           <PanelBody spaced>
             <Notice
@@ -349,7 +346,6 @@ export default function OwnerV2Reports({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="reports" tenantId={tenantId} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
         <Panel>
           <PanelHeader

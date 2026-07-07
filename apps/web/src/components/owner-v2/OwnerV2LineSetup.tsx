@@ -13,7 +13,6 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { CheckCircleIcon, PlusIcon } from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type { OwnerV2LineSetupPayload } from "./types";
 import {
   Field,
@@ -658,7 +657,6 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="line" tenantId={tenantId} />
         <LineSetupSkeleton />
       </div>
     );
@@ -667,7 +665,6 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="line" tenantId={tenantId} />
         <Panel>
           <PanelBody spaced>
             <Notice
@@ -711,7 +708,6 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="line" tenantId={tenantId} />
       {message ? (
         <Notice title="สถานะ LINE OA" tone={message.tone} text={message.text} />
       ) : null}

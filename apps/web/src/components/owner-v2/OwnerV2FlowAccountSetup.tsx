@@ -6,7 +6,6 @@ import Link from "next/link";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2FlowAccountConfigStatus,
   OwnerV2FlowAccountTestResult,
@@ -212,7 +211,6 @@ export default function OwnerV2FlowAccountSetup({
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
         <FlowAccountSkeleton />
       </div>
     );
@@ -221,7 +219,6 @@ export default function OwnerV2FlowAccountSetup({
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
         <Panel>
           <PanelBody>
             <Notice
@@ -253,7 +250,6 @@ export default function OwnerV2FlowAccountSetup({
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="flowaccount" tenantId={tenantId} />
       {message ? (
         <Notice tone={message.tone} title="สถานะ FlowAccount" text={message.text} />
       ) : null}

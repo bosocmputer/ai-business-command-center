@@ -8,7 +8,6 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 // removed icons from "@/icons";
 import { isAbortError, ownerV2Fetch } from "./api";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2DatasourceStatus,
   OwnerV2DatasourceTestResult,
@@ -282,7 +281,6 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="sml" tenantId={tenantId} />
         <SmlSkeleton />
       </div>
     );
@@ -291,7 +289,6 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="sml" tenantId={tenantId} />
         <Panel>
           <PanelBody spaced>
             <Notice
@@ -330,7 +327,6 @@ export default function OwnerV2SmlSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="sml" tenantId={tenantId} />
       {message ? (
         <Notice tone={message.tone} title="สถานะ SML" text={message.text} />
       ) : null}

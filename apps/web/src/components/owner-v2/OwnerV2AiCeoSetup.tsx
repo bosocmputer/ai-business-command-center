@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
-import OwnerV2StoreSetupNav from "./OwnerV2StoreSetupNav";
 import type {
   OwnerV2AiCeoDryRunResult,
   OwnerV2AiCeoSetupStatus,
@@ -374,7 +373,6 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="ai-ceo" tenantId={tenantId} />
         <AiCeoSkeleton />
       </div>
     );
@@ -383,7 +381,6 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
   if (state.status === "error") {
     return (
       <div className="space-y-5 sm:space-y-6">
-        <OwnerV2StoreSetupNav current="ai-ceo" tenantId={tenantId} />
         <Panel>
           <PanelBody spaced>
             <Notice
@@ -412,7 +409,6 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <OwnerV2StoreSetupNav current="ai-ceo" tenantId={tenantId} />
       <Panel>
         <PanelHeader
           title="AI CEO / Business Advisor"
