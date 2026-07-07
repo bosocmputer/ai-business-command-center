@@ -741,8 +741,6 @@ function StoreHero({
           ) : null}
         </div>
 
-        <StoreQuickActions tenantId={tenant.id} />
-
         {/* Progress bar */}
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-theme-xs text-gray-500 dark:text-gray-400">
@@ -762,58 +760,6 @@ function StoreHero({
         </div>
       </div>
     </section>
-  );
-}
-
-function StoreQuickActions({ tenantId }: { tenantId: string }) {
-  const encodedTenantId = encodeURIComponent(tenantId);
-  const actions = [
-    {
-      href: `/owner-v2/stores/${encodedTenantId}/sml`,
-      label: "ตั้งค่า SML",
-    },
-    {
-      href: `/owner-v2/stores/${encodedTenantId}/line`,
-      label: "ตั้งค่า LINE",
-    },
-    {
-      href: `/owner-v2/stores/${encodedTenantId}/notifications`,
-      label: "ดูแผนแจ้งเตือน",
-    },
-    {
-      href: `/owner-v2/stores/${encodedTenantId}/reports`,
-      label: "เปิดรายงาน",
-    },
-    {
-      href: `/owner-v2/stores/${encodedTenantId}/permissions`,
-      label: "กำหนดสิทธิ์",
-    },
-    {
-      href: `/owner-v2/stores/${encodedTenantId}/ai-ceo`,
-      label: "ตรวจ AI CEO",
-    },
-    {
-      href: `/owner-v2/stores/${encodedTenantId}?tab=system`,
-      label: "ตรวจระบบร้าน",
-    },
-  ];
-  return (
-    <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
-      <p className="text-theme-xs font-medium text-gray-500 dark:text-gray-400">
-        งานที่ใช้บ่อย
-      </p>
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {actions.map((action) => (
-          <Link
-            className={`${secondaryActionClass} sm:w-full`}
-            href={action.href}
-            key={action.href}
-          >
-            {action.label}
-          </Link>
-        ))}
-      </div>
-    </div>
   );
 }
 
