@@ -17,6 +17,7 @@ import { ArrowRightIcon, PlusIcon, TaskIcon } from "@/icons";
 import { ownerV2Fetch } from "./api";
 import {
   Fact,
+  FormPanel,
   Notice,
   Panel,
   PanelBody,
@@ -86,8 +87,12 @@ export default function OwnerV2NewTenant() {
   const [planCode, setPlanCode] = useState<PlanCode>("starter");
   const [status, setStatus] = useState<Tenant["status"]>("trial");
   const [trialDays, setTrialDays] = useState<number>(14);
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly" | "one_time" | null>(null);
-  const [preview, setPreview] = useState<TenantCreateDryRunPreview | null>(null);
+  const [billingCycle, setBillingCycle] = useState<
+    "monthly" | "yearly" | "one_time" | null
+  >(null);
+  const [preview, setPreview] = useState<TenantCreateDryRunPreview | null>(
+    null,
+  );
   const [busy, setBusy] = useState<"dry-run" | "create" | null>(null);
   const [message, setMessage] = useState<{
     tone: "success" | "warning" | "error";
@@ -95,7 +100,10 @@ export default function OwnerV2NewTenant() {
   } | null>(null);
   const [technicalMessage, setTechnicalMessage] = useState<string | null>(null);
 
-  const suggestedTenantId = useMemo(() => suggestTenantIdFromName(name), [name]);
+  const suggestedTenantId = useMemo(
+    () => suggestTenantIdFromName(name),
+    [name],
+  );
   const sensitiveHints = findSensitiveTenantNoteHints(description);
 
   // Client-side validation gates — surfaces issues before the server round-trip.
@@ -212,319 +220,313 @@ export default function OwnerV2NewTenant() {
   return (
     <div className="grid gap-4 md:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       {/* Left — create form */}
-      <Panel>
-        <PanelHeader
-          action={
-            <Badge color={previewMatchesForm ? "success" : "info"}>
-              {previewMatchesForm ? "ตรวจล่าสุดตรงกับฟอร์มนี้" : "ต้องตรวจก่อน"}
-            </Badge>
-          }
-          description="สร้างร้านและผู้ดูแลแดชบอร์ดเริ่มต้นเท่านั้น ยังไม่บันทึกค่าลับของ SML หรือ LINE"
-          title="เพิ่มร้านใหม่"
-        />
-        <PanelBody spaced>
-          <form className="space-y-6" onSubmit={runDryRun}>
-            <div>
-              <label
-                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                htmlFor="new-tenant-name"
-              >
-                ชื่อร้าน
-              </label>
-              <input
-                className="owner-v2-input"
-                id="new-tenant-name"
-                onChange={(event) => {
-                  setName(event.target.value);
-                  if (!tenantId.trim()) {
-                    setTenantId(suggestTenantIdFromName(event.target.value));
-                  }
-                  setPreview(null);
-                }}
-                placeholder="เช่น กระบี่ สาขาใหญ่"
-                value={name}
-              />
-            </div>
-            <div className="grid gap-5 lg:grid-cols-2">
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                  htmlFor="new-tenant-id"
-                >
-                  รหัสร้าน
-                </label>
-                <input
-                  className={`owner-v2-input font-mono ${
-                    tenantId.trim() && !tenantIdFormatOk
-                      ? "border-error-300 focus:border-error-300 focus:ring-error-500/10"
-                      : ""
-                  }`}
-                  id="new-tenant-id"
-                  onChange={(event) => {
-                    setTenantId(event.target.value);
-                    setPreview(null);
-                  }}
-                  placeholder="tenant_krabi"
-                  value={tenantId}
-                />
-                <p
-                  className={`mt-1.5 block text-xs leading-5 ${
-                    tenantId.trim() && !tenantIdFormatOk
-                      ? "text-error-500"
-                      : "text-gray-500 dark:text-gray-400"
-                  }`}
-                >
-                  {tenantId.trim() && !tenantIdFormatOk
-                    ? "ใช้ตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - เท่านั้น (อย่างน้อย 3 ตัว)"
-                    : suggestedTenantId && suggestedTenantId !== tenantId
-                      ? `แนะนำ: ${suggestedTenantId}`
-                      : "ใช้ตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - เท่านั้น"}
+      <FormPanel
+        action={
+          <Badge color={previewMatchesForm ? "success" : "info"}>
+            {previewMatchesForm ? "ตรวจล่าสุดตรงกับฟอร์มนี้" : "ต้องตรวจก่อน"}
+          </Badge>
+        }
+        as="form"
+        description="สร้างร้านและผู้ดูแลแดชบอร์ดเริ่มต้นเท่านั้น ยังไม่บันทึกค่าลับของ SML หรือ LINE"
+        onSubmit={runDryRun}
+        title="เพิ่มร้านใหม่"
+      >
+        <div>
+          <label
+            className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+            htmlFor="new-tenant-name"
+          >
+            ชื่อร้าน
+          </label>
+          <input
+            className="owner-v2-input"
+            id="new-tenant-name"
+            onChange={(event) => {
+              setName(event.target.value);
+              if (!tenantId.trim()) {
+                setTenantId(suggestTenantIdFromName(event.target.value));
+              }
+              setPreview(null);
+            }}
+            placeholder="เช่น กระบี่ สาขาใหญ่"
+            value={name}
+          />
+        </div>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div>
+            <label
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+              htmlFor="new-tenant-id"
+            >
+              รหัสร้าน
+            </label>
+            <input
+              className={`owner-v2-input font-mono ${
+                tenantId.trim() && !tenantIdFormatOk
+                  ? "border-error-300 focus:border-error-300 focus:ring-error-500/10"
+                  : ""
+              }`}
+              id="new-tenant-id"
+              onChange={(event) => {
+                setTenantId(event.target.value);
+                setPreview(null);
+              }}
+              placeholder="tenant_krabi"
+              value={tenantId}
+            />
+            <p
+              className={`mt-1.5 block text-xs leading-5 ${
+                tenantId.trim() && !tenantIdFormatOk
+                  ? "text-error-500"
+                  : "text-gray-500 dark:text-gray-400"
+              }`}
+            >
+              {tenantId.trim() && !tenantIdFormatOk
+                ? "ใช้ตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - เท่านั้น (อย่างน้อย 3 ตัว)"
+                : suggestedTenantId && suggestedTenantId !== tenantId
+                  ? `แนะนำ: ${suggestedTenantId}`
+                  : "ใช้ตัวอักษรอังกฤษพิมพ์เล็ก ตัวเลข _ หรือ - เท่านั้น"}
+            </p>
+          </div>
+          <div>
+            <label
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+              htmlFor="new-tenant-email"
+            >
+              อีเมลผู้ดูแลแดชบอร์ด
+            </label>
+            <input
+              className={`owner-v2-input ${
+                viewerEmail.trim() && !viewerEmailFormatOk
+                  ? "border-error-300 focus:border-error-300 focus:ring-error-500/10"
+                  : ""
+              }`}
+              id="new-tenant-email"
+              onChange={(event) => {
+                setViewerEmail(event.target.value);
+                setPreview(null);
+              }}
+              placeholder="owner@example.com"
+              type="email"
+              value={viewerEmail}
+            />
+            <p
+              className={`mt-1.5 block text-xs leading-5 ${
+                viewerEmail.trim() && !viewerEmailFormatOk
+                  ? "text-error-500"
+                  : "text-gray-500 dark:text-gray-400"
+              }`}
+            >
+              {viewerEmail.trim() && !viewerEmailFormatOk
+                ? "รูปแบบอีเมลไม่ถูกต้อง"
+                : "ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแลแดชบอร์ดให้อัตโนมัติ"}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+              htmlFor="new-tenant-plan"
+            >
+              แพ็กเกจ
+            </label>
+            <select
+              className="owner-v2-input"
+              id="new-tenant-plan"
+              onChange={(event) => {
+                setPlanCode(event.target.value as PlanCode);
+                setPreview(null);
+              }}
+              value={planCode}
+            >
+              <option value="starter">{formatPlanCode("starter")}</option>
+              <option value="business">{formatPlanCode("business")}</option>
+              <option value="pro">{formatPlanCode("pro")}</option>
+            </select>
+            <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge color={selectedPlanGuide.tone} size="sm">
+                  {selectedPlanGuide.badge}
+                </Badge>
+                <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
+                  {selectedPlanGuide.title}
                 </p>
               </div>
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                  htmlFor="new-tenant-email"
-                >
-                  อีเมลผู้ดูแลแดชบอร์ด
-                </label>
-                <input
-                  className={`owner-v2-input ${
-                    viewerEmail.trim() && !viewerEmailFormatOk
-                      ? "border-error-300 focus:border-error-300 focus:ring-error-500/10"
-                      : ""
-                  }`}
-                  id="new-tenant-email"
-                  onChange={(event) => {
-                    setViewerEmail(event.target.value);
-                    setPreview(null);
-                  }}
-                  placeholder="owner@example.com"
-                  type="email"
-                  value={viewerEmail}
-                />
-                <p
-                  className={`mt-1.5 block text-xs leading-5 ${
-                    viewerEmail.trim() && !viewerEmailFormatOk
-                      ? "text-error-500"
-                      : "text-gray-500 dark:text-gray-400"
-                  }`}
-                >
-                  {viewerEmail.trim() && !viewerEmailFormatOk
-                    ? "รูปแบบอีเมลไม่ถูกต้อง"
-                    : "ถ้าเว้นว่าง ระบบจะสร้างอีเมลผู้ดูแลแดชบอร์ดให้อัตโนมัติ"}
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                  htmlFor="new-tenant-plan"
-                >
-                  แพ็กเกจ
-                </label>
-                <select
-                  className="owner-v2-input"
-                  id="new-tenant-plan"
-                  onChange={(event) => {
-                    setPlanCode(event.target.value as PlanCode);
-                    setPreview(null);
-                  }}
-                  value={planCode}
-                >
-                  <option value="starter">{formatPlanCode("starter")}</option>
-                  <option value="business">{formatPlanCode("business")}</option>
-                  <option value="pro">{formatPlanCode("pro")}</option>
-                </select>
-                <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-white/[0.02]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge color={selectedPlanGuide.tone} size="sm">
-                      {selectedPlanGuide.badge}
-                    </Badge>
-                    <p className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">
-                      {selectedPlanGuide.title}
-                    </p>
-                  </div>
-                  <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-                    {selectedPlanGuide.detail}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                  htmlFor="new-tenant-status"
-                >
-                  สถานะเริ่มต้น
-                </label>
-                <select
-                  className="owner-v2-input"
-                  id="new-tenant-status"
-                  onChange={(event) => {
-                    setStatus(event.target.value as Tenant["status"]);
-                    setTrialDays(14);
-                    setBillingCycle(null);
-                    setPreview(null);
-                  }}
-                  value={status}
-                >
-                  <option value="trial">ทดลองใช้</option>
-                  <option value="active">ใช้งาน</option>
-                  <option value="past_due">ค้างชำระ</option>
-                  <option value="suspended">ระงับ</option>
-                </select>
-                <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  {selectedStatusGuide}
-                </p>
-              </div>
-            </div>
-            {status === "trial" ? (
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                  htmlFor="new-tenant-trial-days"
-                >
-                  ระยะเวลาทดลองใช้
-                </label>
-                <select
-                  className="owner-v2-input"
-                  id="new-tenant-trial-days"
-                  onChange={(event) => {
-                    setTrialDays(Number(event.target.value));
-                    setPreview(null);
-                  }}
-                  value={trialDays}
-                >
-                  <option value={7}>7 วัน</option>
-                  <option value={14}>14 วัน</option>
-                  <option value={30}>30 วัน</option>
-                </select>
-                <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  หมดวันที่ {formatTrialEndDate(trialDays)}
-                </p>
-              </div>
-            ) : (
-              <div>
-                <label
-                  className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                  htmlFor="new-tenant-billing-cycle"
-                >
-                  รูปแบบการชำระ
-                </label>
-                <select
-                  className="owner-v2-input"
-                  id="new-tenant-billing-cycle"
-                  onChange={(event) => {
-                    const v = event.target.value;
-                    setBillingCycle(
-                      v === "monthly" || v === "yearly" || v === "one_time"
-                        ? v
-                        : null,
-                    );
-                    setPreview(null);
-                  }}
-                  value={billingCycle ?? ""}
-                >
-                  <option value="">ไม่ระบุรอบชำระ</option>
-                  <option value="monthly">รายเดือน</option>
-                  <option value="yearly">รายปี</option>
-                  <option value="one_time">ครั้งเดียว</option>
-                </select>
-                <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  กำหนดเพื่อให้ระบบแจ้งเตือนและระงับอัตโนมัติเมื่อหมดอายุ
-                </p>
-              </div>
-            )}
-            <div>
-              <label
-                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-                htmlFor="new-tenant-description"
-              >
-                หมายเหตุ
-              </label>
-              <textarea
-                className="owner-v2-input min-h-24"
-                id="new-tenant-description"
-                onChange={(event) => {
-                  setDescription(event.target.value);
-                  setPreview(null);
-                }}
-                placeholder="บริบทสั้น ๆ ของร้าน"
-                value={description}
-              />
-              <p
-                className={`mt-1.5 block text-xs leading-5 ${
-                  sensitiveHints.length
-                    ? "text-error-500"
-                    : "text-gray-500 dark:text-gray-400"
-                }`}
-              >
-                {sensitiveHints.length
-                  ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
-                  : "ห้ามใส่ข้อมูลลับ เช่น รหัสผ่าน โทเคน หรือกุญแจระบบในช่องนี้"}
+              <p className="mt-1 text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+                {selectedPlanGuide.detail}
               </p>
             </div>
-
-            {message ? (
-              <Notice
-                tone={message.tone}
-                title="สถานะการสร้างร้าน"
-                text={message.text}
-              />
-            ) : null}
-            {technicalMessage ? (
-              <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
-                <Fact label="ข้อความระบบ" value={technicalMessage} />
-              </TechnicalDetails>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Secondary: dry-run first (a check, not the commit). */}
-              <Button
-                className="w-full sm:w-auto"
-                disabled={busy !== null || !canDryRun}
-                startIcon={<TaskIcon className="h-4 w-4" />}
-                type="submit"
-                variant="outline"
-              >
-                {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจตัวอย่างก่อนสร้าง"}
-              </Button>
-              {/* Primary: the actual create, gated on a passing dry-run. */}
-              <button
-                className={primaryActionClass}
-                disabled={
-                  busy !== null ||
-                  !preview ||
-                  !previewMatchesForm ||
-                  previewHasBlockingCheck
-                }
-                onClick={() => void createTenant()}
-                type="button"
-              >
-                {busy === "create" ? (
-                  "กำลังสร้าง..."
-                ) : (
-                  <>
-                    <PlusIcon className="h-4 w-4" />
-                    สร้างร้านจริง
-                  </>
-                )}
-              </button>
-              {/* Cancel — always available so the admin can back out. */}
-              <Link
-                className={secondaryActionClass}
-                href="/owner-v2/stores"
-              >
-                ยกเลิก
-              </Link>
-            </div>
-            <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
-              ปุ่มสร้างร้านจะเปิดได้หลังตรวจตัวอย่างผ่าน และข้อมูลฟอร์มยังไม่เปลี่ยน
+          </div>
+          <div>
+            <label
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+              htmlFor="new-tenant-status"
+            >
+              สถานะเริ่มต้น
+            </label>
+            <select
+              className="owner-v2-input"
+              id="new-tenant-status"
+              onChange={(event) => {
+                setStatus(event.target.value as Tenant["status"]);
+                setTrialDays(14);
+                setBillingCycle(null);
+                setPreview(null);
+              }}
+              value={status}
+            >
+              <option value="trial">ทดลองใช้</option>
+              <option value="active">ใช้งาน</option>
+              <option value="past_due">ค้างชำระ</option>
+              <option value="suspended">ระงับ</option>
+            </select>
+            <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {selectedStatusGuide}
             </p>
-          </form>
-        </PanelBody>
-      </Panel>
+          </div>
+        </div>
+        {status === "trial" ? (
+          <div>
+            <label
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+              htmlFor="new-tenant-trial-days"
+            >
+              ระยะเวลาทดลองใช้
+            </label>
+            <select
+              className="owner-v2-input"
+              id="new-tenant-trial-days"
+              onChange={(event) => {
+                setTrialDays(Number(event.target.value));
+                setPreview(null);
+              }}
+              value={trialDays}
+            >
+              <option value={7}>7 วัน</option>
+              <option value={14}>14 วัน</option>
+              <option value={30}>30 วัน</option>
+            </select>
+            <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              หมดวันที่ {formatTrialEndDate(trialDays)}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <label
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+              htmlFor="new-tenant-billing-cycle"
+            >
+              รูปแบบการชำระ
+            </label>
+            <select
+              className="owner-v2-input"
+              id="new-tenant-billing-cycle"
+              onChange={(event) => {
+                const v = event.target.value;
+                setBillingCycle(
+                  v === "monthly" || v === "yearly" || v === "one_time"
+                    ? v
+                    : null,
+                );
+                setPreview(null);
+              }}
+              value={billingCycle ?? ""}
+            >
+              <option value="">ไม่ระบุรอบชำระ</option>
+              <option value="monthly">รายเดือน</option>
+              <option value="yearly">รายปี</option>
+              <option value="one_time">ครั้งเดียว</option>
+            </select>
+            <p className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
+              กำหนดเพื่อให้ระบบแจ้งเตือนและระงับอัตโนมัติเมื่อหมดอายุ
+            </p>
+          </div>
+        )}
+        <div>
+          <label
+            className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
+            htmlFor="new-tenant-description"
+          >
+            หมายเหตุ
+          </label>
+          <textarea
+            className="owner-v2-input min-h-24"
+            id="new-tenant-description"
+            onChange={(event) => {
+              setDescription(event.target.value);
+              setPreview(null);
+            }}
+            placeholder="บริบทสั้น ๆ ของร้าน"
+            value={description}
+          />
+          <p
+            className={`mt-1.5 block text-xs leading-5 ${
+              sensitiveHints.length
+                ? "text-error-500"
+                : "text-gray-500 dark:text-gray-400"
+            }`}
+          >
+            {sensitiveHints.length
+              ? `พบคำที่เสี่ยงเป็นข้อมูลลับ: ${sensitiveHints.join(", ")}`
+              : "ห้ามใส่ข้อมูลลับ เช่น รหัสผ่าน โทเคน หรือกุญแจระบบในช่องนี้"}
+          </p>
+        </div>
+
+        {message ? (
+          <Notice
+            tone={message.tone}
+            title="สถานะการสร้างร้าน"
+            text={message.text}
+          />
+        ) : null}
+        {technicalMessage ? (
+          <TechnicalDetails embedded title="รายละเอียดข้อผิดพลาด">
+            <Fact label="ข้อความระบบ" value={technicalMessage} />
+          </TechnicalDetails>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Secondary: dry-run first (a check, not the commit). */}
+          <Button
+            className="w-full sm:w-auto"
+            disabled={busy !== null || !canDryRun}
+            startIcon={<TaskIcon className="h-4 w-4" />}
+            type="submit"
+            variant="outline"
+          >
+            {busy === "dry-run" ? "กำลังตรวจ..." : "ตรวจตัวอย่างก่อนสร้าง"}
+          </Button>
+          {/* Primary: the actual create, gated on a passing dry-run. */}
+          <button
+            className={primaryActionClass}
+            disabled={
+              busy !== null ||
+              !preview ||
+              !previewMatchesForm ||
+              previewHasBlockingCheck
+            }
+            onClick={() => void createTenant()}
+            type="button"
+          >
+            {busy === "create" ? (
+              "กำลังสร้าง..."
+            ) : (
+              <>
+                <PlusIcon className="h-4 w-4" />
+                สร้างร้านจริง
+              </>
+            )}
+          </button>
+          {/* Cancel — always available so the admin can back out. */}
+          <Link className={secondaryActionClass} href="/owner-v2/stores">
+            ยกเลิก
+          </Link>
+        </div>
+        <p className="text-theme-xs leading-5 text-gray-500 dark:text-gray-400">
+          ปุ่มสร้างร้านจะเปิดได้หลังตรวจตัวอย่างผ่าน และข้อมูลฟอร์มยังไม่เปลี่ยน
+        </p>
+      </FormPanel>
 
       {/* Right — dry-run preview / flow guide */}
       <Panel>
@@ -608,7 +610,8 @@ export default function OwnerV2NewTenant() {
                   ยังไม่มีตัวอย่าง
                 </p>
                 <p className="mx-auto mt-1 max-w-xs text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  กรอกข้อมูลร้านทางซ้ายแล้วกดตรวจตัวอย่าง ระบบจะแสดงสิ่งที่จะถูกสร้างก่อนลงข้อมูลจริง
+                  กรอกข้อมูลร้านทางซ้ายแล้วกดตรวจตัวอย่าง
+                  ระบบจะแสดงสิ่งที่จะถูกสร้างก่อนลงข้อมูลจริง
                 </p>
               </div>
             </div>
@@ -701,10 +704,8 @@ function statusAdminGuide(status: Tenant["status"]): string {
       "ใช้เมื่อลูกค้าพร้อมใช้งานจริงแล้ว และต้องการเปิดรอบแจ้งเตือนตาม config ทันที",
     cancelled:
       "ใช้เฉพาะกรณี migrate ร้านเดิมที่ยกเลิกแล้ว ไม่แนะนำสำหรับร้านใหม่",
-    past_due:
-      "ใช้เฉพาะกรณีมีข้อมูลค้างชำระเดิม ไม่แนะนำสำหรับร้านใหม่",
-    suspended:
-      "ใช้เฉพาะกรณีต้องสร้างไว้ก่อนแต่ยังไม่ให้ใช้งานหรือส่งแจ้งเตือน",
+    past_due: "ใช้เฉพาะกรณีมีข้อมูลค้างชำระเดิม ไม่แนะนำสำหรับร้านใหม่",
+    suspended: "ใช้เฉพาะกรณีต้องสร้างไว้ก่อนแต่ยังไม่ให้ใช้งานหรือส่งแจ้งเตือน",
     trial:
       "เหมาะกับร้านใหม่ที่ยังต้องตั้งค่า SML, LINE, รายงาน และตรวจส่งจริงก่อนใช้งานเต็ม",
   };
