@@ -213,6 +213,7 @@ import {
   AI_CEO_LINE_RENDERER_VERSION,
   buildAiCeoLinePreview,
   defaultTenantAiProfile,
+  readAiCeoNotificationStatus,
   readAiCeoSetupStatus,
   runAiCeoDryRun,
   saveAiCeoProfile,
@@ -1190,11 +1191,12 @@ app.get(
       return reply.status(404).send({ error: "Tenant not found." });
     }
 
-    const [rules, recentRuns, targets, channels] = await Promise.all([
+    const [rules, recentRuns, targets, channels, aiCeo] = await Promise.all([
       systemStore.listNotificationRules(tenant.id),
       systemStore.listNotificationRuleRuns({ tenantId: tenant.id, limit: 20 }),
       listEffectiveLineTargets(tenant.id),
       listEffectiveLineChannels(tenant.id),
+      readAiCeoNotificationStatus({ store: systemStore, tenant }),
     ]);
     const safeTargets = targets.map(toSafeLineTargetRecord);
     const enabledTargets = safeTargets.filter(
@@ -1212,6 +1214,7 @@ app.get(
           name: tenant.name,
           status: tenant.status,
         },
+        ai_ceo: aiCeo,
         rules: rules.map(toOwnerNotificationRule),
         recent_runs: recentRuns,
         target_count: safeTargets.length,

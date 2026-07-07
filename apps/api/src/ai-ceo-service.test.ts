@@ -17,6 +17,7 @@ import {
   buildAiCeoLinePreview,
   buildAiCeoUnavailableLinePreview,
   defaultTenantAiProfile,
+  readAiCeoNotificationStatus,
   runAiCeoDryRun,
   setAiCeoEnabled,
   syncOpenRouterModelCatalog,
@@ -127,6 +128,21 @@ describe("AI CEO service", () => {
     });
 
     expect(enabled.ai_enabled).toBe(true);
+  });
+
+  it("returns lightweight notification status without enabling a default tenant", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const store = createFakeStore();
+
+    const status = await readAiCeoNotificationStatus({ store, tenant });
+
+    expect(status.ai_enabled).toBe(false);
+    expect(status.shadow_mode_enabled).toBe(true);
+    expect(status.advisor_name).toBe("AI CEO");
+    expect(status.plan_eligible).toBe(true);
+    expect(status.key_configured).toBe(true);
+    expect(status.key_source).toBe("env");
+    expect(status.encryption_configured).toBe(false);
   });
 
   it("runs a dry-run, stores the advisor response, item, and usage ledger", async () => {

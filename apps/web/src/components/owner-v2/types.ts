@@ -279,6 +279,16 @@ export type OwnerV2LineSetupPayload = {
 
 export type OwnerV2NotificationSetupPayload = {
   tenant: Pick<Tenant, "id" | "name" | "status">;
+  ai_ceo: {
+    ai_enabled: boolean;
+    shadow_mode_enabled: boolean;
+    advisor_name: string;
+    plan_eligible: boolean;
+    encryption_configured: boolean;
+    key_configured: boolean;
+    key_source: "tenant_override" | "system_default" | "env" | "missing";
+    selected_model_id: TenantAiProfileRecord["selected_model_id"];
+  };
   rules: Array<
     NotificationRuleRecord & {
       next_run: {

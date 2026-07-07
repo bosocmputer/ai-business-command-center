@@ -31,6 +31,7 @@ import {
 } from "@/icons";
 import { isAbortError, ownerV2Fetch, type OwnerV2FetchError } from "./api";
 import type {
+  OwnerV2AiCeoSetupStatus,
   OwnerV2LineSetupPayload,
   OwnerV2NotificationSetupPayload,
 } from "./types";
@@ -47,6 +48,7 @@ import {
 } from "./ui";
 
 type OwnerNotificationRule = OwnerV2NotificationSetupPayload["rules"][number];
+type NotificationAiCeoStatus = OwnerV2NotificationSetupPayload["ai_ceo"];
 type LineTargetWithSiblings = LineTargetRecord & {
   sibling_tenant_names: string[];
 };
@@ -151,6 +153,16 @@ const emptyChannels: LineChannelRecord[] = [];
 const emptyTargets: Array<
   LineTargetRecord & { sibling_tenant_names: string[] }
 > = [];
+const emptyAiCeoStatus: NotificationAiCeoStatus = {
+  advisor_name: "AI CEO",
+  ai_enabled: false,
+  encryption_configured: false,
+  key_configured: false,
+  key_source: "missing",
+  plan_eligible: false,
+  selected_model_id: "qwen/qwen3.7-max",
+  shadow_mode_enabled: true,
+};
 
 export default function OwnerV2NotificationSetup({
   tenantId,
@@ -271,6 +283,10 @@ export default function OwnerV2NotificationSetup({
     state.status === "success"
       ? (state.line.channels ?? emptyChannels)
       : emptyChannels;
+  const aiCeoStatus =
+    state.status === "success"
+      ? (state.notifications.ai_ceo ?? emptyAiCeoStatus)
+      : emptyAiCeoStatus;
   const manualRunTargetOptions = useMemo(
     () =>
       lineTargets.filter(
@@ -581,6 +597,64 @@ export default function OwnerV2NotificationSetup({
     }
   }
 
+  async function toggleAiCeoEnabled(nextEnabled: boolean) {
+    if (busy !== null || state.status !== "success") {
+      return;
+    }
+    if (nextEnabled) {
+      const blockedReason = getNotificationAiCeoBlockedReason(aiCeoStatus);
+      if (blockedReason) {
+        setMessage({ tone: "warning", text: blockedReason });
+        setTechnicalMessage(null);
+        return;
+      }
+    }
+
+    setBusy("toggle-ai-ceo");
+    setMessage(null);
+    setTechnicalMessage(null);
+    try {
+      const next = await ownerV2Fetch<OwnerV2AiCeoSetupStatus>(
+        `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/enabled`,
+        {
+          method: "PATCH",
+          body: { ai_enabled: nextEnabled },
+        },
+      );
+      const nextAiCeo = notificationAiCeoFromSetupStatus(next);
+      setState((current) =>
+        current.status === "success"
+          ? {
+              ...current,
+              notifications: {
+                ...current.notifications,
+                ai_ceo: nextAiCeo,
+              },
+            }
+          : current,
+      );
+      setMessage({
+        tone: "success",
+        text: nextAiCeo.ai_enabled
+          ? nextAiCeo.shadow_mode_enabled
+            ? "เปิด AI CEO แบบทดลองเงียบแล้ว รายงาน LINE ยังส่งตามแผนเดิม แต่ข้อความ AI CEO ยังไม่ขึ้น LINE จนกว่าจะปิดโหมดทดลองในหน้าตั้งค่า AI CEO"
+            : "เปิด AI CEO แล้ว รอบ LINE ถัดไปจะมีข้อความ AI CEO ก่อนการ์ดรายงาน"
+          : "ปิด AI CEO แล้ว รอบ LINE ถัดไปจะส่งเฉพาะการ์ดรายงานตามแผนเดิม",
+      });
+      await load({ preserveMessage: true, silent: true });
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: nextEnabled
+          ? "เปิด AI CEO ไม่สำเร็จ ตรวจแพ็กเกจ รหัส OpenRouter และระบบเข้ารหัสก่อนลองใหม่"
+          : "ปิด AI CEO ไม่สำเร็จ ลองรีเฟรชหน้าแล้วทำรายการอีกครั้ง",
+      });
+      setTechnicalMessage(toNotificationTechnicalMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (state.status === "loading") {
     return (
       <div className="space-y-5 sm:space-y-6">
@@ -672,6 +746,12 @@ export default function OwnerV2NotificationSetup({
         text="รอบปกติควรใช้ “ส่งรายงานครบทุกใบ” เพื่อให้ลูกค้าเห็น AI CEO ตามด้วยการ์ดรายงานเหมือนรอบ 08:00 ถ้าจะกดส่งจริงเพื่อทดสอบ ให้เลือกปลายทางเป็นผู้รับของทีมก่อนเสมอ"
         title="การแจ้งเตือน LINE อ้างจากแผนที่บันทึกไว้"
         tone="info"
+      />
+      <AiCeoLineToggleCard
+        aiCeo={aiCeoStatus}
+        busy={busy}
+        onToggle={(enabled) => void toggleAiCeoEnabled(enabled)}
+        tenantId={tenantId}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1201,6 +1281,102 @@ export default function OwnerV2NotificationSetup({
         </div>
       </div>
     </div>
+  );
+}
+
+function AiCeoLineToggleCard({
+  aiCeo,
+  busy,
+  onToggle,
+  tenantId,
+}: {
+  aiCeo: NotificationAiCeoStatus;
+  busy: string | null;
+  onToggle: (enabled: boolean) => void;
+  tenantId: string;
+}) {
+  const enabled = aiCeo.ai_enabled;
+  const blockedReason = enabled
+    ? null
+    : getNotificationAiCeoBlockedReason(aiCeo);
+  const liveInLine = enabled && !aiCeo.shadow_mode_enabled;
+  const statusLabel = enabled
+    ? liveInLine
+      ? "เปิดส่งเข้า LINE"
+      : "เปิดแบบทดลองเงียบ"
+    : "ปิดอยู่";
+  const statusTone = enabled ? (liveInLine ? "success" : "info") : "light";
+  return (
+    <Panel>
+      <PanelHeader
+        action={<Badge color={statusTone}>{statusLabel}</Badge>}
+        description="ควบคุมเฉพาะข้อความ AI CEO ที่ส่งก่อนการ์ดรายงาน การปิดส่วนนี้ไม่ปิดแผนแจ้งเตือนและไม่ปิด report cards"
+        title="AI CEO ใน LINE"
+      />
+      <PanelBody spaced>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Fact
+            label="แพ็กเกจ"
+            tone={aiCeo.plan_eligible ? "success" : "warning"}
+            value={aiCeo.plan_eligible ? "รองรับ AI CEO" : "ยังไม่รองรับ"}
+          />
+          <Fact
+            label="รหัส OpenRouter"
+            tone={aiCeo.key_configured ? "success" : "warning"}
+            value={formatAiCeoKeySource(aiCeo)}
+          />
+          <Fact
+            label="โหมดส่ง LINE"
+            tone={liveInLine ? "success" : enabled ? "warning" : "light"}
+            value={
+              liveInLine
+                ? "ส่งข้อความ AI CEO"
+                : enabled
+                  ? "ทดลองเงียบ"
+                  : "ไม่ส่ง AI CEO"
+            }
+          />
+        </div>
+
+        {blockedReason ? (
+          <Notice
+            text="ยังตั้งค่า AI CEO ไม่ครบ เปิดจากหน้านี้ไม่ได้จนกว่าจะแก้เงื่อนไขด้านล่าง"
+            title={blockedReason}
+            tone="warning"
+          />
+        ) : null}
+
+        <div className="flex flex-col gap-3 border-t border-gray-100 pt-5 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {enabled
+              ? "ถ้าปิด AI CEO ระบบจะไม่เรียก OpenRouter สำหรับรอบแจ้งเตือนถัดไป แต่ยังส่งรายงาน LINE ตามแผนเดิม"
+              : "ถ้าเปิด AI CEO ระบบจะใช้ prompt/model ที่บันทึกไว้ของร้านนี้ในรอบแจ้งเตือนถัดไป"}
+          </p>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+            <Link
+              className={secondaryActionClass}
+              href={`/owner-v2/stores/${encodeURIComponent(tenantId)}/ai-ceo`}
+            >
+              ตั้งค่า AI CEO
+            </Link>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={busy !== null || Boolean(blockedReason)}
+              onClick={() => onToggle(!enabled)}
+              size="sm"
+              type="button"
+              variant={enabled ? "outline" : "primary"}
+            >
+              {busy === "toggle-ai-ceo"
+                ? "กำลังบันทึก..."
+                : enabled
+                  ? "ปิด AI CEO"
+                  : "เปิด AI CEO"}
+            </Button>
+          </div>
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -1941,6 +2117,47 @@ function isPreferredManualRunTarget(target: LineTargetRecord) {
     displayName.includes("บอส") ||
     (maskedId.startsWith("Uc486") && maskedId.endsWith("2d3f9"))
   );
+}
+
+function notificationAiCeoFromSetupStatus(
+  status: OwnerV2AiCeoSetupStatus,
+): NotificationAiCeoStatus {
+  return {
+    advisor_name: status.profile.advisor_name,
+    ai_enabled: status.profile.ai_enabled,
+    encryption_configured: status.encryption_configured,
+    key_configured: status.key_configured,
+    key_source: status.key_source,
+    plan_eligible: status.plan_eligible,
+    selected_model_id: status.profile.selected_model_id,
+    shadow_mode_enabled: status.profile.shadow_mode_enabled,
+  };
+}
+
+function getNotificationAiCeoBlockedReason(aiCeo: NotificationAiCeoStatus) {
+  if (!aiCeo.plan_eligible) {
+    return "แพ็กเกจร้านนี้ยังไม่รองรับ AI CEO";
+  }
+  if (!aiCeo.encryption_configured) {
+    return "ระบบเข้ารหัสยังไม่พร้อมสำหรับ AI CEO";
+  }
+  if (!aiCeo.key_configured) {
+    return "ยังไม่มีรหัส OpenRouter สำหรับ AI CEO";
+  }
+  return null;
+}
+
+function formatAiCeoKeySource(aiCeo: NotificationAiCeoStatus) {
+  if (!aiCeo.key_configured) {
+    return "ยังไม่มีรหัส";
+  }
+  const labels: Record<NotificationAiCeoStatus["key_source"], string> = {
+    env: "รหัสจากระบบแม่ข่าย",
+    missing: "ยังไม่มีรหัส",
+    system_default: "รหัสกลางของระบบ",
+    tenant_override: "รหัสเฉพาะร้าน",
+  };
+  return labels[aiCeo.key_source] ?? "ตั้งค่าแล้ว";
 }
 
 function mergeManualRunFields({

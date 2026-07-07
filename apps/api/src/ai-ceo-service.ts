@@ -216,6 +216,33 @@ export async function readAiCeoSetupStatus(input: {
   };
 }
 
+export async function readAiCeoNotificationStatus(input: {
+  store: SystemStore;
+  tenant: Tenant;
+}) {
+  const profile =
+    (await input.store.getTenantAiProfile(input.tenant.id)) ??
+    defaultTenantAiProfile({
+      tenant: input.tenant,
+    });
+  const keyResolution = await resolveOpenRouterApiKey({
+    store: input.store,
+    tenantId: input.tenant.id,
+    keyMode: profile.key_mode,
+  }).catch(() => ({ apiKey: null, source: "missing" as const }));
+
+  return {
+    ai_enabled: profile.ai_enabled,
+    shadow_mode_enabled: profile.shadow_mode_enabled,
+    advisor_name: profile.advisor_name,
+    plan_eligible: isAiCeoPlanEligible(input.tenant),
+    encryption_configured: Boolean(readAiCeoEncryptionSecret()),
+    key_configured: Boolean(keyResolution.apiKey),
+    key_source: keyResolution.source,
+    selected_model_id: profile.selected_model_id,
+  };
+}
+
 export async function saveAiCeoProfile(input: {
   store: SystemStore;
   tenant: Tenant;
