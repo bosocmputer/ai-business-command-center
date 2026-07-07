@@ -166,17 +166,19 @@ export default function OwnerV2Header() {
     ];
   }, [pathname]);
 
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredActions = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return scopedQuickActions;
+    if (!normalizedSearchQuery) {
+      return [];
     }
-    return scopedQuickActions.filter((item) =>
-      `${item.label} ${item.detail} ${item.keywords}`
-        .toLowerCase()
-        .includes(query),
-    );
-  }, [scopedQuickActions, searchQuery]);
+    return scopedQuickActions
+      .filter((item) =>
+        `${item.label} ${item.detail} ${item.keywords}`
+          .toLowerCase()
+          .includes(normalizedSearchQuery),
+      )
+      .slice(0, 8);
+  }, [normalizedSearchQuery, scopedQuickActions]);
 
   const opsCount =
     workbenchState.status === "success"
@@ -320,7 +322,8 @@ export default function OwnerV2Header() {
                 />
                 <button
                   aria-label="ไปเมนูแรกจากผลค้นหา"
-                  className="absolute right-2 top-1/2 inline-flex h-9 min-w-10 -translate-y-1/2 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400"
+                  className="absolute right-2 top-1/2 inline-flex h-9 min-w-10 -translate-y-1/2 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-xs font-medium text-gray-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400"
+                  disabled={!filteredActions.length}
                   type="submit"
                 >
                   <span>ไป</span>
@@ -330,7 +333,11 @@ export default function OwnerV2Header() {
 
             {searchFocused ? (
               <div className="shadow-theme-lg absolute left-0 mt-3 w-[430px] rounded-2xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-dark">
-                {filteredActions.length ? (
+                {!normalizedSearchQuery ? (
+                  <p className="px-3 py-4 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                    พิมพ์ชื่อเมนูที่ต้องการ เช่น รายงาน, LINE, AI CEO
+                  </p>
+                ) : filteredActions.length ? (
                   <ul className="max-h-[320px] overflow-y-auto custom-scrollbar">
                     {filteredActions.map((item) => (
                       <li key={item.href}>
