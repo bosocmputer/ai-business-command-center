@@ -217,6 +217,7 @@ import {
   runAiCeoDryRun,
   saveAiCeoProfile,
   saveTenantOpenRouterApiKey,
+  setAiCeoEnabled,
   syncOpenRouterModelCatalog,
   updateAiAdvisorItemStatus,
 } from "./ai-ceo-service.js";
@@ -2508,6 +2509,66 @@ app.put(
           monthly_token_budget: profile.monthly_token_budget,
           daily_cost_budget_usd: profile.daily_cost_budget_usd,
           monthly_cost_budget_usd: profile.monthly_cost_budget_usd,
+        },
+      });
+
+      return {
+        data: await readAiCeoSetupStatus({
+          store: systemStore,
+          tenant,
+        }),
+      };
+    } catch (error) {
+      if (error instanceof AiCeoSafeError) {
+        return reply.status(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
+
+app.patch(
+  "/api/owner/tenants/:tenantId/ai-ceo/enabled",
+  async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
+    const routeParams = tenantParamsSchema.safeParse(request.params);
+    if (!routeParams.success) {
+      return reply.status(400).send({ error: "Invalid tenant_id" });
+    }
+
+    const body = z.object({ ai_enabled: z.boolean() }).safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.status(400).send({
+        error: "Invalid AI CEO enabled request",
+        details: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const tenant = await getTenantOrNull(routeParams.data.tenantId);
+    if (!tenant) {
+      return reply.status(404).send({ error: "Tenant not found." });
+    }
+
+    try {
+      const profile = await setAiCeoEnabled({
+        actorId: adminAuth.subject,
+        aiEnabled: body.data.ai_enabled,
+        store: systemStore,
+        tenant,
+      });
+      await systemStore.appendAuditLog({
+        tenant_id: tenant.id,
+        actor_id: adminAuth.subject,
+        action: "ai_ceo_enabled_updated",
+        target_type: "ai_ceo",
+        target_id: tenant.id,
+        metadata_json: {
+          ai_enabled: profile.ai_enabled,
+          shadow_mode_enabled: profile.shadow_mode_enabled,
         },
       });
 

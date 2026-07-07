@@ -18,6 +18,7 @@ import {
   buildAiCeoUnavailableLinePreview,
   defaultTenantAiProfile,
   runAiCeoDryRun,
+  setAiCeoEnabled,
   syncOpenRouterModelCatalog,
 } from "./ai-ceo-service.js";
 import {
@@ -39,8 +40,15 @@ const tenant: Tenant = {
   billingCycle: null,
 };
 
+const originalAiBccSecretKey = process.env.AI_BCC_SECRET_KEY;
+
 afterEach(() => {
   delete process.env.OPENROUTER_API_KEY;
+  if (originalAiBccSecretKey) {
+    process.env.AI_BCC_SECRET_KEY = originalAiBccSecretKey;
+  } else {
+    delete process.env.AI_BCC_SECRET_KEY;
+  }
   vi.restoreAllMocks();
 });
 
@@ -72,6 +80,53 @@ describe("AI CEO service", () => {
     expect(qwen?.price_input_per_m).toBe(1);
     expect(qwen?.price_output_per_m).toBe(2);
     expect(store.modelCatalog.length).toBe(10);
+  });
+
+  it("lets admins disable AI CEO without an OpenRouter key but blocks unsafe enable", async () => {
+    const store = createFakeStore();
+    store.profile = {
+      ...defaultTenantAiProfile({ tenant }),
+      ai_enabled: true,
+    };
+
+    const disabled = await setAiCeoEnabled({
+      actorId: "owner",
+      aiEnabled: false,
+      store,
+      tenant,
+    });
+
+    expect(disabled.ai_enabled).toBe(false);
+
+    await expect(
+      setAiCeoEnabled({
+        actorId: "owner",
+        aiEnabled: true,
+        store,
+        tenant,
+      }),
+    ).rejects.toThrow("ระบบเข้ารหัสยังไม่พร้อมสำหรับเปิด AI CEO");
+
+    process.env.AI_BCC_SECRET_KEY = "test-secret-key-for-ai-ceo-toggle";
+
+    await expect(
+      setAiCeoEnabled({
+        actorId: "owner",
+        aiEnabled: true,
+        store,
+        tenant,
+      }),
+    ).rejects.toThrow("ต้องมีรหัส OpenRouter ก่อนเปิด AI CEO");
+
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-test";
+    const enabled = await setAiCeoEnabled({
+      actorId: "owner",
+      aiEnabled: true,
+      store,
+      tenant,
+    });
+
+    expect(enabled.ai_enabled).toBe(true);
   });
 
   it("runs a dry-run, stores the advisor response, item, and usage ledger", async () => {

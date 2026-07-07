@@ -33,7 +33,14 @@ type MessageState = {
   text: string;
 };
 
-type BusyState = "save" | "key" | "models" | "dry-run" | `item:${string}` | null;
+type BusyState =
+  | "save"
+  | "key"
+  | "models"
+  | "dry-run"
+  | "toggle-enabled"
+  | `item:${string}`
+  | null;
 
 type AiCeoModelCatalogItem = OwnerV2AiCeoSetupStatus["model_catalog"][number];
 
@@ -164,6 +171,51 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
       setMessage({
         tone: "error",
         text: "บันทึกการตั้งค่า AI CEO ไม่สำเร็จ ลองตรวจแพ็กเกจ โมเดล งบ และคำสั่ง AI อีกครั้ง",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleAiCeoEnabled(nextEnabled: boolean) {
+    if (!statusData || busy !== null) {
+      return;
+    }
+    if (nextEnabled) {
+      const blockedReason = getAiCeoQuickToggleBlockedReason(statusData);
+      if (blockedReason) {
+        setTechnicalMessage(null);
+        setMessage({ tone: "warning", text: blockedReason });
+        return;
+      }
+    }
+
+    setBusy("toggle-enabled");
+    setMessage(null);
+    setTechnicalMessage(null);
+    try {
+      const next = await ownerV2Fetch<OwnerV2AiCeoSetupStatus>(
+        `/api/owner/tenants/${encodeURIComponent(tenantId)}/ai-ceo/enabled`,
+        {
+          method: "PATCH",
+          body: { ai_enabled: nextEnabled },
+        },
+      );
+      setState({ status: "success", data: next });
+      setForm(formFromStatus(next));
+      setMessage({
+        tone: "success",
+        text: next.profile.ai_enabled
+          ? "เปิด AI CEO ให้ร้านนี้แล้ว รอบ LINE ถัดไปจะใช้ตามโหมดที่ตั้งไว้"
+          : "ปิด AI CEO ให้ร้านนี้แล้ว ระบบยังเก็บ prompt/model ไว้ แต่จะไม่ส่ง AI CEO เข้า LINE",
+      });
+    } catch (error) {
+      setTechnicalMessage(technicalErrorMessage(error));
+      setMessage({
+        tone: "error",
+        text: nextEnabled
+          ? "เปิด AI CEO ไม่สำเร็จ ตรวจแพ็กเกจ รหัส OpenRouter และระบบเข้ารหัสก่อนลองใหม่"
+          : "ปิด AI CEO ไม่สำเร็จ ลองโหลดข้อมูลใหม่แล้วทำรายการอีกครั้ง",
       });
     } finally {
       setBusy(null);
@@ -389,6 +441,12 @@ export default function OwnerV2AiCeoSetup({ tenantId }: { tenantId: string }) {
               value={data.encryption_configured ? "พร้อม" : "ยังไม่พร้อม"}
             />
           </div>
+
+          <AiCeoUsageToggle
+            busy={busy}
+            data={data}
+            onToggle={(enabled) => void toggleAiCeoEnabled(enabled)}
+          />
 
           {!data.plan_eligible ? (
             <Notice
@@ -1030,6 +1088,66 @@ function AiCeoLiveModeNotice({
   );
 }
 
+function AiCeoUsageToggle({
+  busy,
+  data,
+  onToggle,
+}: {
+  busy: BusyState;
+  data: OwnerV2AiCeoSetupStatus;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const enabled = data.profile.ai_enabled;
+  const blockedReason = enabled ? null : getAiCeoQuickToggleBlockedReason(data);
+  const sendingToLine = enabled && !data.profile.shadow_mode_enabled;
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Badge color={enabled ? (sendingToLine ? "warning" : "info") : "light"}>
+              {enabled
+                ? sendingToLine
+                  ? "เปิดส่งจริง"
+                  : "เปิดแบบทดลองเงียบ"
+                : "ปิดอยู่"}
+            </Badge>
+            <Badge color={data.plan_eligible ? "success" : "warning"}>
+              {formatPlanCode(data.tenant.planCode)}
+            </Badge>
+          </div>
+          <h4 className="text-base font-semibold text-gray-800 dark:text-white/90">
+            การใช้งาน AI CEO ของร้านนี้
+          </h4>
+          <p className="mt-1 text-theme-sm leading-6 text-gray-500 dark:text-gray-400">
+            แพ็กเกจรองรับได้ แต่แต่ละร้านเลือกปิด AI CEO ได้เอง ระบบจะยังเก็บ
+            prompt, model และงบไว้สำหรับเปิดใช้อีกครั้งภายหลัง
+          </p>
+          {blockedReason ? (
+            <p className="mt-2 text-theme-xs leading-5 text-warning-600 dark:text-warning-400">
+              {blockedReason}
+            </p>
+          ) : null}
+        </div>
+        <Button
+          className="w-full lg:w-auto"
+          disabled={busy !== null || Boolean(blockedReason)}
+          onClick={() => onToggle(!enabled)}
+          size="sm"
+          type="button"
+          variant={enabled ? "outline" : "primary"}
+        >
+          {busy === "toggle-enabled"
+            ? "กำลังบันทึก..."
+            : enabled
+              ? "ปิด AI CEO"
+              : "เปิด AI CEO"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function AiCeoModelGuide({
   busy,
   canUseAi,
@@ -1318,6 +1436,19 @@ function AiCeoInbox({
       </PanelBody>
     </Panel>
   );
+}
+
+function getAiCeoQuickToggleBlockedReason(data: OwnerV2AiCeoSetupStatus) {
+  if (!data.plan_eligible) {
+    return "แพ็กเกจนี้ยังไม่รองรับ AI CEO";
+  }
+  if (!data.encryption_configured) {
+    return "ต้องตั้งค่าระบบเข้ารหัสบนเครื่องแม่ข่ายก่อนเปิด AI CEO";
+  }
+  if (!data.key_configured) {
+    return "ต้องมีรหัส OpenRouter ก่อนเปิด AI CEO";
+  }
+  return null;
 }
 
 function getAiCeoConfigBlockedReason(input: {

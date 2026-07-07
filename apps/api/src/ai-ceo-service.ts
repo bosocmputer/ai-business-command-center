@@ -287,6 +287,61 @@ export async function saveAiCeoProfile(input: {
   return profile;
 }
 
+export async function setAiCeoEnabled(input: {
+  actorId: string | null;
+  aiEnabled: boolean;
+  store: SystemStore;
+  tenant: Tenant;
+}) {
+  const status = await readAiCeoSetupStatus({
+    store: input.store,
+    tenant: input.tenant,
+  });
+
+  if (input.aiEnabled) {
+    if (!status.plan_eligible) {
+      throw new AiCeoSafeError(
+        "AI CEO เปิดใช้งานได้เฉพาะแผน Business หรือ Pro",
+        403,
+      );
+    }
+    if (!status.encryption_configured) {
+      throw new AiCeoSafeError(
+        "ระบบเข้ารหัสยังไม่พร้อมสำหรับเปิด AI CEO",
+        503,
+      );
+    }
+    if (!status.key_configured) {
+      throw new AiCeoSafeError(
+        "ต้องมีรหัส OpenRouter ก่อนเปิด AI CEO",
+        400,
+      );
+    }
+  }
+
+  const update: AiCeoProfileUpdate = {
+    ai_enabled: input.aiEnabled,
+    shadow_mode_enabled: status.profile.shadow_mode_enabled,
+    advisor_name: status.profile.advisor_name,
+    business_type: status.profile.business_type,
+    selected_model_id: status.profile.selected_model_id,
+    key_mode: status.profile.key_mode,
+    daily_token_budget: status.profile.daily_token_budget,
+    monthly_token_budget: status.profile.monthly_token_budget,
+    daily_cost_budget_usd: status.profile.daily_cost_budget_usd,
+    monthly_cost_budget_usd: status.profile.monthly_cost_budget_usd,
+    prompt_text:
+      status.active_prompt?.prompt_text ?? buildDefaultAiCeoPrompt(input.tenant),
+  };
+
+  return saveAiCeoProfile({
+    actorId: input.actorId,
+    store: input.store,
+    tenant: input.tenant,
+    update,
+  });
+}
+
 export async function saveTenantOpenRouterApiKey(input: {
   store: SystemStore;
   tenantId: TenantId;
