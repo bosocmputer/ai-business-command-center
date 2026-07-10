@@ -177,6 +177,11 @@ import {
   verifyReportViewerToken,
 } from "./report-viewer-token.js";
 import {
+  createReportViewerSessionCookie,
+  verifyReportViewerSessionCookie,
+} from "./report-viewer-session.js";
+import { canIssueReportViewerLink } from "./report-viewer-delivery-policy.js";
+import {
   OWNER_AUTH_COOKIE,
   verifyOwnerSessionCookie,
 } from "./owner-session-auth.js";
@@ -316,6 +321,7 @@ const app = Fastify({
 
 await app.register(cors, {
   origin: true,
+  credentials: true,
 });
 
 await app.register(cookie);
@@ -335,6 +341,14 @@ app.addContentTypeParser(
     }
   },
 );
+
+app.addHook("onSend", async (request, reply, payload) => {
+  if (request.url.startsWith("/api/reports/")) {
+    void reply.header("cache-control", "no-store");
+    void reply.header("referrer-policy", "no-referrer");
+  }
+  return payload;
+});
 
 const systemStore = createSystemStore();
 const lineAccessProfileKeys: LineAccessProfileKey[] = [
@@ -439,12 +453,19 @@ const DASHBOARD_TOKEN_LOOKBACK_DAYS = 31;
 const DASHBOARD_TOKEN_MAX_DATE_WINDOW_DAYS = 31;
 const DASHBOARD_TOKEN_RATE_LIMIT_COUNT = 5;
 const DASHBOARD_TOKEN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const REPORT_VIEWER_SESSION_COOKIE = "vt_session";
+const REPORT_VIEWER_SESSION_TTL_HOURS = 72;
+const REPORT_VIEWER_TOKEN_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE = 1000;
 
 await systemStore.initialize({
   tenants: listTenants(),
   reportDefinitions: reportDefinitionSeeds,
 });
 await backfillTenantReportRolePermissions();
+await cleanupExpiredReportViewerTokens().catch((error) => {
+  app.log.warn({ error }, "report viewer token startup cleanup failed");
+});
 cleanupReportPdfCache().catch((error) => {
   app.log.warn({ error }, "pdf cache cleanup failed");
 });
@@ -4781,17 +4802,14 @@ app.post("/api/worker/trial-expiry/tick", async (request, reply) => {
 
       expired.push(tenant.id);
     } else if (daysRemaining >= 1 && daysRemaining <= 3) {
-      // Warning: check dedup — ส่งได้วันละ 1 ครั้งต่อ tenant
-      const recentLogs = await systemStore.listAuditLogs(200);
-      const alreadyWarnedToday = recentLogs.some(
-        (log) =>
-          log.tenant_id === tenant.id &&
-          log.action === "trial_warning_sent" &&
-          typeof log.metadata_json === "object" &&
-          log.metadata_json !== null &&
-          (log.metadata_json as Record<string, unknown>).warning_date === todayBangkok,
-      );
-      if (alreadyWarnedToday) continue;
+      // Customer-facing trial warning is intentionally one-shot per period end.
+      const alreadyWarnedForPeriod =
+        await systemStore.findAuditLogByTenantActionAndMetadata({
+          tenantId: tenant.id,
+          action: "trial_warning_sent",
+          metadata: { period_end: tenant.currentPeriodEnd },
+        });
+      if (alreadyWarnedForPeriod) continue;
 
       const periodEndDisplay = new Intl.DateTimeFormat("th-TH", {
         timeZone: BANGKOK_TIME_ZONE,
@@ -5391,6 +5409,59 @@ app.patch("/api/line-targets/:id", async (request, reply) => {
   return { data: toSafeLineTargetRecord(updated) };
 });
 
+app.post("/api/line-targets/:id/viewer-access", async (request, reply) => {
+  const adminAuth = requireAdminMutation(request);
+  if (!adminAuth.ok) {
+    return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+  }
+
+  const routeParams = lineTargetParamsSchema.safeParse(request.params);
+  const body = lineTargetViewerAccessSchema.safeParse(request.body ?? {});
+  if (!routeParams.success || !body.success) {
+    return reply.status(400).send({ error: "Invalid viewer access request" });
+  }
+
+  const target = await getMutableLineTarget(routeParams.data.id);
+  if (!target) {
+    return reply.status(404).send({ error: "LINE target not found" });
+  }
+  if (target.target_type !== "user") {
+    return reply.status(400).send({
+      error: "การจัดการลิงก์รายงานใช้ได้เฉพาะผู้รับแบบรายบุคคล",
+    });
+  }
+
+  const affectedCount = await systemStore.updateViewerAccessForTarget({
+    tenantId: target.tenant_id,
+    targetIdHash: target.target_id_hash,
+    action: body.data.action,
+  });
+  await systemStore.appendAuditLog({
+    tenant_id: target.tenant_id,
+    actor_id: adminAuth.subject,
+    action:
+      body.data.action === "reset_binding"
+        ? "report_viewer_binding_reset"
+        : "report_viewer_links_revoked",
+    target_type: "line_target",
+    target_id: target.id,
+    metadata_json: {
+      action: body.data.action,
+      affected_count: affectedCount,
+      target_id_masked: target.target_id_masked,
+      target_id_hash_prefix: target.target_id_hash.slice(0, 12),
+    },
+  });
+
+  return {
+    data: {
+      action: body.data.action,
+      affected_count: affectedCount,
+      target_id_masked: target.target_id_masked,
+    },
+  };
+});
+
 app.post("/api/line-targets/:id/test-send", async (request, reply) => {
   const adminAuth = requireAdminMutation(request);
   if (!adminAuth.ok) {
@@ -5533,8 +5604,14 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     action: "open_signed_viewer",
   });
   const salesViewerUrl =
-    openSalesViewerPermission.allowed && salesSnapshot?.report_key === "sales_goods_services"
-      ? await buildReportViewerUrl(salesSnapshot)
+    canIssueReportViewerLink({
+      targetType: target.target_type,
+      permissionAllowed: openSalesViewerPermission.allowed,
+    }) &&
+    salesSnapshot?.report_key === "sales_goods_services"
+      ? await buildReportViewerUrl(salesSnapshot, {
+          targetIdHash: target.target_id_hash,
+        })
       : null;
   const targetTenantName = (await getTenantOrNull(target.tenant_id))?.name;
   const salesPreview =
@@ -5552,8 +5629,14 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     action: "open_signed_viewer",
   });
   const purchaseViewerUrl =
-    openPurchaseViewerPermission.allowed && purchaseSnapshot?.report_key === "purchase_goods_payables"
-      ? await buildReportViewerUrl(purchaseSnapshot)
+    canIssueReportViewerLink({
+      targetType: target.target_type,
+      permissionAllowed: openPurchaseViewerPermission.allowed,
+    }) &&
+    purchaseSnapshot?.report_key === "purchase_goods_payables"
+      ? await buildReportViewerUrl(purchaseSnapshot, {
+          targetIdHash: target.target_id_hash,
+        })
       : null;
   const purchasePreview =
     purchaseSnapshot?.report_key === "purchase_goods_payables"
@@ -5624,6 +5707,11 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
 app.get(
   "/api/reports/:tenantId/sales_goods_services/latest",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
+
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -5641,82 +5729,116 @@ app.get(
   },
 );
 
-app.get(
-  "/api/reports/:tenantId/sales_goods_services/snapshots/:runId",
+app.post(
+  "/api/reports/:tenantId/:reportKey/viewer-session/claim",
   async (request, reply) => {
-    const params = signedSnapshotParamsSchema.safeParse(request.params);
-    if (!params.success) {
-      return reply.status(400).send({ error: "Invalid report viewer link." });
+    const params = signedViewerParamsSchema.safeParse(request.params);
+    const body = viewerSessionClaimSchema.safeParse(request.body ?? {});
+    if (!params.success || !body.success) {
+      return reply.status(400).send({
+        error: "ลิงก์เปิดรายงานไม่ถูกต้อง",
+        code: "VIEWER_LINK_INVALID",
+      });
     }
 
-    const query = signedSnapshotQuerySchema.safeParse(request.query);
-    if (!query.success) {
-      return reply.status(400).send({ error: "Invalid report viewer link." });
-    }
-
-    const signingSecret = await readReportViewerSigningSecret();
-    if (!signingSecret) {
+    const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+    const signingSecret = runtimeConfig.report_viewer_signing_secret?.trim();
+    if (!signingSecret || signingSecret.length < 32) {
       return reply.status(503).send({
         error: "Report viewer signing is not configured.",
+        code: "VIEWER_LINK_INVALID",
+      });
+    }
+
+    const sessionVerification = verifyReportViewerSessionCookie({
+      secret: signingSecret,
+      cookieValue: request.cookies[REPORT_VIEWER_SESSION_COOKIE],
+    });
+    if (!sessionVerification.ok) {
+      const sessionId = randomUUID();
+      const cookieValue = createReportViewerSessionCookie({
+        secret: signingSecret,
+        sessionId,
+      });
+      void reply.setCookie(REPORT_VIEWER_SESSION_COOKIE, cookieValue, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: REPORT_VIEWER_SESSION_TTL_HOURS * 60 * 60,
+        secure: runtimeConfig.app_base_url?.startsWith("https://") ?? false,
+      });
+      return reply.status(428).send({
+        error: "กำลังเตรียมอุปกรณ์สำหรับเปิดรายงาน กรุณาลองอีกครั้ง",
+        code: "VIEWER_SESSION_BOOTSTRAP_REQUIRED",
       });
     }
 
     const verification = verifyReportViewerToken({
-      token: query.data.token,
+      token: body.data.token,
       secret: signingSecret,
       tenantId: params.data.tenantId,
-      reportKey: "sales_goods_services",
-      runId: params.data.runId,
+      reportKey: params.data.reportKey,
+      runId: body.data.run_id,
     });
     if (!verification.ok) {
-      const statusCode =
-        verification.reason === "missing" || verification.reason === "malformed"
-          ? 400
-          : 403;
-      const errorMessage =
-        verification.reason === "expired"
-          ? "Report viewer link has expired."
-          : "Invalid report viewer link.";
-      return reply.status(statusCode).send({ error: errorMessage });
-    }
-
-    const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
-    const cookieSessionId = (request.cookies as Record<string, string | undefined>)["vt_session"] ?? null;
-    const tokenAccess = await systemStore.accessViewerToken(tokenHash, cookieSessionId);
-    if (!tokenAccess.ok) {
-      const errorMessage =
-        tokenAccess.reason === "expired"
-          ? "Report viewer link has expired."
-          : "Invalid report viewer link.";
-      return reply.status(403).send({ error: errorMessage });
-    }
-    if (tokenAccess.newSessionId) {
-      void reply.setCookie("vt_session", tokenAccess.newSessionId, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: await readReportViewerLinkTtlSeconds(),
-      });
+      return sendViewerTokenVerificationError(reply, verification.reason);
     }
 
     const tenant = await getTenantOrNull(params.data.tenantId);
     if (!tenant) {
       return reply.status(404).send({ error: "Tenant not found." });
     }
-    const access = tenantAccessStatus(tenant);
-    if (!access.enabled) {
+    const tenantAccess = tenantAccessStatus(tenant);
+    if (!tenantAccess.enabled) {
       return reply.status(403).send({
-        error: access.message,
+        error: tenantAccess.message,
         tenant_status: tenant.status,
       });
     }
 
+    const tokenHash = createHash("sha256")
+      .update(body.data.token)
+      .digest("hex");
+    const claim = await systemStore.claimViewerToken({
+      tokenHash,
+      sessionId: sessionVerification.sessionId,
+    });
+    if (!claim.ok) {
+      if (claim.reason === "session_mismatch") {
+        await auditViewerSessionMismatch({
+          tenantId: params.data.tenantId,
+          reportKey: params.data.reportKey,
+          runId: body.data.run_id,
+          jti: verification.payload.jti,
+          tokenHash,
+        });
+      }
+      return sendViewerStoreAccessError(reply, claim.reason);
+    }
+
     const snapshot = await systemStore.getSnapshotByRunId(
       params.data.tenantId,
-      params.data.runId,
+      body.data.run_id,
+      params.data.reportKey,
     );
     if (!snapshot) {
       return reply.status(404).send({ error: "Snapshot not found" });
+    }
+
+    if (claim.newlyBound) {
+      await systemStore.appendAuditLog({
+        tenant_id: params.data.tenantId,
+        actor_id: null,
+        action: "report_viewer_session_bound",
+        target_type: "report_viewer_token",
+        target_id: verification.payload.jti,
+        metadata_json: {
+          jti: verification.payload.jti,
+          report_key: params.data.reportKey,
+          run_id: body.data.run_id,
+          target_id_hash_prefix: claim.token.targetIdHash?.slice(0, 12) ?? null,
+        },
+      });
     }
 
     return { data: snapshot };
@@ -5724,86 +5846,23 @@ app.get(
 );
 
 app.get(
+  "/api/reports/:tenantId/sales_goods_services/snapshots/:runId",
+  async (request, reply) =>
+    serveViewerSnapshot({
+      request,
+      reply,
+      reportKey: "sales_goods_services",
+    }),
+);
+
+app.get(
   "/api/reports/:tenantId/purchase_goods_payables/snapshots/:runId",
-  async (request, reply) => {
-    const params = signedSnapshotParamsSchema.safeParse(request.params);
-    if (!params.success) {
-      return reply.status(400).send({ error: "Invalid report viewer link." });
-    }
-
-    const query = signedSnapshotQuerySchema.safeParse(request.query);
-    if (!query.success) {
-      return reply.status(400).send({ error: "Invalid report viewer link." });
-    }
-
-    const signingSecret = await readReportViewerSigningSecret();
-    if (!signingSecret) {
-      return reply.status(503).send({
-        error: "Report viewer signing is not configured.",
-      });
-    }
-
-    const verification = verifyReportViewerToken({
-      token: query.data.token,
-      secret: signingSecret,
-      tenantId: params.data.tenantId,
+  async (request, reply) =>
+    serveViewerSnapshot({
+      request,
+      reply,
       reportKey: "purchase_goods_payables",
-      runId: params.data.runId,
-    });
-    if (!verification.ok) {
-      const statusCode =
-        verification.reason === "missing" || verification.reason === "malformed"
-          ? 400
-          : 403;
-      const errorMessage =
-        verification.reason === "expired"
-          ? "Report viewer link has expired."
-          : "Invalid report viewer link.";
-      return reply.status(statusCode).send({ error: errorMessage });
-    }
-
-    const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
-    const cookieSessionId = (request.cookies as Record<string, string | undefined>)["vt_session"] ?? null;
-    const tokenAccess = await systemStore.accessViewerToken(tokenHash, cookieSessionId);
-    if (!tokenAccess.ok) {
-      const errorMessage =
-        tokenAccess.reason === "expired"
-          ? "Report viewer link has expired."
-          : "Invalid report viewer link.";
-      return reply.status(403).send({ error: errorMessage });
-    }
-    if (tokenAccess.newSessionId) {
-      void reply.setCookie("vt_session", tokenAccess.newSessionId, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: await readReportViewerLinkTtlSeconds(),
-      });
-    }
-
-    const tenant = await getTenantOrNull(params.data.tenantId);
-    if (!tenant) {
-      return reply.status(404).send({ error: "Tenant not found." });
-    }
-    const access = tenantAccessStatus(tenant);
-    if (!access.enabled) {
-      return reply.status(403).send({
-        error: access.message,
-        tenant_status: tenant.status,
-      });
-    }
-
-    const snapshot = await systemStore.getSnapshotByRunId(
-      params.data.tenantId,
-      params.data.runId,
-      "purchase_goods_payables",
-    );
-    if (!snapshot) {
-      return reply.status(404).send({ error: "Snapshot not found" });
-    }
-
-    return { data: snapshot };
-  },
+    }),
 );
 
 app.get(
@@ -5811,86 +5870,16 @@ app.get(
   async (request, reply) => {
     const params = signedReportSnapshotParamsSchema.safeParse(request.params);
     if (!params.success) {
-      return reply.status(400).send({ error: "Invalid report viewer link." });
-    }
-
-    const query = signedSnapshotQuerySchema.safeParse(request.query);
-    if (!query.success) {
-      return reply.status(400).send({ error: "Invalid report viewer link." });
-    }
-
-    const signingSecret = await readReportViewerSigningSecret();
-    if (!signingSecret) {
-      return reply.status(503).send({
-        error: "Report viewer signing is not configured.",
+      return reply.status(400).send({
+        error: "ลิงก์เปิดรายงานไม่ถูกต้อง",
+        code: "VIEWER_LINK_INVALID",
       });
     }
-
-    const verification = verifyReportViewerToken({
-      token: query.data.token,
-      secret: signingSecret,
-      tenantId: params.data.tenantId,
+    return serveViewerSnapshot({
+      request,
+      reply,
       reportKey: params.data.reportKey,
-      runId: params.data.runId,
     });
-    if (!verification.ok) {
-      const statusCode =
-        verification.reason === "missing" || verification.reason === "malformed"
-          ? 400
-          : 403;
-      const errorMessage =
-        verification.reason === "expired"
-          ? "Report viewer link has expired."
-          : "Invalid report viewer link.";
-      return reply.status(statusCode).send({ error: errorMessage });
-    }
-
-    const tokenHash = createHash("sha256").update(query.data.token).digest("hex");
-    const cookieSessionId =
-      (request.cookies as Record<string, string | undefined>)["vt_session"] ??
-      null;
-    const tokenAccess = await systemStore.accessViewerToken(
-      tokenHash,
-      cookieSessionId,
-    );
-    if (!tokenAccess.ok) {
-      const errorMessage =
-        tokenAccess.reason === "expired"
-          ? "Report viewer link has expired."
-          : "Invalid report viewer link.";
-      return reply.status(403).send({ error: errorMessage });
-    }
-    if (tokenAccess.newSessionId) {
-      void reply.setCookie("vt_session", tokenAccess.newSessionId, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: await readReportViewerLinkTtlSeconds(),
-      });
-    }
-
-    const tenant = await getTenantOrNull(params.data.tenantId);
-    if (!tenant) {
-      return reply.status(404).send({ error: "Tenant not found." });
-    }
-    const access = tenantAccessStatus(tenant);
-    if (!access.enabled) {
-      return reply.status(403).send({
-        error: access.message,
-        tenant_status: tenant.status,
-      });
-    }
-
-    const snapshot = await systemStore.getSnapshotByRunId(
-      params.data.tenantId,
-      params.data.runId,
-      params.data.reportKey,
-    );
-    if (!snapshot) {
-      return reply.status(404).send({ error: "Snapshot not found" });
-    }
-
-    return { data: snapshot };
   },
 );
 
@@ -6093,6 +6082,7 @@ app.post(
   "/api/reports/:tenantId/:reportKey/viewer-run",
   async (request, reply) => {
     const access = await verifySignedViewerRequest({
+      request,
       params: request.params,
       queryOrBody: request.body,
       reply,
@@ -6136,6 +6126,7 @@ app.get(
   "/api/reports/:tenantId/:reportKey/viewer-documents",
   async (request, reply) => {
     const access = await verifySignedViewerRequest({
+      request,
       params: request.params,
       queryOrBody: request.query,
       reply,
@@ -6158,11 +6149,7 @@ app.get(
       });
     }
 
-    const snapshot = await systemStore.getSnapshotByRunId(
-      access.tenantId,
-      access.runId,
-      access.reportKey,
-    );
+    const snapshot = access.snapshot;
     if (!snapshot || !isClassicReportSnapshot(snapshot)) {
       return reply.status(404).send({ error: "Snapshot not found" });
     }
@@ -6214,6 +6201,7 @@ app.get(
   "/api/reports/:tenantId/:reportKey/viewer-document-detail",
   async (request, reply) => {
     const access = await verifySignedViewerRequest({
+      request,
       params: request.params,
       queryOrBody: request.query,
       reply,
@@ -6236,11 +6224,7 @@ app.get(
       });
     }
 
-    const snapshot = await systemStore.getSnapshotByRunId(
-      access.tenantId,
-      access.runId,
-      access.reportKey,
-    );
+    const snapshot = access.snapshot;
     if (!snapshot || !isClassicReportSnapshot(snapshot)) {
       return reply.status(404).send({ error: "Snapshot not found" });
     }
@@ -6334,6 +6318,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/sales_goods_services/runs",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -6345,6 +6333,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/sales_goods_services/line-preview",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -6361,7 +6353,7 @@ app.get(
     return {
       data: renderSalesGoodsServicesLinePreview({
         snapshot,
-        dashboardUrl: await buildReportViewerUrl(snapshot),
+        dashboardUrl: null,
         tenantName: (await getTenantOrNull(params.data.tenantId))?.name,
       }),
     };
@@ -6371,6 +6363,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/sales_goods_services/line-deliveries",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -6383,6 +6379,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/purchase_goods_payables/latest",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -6403,6 +6403,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/purchase_goods_payables/line-preview",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = tenantParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid tenant_id" });
@@ -6419,7 +6423,7 @@ app.get(
     return {
       data: renderPurchaseGoodsPayablesLinePreview({
         snapshot,
-        dashboardUrl: await buildReportViewerUrl(snapshot),
+        dashboardUrl: null,
         tenantName: (await getTenantOrNull(params.data.tenantId))?.name,
       }),
     };
@@ -6429,6 +6433,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/:reportKey/latest",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = signedViewerParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid report params" });
@@ -6449,6 +6457,10 @@ app.get(
 app.get(
   "/api/reports/:tenantId/:reportKey/line-preview",
   async (request, reply) => {
+    const adminAuth = requireAdminMutation(request);
+    if (!adminAuth.ok) {
+      return reply.status(adminAuth.statusCode).send({ error: adminAuth.error });
+    }
     const params = signedViewerParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({ error: "Invalid report params" });
@@ -6462,16 +6474,9 @@ app.get(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    const runtimeEntry = getReportRuntimeEntry(
-      reportRuntimeRegistry,
-      snapshot.report_key,
-    );
-    const dashboardUrl = runtimeEntry?.supportsSignedViewer
-      ? await buildReportViewerUrl(snapshot)
-      : null;
     const preview = renderReportLinePreview(reportRuntimeRegistry, {
       snapshot,
-      dashboardUrl,
+      dashboardUrl: null,
       tenantName: (await getTenantOrNull(params.data.tenantId))?.name,
     });
     if (!preview) {
@@ -6526,17 +6531,34 @@ app.post(
       return reply.status(404).send({ error: "Snapshot not found" });
     }
 
-    const preview = renderSalesGoodsServicesLinePreview({
-      snapshot,
-      dashboardUrl: await buildReportViewerUrl(snapshot),
-      tenantName: tenant.name,
-    });
     const defaultTarget = (await listEffectiveLineTargets(tenantId)).find(
       (target) =>
         target.approved &&
         target.enabled &&
         target.allowed_actions.includes("receive_morning_brief"),
     );
+    const defaultTargetViewerPermission = defaultTarget
+      ? canAccessLineReport({
+          tenantId,
+          target: defaultTarget,
+          reportKey: "sales_goods_services",
+          action: "open_signed_viewer",
+        })
+      : null;
+    const preview = renderSalesGoodsServicesLinePreview({
+      snapshot,
+      dashboardUrl:
+        defaultTarget &&
+        canIssueReportViewerLink({
+          targetType: defaultTarget.target_type,
+          permissionAllowed: defaultTargetViewerPermission?.allowed ?? false,
+        })
+          ? await buildReportViewerUrl(snapshot, {
+              targetIdHash: defaultTarget.target_id_hash,
+            })
+          : null,
+      tenantName: tenant.name,
+    });
     const lineConfig = defaultTarget
       ? await buildLineChannelConfigForTarget(defaultTarget)
       : null;
@@ -6749,8 +6771,13 @@ app.post(
         action: "open_signed_viewer",
       });
       const salesViewerUrl2 =
-        openSalesViewerPermission.allowed
-          ? await buildReportViewerUrl(runResult.snapshot)
+        canIssueReportViewerLink({
+          targetType: target.target_type,
+          permissionAllowed: openSalesViewerPermission.allowed,
+        })
+          ? await buildReportViewerUrl(runResult.snapshot, {
+              targetIdHash: target.target_id_hash,
+            })
           : null;
       const salesPreview = receiveSalesPermission.allowed
         ? renderSalesGoodsServicesLinePreview({
@@ -6766,8 +6793,14 @@ app.post(
         action: "open_signed_viewer",
       });
       const purchaseViewerUrl2 =
-        openPurchaseViewerPermission.allowed && purchaseSnapshot
-          ? await buildReportViewerUrl(purchaseSnapshot)
+        canIssueReportViewerLink({
+          targetType: target.target_type,
+          permissionAllowed: openPurchaseViewerPermission.allowed,
+        }) &&
+        purchaseSnapshot
+          ? await buildReportViewerUrl(purchaseSnapshot, {
+              targetIdHash: target.target_id_hash,
+            })
           : null;
       const purchasePreview =
         purchaseSnapshot && receivePurchasePermission.allowed
@@ -8251,6 +8284,7 @@ await app.listen({
   port: config.port,
 });
 startOpsMonitorLoop();
+startReportViewerTokenCleanupLoop();
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
@@ -8805,35 +8839,72 @@ async function buildOwnerHealthCenterStatus(input: {
   });
 }
 
-async function buildReportViewerUrl(snapshot: ReportSnapshot) {
+async function buildReportViewerUrl(
+  snapshot: ReportSnapshot,
+  options: { targetIdHash: string },
+) {
   const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
   const baseUrl = runtimeConfig.app_base_url;
   const signingSecret = runtimeConfig.report_viewer_signing_secret?.trim();
-  if (!baseUrl || !signingSecret || signingSecret.length < 32) {
+  const targetIdHash = options.targetIdHash.trim();
+  if (
+    !baseUrl ||
+    !signingSecret ||
+    signingSecret.length < 32 ||
+    !targetIdHash
+  ) {
     return null;
   }
 
   const expiresAt = new Date(
-    Date.now() + runtimeConfig.report_viewer_link_ttl_hours * 60 * 60 * 1000,
+    Date.now() +
+      Math.min(
+        runtimeConfig.report_viewer_link_ttl_hours,
+        REPORT_VIEWER_SESSION_TTL_HOURS,
+      ) *
+        60 *
+        60 *
+        1000,
   );
+  const jti = randomUUID();
   const token = createReportViewerToken({
     secret: signingSecret,
     tenantId: snapshot.tenant_id,
     reportKey: snapshot.report_key,
     runId: snapshot.run_id,
     expiresAt,
+    jti,
   });
 
   const tokenHash = createHash("sha256").update(token).digest("hex");
   try {
     await systemStore.createViewerToken({
       tokenHash,
+      tokenVersion: 2,
       tenantId: snapshot.tenant_id,
+      reportKey: snapshot.report_key,
       runId: snapshot.run_id,
+      jti,
+      targetIdHash,
       expiresAt,
     });
+    await systemStore.appendAuditLog({
+      tenant_id: snapshot.tenant_id,
+      actor_id: null,
+      action: "report_viewer_token_issued",
+      target_type: "report_viewer_token",
+      target_id: jti,
+      metadata_json: {
+        jti,
+        report_key: snapshot.report_key,
+        run_id: snapshot.run_id,
+        expires_at: expiresAt.toISOString(),
+        target_id_hash_prefix: targetIdHash.slice(0, 12),
+      },
+    });
   } catch (err) {
-    app.log.warn({ err }, "Failed to register viewer token in DB — URL will be non-OTT");
+    app.log.warn({ err }, "failed to register report viewer token");
+    return null;
   }
 
   try {
@@ -8841,8 +8912,8 @@ async function buildReportViewerUrl(snapshot: ReportSnapshot) {
     url.searchParams.set("tenant_id", snapshot.tenant_id);
     url.searchParams.set("report_key", snapshot.report_key);
     url.searchParams.set("run_id", snapshot.run_id);
-    url.searchParams.set("token", token);
     url.searchParams.set("openExternalBrowser", "1");
+    url.hash = new URLSearchParams({ token }).toString();
     return url.toString();
   } catch {
     return null;
@@ -14062,8 +14133,15 @@ async function buildNotificationReportPreview(input: {
     input.snapshot.report_key,
   );
   const supportsSignedViewer = runtimeEntry?.supportsSignedViewer ?? false;
-  const dashboardUrl = openViewerPermission.allowed && supportsSignedViewer
-    ? await buildReportViewerUrl(input.snapshot)
+  const dashboardUrl =
+    canIssueReportViewerLink({
+      targetType: input.target.target_type,
+      permissionAllowed: openViewerPermission.allowed,
+      supportsSignedViewer,
+    })
+    ? await buildReportViewerUrl(input.snapshot, {
+        targetIdHash: input.target.target_id_hash,
+      })
     : null;
 
   const preview = renderReportLinePreview(reportRuntimeRegistry, {
@@ -15845,10 +15923,28 @@ async function readReportViewerSigningSecret() {
   return secret && secret.length >= 32 ? secret : null;
 }
 
-async function readReportViewerLinkTtlSeconds() {
-  const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
-  const hours = runtimeConfig.report_viewer_link_ttl_hours;
-  return Math.max(1, Math.min(hours, 2160)) * 60 * 60;
+async function cleanupExpiredReportViewerTokens() {
+  let deletedCount = 0;
+  for (let batch = 0; batch < 20; batch += 1) {
+    const deleted = await systemStore.purgeExpiredViewerTokens(
+      REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE,
+    );
+    deletedCount += deleted;
+    if (deleted < REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE) {
+      break;
+    }
+  }
+  app.log.info({ deleted_count: deletedCount }, "report viewer token cleanup completed");
+  return deletedCount;
+}
+
+function startReportViewerTokenCleanupLoop() {
+  const interval = setInterval(() => {
+    void cleanupExpiredReportViewerTokens().catch((error) => {
+      app.log.warn({ error }, "report viewer token scheduled cleanup failed");
+    });
+  }, REPORT_VIEWER_TOKEN_CLEANUP_INTERVAL_MS);
+  interval.unref?.();
 }
 
 function buildMorningBriefDeliveryKey(
@@ -15983,6 +16079,7 @@ async function prepareSignedViewerPdfRequest(
   | { ok: false; response: FastifyReply }
 > {
   const access = await verifySignedViewerRequest({
+    request,
     params: request.params,
     queryOrBody: request.query,
     reply,
@@ -16030,11 +16127,7 @@ async function prepareSignedViewerPdfRequest(
     };
   }
 
-  const snapshot = await systemStore.getSnapshotByRunId(
-    pdfAccess.tenantId,
-    pdfAccess.runId,
-    pdfAccess.reportKey,
-  );
+  const snapshot = access.snapshot;
   if (!snapshot) {
     return {
       ok: false,
@@ -16299,6 +16392,7 @@ async function prepareSignedViewerPdfCacheMiss(input: {
 }
 
 async function verifySignedViewerRequest(input: {
+  request: FastifyRequest;
   params: unknown;
   queryOrBody: unknown;
   reply: FastifyReply;
@@ -16308,6 +16402,7 @@ async function verifySignedViewerRequest(input: {
       tenantId: TenantId;
       reportKey: ReportKey;
       runId: string;
+      snapshot: ReportSnapshot;
     }
   | { ok: false; response: FastifyReply }
 > {
@@ -16315,9 +16410,10 @@ async function verifySignedViewerRequest(input: {
   if (!params.success) {
     return {
       ok: false,
-      response: input.reply
-        .status(400)
-        .send({ error: "Invalid report viewer link." }),
+      response: input.reply.status(400).send({
+        error: "ลิงก์เปิดรายงานไม่ถูกต้อง",
+        code: "VIEWER_LINK_INVALID",
+      }),
     };
   }
 
@@ -16325,9 +16421,10 @@ async function verifySignedViewerRequest(input: {
   if (!auth.success) {
     return {
       ok: false,
-      response: input.reply
-        .status(400)
-        .send({ error: "Invalid report viewer link." }),
+      response: input.reply.status(400).send({
+        error: "ลิงก์เปิดรายงานไม่ถูกต้อง",
+        code: "VIEWER_LINK_INVALID",
+      }),
     };
   }
 
@@ -16337,29 +16434,35 @@ async function verifySignedViewerRequest(input: {
       ok: false,
       response: input.reply.status(503).send({
         error: "Report viewer signing is not configured.",
+        code: "VIEWER_LINK_INVALID",
       }),
     };
   }
 
-  const verification = verifyReportViewerToken({
-    token: auth.data.token,
+  const sessionVerification = verifyReportViewerSessionCookie({
     secret: signingSecret,
-    tenantId: params.data.tenantId,
-    reportKey: params.data.reportKey,
-    runId: auth.data.run_id,
+    cookieValue: input.request.cookies[REPORT_VIEWER_SESSION_COOKIE],
   });
-  if (!verification.ok) {
-    const statusCode =
-      verification.reason === "missing" || verification.reason === "malformed"
-        ? 400
-        : 403;
-    const errorMessage =
-      verification.reason === "expired"
-        ? "Report viewer link has expired."
-        : "Invalid report viewer link.";
+  if (!sessionVerification.ok) {
     return {
       ok: false,
-      response: input.reply.status(statusCode).send({ error: errorMessage }),
+      response: input.reply.status(403).send({
+        error:
+          "ไม่พบสิทธิ์เปิดรายงานในอุปกรณ์นี้ กรุณาเปิดลิงก์ต้นฉบับจาก LINE หรือติดต่อผู้ดูแลระบบ",
+        code: "VIEWER_SESSION_MISMATCH",
+      }),
+    };
+  }
+
+  const sessionAccess = await systemStore.getViewerSessionAccess({
+    sessionId: sessionVerification.sessionId,
+    tenantId: params.data.tenantId,
+    reportKey: params.data.reportKey,
+  });
+  if (!sessionAccess.ok) {
+    return {
+      ok: false,
+      response: sendViewerStoreAccessError(input.reply, sessionAccess.reason),
     };
   }
 
@@ -16381,12 +16484,124 @@ async function verifySignedViewerRequest(input: {
     };
   }
 
+  const snapshot = await systemStore.getSnapshotByRunId(
+    params.data.tenantId,
+    auth.data.run_id,
+    params.data.reportKey,
+  );
+  if (!snapshot) {
+    return {
+      ok: false,
+      response: input.reply.status(404).send({ error: "Snapshot not found" }),
+    };
+  }
+
   return {
     ok: true,
     tenantId: params.data.tenantId,
     reportKey: params.data.reportKey,
     runId: auth.data.run_id,
+    snapshot,
   };
+}
+
+async function serveViewerSnapshot(input: {
+  request: FastifyRequest;
+  reply: FastifyReply;
+  reportKey: ReportKey;
+}) {
+  const params = signedSnapshotParamsSchema.safeParse(input.request.params);
+  if (!params.success) {
+    return input.reply.status(400).send({
+      error: "ลิงก์เปิดรายงานไม่ถูกต้อง",
+      code: "VIEWER_LINK_INVALID",
+    });
+  }
+  const access = await verifySignedViewerRequest({
+    request: input.request,
+    params: {
+      tenantId: params.data.tenantId,
+      reportKey: input.reportKey,
+    },
+    queryOrBody: { run_id: params.data.runId },
+    reply: input.reply,
+  });
+  if (!access.ok) {
+    return access.response;
+  }
+  return { data: access.snapshot };
+}
+
+function sendViewerTokenVerificationError(
+  reply: FastifyReply,
+  reason: "missing" | "malformed" | "bad_signature" | "expired" | "forbidden",
+) {
+  if (reason === "expired") {
+    return reply.status(403).send({
+      error: "ลิงก์เปิดรายงานหมดอายุแล้ว กรุณาติดต่อผู้ดูแลระบบ",
+      code: "VIEWER_LINK_EXPIRED",
+    });
+  }
+  return reply.status(403).send({
+    error: "ลิงก์เปิดรายงานไม่ถูกต้อง กรุณาติดต่อผู้ดูแลระบบ",
+    code: "VIEWER_LINK_INVALID",
+  });
+}
+
+function sendViewerStoreAccessError(
+  reply: FastifyReply,
+  reason: "not_found" | "expired" | "revoked" | "session_mismatch",
+) {
+  if (reason === "expired") {
+    return reply.status(403).send({
+      error: "ลิงก์เปิดรายงานหมดอายุแล้ว กรุณาติดต่อผู้ดูแลระบบ",
+      code: "VIEWER_LINK_EXPIRED",
+    });
+  }
+  if (reason === "revoked") {
+    return reply.status(403).send({
+      error: "ลิงก์เปิดรายงานนี้ถูกยกเลิกแล้ว กรุณาติดต่อผู้ดูแลระบบ",
+      code: "VIEWER_LINK_REVOKED",
+    });
+  }
+  if (reason === "session_mismatch") {
+    return reply.status(403).send({
+      error:
+        "ลิงก์นี้ถูกเปิดใช้งานบนอุปกรณ์อื่นแล้ว กรุณาเปิดจาก LINE บนอุปกรณ์เดิม หรือติดต่อผู้ดูแลระบบเพื่อรีเซ็ตอุปกรณ์",
+      code: "VIEWER_SESSION_MISMATCH",
+    });
+  }
+  return reply.status(403).send({
+    error: "ลิงก์เปิดรายงานไม่ถูกต้อง กรุณาติดต่อผู้ดูแลระบบ",
+    code: "VIEWER_LINK_INVALID",
+  });
+}
+
+async function auditViewerSessionMismatch(input: {
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  runId: string;
+  jti: string;
+  tokenHash: string;
+}) {
+  const windowKey = new Date().toISOString().slice(0, 13);
+  const dedupeMetadata = { jti: input.jti, window_key: windowKey };
+  await systemStore.appendAuditLogIfAbsent({
+    dedupeKey: `report_viewer_session_mismatch:${input.jti}:${windowKey}`,
+    entry: {
+      tenant_id: input.tenantId,
+      actor_id: null,
+      action: "report_viewer_session_mismatch",
+      target_type: "report_viewer_token",
+      target_id: input.jti,
+      metadata_json: {
+        ...dedupeMetadata,
+        report_key: input.reportKey,
+        run_id: input.runId,
+        token_hash_prefix: input.tokenHash.slice(0, 12),
+      },
+    },
+  });
 }
 
 function roundMoney(value: number) {
@@ -16430,10 +16645,6 @@ const signedReportSnapshotParamsSchema = signedSnapshotParamsSchema.extend({
   reportKey: reportKeySchema,
 });
 
-const signedSnapshotQuerySchema = z.object({
-  token: z.string().min(1).max(4096),
-});
-
 const signedViewerParamsSchema = z.object({
   tenantId: tenantIdSchema,
   reportKey: reportKeySchema,
@@ -16467,8 +16678,11 @@ const asyncReportRunBodySchema = z
   });
 
 const signedViewerAuthSchema = z.object({
-  token: z.string().min(1).max(4096),
   run_id: z.string().min(1).max(180),
+});
+
+const viewerSessionClaimSchema = signedViewerAuthSchema.extend({
+  token: z.string().min(1).max(4096),
 });
 
 const executiveDashboardRunParamsSchema = z.object({
@@ -16947,7 +17161,7 @@ const systemConfigUpdateSchema = z.object({
     .max(2048)
     .optional()
     .nullable(),
-  report_viewer_link_ttl_hours: z.coerce.number().int().min(1).max(2160).default(72),
+  report_viewer_link_ttl_hours: z.coerce.number().int().min(1).max(72).default(72),
   morning_brief_enabled: z.coerce.boolean(),
   morning_brief_tenant_ids: z.array(tenantIdSchema).min(1).max(50),
   morning_brief_time: z
@@ -16986,6 +17200,10 @@ const reportValidationSignoffSchema = z.object({
 
 const lineTargetParamsSchema = z.object({
   id: z.string().min(1).max(160),
+});
+
+const lineTargetViewerAccessSchema = z.object({
+  action: z.enum(["reset_binding", "revoke"]),
 });
 
 const lineTargetAssignmentCreateSchema = z.object({

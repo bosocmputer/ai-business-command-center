@@ -41,13 +41,13 @@ sequenceDiagram
     API->>DB: read snapshot/run
     API-->>Web: dashboard JSON
     Worker->>API: request signed viewer URL
-    API-->>Worker: /command-center/brief?...token=...
+    API-->>Worker: /command-center/brief?...#token=v2...
     Worker->>LINE: send notification digest with signed link
     Worker->>DB: save send/audit log
     LINE->>Brief: user opens signed link
-    Brief->>API: read snapshot by tenant/run/token
+    Brief->>API: claim fragment token, then read snapshot with viewer session cookie
     API-->>Brief: report snapshot JSON
-    Brief->>API: prepare PDF export with same signed token
+    Brief->>API: prepare PDF export with viewer session cookie
     API->>SML: preflight counts + fetch PDF rows when needed
     API->>API: render/cache server-side PDF
     API-->>Brief: PDF metadata/progress completion
@@ -137,8 +137,8 @@ tenant_id: tenant_demo_remote
 report_keys: sales_goods_services, purchase_goods_payables
 schedule: recurring weekly, multiple HH:mm values
 period presets: yesterday, today_so_far, last_7_days
-viewer: /command-center/brief with signed token
-pdf export: /api/reports/:tenantId/:reportKey/pdf/prepare + /pdf with same signed token
+viewer: /command-center/brief with v2 token in URL fragment, then HttpOnly viewer session
+pdf export: /api/reports/:tenantId/:reportKey/pdf/prepare + /pdf with viewer session cookie
 idempotency key: notification_rule + rule_id + scheduled_local_date + scheduled_local_time + attempt
 ```
 
@@ -160,7 +160,7 @@ no document creation/sync: true
 Signed viewer
   -> user clicks ดาวน์โหลด PDF
   -> frontend calls /pdf/prepare with token, run_id, date_from, date_to, pdf_layout
-  -> API validates signed token and date range
+  -> API validates viewer session scope and date range
   -> API checks cache key: tenant_id + report_key + run_id + date_from + date_to + layout_version
   -> if cache hit, return metadata immediately
   -> if cache miss, preflight counts document/detail rows

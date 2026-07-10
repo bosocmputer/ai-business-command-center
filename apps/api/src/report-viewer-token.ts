@@ -2,10 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { reportKeyValues, type ReportKey, type TenantId } from "@ai-bcc/shared";
 
 export type ReportViewerTokenPayload = {
-  v: 1;
+  v: 2;
+  typ: "report";
   tenant_id: TenantId;
   report_key: ReportKey;
   run_id: string;
+  jti: string;
   exp: number;
 };
 
@@ -42,22 +44,28 @@ export function createReportViewerToken(input: {
   reportKey: ReportKey;
   runId: string;
   expiresAt: Date;
+  jti: string;
 }) {
   assertUsableSecret(input.secret);
   if (!input.runId.trim()) {
     throw new Error("runId is required for report viewer token.");
   }
+  if (!input.jti.trim()) {
+    throw new Error("jti is required for report viewer token.");
+  }
 
   const payload: ReportViewerTokenPayload = {
-    v: 1,
+    v: 2,
+    typ: "report",
     tenant_id: input.tenantId,
     report_key: input.reportKey,
     run_id: input.runId,
+    jti: input.jti,
     exp: Math.floor(input.expiresAt.getTime() / 1000),
   };
   const encodedPayload = encodeBase64Url(JSON.stringify(payload));
   const signature = signPayload(encodedPayload, input.secret);
-  return `v1.${encodedPayload}.${signature}`;
+  return `v2.${encodedPayload}.${signature}`;
 }
 
 export function verifyReportViewerToken(input: {
@@ -79,7 +87,7 @@ export function verifyReportViewerToken(input: {
   }
 
   const parts = input.token.split(".");
-  if (parts.length !== 3 || parts[0] !== "v1") {
+  if (parts.length !== 3 || parts[0] !== "v2") {
     return { ok: false, reason: "malformed" };
   }
 
@@ -233,10 +241,15 @@ function decodePayload(encodedPayload: string): ReportViewerTokenPayload | null 
     ) as Partial<ReportViewerTokenPayload>;
 
     if (
-      parsed.v !== 1 ||
+      parsed.v !== 2 ||
+      parsed.typ !== "report" ||
       typeof parsed.tenant_id !== "string" ||
       typeof parsed.report_key !== "string" ||
+      !reportKeyValues.includes(parsed.report_key as ReportKey) ||
       typeof parsed.run_id !== "string" ||
+      !parsed.run_id.trim() ||
+      typeof parsed.jti !== "string" ||
+      !parsed.jti.trim() ||
       typeof parsed.exp !== "number" ||
       !Number.isFinite(parsed.exp)
     ) {

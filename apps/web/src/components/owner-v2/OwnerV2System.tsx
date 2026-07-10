@@ -554,11 +554,13 @@ function SystemConfigForm({
               inputMode="numeric"
               onChange={(event) => setLinkTtl(event.target.value)}
               placeholder="72"
+              max={72}
+              min={1}
               type="number"
               value={linkTtl}
             />
             <span className="mt-1.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">
-              แนะนำ 72 ชั่วโมงสำหรับ LINE เพราะผู้บริหารมักย้อนเปิดรายงานภายหลัง
+              ใช้ได้ 1-72 ชั่วโมง โดยค่าแนะนำคือ 72 ชั่วโมงสำหรับ LINE
             </span>
           </label>
           <label className="block min-w-0" htmlFor="sys-worker-id">

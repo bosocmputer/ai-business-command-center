@@ -221,7 +221,7 @@ GET /api/reports/:tenantId/sales_goods_services/pdf?...signed params...
 Current PDF contract:
 
 - layout version ล่าสุด: `sml-row-v5`
-- ใช้ signed token เดิมของ viewer ผูก `tenant_id + report_key + run_id`
+- ใช้ viewer session หลัง claim ของ Report Token v2 ผูก `tenant_id + report_key` และตรวจ `run_id` กับ snapshot จริง
 - A4 landscape, header compact, Print Date/Page No., วันที่รูปแบบพ.ศ. เช่น `05/5/2569`
 - document row แสดงวันที่, เลขที่เอกสาร, เวลา, วันที่อ้างอิง, เอกสารอ้างอิง, ลูกค้า, ยอดเงิน, ภาษี และ cashier
 - detail row ไม่ซ้ำวันที่/ชื่อลูกค้า และไม่แสดง barcode ใน PDF หลัก
@@ -352,7 +352,7 @@ Live LINE send ใช้ `flex_message` เมื่อ signed viewer URL พร
 - Customer viewer ใช้ signed URL:
 
 ```text
-/command-center/brief?tenant_id=...&run_id=...&token=...
+/command-center/brief?tenant_id=...&report_key=sales_goods_services&run_id=...&openExternalBrowser=1#token=v2...
 ```
 
 - ห้ามบันทึก signed URL เต็มใน docs เพราะมี token

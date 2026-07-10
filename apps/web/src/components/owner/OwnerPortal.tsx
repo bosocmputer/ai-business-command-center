@@ -6776,7 +6776,7 @@ function OwnerSettingsContent({
               value={systemReportViewerSigningSecret}
             />
             <OwnerTextInput
-              description="กำหนดอายุลิงก์ dashboard ที่ส่งจาก LINE หน่วยเป็นชั่วโมง ค่าแนะนำคือ 72"
+              description="กำหนดอายุลิงก์รายงานจาก LINE ได้ 1-72 ชั่วโมง ค่าแนะนำคือ 72"
               label="Report link TTL (hours)"
               onChange={setSystemReportViewerLinkTtlHours}
               placeholder="72"

@@ -38,7 +38,7 @@ Latest deployed commit: 9b7cb23
 | System DB migration | Pass | `SYSTEM_DATABASE_URL` ใช้ PostgreSQL system store |
 | Scheduler | Pass | worker running, heartbeat ok, configured `08:00 Asia/Bangkok` |
 | Duplicate guard | Pass | delivery key per tenant/report/type/date |
-| Signed report viewer | Pass | `/command-center/brief` validates signed token by tenant/run |
+| Signed report viewer | Pass | `/command-center/brief` claims v2 token in fragment, then authorizes with viewer session by tenant/report |
 | Mutation auth | Pass | no token = `401`, wrong token = `403`, valid token = `200` |
 | Browser QA | Pass | admin/settings/brief load without horizontal overflow |
 

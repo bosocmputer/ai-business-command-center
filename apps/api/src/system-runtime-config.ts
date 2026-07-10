@@ -281,7 +281,7 @@ function normalizeReportViewerTtlHours(value: unknown) {
   if (!Number.isFinite(numeric)) {
     return 72;
   }
-  return Math.max(1, Math.min(Math.round(numeric), 2160));
+  return Math.max(1, Math.min(Math.round(numeric), 72));
 }
 
 function parseTenantIds(value: string | undefined) {

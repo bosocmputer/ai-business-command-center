@@ -18,7 +18,8 @@
 สถานะล่าสุดวันที่ `2026-05-20`:
 
 - System store ใช้ PostgreSQL แล้ว
-- Signed report viewer ใช้ token ผูกกับ `tenant_id + report_key + run_id + expires_at`
+- Signed report viewer ใช้ Report Token v2 ผูกกับ `tenant_id + report_key + run_id + jti + expires_at` และเก็บ `target_id_hash` ของผู้รับไว้เฉพาะใน DB
+- token ส่งผ่าน URL fragment และ claim ผ่าน `POST` ก่อนออก `vt_session` แบบ HttpOnly; v1 และ token ใน query string ถูกปฏิเสธ
 - Signed viewer TTL default = `72` ชั่วโมง
 - Mutation endpoints ใช้ owner login session cookie `ai_bcc_owner_session`
 - UI ไม่ prompt shared token แล้ว และไม่เก็บ mutation token ใน `sessionStorage`

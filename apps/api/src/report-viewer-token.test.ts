@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   createDashboardViewerToken,
@@ -19,6 +20,7 @@ describe("report viewer signed tokens", () => {
       reportKey: "sales_goods_services",
       runId: "run_tenant_demo_remote_1",
       expiresAt,
+      jti: "report_1",
     });
 
     expect(
@@ -36,6 +38,9 @@ describe("report viewer signed tokens", () => {
         tenant_id: "tenant_demo_remote",
         report_key: "sales_goods_services",
         run_id: "run_tenant_demo_remote_1",
+        typ: "report",
+        v: 2,
+        jti: "report_1",
       },
     });
   });
@@ -47,6 +52,7 @@ describe("report viewer signed tokens", () => {
       reportKey: "sales_goods_services",
       runId: "run_tenant_demo_remote_1",
       expiresAt,
+      jti: "report_1",
     });
 
     expect(
@@ -79,6 +85,7 @@ describe("report viewer signed tokens", () => {
       reportKey: "sales_goods_services",
       runId: "run_tenant_demo_remote_1",
       expiresAt: new Date("2026-05-18T01:00:00.000Z"),
+      jti: "report_1",
     });
 
     expect(
@@ -111,6 +118,7 @@ describe("report viewer signed tokens", () => {
       reportKey: "sales_goods_services",
       runId: "run_tenant_demo_remote_1",
       expiresAt,
+      jti: "report_1",
     });
 
     expect(
@@ -132,11 +140,62 @@ describe("report viewer signed tokens", () => {
       reportKey: "sales_goods_services",
       runId: "run_tenant_demo_remote_1",
       expiresAt,
+      jti: "report_1",
     });
 
     expect(maskReportViewerToken(token)).not.toContain(secret);
     expect(maskReportViewerToken(token)).toContain("...");
     expect(maskReportViewerToken("short")).toBe("********");
+  });
+
+  it("creates distinct v2 report tokens for the same scope", () => {
+    const first = createReportViewerToken({
+      secret,
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_tenant_demo_remote_1",
+      expiresAt,
+      jti: "report_1",
+    });
+    const second = createReportViewerToken({
+      secret,
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_tenant_demo_remote_1",
+      expiresAt,
+      jti: "report_2",
+    });
+
+    expect(first).not.toBe(second);
+    expect(first.startsWith("v2.")).toBe(true);
+    expect(second.startsWith("v2.")).toBe(true);
+  });
+
+  it("rejects legacy v1 report tokens after rollout", () => {
+    const payload = Buffer.from(
+      JSON.stringify({
+        v: 1,
+        tenant_id: "tenant_demo_remote",
+        report_key: "sales_goods_services",
+        run_id: "run_tenant_demo_remote_1",
+        exp: Math.floor(expiresAt.getTime() / 1000),
+      }),
+      "utf8",
+    ).toString("base64url");
+    const signature = createHmac("sha256", secret)
+      .update(payload)
+      .digest("base64url");
+
+    expect(
+      verifyReportViewerToken({
+        token: `v1.${payload}.${signature}`,
+        secret,
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+        runId: "run_tenant_demo_remote_1",
+        now,
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
   });
 });
 

@@ -1,6 +1,5 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import {
   type AiAdvisorItemRecord,
@@ -173,6 +172,39 @@ export type TenantCancellationResult = {
   tenant: Tenant | null;
   disabledNotificationRuleCount: number;
   alreadyCancelled: boolean;
+};
+
+export type ReportViewerTokenMetadata = {
+  tokenHash: string;
+  tokenVersion: number;
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  runId: string;
+  jti: string;
+  targetIdHash: string | null;
+  expiresAt: string;
+};
+
+export type ViewerTokenClaimResult =
+  | {
+      ok: true;
+      newlyBound: boolean;
+      token: ReportViewerTokenMetadata;
+    }
+  | {
+      ok: false;
+      reason: "not_found" | "expired" | "revoked" | "session_mismatch";
+    };
+
+export type ViewerSessionAccessResult =
+  | { ok: true; token: ReportViewerTokenMetadata }
+  | { ok: false; reason: "not_found" | "expired" | "revoked" };
+
+type StoredReportViewerToken = ReportViewerTokenMetadata & {
+  sessionId: string | null;
+  sessionBoundAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
 };
 
 export type SystemStore = {
@@ -448,23 +480,42 @@ export type SystemStore = {
   tryAcquireLock(input: { lockKey: string }): Promise<boolean>;
   releaseLock(input: { lockKey: string }): Promise<void>;
   appendAuditLog(entry: Omit<AuditLogEntry, "created_at">): Promise<void>;
+  appendAuditLogIfAbsent(input: {
+    entry: Omit<AuditLogEntry, "created_at">;
+    dedupeKey: string;
+  }): Promise<boolean>;
   importAuditLogs(entries: AuditLogEntry[]): Promise<void>;
   listAuditLogs(limit: number): Promise<AuditLogEntry[]>;
+  findAuditLogByTenantActionAndMetadata(input: {
+    tenantId: TenantId;
+    action: string;
+    metadata: Record<string, unknown>;
+  }): Promise<AuditLogEntry | null>;
   createViewerToken(input: {
     tokenHash: string;
+    tokenVersion: number;
     tenantId: TenantId;
+    reportKey: ReportKey;
     runId: string;
+    jti: string;
+    targetIdHash: string | null;
     expiresAt: Date;
   }): Promise<void>;
-  accessViewerToken(
-    tokenHash: string,
-    cookieSessionId: string | null,
-  ): Promise<{
-    ok: boolean;
-    newSessionId?: string;
-    reason?: "not_found" | "expired";
-  }>;
-  purgeExpiredViewerTokens(): Promise<void>;
+  claimViewerToken(input: {
+    tokenHash: string;
+    sessionId: string;
+  }): Promise<ViewerTokenClaimResult>;
+  getViewerSessionAccess(input: {
+    sessionId: string;
+    tenantId: TenantId;
+    reportKey: ReportKey;
+  }): Promise<ViewerSessionAccessResult>;
+  updateViewerAccessForTarget(input: {
+    tenantId: TenantId;
+    targetIdHash: string;
+    action: "reset_binding" | "revoke";
+  }): Promise<number>;
+  purgeExpiredViewerTokens(limit?: number): Promise<number>;
   upsertDashboardViewerToken(
     token: DashboardViewerTokenRecord,
   ): Promise<DashboardViewerTokenRecord>;
@@ -530,6 +581,7 @@ type StoreFile = {
   aiUsageLedger: AiUsageLedgerRecord[];
   operationalAlertTargets: OperationalAlertTargetRecord[];
   operationalAlertDeliveries: OperationalAlertDeliveryRecord[];
+  reportViewerTokens: StoredReportViewerToken[];
   dashboardViewerTokens: DashboardViewerTokenRecord[];
   executiveDashboardRuns: ExecutiveDashboardRunRecord[];
 };
@@ -1982,6 +2034,32 @@ class LocalJsonSystemStore implements SystemStore {
     await this.persist();
   }
 
+  async appendAuditLogIfAbsent(input: {
+    entry: Omit<AuditLogEntry, "created_at">;
+    dedupeKey: string;
+  }) {
+    const data = this.requireData();
+    const duplicate = data.auditLogs.some(
+      (log) =>
+        log.tenant_id === input.entry.tenant_id &&
+        log.action === input.entry.action &&
+        log.target_id === input.entry.target_id &&
+        metadataContains(log.metadata_json, input.entry.metadata_json),
+    );
+    if (duplicate) {
+      return false;
+    }
+
+    data.auditLogs.unshift({
+      ...input.entry,
+      id: data.auditLogs.length + 1,
+      created_at: new Date().toISOString(),
+    });
+    data.auditLogs = data.auditLogs.slice(0, 1000);
+    await this.persist();
+    return true;
+  }
+
   async importAuditLogs(entries: AuditLogEntry[]) {
     if (!entries.length) {
       return;
@@ -2008,25 +2086,163 @@ class LocalJsonSystemStore implements SystemStore {
     return this.requireData().auditLogs.slice(0, limit);
   }
 
-  async createViewerToken(_input: {
-    tokenHash: string;
+  async findAuditLogByTenantActionAndMetadata(input: {
     tenantId: TenantId;
+    action: string;
+    metadata: Record<string, unknown>;
+  }) {
+    return (
+      this.requireData().auditLogs.find(
+        (log) =>
+          log.tenant_id === input.tenantId &&
+          log.action === input.action &&
+          metadataContains(log.metadata_json, input.metadata),
+      ) ?? null
+    );
+  }
+
+  async createViewerToken(input: {
+    tokenHash: string;
+    tokenVersion: number;
+    tenantId: TenantId;
+    reportKey: ReportKey;
     runId: string;
+    jti: string;
+    targetIdHash: string | null;
     expiresAt: Date;
   }) {
-    // local-json store: OTT not enforced in dev/test mode
+    const data = this.requireData();
+    if (
+      data.reportViewerTokens.some(
+        (token) => token.tokenHash === input.tokenHash || token.jti === input.jti,
+      )
+    ) {
+      return;
+    }
+    const now = new Date().toISOString();
+    data.reportViewerTokens.push({
+      tokenHash: input.tokenHash,
+      tokenVersion: input.tokenVersion,
+      tenantId: input.tenantId,
+      reportKey: input.reportKey,
+      runId: input.runId,
+      jti: input.jti,
+      targetIdHash: input.targetIdHash,
+      expiresAt: input.expiresAt.toISOString(),
+      sessionId: null,
+      sessionBoundAt: null,
+      revokedAt: null,
+      createdAt: now,
+    });
+    await this.persist();
   }
 
-  async accessViewerToken(
-    _tokenHash: string,
-    _cookieSessionId: string | null,
-  ): Promise<{ ok: boolean; newSessionId?: string }> {
-    // local-json store: always allow (no enforcement in dev mode)
-    return { ok: true };
+  async claimViewerToken(input: {
+    tokenHash: string;
+    sessionId: string;
+  }): Promise<ViewerTokenClaimResult> {
+    const token = this.requireData().reportViewerTokens.find(
+      (candidate) => candidate.tokenHash === input.tokenHash,
+    );
+    if (!token || token.tokenVersion !== 2) {
+      return { ok: false, reason: "not_found" };
+    }
+    if (token.revokedAt) {
+      return { ok: false, reason: "revoked" };
+    }
+    if (new Date(token.expiresAt).getTime() <= Date.now()) {
+      return { ok: false, reason: "expired" };
+    }
+    if (token.sessionId && token.sessionId !== input.sessionId) {
+      return { ok: false, reason: "session_mismatch" };
+    }
+
+    const newlyBound = !token.sessionId;
+    if (newlyBound) {
+      token.sessionId = input.sessionId;
+      token.sessionBoundAt = new Date().toISOString();
+      await this.persist();
+    }
+    return { ok: true, newlyBound, token: toViewerTokenMetadata(token) };
   }
 
-  async purgeExpiredViewerTokens() {
-    // local-json store: no-op
+  async getViewerSessionAccess(input: {
+    sessionId: string;
+    tenantId: TenantId;
+    reportKey: ReportKey;
+  }): Promise<ViewerSessionAccessResult> {
+    const matches = this.requireData().reportViewerTokens
+      .filter(
+        (token) =>
+          token.tokenVersion === 2 &&
+          token.sessionId === input.sessionId &&
+          token.tenantId === input.tenantId &&
+          token.reportKey === input.reportKey,
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const active = matches.find(
+      (token) =>
+        !token.revokedAt && new Date(token.expiresAt).getTime() > Date.now(),
+    );
+    if (active) {
+      return { ok: true, token: toViewerTokenMetadata(active) };
+    }
+    if (matches.some((token) => Boolean(token.revokedAt))) {
+      return { ok: false, reason: "revoked" };
+    }
+    return {
+      ok: false,
+      reason: matches.length ? "expired" : "not_found",
+    };
+  }
+
+  async updateViewerAccessForTarget(input: {
+    tenantId: TenantId;
+    targetIdHash: string;
+    action: "reset_binding" | "revoke";
+  }) {
+    const now = new Date();
+    const matches = this.requireData().reportViewerTokens.filter(
+      (token) =>
+        token.tokenVersion === 2 &&
+        token.tenantId === input.tenantId &&
+        token.targetIdHash === input.targetIdHash &&
+        !token.revokedAt &&
+        new Date(token.expiresAt).getTime() > now.getTime(),
+    );
+    for (const token of matches) {
+      if (input.action === "reset_binding") {
+        token.sessionId = null;
+        token.sessionBoundAt = null;
+      } else {
+        token.revokedAt = now.toISOString();
+      }
+    }
+    if (matches.length) {
+      await this.persist();
+    }
+    return matches.length;
+  }
+
+  async purgeExpiredViewerTokens(limit = 1000) {
+    const data = this.requireData();
+    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 10_000));
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const hashes = new Set(
+      data.reportViewerTokens
+        .filter((token) => new Date(token.expiresAt).getTime() < cutoff)
+        .sort((left, right) => left.expiresAt.localeCompare(right.expiresAt))
+        .slice(0, boundedLimit)
+        .map((token) => token.tokenHash),
+    );
+    if (!hashes.size) {
+      return 0;
+    }
+    data.reportViewerTokens = data.reportViewerTokens.filter(
+      (token) => !hashes.has(token.tokenHash),
+    );
+    await this.persist();
+    return hashes.size;
   }
 
   async upsertDashboardViewerToken(token: DashboardViewerTokenRecord) {
@@ -2199,6 +2415,7 @@ class LocalJsonSystemStore implements SystemStore {
         operationalAlertDeliveries: normalizeOperationalAlertDeliveries(
           parsed.operationalAlertDeliveries,
         ),
+        reportViewerTokens: normalizeReportViewerTokens(parsed.reportViewerTokens),
         dashboardViewerTokens: normalizeDashboardViewerTokens(
           parsed.dashboardViewerTokens,
         ),
@@ -2235,6 +2452,7 @@ class LocalJsonSystemStore implements SystemStore {
         aiUsageLedger: [],
         operationalAlertTargets: [],
         operationalAlertDeliveries: [],
+        reportViewerTokens: [],
         dashboardViewerTokens: [],
         executiveDashboardRuns: [],
       };
@@ -6072,6 +6290,39 @@ values ($1, $2, $3, $4, $5, $6::jsonb, now())
     );
   }
 
+  async appendAuditLogIfAbsent(input: {
+    entry: Omit<AuditLogEntry, "created_at">;
+    dedupeKey: string;
+  }) {
+    const result = await this.pool.query(
+      `
+insert into audit_logs (
+  tenant_id,
+  actor_id,
+  action,
+  target_type,
+  target_id,
+  metadata_json,
+  dedupe_key,
+  created_at
+)
+values ($1, $2, $3, $4, $5, $6::jsonb, $7, now())
+on conflict (tenant_id, dedupe_key) where dedupe_key is not null do nothing
+returning id
+`,
+      [
+        input.entry.tenant_id,
+        input.entry.actor_id,
+        input.entry.action,
+        input.entry.target_type,
+        input.entry.target_id,
+        JSON.stringify(input.entry.metadata_json),
+        input.dedupeKey,
+      ],
+    );
+    return Boolean(result.rowCount);
+  }
+
   async importAuditLogs(entries: AuditLogEntry[]) {
     for (const entry of entries) {
       if (entry.id !== undefined) {
@@ -6178,74 +6429,235 @@ limit $1
     })) as AuditLogEntry[];
   }
 
+  async findAuditLogByTenantActionAndMetadata(input: {
+    tenantId: TenantId;
+    action: string;
+    metadata: Record<string, unknown>;
+  }) {
+    const result = await this.pool.query(
+      `
+select
+  id,
+  tenant_id,
+  actor_id,
+  action,
+  target_type,
+  target_id,
+  metadata_json,
+  created_at
+from audit_logs
+where tenant_id = $1
+  and action = $2
+  and metadata_json @> $3::jsonb
+order by created_at desc
+limit 1
+`,
+      [input.tenantId, input.action, JSON.stringify(input.metadata)],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: Number(row.id),
+      tenant_id: row.tenant_id,
+      actor_id: row.actor_id,
+      action: row.action,
+      target_type: row.target_type,
+      target_id: row.target_id,
+      metadata_json: row.metadata_json,
+      created_at: toIsoString(row.created_at),
+    } as AuditLogEntry;
+  }
+
   async createViewerToken(input: {
     tokenHash: string;
+    tokenVersion: number;
     tenantId: TenantId;
+    reportKey: ReportKey;
     runId: string;
+    jti: string;
+    targetIdHash: string | null;
     expiresAt: Date;
   }) {
     await this.pool.query(
       `
-insert into report_viewer_tokens (token_hash, tenant_id, run_id, expires_at)
-values ($1, $2, $3, $4::timestamptz)
-on conflict (token_hash) do nothing
+insert into report_viewer_tokens (
+  token_hash,
+  token_version,
+  tenant_id,
+  report_key,
+  run_id,
+  jti,
+  target_id_hash,
+  expires_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+on conflict do nothing
 `,
-      [input.tokenHash, input.tenantId, input.runId, input.expiresAt.toISOString()],
+      [
+        input.tokenHash,
+        input.tokenVersion,
+        input.tenantId,
+        input.reportKey,
+        input.runId,
+        input.jti,
+        input.targetIdHash,
+        input.expiresAt.toISOString(),
+      ],
     );
   }
 
-  async accessViewerToken(
-    tokenHash: string,
-    cookieSessionId: string | null,
-  ): Promise<{
-    ok: boolean;
-    newSessionId?: string;
-    reason?: "not_found" | "expired";
-  }> {
-    const newSessionId = randomUUID();
+  async claimViewerToken(input: {
+    tokenHash: string;
+    sessionId: string;
+  }): Promise<ViewerTokenClaimResult> {
     const result = await this.pool.query(
       `
 update report_viewer_tokens
-set session_id = coalesce(session_id, $2),
-    session_bound_at = coalesce(session_bound_at, now())
+set session_id = $2,
+    session_bound_at = now()
 where token_hash = $1
+  and token_version = 2
   and expires_at > now()
-returning session_id, session_bound_at
+  and revoked_at is null
+  and session_id is null
+returning *
 `,
-      [tokenHash, newSessionId],
+      [input.tokenHash, input.sessionId],
     );
 
-    if (result.rowCount === 0) {
-      // token not found or already expired
-      const check = await this.pool.query(
-        `select token_hash from report_viewer_tokens where token_hash = $1`,
-        [tokenHash],
-      );
+    if (result.rowCount) {
       return {
-        ok: false,
-        reason: check.rowCount === 0 ? "not_found" : "expired",
+        ok: true,
+        newlyBound: true,
+        token: mapReportViewerTokenMetadataRow(result.rows[0]),
       };
     }
 
-    const boundSessionId = result.rows[0].session_id as string;
-
-    // First access: bind a lightweight browser session for observability.
-    if (boundSessionId === newSessionId) {
-      return { ok: true, newSessionId };
+    const check = await this.pool.query(
+      `select * from report_viewer_tokens where token_hash = $1 limit 1`,
+      [input.tokenHash],
+    );
+    const row = check.rows[0] as Record<string, unknown> | undefined;
+    if (!row || Number(row.token_version) !== 2) {
+      return { ok: false, reason: "not_found" };
     }
-
-    // LINE links can move between LINE's webview and the external browser on the
-    // same phone, and proxied browser cookies are not stable enough to be a hard
-    // security boundary. The signed token remains bound to tenant/report/run and
-    // expiry; the session is advisory only.
-    void cookieSessionId;
-    return { ok: true };
+    if (row.revoked_at) {
+      return { ok: false, reason: "revoked" };
+    }
+    if (new Date(row.expires_at as string | Date).getTime() <= Date.now()) {
+      return { ok: false, reason: "expired" };
+    }
+    if (row.session_id === input.sessionId) {
+      return {
+        ok: true,
+        newlyBound: false,
+        token: mapReportViewerTokenMetadataRow(row),
+      };
+    }
+    return { ok: false, reason: "session_mismatch" };
   }
 
-  async purgeExpiredViewerTokens() {
-    await this.pool.query(
-      `delete from report_viewer_tokens where expires_at < now() - interval '1 day'`,
+  async getViewerSessionAccess(input: {
+    sessionId: string;
+    tenantId: TenantId;
+    reportKey: ReportKey;
+  }): Promise<ViewerSessionAccessResult> {
+    const result = await this.pool.query(
+      `
+select *
+from report_viewer_tokens
+where session_id = $1
+  and tenant_id = $2
+  and report_key = $3
+  and token_version = 2
+  and revoked_at is null
+  and expires_at > now()
+order by expires_at desc, created_at desc
+limit 1
+`,
+      [input.sessionId, input.tenantId, input.reportKey],
     );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (row && new Date(row.expires_at as string | Date).getTime() <= Date.now()) {
+      return { ok: false, reason: "expired" };
+    }
+    if (row) {
+      return { ok: true, token: mapReportViewerTokenMetadataRow(row) };
+    }
+
+    const inactive = await this.pool.query(
+      `
+select revoked_at, expires_at
+from report_viewer_tokens
+where session_id = $1
+  and tenant_id = $2
+  and report_key = $3
+  and token_version = 2
+order by (revoked_at is not null) desc, expires_at desc
+limit 1
+`,
+      [input.sessionId, input.tenantId, input.reportKey],
+    );
+    const inactiveRow = inactive.rows[0] as
+      | { revoked_at?: string | Date | null; expires_at?: string | Date }
+      | undefined;
+    return {
+      ok: false,
+      reason: inactiveRow
+        ? inactiveRow.revoked_at
+          ? "revoked"
+          : "expired"
+        : "not_found",
+    };
+  }
+
+  async updateViewerAccessForTarget(input: {
+    tenantId: TenantId;
+    targetIdHash: string;
+    action: "reset_binding" | "revoke";
+  }) {
+    const assignment =
+      input.action === "reset_binding"
+        ? "session_id = null, session_bound_at = null"
+        : "revoked_at = now()";
+    const result = await this.pool.query(
+      `
+update report_viewer_tokens
+set ${assignment}
+where tenant_id = $1
+  and target_id_hash = $2
+  and token_version = 2
+  and expires_at > now()
+  and revoked_at is null
+returning token_hash
+`,
+      [input.tenantId, input.targetIdHash],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async purgeExpiredViewerTokens(limit = 1000) {
+    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 10_000));
+    const result = await this.pool.query(
+      `
+with expired as (
+  select ctid
+  from report_viewer_tokens
+  where expires_at < now() - interval '1 day'
+  order by expires_at
+  limit $1
+)
+delete from report_viewer_tokens
+where ctid in (select ctid from expired)
+returning token_hash
+`,
+      [boundedLimit],
+    );
+    return result.rowCount ?? 0;
   }
 
   async upsertDashboardViewerToken(token: DashboardViewerTokenRecord) {
@@ -6890,6 +7302,22 @@ function mapDashboardViewerTokenRow(
       ? toIsoString(row.created_at as string | Date)
       : undefined,
   }) as DashboardViewerTokenRecord;
+}
+
+function mapReportViewerTokenMetadataRow(
+  row: Record<string, unknown>,
+): ReportViewerTokenMetadata {
+  return {
+    tokenHash: String(row.token_hash),
+    tokenVersion: Number(row.token_version),
+    tenantId: row.tenant_id as TenantId,
+    reportKey: row.report_key as ReportKey,
+    runId: String(row.run_id),
+    jti: String(row.jti),
+    targetIdHash:
+      typeof row.target_id_hash === "string" ? row.target_id_hash : null,
+    expiresAt: toIsoString(row.expires_at as string | Date),
+  };
 }
 
 function mapExecutiveDashboardRunRow(
@@ -7581,6 +8009,17 @@ function normalizeRecordJson(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function metadataContains(
+  metadata: Record<string, unknown>,
+  expected: Record<string, unknown>,
+) {
+  return Object.entries(expected).every(
+    ([key, value]) =>
+      Object.prototype.hasOwnProperty.call(metadata, key) &&
+      JSON.stringify(metadata[key]) === JSON.stringify(value),
+  );
+}
+
 function normalizeJavaWsFailureKind(
   value: unknown,
 ): ReportRunRecord["failure_kind"] {
@@ -8018,6 +8457,67 @@ function normalizeDashboardViewerTokens(
   return value
     .map((token) => normalizeDashboardViewerToken(token))
     .filter((token): token is DashboardViewerTokenRecord => Boolean(token));
+}
+
+function normalizeReportViewerTokens(value: unknown): StoredReportViewerToken[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const token = entry as Partial<StoredReportViewerToken>;
+    if (
+      !token.tokenHash ||
+      token.tokenVersion !== 2 ||
+      !token.tenantId ||
+      !token.reportKey ||
+      !token.runId ||
+      !token.jti ||
+      !token.expiresAt
+    ) {
+      return [];
+    }
+    return [
+      {
+        tokenHash: String(token.tokenHash),
+        tokenVersion: 2,
+        tenantId: token.tenantId as TenantId,
+        reportKey: token.reportKey as ReportKey,
+        runId: String(token.runId),
+        jti: String(token.jti),
+        targetIdHash:
+          typeof token.targetIdHash === "string" ? token.targetIdHash : null,
+        expiresAt: String(token.expiresAt),
+        sessionId: typeof token.sessionId === "string" ? token.sessionId : null,
+        sessionBoundAt:
+          typeof token.sessionBoundAt === "string" ? token.sessionBoundAt : null,
+        revokedAt:
+          typeof token.revokedAt === "string" ? token.revokedAt : null,
+        createdAt:
+          typeof token.createdAt === "string"
+            ? token.createdAt
+            : new Date().toISOString(),
+      },
+    ];
+  });
+}
+
+function toViewerTokenMetadata(
+  token: StoredReportViewerToken,
+): ReportViewerTokenMetadata {
+  return {
+    tokenHash: token.tokenHash,
+    tokenVersion: token.tokenVersion,
+    tenantId: token.tenantId,
+    reportKey: token.reportKey,
+    runId: token.runId,
+    jti: token.jti,
+    targetIdHash: token.targetIdHash,
+    expiresAt: token.expiresAt,
+  };
 }
 
 function normalizeDashboardViewerToken(
@@ -9794,8 +10294,22 @@ create table if not exists audit_logs (
   target_type text not null,
   target_id text,
   metadata_json jsonb not null default '{}'::jsonb,
+  dedupe_key text,
   created_at timestamptz not null default now()
 );
+
+alter table audit_logs
+  add column if not exists dedupe_key text;
+
+create unique index if not exists audit_logs_dedupe_key_unique_idx
+on audit_logs (tenant_id, dedupe_key)
+where dedupe_key is not null;
+
+create index if not exists audit_logs_tenant_action_created_idx
+on audit_logs (tenant_id, action, created_at desc);
+
+create index if not exists audit_logs_metadata_gin_idx
+on audit_logs using gin (metadata_json);
 
 create table if not exists worker_heartbeats (
   id text primary key,
@@ -9852,20 +10366,44 @@ on operational_alert_deliveries (channel, dedupe_key, status)
 where dedupe_key is not null;
 
 create table if not exists report_viewer_tokens (
-  token_hash   text primary key,
-  tenant_id    text not null,
-  run_id       text not null,
-  expires_at   timestamptz not null,
-  consumed_at  timestamptz,
-  created_at   timestamptz not null default now()
+  token_hash text primary key,
+  token_version smallint not null default 1,
+  tenant_id text not null,
+  report_key text,
+  run_id text not null,
+  jti text,
+  target_id_hash text,
+  expires_at timestamptz not null,
+  consumed_at timestamptz,
+  session_id text,
+  session_bound_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
 );
+
+alter table report_viewer_tokens
+  add column if not exists token_version smallint not null default 1,
+  add column if not exists report_key text,
+  add column if not exists jti text,
+  add column if not exists target_id_hash text,
+  add column if not exists session_id text,
+  add column if not exists session_bound_at timestamptz,
+  add column if not exists revoked_at timestamptz;
 
 create index if not exists report_viewer_tokens_expires_idx
 on report_viewer_tokens (expires_at);
 
-alter table report_viewer_tokens
-  add column if not exists session_id text,
-  add column if not exists session_bound_at timestamptz;
+create unique index if not exists report_viewer_tokens_jti_unique_idx
+on report_viewer_tokens (jti)
+where jti is not null;
+
+create index if not exists report_viewer_tokens_session_scope_idx
+on report_viewer_tokens (session_id, tenant_id, report_key, expires_at)
+where session_id is not null and revoked_at is null;
+
+create index if not exists report_viewer_tokens_target_idx
+on report_viewer_tokens (tenant_id, target_id_hash, expires_at)
+where target_id_hash is not null and revoked_at is null;
 
 create table if not exists dashboard_viewer_tokens (
   token_hash text primary key,

@@ -522,6 +522,55 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
   }
 
+  async function updateViewerAccess(
+    target: LineTargetRecord,
+    action: "reset_binding" | "revoke",
+  ) {
+    if (busy !== null || target.target_type !== "user") {
+      return;
+    }
+    const confirmed = window.confirm(
+      action === "reset_binding"
+        ? `รีเซ็ตอุปกรณ์เปิดรายงานของ ${target.display_name}? ลิงก์เดิมที่ยังไม่หมดอายุจะกลับมาใช้ผูกอุปกรณ์ใหม่ได้`
+        : `ยกเลิกลิงก์รายงานของ ${target.display_name}? ลิงก์เดิมทั้งหมดจะเปิดไม่ได้และต้องส่งรายงานใหม่`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setBusy(`viewer-access-${action}-${target.id}`);
+    setMessage(null);
+    setTechnicalMessage(null);
+    try {
+      const result = await ownerV2Fetch<{
+        action: "reset_binding" | "revoke";
+        affected_count: number;
+        target_id_masked: string;
+      }>(`/api/line-targets/${encodeURIComponent(target.id)}/viewer-access`, {
+        method: "POST",
+        body: { action },
+      });
+      setMessage({
+        tone: "success",
+        text:
+          action === "reset_binding"
+            ? `รีเซ็ตอุปกรณ์ของ ${target.display_name} แล้ว มีลิงก์ได้รับผลกระทบ ${result.affected_count} รายการ`
+            : `ยกเลิกลิงก์ของ ${target.display_name} แล้ว มีลิงก์ได้รับผลกระทบ ${result.affected_count} รายการ`,
+      });
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          action === "reset_binding"
+            ? "รีเซ็ตอุปกรณ์เปิดรายงานไม่สำเร็จ กรุณาลองใหม่"
+            : "ยกเลิกลิงก์รายงานไม่สำเร็จ กรุณาลองใหม่",
+      });
+      setTechnicalMessage(toLineTechnicalMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function updateTargetProfile(target: LineTargetRecord) {
     const profileKey =
       targetProfileDrafts[target.id] ?? target.access_profile_key;
@@ -879,6 +928,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onApproveTarget={approveTarget}
                       onEnableMorningBriefAction={enableMorningBriefAction}
                       onTestSendTarget={testSendTarget}
+                      onViewerAccessAction={updateViewerAccess}
                       onTargetProfileChange={(targetId, profileKey) =>
                         setTargetProfileDrafts((current) => ({
                           ...current,
@@ -899,6 +949,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onApproveTarget={approveTarget}
                       onEnableMorningBriefAction={enableMorningBriefAction}
                       onTestSendTarget={testSendTarget}
+                      onViewerAccessAction={updateViewerAccess}
                       onTargetProfileChange={(targetId, profileKey) =>
                         setTargetProfileDrafts((current) => ({
                           ...current,
@@ -919,6 +970,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onApproveTarget={approveTarget}
                       onEnableMorningBriefAction={enableMorningBriefAction}
                       onTestSendTarget={testSendTarget}
+                      onViewerAccessAction={updateViewerAccess}
                       onTargetProfileChange={(targetId, profileKey) =>
                         setTargetProfileDrafts((current) => ({
                           ...current,
@@ -1397,6 +1449,7 @@ function TargetTable({
   onEnableMorningBriefAction,
   onTargetProfileChange,
   onTestSendTarget,
+  onViewerAccessAction,
   onToggleTarget,
   onUpdateRecipientEstimate,
   onUpdateTargetProfile,
@@ -1412,6 +1465,10 @@ function TargetTable({
     profileKey: LineAccessProfileKey,
   ) => void;
   onTestSendTarget: (target: LineTargetRecord) => void;
+  onViewerAccessAction: (
+    target: LineTargetRecord,
+    action: "reset_binding" | "revoke",
+  ) => void;
   onToggleTarget: (target: LineTargetRecord) => void;
   onUpdateRecipientEstimate: (
     target: LineTargetRecord,
@@ -1581,6 +1638,13 @@ function TargetTable({
                       ? "กำลังส่ง..."
                       : "ส่งทดสอบจริง"}
                   </Button>
+                ) : null}
+                {target.approved && target.target_type === "user" ? (
+                  <ViewerAccessMenu
+                    busy={busy}
+                    onAction={onViewerAccessAction}
+                    target={target}
+                  />
                 ) : null}
               </div>
             </div>
@@ -1767,6 +1831,13 @@ function TargetTable({
                             : "ส่งทดสอบจริง"}
                         </Button>
                       ) : null}
+                      {target.approved && target.target_type === "user" ? (
+                        <ViewerAccessMenu
+                          busy={busy}
+                          onAction={onViewerAccessAction}
+                          target={target}
+                        />
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1776,6 +1847,39 @@ function TargetTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function ViewerAccessMenu({
+  busy,
+  onAction,
+  target,
+}: {
+  busy: string | null;
+  onAction: (
+    target: LineTargetRecord,
+    action: "reset_binding" | "revoke",
+  ) => void;
+  target: LineTargetRecord;
+}) {
+  const updating = busy?.endsWith(`-${target.id}`) ?? false;
+  return (
+    <select
+      aria-label={`จัดการลิงก์รายงานของ ${target.display_name}`}
+      className="owner-v2-input text-theme-xs"
+      disabled={busy !== null}
+      onChange={(event) => {
+        const action = event.target.value;
+        if (action === "reset_binding" || action === "revoke") {
+          onAction(target, action);
+        }
+      }}
+      value=""
+    >
+      <option value="">{updating ? "กำลังอัปเดต..." : "จัดการลิงก์รายงาน"}</option>
+      <option value="reset_binding">รีเซ็ตอุปกรณ์เปิดรายงาน</option>
+      <option value="revoke">ยกเลิกลิงก์</option>
+    </select>
   );
 }
 

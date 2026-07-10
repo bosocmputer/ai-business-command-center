@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ApexOptions } from "apexcharts";
 import {
@@ -48,6 +48,7 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), {
 type SnapshotResponse = {
   data?: ViewerReportSnapshot;
   error?: string;
+  code?: ViewerErrorCode;
 };
 
 type TenantsResponse = {
@@ -58,16 +59,19 @@ type TenantsResponse = {
 type ViewerRunResponse = {
   data?: ViewerReportSnapshot;
   error?: string;
+  code?: ViewerErrorCode;
 };
 
 type DocumentPageResponse = {
   data?: SalesDocumentPage;
   error?: string;
+  code?: ViewerErrorCode;
 };
 
 type DocumentDetailResponse = {
   data?: SalesDocumentDetail;
   error?: string;
+  code?: ViewerErrorCode;
 };
 
 type PdfPrepareResponse = {
@@ -81,7 +85,15 @@ type PdfPrepareResponse = {
     layout_version: string;
   };
   error?: string;
+  code?: ViewerErrorCode;
 };
+
+type ViewerErrorCode =
+  | "VIEWER_SESSION_BOOTSTRAP_REQUIRED"
+  | "VIEWER_SESSION_MISMATCH"
+  | "VIEWER_LINK_EXPIRED"
+  | "VIEWER_LINK_INVALID"
+  | "VIEWER_LINK_REVOKED";
 
 type LoadState =
   | { status: "loading" }
@@ -118,8 +130,7 @@ type PdfDownloadState =
 type ViewerParams = {
   tenantId: string;
   reportKey: ViewerReportKey;
-  runId: string;
-  token: string;
+  sourceRunId: string;
 };
 
 type ClassicViewerReportKey = Extract<
@@ -274,11 +285,10 @@ export default function CommandCenterBriefViewer() {
   const reportKey = (searchParams.get("report_key") ||
     "sales_goods_services") as ReportKey;
   const runId = searchParams.get("run_id");
-  const token = searchParams.get("token");
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   useEffect(() => {
-    if (!tenantId || !runId || !token || !isReportKey(reportKey)) {
+    if (!tenantId || !runId || !isReportKey(reportKey)) {
       setState({
         status: "error",
         message: "ลิงก์รายงานไม่ครบถ้วน กรุณาเปิดจากข้อความ LINE ล่าสุดอีกครั้ง",
@@ -288,29 +298,77 @@ export default function CommandCenterBriefViewer() {
 
     const safeTenantId = tenantId;
     const safeRunId = runId;
-    const safeToken = token;
     const safeReportKey = reportKey;
     const controller = new AbortController();
     async function loadSnapshot() {
       setState({ status: "loading" });
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/reports/${encodeURIComponent(
+        const fragmentToken = new URLSearchParams(
+          window.location.hash.replace(/^#/, ""),
+        ).get("token");
+        clearLegacyViewerTokenQuery();
+        let payload: SnapshotResponse | null = null;
+        if (fragmentToken) {
+          const claimUrl = `${API_BASE_URL}/api/reports/${encodeURIComponent(
             safeTenantId,
-          )}/${encodeURIComponent(safeReportKey)}/snapshots/${encodeURIComponent(
-            safeRunId,
-          )}?token=${encodeURIComponent(safeToken)}`,
-          { signal: controller.signal, credentials: "include" },
-        );
-        const payload = (await response.json()) as SnapshotResponse;
-        if (!response.ok || !payload.data) {
-          const rawError = payload.error || "เปิดรายงานไม่สำเร็จ";
-          const friendlyError = rawError.includes("another device")
-            ? "ลิงก์นี้เปิดอยู่บนอีกเครื่องหนึ่ง กรุณาเปิดจาก LINE บนเครื่องเดิม"
-            : rawError.includes("expired")
-              ? "ลิงก์รายงานหมดอายุแล้ว กรุณาขอลิงก์ใหม่จาก LINE"
-              : rawError;
-          throw new Error(friendlyError);
+          )}/${encodeURIComponent(safeReportKey)}/viewer-session/claim`;
+          let lastNetworkError: unknown = null;
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            let response: Response;
+            try {
+              response = await fetch(claimUrl, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ token: fragmentToken, run_id: safeRunId }),
+                signal: controller.signal,
+                credentials: "include",
+                cache: "no-store",
+              });
+            } catch (error) {
+              if (controller.signal.aborted || attempt === 1) {
+                throw error;
+              }
+              lastNetworkError = error;
+              continue;
+            }
+
+            payload = (await response.json().catch(() => ({}))) as SnapshotResponse;
+            if (
+              response.status === 428 &&
+              payload.code === "VIEWER_SESSION_BOOTSTRAP_REQUIRED" &&
+              attempt === 0
+            ) {
+              continue;
+            }
+            if (!response.ok || !payload.data) {
+              throw new Error(toViewerErrorMessage(payload));
+            }
+            clearViewerTokenFromAddressBar();
+            break;
+          }
+          if (!payload?.data && lastNetworkError) {
+            throw lastNetworkError;
+          }
+        } else {
+          const response = await fetch(
+            `${API_BASE_URL}/api/reports/${encodeURIComponent(
+              safeTenantId,
+            )}/${encodeURIComponent(safeReportKey)}/snapshots/${encodeURIComponent(
+              safeRunId,
+            )}`,
+            {
+              signal: controller.signal,
+              credentials: "include",
+              cache: "no-store",
+            },
+          );
+          payload = (await response.json()) as SnapshotResponse;
+          if (!response.ok || !payload.data) {
+            throw new Error(toViewerErrorMessage(payload));
+          }
+        }
+        if (!payload?.data) {
+          throw new Error("เปิดรายงานไม่สำเร็จ กรุณาเปิดจากข้อความ LINE ล่าสุดอีกครั้ง");
         }
         setState({
           status: "ready",
@@ -332,7 +390,7 @@ export default function CommandCenterBriefViewer() {
 
     void loadSnapshot();
     return () => controller.abort();
-  }, [reportKey, runId, tenantId, token]);
+  }, [reportKey, runId, tenantId]);
 
   if (state.status === "loading") {
     return <CommandCenterBriefFallback />;
@@ -348,8 +406,7 @@ export default function CommandCenterBriefViewer() {
       viewer={{
         tenantId: tenantId!,
         reportKey: state.snapshot.report_key,
-        runId: runId!,
-        token: token!,
+        sourceRunId: runId!,
       }}
     />
   );
@@ -363,11 +420,14 @@ function PremiumReportViewer({
   viewer: ViewerParams;
 }) {
   const [snapshot, setSnapshot] = useState<ViewerReportSnapshot>(initialSnapshot);
+  const [currentRunId, setCurrentRunId] = useState(viewer.sourceRunId);
   const [tenantDisplayName, setTenantDisplayName] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(initialSnapshot.params.date_from);
   const [dateTo, setDateTo] = useState(initialSnapshot.params.date_to);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
+  const rangeRequestSequenceRef = useRef(0);
+  const rangeAbortRef = useRef<AbortController | null>(null);
   const [documentsState, setDocumentsState] = useState<DocumentsState>({
     status: "idle",
   });
@@ -381,6 +441,12 @@ function PremiumReportViewer({
   const [pdfDownloadState, setPdfDownloadState] = useState<PdfDownloadState>({
     status: "idle",
   });
+
+  useEffect(() => {
+    return () => {
+      rangeAbortRef.current?.abort();
+    };
+  }, []);
 
   const title = getViewerReportTitle(snapshot);
   const generatedAt = formatDateTime(snapshot.generated_at);
@@ -425,6 +491,10 @@ function PremiumReportViewer({
 
   const runRange = useCallback(
     async (nextDateFrom = dateFrom, nextDateTo = dateTo) => {
+      const requestId = ++rangeRequestSequenceRef.current;
+      rangeAbortRef.current?.abort();
+      const controller = new AbortController();
+      rangeAbortRef.current = controller;
       setRangeLoading(true);
       setRangeError(null);
       setExpandedDocNo(null);
@@ -438,34 +508,49 @@ function PremiumReportViewer({
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-              token: viewer.token,
-              run_id: viewer.runId,
+              run_id: currentRunId,
               date_from: nextDateFrom,
               date_to: nextDateTo,
             }),
+            signal: controller.signal,
+            credentials: "include",
+            cache: "no-store",
           },
         );
         const payload = (await response.json()) as ViewerRunResponse;
         if (!response.ok || !payload.data) {
-          throw new Error(payload.error || "โหลดรายงานไม่สำเร็จ");
+          throw new Error(toViewerErrorMessage(payload, "โหลดรายงานไม่สำเร็จ"));
+        }
+        if (requestId !== rangeRequestSequenceRef.current) {
+          return;
         }
         setSnapshot(payload.data);
+        setCurrentRunId(payload.data.run_id);
         setDateFrom(payload.data.params.date_from);
         setDateTo(payload.data.params.date_to);
         setPage(1);
         setSubmittedSearch("");
         setSearch("");
       } catch (error) {
+        if (
+          controller.signal.aborted ||
+          requestId !== rangeRequestSequenceRef.current
+        ) {
+          return;
+        }
         setRangeError(
           error instanceof Error
             ? error.message
             : "โหลดรายงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
         );
       } finally {
-        setRangeLoading(false);
+        if (requestId === rangeRequestSequenceRef.current) {
+          rangeAbortRef.current = null;
+          setRangeLoading(false);
+        }
       }
     },
-    [dateFrom, dateTo, viewer],
+    [currentRunId, dateFrom, dateTo, viewer],
   );
 
   const loadDocuments = useCallback(
@@ -478,8 +563,7 @@ function PremiumReportViewer({
       setDocumentsState({ status: "loading" });
       try {
         const params = new URLSearchParams({
-          token: viewer.token,
-          run_id: viewer.runId,
+          run_id: currentRunId,
           date_from: snapshot.params.date_from,
           date_to: snapshot.params.date_to,
           page: String(nextPage),
@@ -491,10 +575,13 @@ function PremiumReportViewer({
           `${API_BASE_URL}/api/reports/${encodeURIComponent(
             viewer.tenantId,
           )}/${encodeURIComponent(viewer.reportKey)}/viewer-documents?${params}`,
+          { credentials: "include", cache: "no-store" },
         );
         const payload = (await response.json()) as DocumentPageResponse;
         if (!response.ok || !payload.data) {
-          throw new Error(payload.error || "โหลดรายการเอกสารไม่สำเร็จ");
+          throw new Error(
+            toViewerErrorMessage(payload, "โหลดรายการเอกสารไม่สำเร็จ"),
+          );
         }
         setDocumentsState({ status: "ready", page: payload.data });
       } catch (error) {
@@ -511,6 +598,7 @@ function PremiumReportViewer({
       page,
       snapshot,
       submittedSearch,
+      currentRunId,
       viewer,
     ],
   );
@@ -535,8 +623,7 @@ function PremiumReportViewer({
     setDetailState({ status: "loading", docNo: document.doc_no });
     try {
       const params = new URLSearchParams({
-        token: viewer.token,
-        run_id: viewer.runId,
+        run_id: currentRunId,
         date_from: snapshot.params.date_from,
         date_to: snapshot.params.date_to,
         doc_no: document.doc_no,
@@ -546,10 +633,11 @@ function PremiumReportViewer({
         `${API_BASE_URL}/api/reports/${encodeURIComponent(
           viewer.tenantId,
         )}/${encodeURIComponent(viewer.reportKey)}/viewer-document-detail?${params}`,
+        { credentials: "include", cache: "no-store" },
       );
       const payload = (await response.json()) as DocumentDetailResponse;
       if (!response.ok || !payload.data) {
-        throw new Error(payload.error || "โหลดรายละเอียดไม่สำเร็จ");
+        throw new Error(toViewerErrorMessage(payload, "โหลดรายละเอียดไม่สำเร็จ"));
       }
       setDetailState({ status: "ready", detail: payload.data });
     } catch (error) {
@@ -571,6 +659,7 @@ function PremiumReportViewer({
 
     const prepareUrl = buildViewerPdfPrepareUrl({
       viewer,
+      runId: currentRunId,
       dateFrom: snapshot.params.date_from,
       dateTo: snapshot.params.date_to,
       timeFrom: snapshot.params.time_from,
@@ -578,6 +667,7 @@ function PremiumReportViewer({
     });
     const downloadUrl = buildViewerPdfUrl({
       viewer,
+      runId: currentRunId,
       dateFrom: snapshot.params.date_from,
       dateTo: snapshot.params.date_to,
       timeFrom: snapshot.params.time_from,
@@ -606,12 +696,16 @@ function PremiumReportViewer({
       const response = await fetch(prepareUrl, {
         method: "GET",
         headers: { accept: "application/json" },
+        credentials: "include",
+        cache: "no-store",
       });
       const payload = (await response.json().catch(() => ({}))) as PdfPrepareResponse;
       if (!response.ok || !payload.data?.ready) {
         throw new Error(
-          payload.error ||
+          toViewerErrorMessage(
+            payload,
             "สร้างไฟล์ PDF ไม่สำเร็จ กรุณาลองใหม่หรือเลือกช่วงวันที่สั้นลง",
+          ),
         );
       }
 
@@ -657,6 +751,7 @@ function PremiumReportViewer({
   const totalPages = documentPage?.pagination.total_pages ?? 1;
   const detailedPdfUrl = buildViewerPdfUrl({
     viewer,
+    runId: currentRunId,
     dateFrom: snapshot.params.date_from,
     dateTo: snapshot.params.date_to,
     timeFrom: snapshot.params.time_from,
@@ -3672,6 +3767,45 @@ function BriefErrorState({ message }: { message: string }) {
   );
 }
 
+function clearViewerTokenFromAddressBar() {
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.searchParams.delete("token");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+}
+
+function clearLegacyViewerTokenQuery() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("token")) {
+    return;
+  }
+  url.searchParams.delete("token");
+  window.history.replaceState(
+    null,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
+function toViewerErrorMessage(
+  payload: { error?: string; code?: ViewerErrorCode },
+  fallback = "เปิดรายงานไม่สำเร็จ",
+) {
+  if (payload.code === "VIEWER_SESSION_MISMATCH") {
+    return "ลิงก์นี้ถูกเปิดใช้งานบนอุปกรณ์อื่นแล้ว กรุณาเปิดจาก LINE บนอุปกรณ์เดิม หรือติดต่อผู้ดูแลระบบเพื่อรีเซ็ตอุปกรณ์";
+  }
+  if (payload.code === "VIEWER_LINK_EXPIRED") {
+    return "ลิงก์รายงานหมดอายุแล้ว กรุณาติดต่อผู้ดูแลระบบเพื่อรับลิงก์ใหม่";
+  }
+  if (payload.code === "VIEWER_LINK_REVOKED") {
+    return "ลิงก์รายงานนี้ถูกยกเลิกแล้ว กรุณาติดต่อผู้ดูแลระบบเพื่อรับลิงก์ใหม่";
+  }
+  if (payload.code === "VIEWER_LINK_INVALID") {
+    return "ลิงก์รายงานไม่ถูกต้อง กรุณาเปิดจากข้อความ LINE ล่าสุดหรือติดต่อผู้ดูแลระบบ";
+  }
+  return payload.error || fallback;
+}
+
 function getViewerReportTitle(snapshot: ViewerReportSnapshot) {
   if (isCashBankSnapshot(snapshot)) {
     return getCashBankTitle(snapshot.report_key);
@@ -3863,14 +3997,14 @@ function toIsoDate(date: Date) {
 
 function buildViewerPdfUrl(input: {
   viewer: ViewerParams;
+  runId: string;
   dateFrom: string;
   dateTo: string;
   timeFrom?: string;
   timeTo?: string;
 }) {
   const params = new URLSearchParams({
-    token: input.viewer.token,
-    run_id: input.viewer.runId,
+    run_id: input.runId,
     date_from: input.dateFrom,
     date_to: input.dateTo,
     pdf_layout: REPORT_PDF_LAYOUT_VERSION,
@@ -3888,14 +4022,14 @@ function buildViewerPdfUrl(input: {
 
 function buildViewerPdfPrepareUrl(input: {
   viewer: ViewerParams;
+  runId: string;
   dateFrom: string;
   dateTo: string;
   timeFrom?: string;
   timeTo?: string;
 }) {
   const params = new URLSearchParams({
-    token: input.viewer.token,
-    run_id: input.viewer.runId,
+    run_id: input.runId,
     date_from: input.dateFrom,
     date_to: input.dateTo,
     pdf_layout: REPORT_PDF_LAYOUT_VERSION,

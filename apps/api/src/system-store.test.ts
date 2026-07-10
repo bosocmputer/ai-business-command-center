@@ -28,6 +28,193 @@ afterEach(async () => {
 });
 
 describe("local JSON system store", () => {
+  it("binds report viewer tokens to one browser session and supports recovery", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    await store.createViewerToken({
+      tokenHash: "token-hash-1",
+      tokenVersion: 2,
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_1",
+      jti: "jti_1",
+      targetIdHash: "target-hash-1",
+      expiresAt,
+    });
+
+    await expect(
+      store.claimViewerToken({
+        tokenHash: "token-hash-1",
+        sessionId: "session-a",
+      }),
+    ).resolves.toMatchObject({ ok: true, newlyBound: true });
+    await expect(
+      store.claimViewerToken({
+        tokenHash: "token-hash-1",
+        sessionId: "session-a",
+      }),
+    ).resolves.toMatchObject({ ok: true, newlyBound: false });
+    await expect(
+      store.claimViewerToken({
+        tokenHash: "token-hash-1",
+        sessionId: "session-b",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "session_mismatch" });
+    await expect(
+      store.getViewerSessionAccess({
+        sessionId: "session-a",
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+      }),
+    ).resolves.toMatchObject({ ok: true, token: { jti: "jti_1" } });
+
+    await expect(
+      store.updateViewerAccessForTarget({
+        tenantId: "tenant_demo_remote",
+        targetIdHash: "target-hash-1",
+        action: "reset_binding",
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      store.getViewerSessionAccess({
+        sessionId: "session-a",
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "not_found" });
+    await expect(
+      store.claimViewerToken({
+        tokenHash: "token-hash-1",
+        sessionId: "session-b",
+      }),
+    ).resolves.toMatchObject({ ok: true, newlyBound: true });
+
+    await expect(
+      store.updateViewerAccessForTarget({
+        tenantId: "tenant_demo_remote",
+        targetIdHash: "target-hash-1",
+        action: "revoke",
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      store.getViewerSessionAccess({
+        sessionId: "session-b",
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "revoked" });
+    await expect(
+      store.claimViewerToken({
+        tokenHash: "token-hash-1",
+        sessionId: "session-b",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "revoked" });
+
+    await store.close();
+  });
+
+  it("allows only one winner for concurrent report viewer claims", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+
+    await store.createViewerToken({
+      tokenHash: "token-hash-concurrent",
+      tokenVersion: 2,
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_1",
+      jti: "jti_concurrent",
+      targetIdHash: "target-hash-concurrent",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        store.claimViewerToken({
+          tokenHash: "token-hash-concurrent",
+          sessionId: `session-${index}`,
+        }),
+      ),
+    );
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(
+      results.filter(
+        (result) => !result.ok && result.reason === "session_mismatch",
+      ),
+    ).toHaveLength(49);
+    await store.close();
+  });
+
+  it("purges expired report viewer tokens in bounded batches", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+
+    for (const index of [1, 2]) {
+      await store.createViewerToken({
+        tokenHash: `expired-${index}`,
+        tokenVersion: 2,
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+        runId: `run_${index}`,
+        jti: `expired_jti_${index}`,
+        targetIdHash: "target-hash-expired",
+        expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      });
+    }
+
+    await expect(store.purgeExpiredViewerTokens(1)).resolves.toBe(1);
+    await expect(store.purgeExpiredViewerTokens(100)).resolves.toBe(1);
+    await expect(store.purgeExpiredViewerTokens(100)).resolves.toBe(0);
+    await store.close();
+  });
+
+  it("deduplicates concurrent viewer mismatch audit entries", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+
+    const entry = {
+      tenant_id: "tenant_demo_remote" as const,
+      actor_id: null,
+      action: "report_viewer_session_mismatch",
+      target_type: "report_viewer_token",
+      target_id: "jti_audit_once",
+      metadata_json: {
+        jti: "jti_audit_once",
+        window_key: "2026-07-08T15",
+      },
+    };
+    const results = await Promise.all(
+      Array.from({ length: 50 }, () =>
+        store.appendAuditLogIfAbsent({
+          entry,
+          dedupeKey: "report_viewer_session_mismatch:jti_audit_once:2026-07-08T15",
+        }),
+      ),
+    );
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(
+      (await store.listAuditLogs(100)).filter(
+        (log) => log.action === "report_viewer_session_mismatch",
+      ),
+    ).toHaveLength(1);
+    await store.close();
+  });
+
   it("does not overwrite an owner-edited tenant name when seeds are reloaded", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
     tempDirs.push(dir);
@@ -466,6 +653,25 @@ describe("local JSON system store", () => {
         expect.objectContaining({ action: "report_run_failed" }),
       ]),
     );
+    await expect(
+      secondStore.findAuditLogByTenantActionAndMetadata({
+        tenantId: "tenant_demo_remote",
+        action: "report_run_failed",
+        metadata: { report_key: "sales_goods_services" },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        tenant_id: "tenant_demo_remote",
+        action: "report_run_failed",
+      }),
+    );
+    await expect(
+      secondStore.findAuditLogByTenantActionAndMetadata({
+        tenantId: "tenant_demo_remote",
+        action: "report_run_failed",
+        metadata: { report_key: "purchase_goods_payables" },
+      }),
+    ).resolves.toBeNull();
     await expect(
       secondStore.findSuccessfulLineDeliveryByKey({
         tenantId: "tenant_demo_remote",

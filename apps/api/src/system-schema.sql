@@ -393,8 +393,16 @@ create table if not exists audit_logs (
   target_type text not null,
   target_id text,
   metadata_json jsonb not null default '{}'::jsonb,
+  dedupe_key text,
   created_at timestamptz not null default now()
 );
+
+alter table audit_logs
+  add column if not exists dedupe_key text;
+
+create unique index if not exists audit_logs_dedupe_key_unique_idx
+on audit_logs (tenant_id, dedupe_key)
+where dedupe_key is not null;
 
 create table if not exists notification_rules (
   id text primary key,
@@ -492,6 +500,46 @@ on notification_rule_runs (status, created_at desc);
 create index if not exists notification_rule_runs_active_manual_idx
 on notification_rule_runs (rule_id, scheduled_local_date, scheduled_local_time, mode, source, status, created_at desc)
 where status in ('queued', 'running');
+
+create table if not exists report_viewer_tokens (
+  token_hash text primary key,
+  token_version smallint not null default 1,
+  tenant_id text not null,
+  report_key text,
+  run_id text not null,
+  jti text,
+  target_id_hash text,
+  expires_at timestamptz not null,
+  consumed_at timestamptz,
+  session_id text,
+  session_bound_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table report_viewer_tokens
+  add column if not exists token_version smallint not null default 1,
+  add column if not exists report_key text,
+  add column if not exists jti text,
+  add column if not exists target_id_hash text,
+  add column if not exists session_id text,
+  add column if not exists session_bound_at timestamptz,
+  add column if not exists revoked_at timestamptz;
+
+create index if not exists report_viewer_tokens_expires_idx
+on report_viewer_tokens (expires_at);
+
+create unique index if not exists report_viewer_tokens_jti_unique_idx
+on report_viewer_tokens (jti)
+where jti is not null;
+
+create index if not exists report_viewer_tokens_session_scope_idx
+on report_viewer_tokens (session_id, tenant_id, report_key, expires_at)
+where session_id is not null and revoked_at is null;
+
+create index if not exists report_viewer_tokens_target_idx
+on report_viewer_tokens (tenant_id, target_id_hash, expires_at)
+where target_id_hash is not null and revoked_at is null;
 
 create table if not exists dashboard_viewer_tokens (
   token_hash text primary key,

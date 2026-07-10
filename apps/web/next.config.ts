@@ -10,6 +10,17 @@ const apiRewriteBaseUrl = (
 const nextConfig: NextConfig = {
   output: "standalone",
   transpilePackages: ["@ai-bcc/shared"],
+  async headers() {
+    return [
+      {
+        source: "/command-center/brief",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
       {
