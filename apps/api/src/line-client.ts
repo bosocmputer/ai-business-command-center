@@ -22,7 +22,13 @@ type LineTextMessage = {
   type: "text";
   text: string;
 };
-type LinePushMessage = LineTextMessage | LineFlexMessage;
+export type LinePushMessage = LineTextMessage | LineFlexMessage;
+
+export type LineBotInfo = {
+  basicId: string;
+  premiumId: string | null;
+  displayName: string;
+};
 
 export type SendLineBriefInput = {
   tenantId: TenantId;
@@ -144,8 +150,16 @@ export async function sendLineTextPush(input: {
 export async function sendLineReply(input: {
   channelAccessToken: string;
   replyToken: string;
-  messages: Array<{ type: "text"; text: string }>;
+  messages: LinePushMessage[];
 }): Promise<void> {
+  const messages = input.messages
+    .filter((message) =>
+      message.type === "text" ? Boolean(message.text.trim()) : isSafeFlexMessage(message),
+    )
+    .slice(0, LINE_PUSH_MESSAGES_MAX_COUNT);
+  if (!messages.length) {
+    throw new Error("LINE reply requires at least one safe message");
+  }
   const response = await fetch(LINE_REPLY_ENDPOINT, {
     method: "POST",
     headers: {
@@ -154,7 +168,7 @@ export async function sendLineReply(input: {
     },
     body: JSON.stringify({
       replyToken: input.replyToken,
-      messages: input.messages,
+      messages,
     }),
     signal: AbortSignal.timeout(5_000),
   });
@@ -162,6 +176,80 @@ export async function sendLineReply(input: {
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`LINE reply failed with status ${response.status}: ${body.slice(0, 200)}`);
+  }
+}
+
+export async function fetchLineBotInfo(input: {
+  channelAccessToken: string;
+}): Promise<LineBotInfo | null> {
+  try {
+    const response = await fetch("https://api.line.me/v2/bot/info", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${input.channelAccessToken}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    if (
+      typeof payload.basicId !== "string" ||
+      typeof payload.displayName !== "string"
+    ) {
+      return null;
+    }
+    return {
+      basicId: payload.basicId,
+      premiumId: typeof payload.premiumId === "string" ? payload.premiumId : null,
+      displayName: payload.displayName,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyLineGroupMember(input: {
+  channelAccessToken: string;
+  groupId: string;
+  userId: string;
+}): Promise<
+  | { ok: true; latencyMs: number }
+  | {
+      ok: false;
+      reason: "not_member" | "configuration_failure" | "temporary_failure";
+      latencyMs: number;
+    }
+> {
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(
+      `https://api.line.me/v2/bot/group/${encodeURIComponent(input.groupId)}/member/${encodeURIComponent(input.userId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${input.channelAccessToken}` },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    const latencyMs = Date.now() - startedAt;
+    if (response.ok) {
+      return { ok: true, latencyMs };
+    }
+    return {
+      ok: false,
+      reason:
+        response.status === 400 || response.status === 404
+          ? "not_member"
+          : response.status === 429 || response.status >= 500
+            ? "temporary_failure"
+            : "configuration_failure",
+      latencyMs,
+    };
+  } catch {
+    return {
+      ok: false,
+      reason: "temporary_failure",
+      latencyMs: Date.now() - startedAt,
+    };
   }
 }
 

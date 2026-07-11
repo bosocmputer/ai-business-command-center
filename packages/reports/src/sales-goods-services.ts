@@ -16,7 +16,6 @@ import {
 } from "@ai-bcc/shared";
 import {
   buildExecutiveDigestFlexMessage,
-  isValidLineUri as isValidExecutiveDigestUri,
   type ExecutiveDigestStatus,
 } from "./line-flex.js";
 
@@ -707,8 +706,10 @@ export function renderSalesGoodsServicesLinePreview(input: {
 }): SalesGoodsServicesLinePreview {
   const { snapshot } = input;
   const warnings = buildLineWarnings(snapshot);
-  const dashboardUrl = input.dashboardUrl ?? null;
-  const useFlexMessage = isValidLineUri(dashboardUrl);
+  const dashboardUrl = isValidLineUri(input.dashboardUrl)
+    ? input.dashboardUrl
+    : null;
+  const hasViewerAction = dashboardUrl !== null;
   const branchLines = snapshot.branch_sales.slice(0, 3).map((branch, index) => {
     return `${index + 1}. ${branch.branch_label ?? formatBranchLabel(branch.branch_code)}: ${formatMoney(branch.total_amount)} บาท`;
   });
@@ -749,7 +750,7 @@ export function renderSalesGoodsServicesLinePreview(input: {
           .filter((warning) => warning !== "ไม่พบยอดขายในช่วงวันที่นี้")
           .map((warning) => `\nหมายเหตุ: ${warning}`),
         "",
-        useFlexMessage
+        hasViewerAction
           ? "เปิดรายงาน: กดปุ่มใน LINE เพื่อดูรายละเอียด"
           : "เปิดรายงาน: ยังไม่พร้อมใช้งานในข้อความนี้",
       ]
@@ -782,21 +783,19 @@ export function renderSalesGoodsServicesLinePreview(input: {
         ...(comparisonText ? [`เทียบยอด: ${comparisonText}`] : []),
         ...warnings.map((warning) => `\nหมายเหตุ: ${warning}`),
         "",
-        useFlexMessage
+        hasViewerAction
           ? "เปิดรายงาน: กดปุ่มใน LINE เพื่อดูรายละเอียด"
           : "เปิดรายงาน: ยังไม่พร้อมใช้งานในข้อความนี้",
       ];
-  const flexMessage = useFlexMessage
-    ? buildSalesGoodsServicesFlexMessage({
-        snapshot,
-        tenantName,
-        generatedAt,
-        dashboardUrl,
-        insight,
-        comparisonText,
-        warnings,
-      })
-    : undefined;
+  const flexMessage = buildSalesGoodsServicesFlexMessage({
+    snapshot,
+    tenantName,
+    generatedAt,
+    dashboardUrl,
+    insight,
+    comparisonText,
+    warnings,
+  });
 
   return {
     tenant_id: snapshot.tenant_id,
@@ -823,10 +822,6 @@ function buildSalesGoodsServicesFlexMessage(input: {
   comparisonText: string | null;
   warnings: string[];
 }) {
-  if (!isValidExecutiveDigestUri(input.dashboardUrl)) {
-    return undefined;
-  }
-
   const { snapshot } = input;
   if (isEmptySalesSnapshot(snapshot)) {
     return buildEmptySalesGoodsServicesFlexMessage(input);
@@ -882,10 +877,6 @@ function buildEmptySalesGoodsServicesFlexMessage(input: {
   comparisonText: string | null;
   warnings: string[];
 }) {
-  if (!isValidExecutiveDigestUri(input.dashboardUrl)) {
-    return undefined;
-  }
-
   const { snapshot } = input;
   const comparisonText = formatEmptyComparisonSummary(snapshot);
   return buildExecutiveDigestFlexMessage({

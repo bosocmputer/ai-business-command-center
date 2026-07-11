@@ -1710,6 +1710,9 @@ export type LineChannelRecord = {
   scope?: LineChannelScope;
   channel_access_token_configured: boolean;
   channel_secret_configured: boolean;
+  basic_id?: string | null;
+  premium_id?: string | null;
+  bot_info_synced_at?: string | null;
   enabled: boolean;
   source: "env" | "manual";
   created_at: string;
@@ -1730,6 +1733,7 @@ export type LineTargetRecord = {
   allowed_actions: AllowedLineAction[];
   enabled: boolean;
   approved: boolean;
+  group_private_viewer_enabled: boolean;
   source: LineTargetSource;
   last_delivery_at: string | null;
   created_at: string;

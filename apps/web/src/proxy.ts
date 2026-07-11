@@ -95,7 +95,9 @@ function isProtectedOwnerPath(pathname: string) {
 
   if (
     (pathname === "/command-center" || pathname.startsWith("/command-center/")) &&
-    !pathname.startsWith("/command-center/brief")
+    pathname !== "/command-center/brief" &&
+    !pathname.startsWith("/command-center/brief/") &&
+    pathname !== "/command-center/group-report-mobile"
   ) {
     return true;
   }

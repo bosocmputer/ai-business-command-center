@@ -17,7 +17,6 @@ import {
 } from "@ai-bcc/shared";
 import {
   buildExecutiveDigestFlexMessage,
-  isValidLineUri as isValidExecutiveDigestUri,
   type ExecutiveDigestStatus,
 } from "./line-flex.js";
 
@@ -630,8 +629,10 @@ export function renderPurchaseGoodsPayablesLinePreview(input: {
 }): PurchaseGoodsPayablesLinePreview {
   const { snapshot } = input;
   const warnings = buildLineWarnings(snapshot);
-  const dashboardUrl = input.dashboardUrl ?? null;
-  const useFlexMessage = isValidLineUri(dashboardUrl);
+  const dashboardUrl = isValidLineUri(input.dashboardUrl)
+    ? input.dashboardUrl
+    : null;
+  const hasViewerAction = dashboardUrl !== null;
   const tenantName = input.tenantName?.trim() || snapshot.tenant_id;
   const generatedAt = formatThaiDateTime(snapshot.generated_at);
   const topSupplier = snapshot.top_suppliers[0];
@@ -663,20 +664,18 @@ export function renderPurchaseGoodsPayablesLinePreview(input: {
       : "สินค้าที่ซื้อสูงสุด: ไม่มีข้อมูล",
     ...warnings.map((warning) => `\nหมายเหตุ: ${warning}`),
     "",
-    useFlexMessage
+    hasViewerAction
       ? "เปิดรายงาน: กดปุ่มใน LINE เพื่อดูรายละเอียด"
       : "เปิดรายงาน: ยังไม่พร้อมใช้งานในข้อความนี้",
   ];
-  const flexMessage = useFlexMessage
-    ? buildPurchaseGoodsPayablesFlexMessage({
-        snapshot,
-        tenantName,
-        generatedAt,
-        dashboardUrl,
-        insight,
-        warnings,
-      })
-    : undefined;
+  const flexMessage = buildPurchaseGoodsPayablesFlexMessage({
+    snapshot,
+    tenantName,
+    generatedAt,
+    dashboardUrl,
+    insight,
+    warnings,
+  });
 
   return {
     tenant_id: snapshot.tenant_id,
@@ -702,10 +701,6 @@ function buildPurchaseGoodsPayablesFlexMessage(input: {
   insight: string;
   warnings: string[];
 }) {
-  if (!isValidExecutiveDigestUri(input.dashboardUrl)) {
-    return undefined;
-  }
-
   const { snapshot } = input;
   const topSupplier = snapshot.top_suppliers[0];
   return buildExecutiveDigestFlexMessage({

@@ -470,7 +470,7 @@ describe("sales_goods_services contract", () => {
     expect(flexPayload).not.toContain("snapshot");
   });
 
-  it("falls back to text when the signed viewer URL is missing or too long", () => {
+  it("keeps the report card when the viewer URL is missing or too long", () => {
     const snapshot = createEmptySalesGoodsServicesSnapshot({
       tenant_id: "tenant_demo_remote",
       run_id: "sample_line_preview",
@@ -489,11 +489,14 @@ describe("sales_goods_services contract", () => {
       tenantName: "Demo Remote",
     });
 
-    expect(missingUrlPreview.line_message_type).toBe("text");
-    expect(missingUrlPreview.flex_message).toBeUndefined();
+    expect(missingUrlPreview.line_message_type).toBe("flex");
+    expect(missingUrlPreview.flex_message).toBeDefined();
     expect(missingUrlPreview.text).toContain("เปิดรายงาน: ยังไม่พร้อมใช้งาน");
-    expect(longUrlPreview.line_message_type).toBe("text");
-    expect(longUrlPreview.flex_message).toBeUndefined();
+    expect(JSON.stringify(missingUrlPreview.flex_message)).not.toContain(
+      "เปิดรายละเอียด",
+    );
+    expect(longUrlPreview.line_message_type).toBe("flex");
+    expect(longUrlPreview.flex_message).toBeDefined();
   });
 
   it("renders a hybrid report-card Flex empty state without alarm wording", () => {

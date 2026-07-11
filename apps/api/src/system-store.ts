@@ -182,6 +182,7 @@ export type ReportViewerTokenMetadata = {
   runId: string;
   jti: string;
   targetIdHash: string | null;
+  sourceTargetIdHash: string | null;
   expiresAt: string;
 };
 
@@ -206,6 +207,31 @@ type StoredReportViewerToken = ReportViewerTokenMetadata & {
   revokedAt: string | null;
   createdAt: string;
 };
+
+export type GroupReportLaunchRecord = {
+  id: string;
+  codeHash: string;
+  tenantId: TenantId;
+  reportKey: ReportKey;
+  runId: string;
+  groupTargetId: string;
+  groupTargetIdHash: string;
+  lineChannelId: string;
+  notificationRunId: string | null;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
+export type GroupAccessRequestStatus =
+  | "processing"
+  | "success"
+  | "denied"
+  | "failed_retryable";
+
+export type GroupAccessRequestReservation =
+  | { ok: true; reclaimed: boolean }
+  | { ok: false; reason: "duplicate" | "rate_limited" };
 
 export type SystemStore = {
   readonly kind: "postgres" | "local-json";
@@ -499,6 +525,7 @@ export type SystemStore = {
     runId: string;
     jti: string;
     targetIdHash: string | null;
+    sourceTargetIdHash?: string | null;
     expiresAt: Date;
   }): Promise<void>;
   claimViewerToken(input: {
@@ -516,6 +543,30 @@ export type SystemStore = {
     action: "reset_binding" | "revoke";
   }): Promise<number>;
   purgeExpiredViewerTokens(limit?: number): Promise<number>;
+  createGroupReportLaunch(record: GroupReportLaunchRecord): Promise<void>;
+  createGroupReportLaunches(records: GroupReportLaunchRecord[]): Promise<void>;
+  getGroupReportLaunchByCodeHash(codeHash: string): Promise<GroupReportLaunchRecord | null>;
+  reserveGroupAccessRequest(input: {
+    webhookEventId: string;
+    launchId: string;
+    tenantId: TenantId;
+    userIdHash: string;
+    now: Date;
+    rateLimitSince: Date;
+    rateLimit: number;
+  }): Promise<GroupAccessRequestReservation>;
+  completeGroupAccessRequest(input: {
+    webhookEventId: string;
+    status: Exclude<GroupAccessRequestStatus, "processing">;
+    viewerTokenJti?: string | null;
+    safeErrorCode?: string | null;
+  }): Promise<void>;
+  revokeGroupViewerAccess(input: {
+    tenantId: TenantId;
+    sourceTargetIdHash: string;
+    userIdHash?: string | null;
+  }): Promise<{ launches: number; tokens: number }>;
+  purgeExpiredGroupViewerArtifacts(limit?: number): Promise<number>;
   upsertDashboardViewerToken(
     token: DashboardViewerTokenRecord,
   ): Promise<DashboardViewerTokenRecord>;
@@ -582,6 +633,18 @@ type StoreFile = {
   operationalAlertTargets: OperationalAlertTargetRecord[];
   operationalAlertDeliveries: OperationalAlertDeliveryRecord[];
   reportViewerTokens: StoredReportViewerToken[];
+  groupReportLaunches: GroupReportLaunchRecord[];
+  groupAccessRequests: Array<{
+    webhookEventId: string;
+    launchId: string;
+    tenantId: TenantId;
+    userIdHash: string;
+    status: GroupAccessRequestStatus;
+    viewerTokenJti: string | null;
+    safeErrorCode: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   dashboardViewerTokens: DashboardViewerTokenRecord[];
   executiveDashboardRuns: ExecutiveDashboardRunRecord[];
 };
@@ -2109,6 +2172,7 @@ class LocalJsonSystemStore implements SystemStore {
     runId: string;
     jti: string;
     targetIdHash: string | null;
+    sourceTargetIdHash?: string | null;
     expiresAt: Date;
   }) {
     const data = this.requireData();
@@ -2128,6 +2192,7 @@ class LocalJsonSystemStore implements SystemStore {
       runId: input.runId,
       jti: input.jti,
       targetIdHash: input.targetIdHash,
+      sourceTargetIdHash: input.sourceTargetIdHash ?? null,
       expiresAt: input.expiresAt.toISOString(),
       sessionId: null,
       sessionBoundAt: null,
@@ -2243,6 +2308,171 @@ class LocalJsonSystemStore implements SystemStore {
     );
     await this.persist();
     return hashes.size;
+  }
+
+  async createGroupReportLaunch(record: GroupReportLaunchRecord) {
+    await this.createGroupReportLaunches([record]);
+  }
+
+  async createGroupReportLaunches(records: GroupReportLaunchRecord[]) {
+    const data = this.requireData();
+    const existingCodes = new Set(
+      data.groupReportLaunches.map((launch) => launch.codeHash),
+    );
+    const existingIds = new Set(data.groupReportLaunches.map((launch) => launch.id));
+    const pending: GroupReportLaunchRecord[] = [];
+    for (const record of records) {
+      if (existingCodes.has(record.codeHash) || existingIds.has(record.id)) {
+        continue;
+      }
+      existingCodes.add(record.codeHash);
+      existingIds.add(record.id);
+      pending.push(record);
+    }
+    if (!pending.length) {
+      return;
+    }
+    data.groupReportLaunches.push(...pending);
+    await this.persist();
+  }
+
+  async getGroupReportLaunchByCodeHash(codeHash: string) {
+    return (
+      this.requireData().groupReportLaunches.find(
+        (launch) => launch.codeHash === codeHash,
+      ) ?? null
+    );
+  }
+
+  async reserveGroupAccessRequest(input: {
+    webhookEventId: string;
+    launchId: string;
+    tenantId: TenantId;
+    userIdHash: string;
+    now: Date;
+    rateLimitSince: Date;
+    rateLimit: number;
+  }): Promise<GroupAccessRequestReservation> {
+    const data = this.requireData();
+    const existing = data.groupAccessRequests.find(
+      (request) => request.webhookEventId === input.webhookEventId,
+    );
+    if (existing) {
+      const stale =
+        existing.status === "processing" &&
+        new Date(existing.updatedAt).getTime() <= input.now.getTime() - 30_000;
+      if (existing.status !== "failed_retryable" && !stale) {
+        return { ok: false, reason: "duplicate" };
+      }
+      existing.status = "processing";
+      existing.updatedAt = input.now.toISOString();
+      existing.safeErrorCode = null;
+      await this.persist();
+      return { ok: true, reclaimed: true };
+    }
+    const recentCount = data.groupAccessRequests.filter(
+      (request) =>
+        request.userIdHash === input.userIdHash &&
+        new Date(request.createdAt).getTime() >= input.rateLimitSince.getTime(),
+    ).length;
+    if (recentCount >= input.rateLimit) {
+      return { ok: false, reason: "rate_limited" };
+    }
+    const now = input.now.toISOString();
+    data.groupAccessRequests.push({
+      webhookEventId: input.webhookEventId,
+      launchId: input.launchId,
+      tenantId: input.tenantId,
+      userIdHash: input.userIdHash,
+      status: "processing",
+      viewerTokenJti: null,
+      safeErrorCode: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await this.persist();
+    return { ok: true, reclaimed: false };
+  }
+
+  async completeGroupAccessRequest(input: {
+    webhookEventId: string;
+    status: Exclude<GroupAccessRequestStatus, "processing">;
+    viewerTokenJti?: string | null;
+    safeErrorCode?: string | null;
+  }) {
+    const request = this.requireData().groupAccessRequests.find(
+      (candidate) => candidate.webhookEventId === input.webhookEventId,
+    );
+    if (!request) {
+      return;
+    }
+    request.status = input.status;
+    request.viewerTokenJti = input.viewerTokenJti ?? null;
+    request.safeErrorCode = input.safeErrorCode ?? null;
+    request.updatedAt = new Date().toISOString();
+    await this.persist();
+  }
+
+  async revokeGroupViewerAccess(input: {
+    tenantId: TenantId;
+    sourceTargetIdHash: string;
+    userIdHash?: string | null;
+  }) {
+    const data = this.requireData();
+    const now = new Date().toISOString();
+    const launches = input.userIdHash
+      ? []
+      : data.groupReportLaunches.filter(
+          (launch) =>
+            launch.tenantId === input.tenantId &&
+            launch.groupTargetIdHash === input.sourceTargetIdHash &&
+            !launch.revokedAt,
+        );
+    launches.forEach((launch) => {
+      launch.revokedAt = now;
+    });
+    const tokens = data.reportViewerTokens.filter(
+      (token) =>
+        token.tenantId === input.tenantId &&
+        token.sourceTargetIdHash === input.sourceTargetIdHash &&
+        (!input.userIdHash || token.targetIdHash === input.userIdHash) &&
+        !token.revokedAt,
+    );
+    tokens.forEach((token) => {
+      token.revokedAt = now;
+    });
+    if (launches.length || tokens.length) {
+      await this.persist();
+    }
+    return { launches: launches.length, tokens: tokens.length };
+  }
+
+  async purgeExpiredGroupViewerArtifacts(limit = 1000) {
+    const data = this.requireData();
+    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 10_000));
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const launchIds = new Set(
+      data.groupReportLaunches
+        .filter((launch) => new Date(launch.expiresAt).getTime() < cutoff)
+        .slice(0, boundedLimit)
+        .map((launch) => launch.id),
+    );
+    const oldRequests = data.groupAccessRequests
+      .filter((request) => new Date(request.updatedAt).getTime() < cutoff)
+      .slice(0, Math.max(0, boundedLimit - launchIds.size));
+    const requestIds = new Set(oldRequests.map((request) => request.webhookEventId));
+    data.groupReportLaunches = data.groupReportLaunches.filter(
+      (launch) => !launchIds.has(launch.id),
+    );
+    data.groupAccessRequests = data.groupAccessRequests.filter(
+      (request) =>
+        !launchIds.has(request.launchId) && !requestIds.has(request.webhookEventId),
+    );
+    const count = launchIds.size + requestIds.size;
+    if (count) {
+      await this.persist();
+    }
+    return count;
   }
 
   async upsertDashboardViewerToken(token: DashboardViewerTokenRecord) {
@@ -2416,6 +2646,8 @@ class LocalJsonSystemStore implements SystemStore {
           parsed.operationalAlertDeliveries,
         ),
         reportViewerTokens: normalizeReportViewerTokens(parsed.reportViewerTokens),
+        groupReportLaunches: normalizeGroupReportLaunches(parsed.groupReportLaunches),
+        groupAccessRequests: normalizeGroupAccessRequests(parsed.groupAccessRequests),
         dashboardViewerTokens: normalizeDashboardViewerTokens(
           parsed.dashboardViewerTokens,
         ),
@@ -2453,6 +2685,8 @@ class LocalJsonSystemStore implements SystemStore {
         operationalAlertTargets: [],
         operationalAlertDeliveries: [],
         reportViewerTokens: [],
+        groupReportLaunches: [],
+        groupAccessRequests: [],
         dashboardViewerTokens: [],
         executiveDashboardRuns: [],
       };
@@ -2838,6 +3072,9 @@ select
   scope,
   channel_access_token_configured,
   channel_secret_configured,
+  basic_id,
+  premium_id,
+  bot_info_synced_at,
   enabled,
   source,
   created_at,
@@ -2863,18 +3100,24 @@ insert into line_channels (
   scope,
   channel_access_token_configured,
   channel_secret_configured,
+  basic_id,
+  premium_id,
+  bot_info_synced_at,
   enabled,
   source,
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11, $12, $13::timestamptz, $14::timestamptz)
 on conflict (id) do update
 set display_name = excluded.display_name,
     channel_type = excluded.channel_type,
     scope = excluded.scope,
     channel_access_token_configured = excluded.channel_access_token_configured,
     channel_secret_configured = excluded.channel_secret_configured,
+    basic_id = excluded.basic_id,
+    premium_id = excluded.premium_id,
+    bot_info_synced_at = excluded.bot_info_synced_at,
     enabled = excluded.enabled,
     source = excluded.source,
     updated_at = excluded.updated_at
@@ -2886,6 +3129,9 @@ returning
   scope,
   channel_access_token_configured,
   channel_secret_configured,
+  basic_id,
+  premium_id,
+  bot_info_synced_at,
   enabled,
   source,
   created_at,
@@ -2899,6 +3145,9 @@ returning
         channel.scope ?? "tenant",
         channel.channel_access_token_configured,
         channel.channel_secret_configured,
+        channel.basic_id,
+        channel.premium_id,
+        channel.bot_info_synced_at,
         channel.enabled,
         channel.source,
         channel.created_at,
@@ -5639,6 +5888,7 @@ select
   allowed_actions,
   enabled,
   approved,
+  group_private_viewer_enabled,
   source,
   last_delivery_at,
   created_at,
@@ -5671,6 +5921,7 @@ select
   allowed_actions,
   enabled,
   approved,
+  group_private_viewer_enabled,
   source,
   last_delivery_at,
   created_at,
@@ -5706,6 +5957,7 @@ select
   allowed_actions,
   enabled,
   approved,
+  group_private_viewer_enabled,
   source,
   last_delivery_at,
   created_at,
@@ -5759,12 +6011,13 @@ insert into line_targets (
   allowed_actions,
   enabled,
   approved,
+  group_private_viewer_enabled,
   source,
   last_delivery_at,
   created_at,
   updated_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15, $16::timestamptz, $17::timestamptz, $18::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17::timestamptz, $18::timestamptz, $19::timestamptz)
 on conflict (id) do update
 set line_channel_id = excluded.line_channel_id,
     display_name = excluded.display_name,
@@ -5778,6 +6031,7 @@ set line_channel_id = excluded.line_channel_id,
     allowed_actions = excluded.allowed_actions,
     enabled = excluded.enabled,
     approved = excluded.approved,
+    group_private_viewer_enabled = excluded.group_private_viewer_enabled,
     source = excluded.source,
     last_delivery_at = excluded.last_delivery_at,
     updated_at = excluded.updated_at
@@ -5796,6 +6050,7 @@ returning
   allowed_actions,
   enabled,
   approved,
+  group_private_viewer_enabled,
   source,
   last_delivery_at,
   created_at,
@@ -5816,6 +6071,7 @@ returning
         JSON.stringify(target.allowed_actions),
         target.enabled,
         target.approved,
+        target.group_private_viewer_enabled,
         target.source,
         target.last_delivery_at,
         target.created_at,
@@ -6480,6 +6736,7 @@ limit 1
     runId: string;
     jti: string;
     targetIdHash: string | null;
+    sourceTargetIdHash?: string | null;
     expiresAt: Date;
   }) {
     await this.pool.query(
@@ -6492,9 +6749,10 @@ insert into report_viewer_tokens (
   run_id,
   jti,
   target_id_hash,
+  source_target_id_hash,
   expires_at
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
 on conflict do nothing
 `,
       [
@@ -6505,6 +6763,7 @@ on conflict do nothing
         input.runId,
         input.jti,
         input.targetIdHash,
+        input.sourceTargetIdHash ?? null,
         input.expiresAt.toISOString(),
       ],
     );
@@ -6638,6 +6897,246 @@ returning token_hash
       [input.tenantId, input.targetIdHash],
     );
     return result.rowCount ?? 0;
+  }
+
+  async createGroupReportLaunch(record: GroupReportLaunchRecord) {
+    await this.createGroupReportLaunches([record]);
+  }
+
+  async createGroupReportLaunches(records: GroupReportLaunchRecord[]) {
+    if (!records.length) {
+      return;
+    }
+    await this.pool.query(
+      `
+insert into report_group_launches (
+  id, code_hash, tenant_id, report_key, run_id, group_target_id,
+  group_target_id_hash, line_channel_id, notification_run_id,
+  expires_at, revoked_at, created_at
+)
+select
+  record.id,
+  record.code_hash,
+  record.tenant_id,
+  record.report_key,
+  record.run_id,
+  record.group_target_id,
+  record.group_target_id_hash,
+  record.line_channel_id,
+  record.notification_run_id,
+  record.expires_at,
+  record.revoked_at,
+  record.created_at
+from jsonb_to_recordset($1::jsonb) as record(
+  id text,
+  code_hash text,
+  tenant_id text,
+  report_key text,
+  run_id text,
+  group_target_id text,
+  group_target_id_hash text,
+  line_channel_id text,
+  notification_run_id text,
+  expires_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz
+)
+on conflict do nothing
+`,
+      [
+        JSON.stringify(
+          records.map((record) => ({
+            id: record.id,
+            code_hash: record.codeHash,
+            tenant_id: record.tenantId,
+            report_key: record.reportKey,
+            run_id: record.runId,
+            group_target_id: record.groupTargetId,
+            group_target_id_hash: record.groupTargetIdHash,
+            line_channel_id: record.lineChannelId,
+            notification_run_id: record.notificationRunId,
+            expires_at: record.expiresAt,
+            revoked_at: record.revokedAt,
+            created_at: record.createdAt,
+          })),
+        ),
+      ],
+    );
+  }
+
+  async getGroupReportLaunchByCodeHash(codeHash: string) {
+    const result = await this.pool.query(
+      `select * from report_group_launches where code_hash = $1 limit 1`,
+      [codeHash],
+    );
+    return result.rows[0] ? mapGroupReportLaunchRow(result.rows[0]) : null;
+  }
+
+  async reserveGroupAccessRequest(input: {
+    webhookEventId: string;
+    launchId: string;
+    tenantId: TenantId;
+    userIdHash: string;
+    now: Date;
+    rateLimitSince: Date;
+    rateLimit: number;
+  }): Promise<GroupAccessRequestReservation> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [
+        input.userIdHash,
+      ]);
+      const existing = await client.query(
+        `select status, updated_at from report_group_access_requests where webhook_event_id = $1 for update`,
+        [input.webhookEventId],
+      );
+      if (existing.rows[0]) {
+        const status = String(existing.rows[0].status);
+        const stale =
+          status === "processing" &&
+          new Date(existing.rows[0].updated_at as string | Date).getTime() <=
+            input.now.getTime() - 30_000;
+        if (status !== "failed_retryable" && !stale) {
+          await client.query("commit");
+          return { ok: false, reason: "duplicate" };
+        }
+        await client.query(
+          `update report_group_access_requests set status = 'processing', safe_error_code = null, updated_at = $2::timestamptz where webhook_event_id = $1`,
+          [input.webhookEventId, input.now.toISOString()],
+        );
+        await client.query("commit");
+        return { ok: true, reclaimed: true };
+      }
+      const recent = await client.query(
+        `select count(*)::int as count from report_group_access_requests where user_id_hash = $1 and created_at >= $2::timestamptz`,
+        [input.userIdHash, input.rateLimitSince.toISOString()],
+      );
+      if (Number(recent.rows[0]?.count ?? 0) >= input.rateLimit) {
+        await client.query("commit");
+        return { ok: false, reason: "rate_limited" };
+      }
+      await client.query(
+        `
+insert into report_group_access_requests (
+  webhook_event_id, launch_id, tenant_id, user_id_hash, status, created_at, updated_at
+)
+values ($1, $2, $3, $4, 'processing', $5::timestamptz, $5::timestamptz)
+`,
+        [
+          input.webhookEventId,
+          input.launchId,
+          input.tenantId,
+          input.userIdHash,
+          input.now.toISOString(),
+        ],
+      );
+      await client.query("commit");
+      return { ok: true, reclaimed: false };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async completeGroupAccessRequest(input: {
+    webhookEventId: string;
+    status: Exclude<GroupAccessRequestStatus, "processing">;
+    viewerTokenJti?: string | null;
+    safeErrorCode?: string | null;
+  }) {
+    await this.pool.query(
+      `
+update report_group_access_requests
+set status = $2, viewer_token_jti = $3, safe_error_code = $4, updated_at = now()
+where webhook_event_id = $1
+`,
+      [
+        input.webhookEventId,
+        input.status,
+        input.viewerTokenJti ?? null,
+        input.safeErrorCode ?? null,
+      ],
+    );
+  }
+
+  async revokeGroupViewerAccess(input: {
+    tenantId: TenantId;
+    sourceTargetIdHash: string;
+    userIdHash?: string | null;
+  }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const launches = input.userIdHash
+        ? { rowCount: 0 }
+        : await client.query(
+            `
+update report_group_launches
+set revoked_at = now()
+where tenant_id = $1 and group_target_id_hash = $2 and revoked_at is null
+returning id
+`,
+            [input.tenantId, input.sourceTargetIdHash],
+          );
+      const tokens = await client.query(
+        `
+update report_viewer_tokens
+set revoked_at = now()
+where tenant_id = $1
+  and source_target_id_hash = $2
+  and ($3::text is null or target_id_hash = $3)
+  and revoked_at is null
+returning token_hash
+`,
+        [input.tenantId, input.sourceTargetIdHash, input.userIdHash ?? null],
+      );
+      await client.query("commit");
+      return {
+        launches: launches.rowCount ?? 0,
+        tokens: tokens.rowCount ?? 0,
+      };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async purgeExpiredGroupViewerArtifacts(limit = 1000) {
+    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 10_000));
+    const requests = await this.pool.query(
+      `
+with old_rows as (
+  select ctid from report_group_access_requests
+  where updated_at < now() - interval '1 day'
+  order by updated_at limit $1
+)
+delete from report_group_access_requests where ctid in (select ctid from old_rows)
+returning webhook_event_id
+`,
+      [boundedLimit],
+    );
+    const remaining = Math.max(0, boundedLimit - (requests.rowCount ?? 0));
+    if (!remaining) {
+      return requests.rowCount ?? 0;
+    }
+    const launches = await this.pool.query(
+      `
+with old_rows as (
+  select ctid from report_group_launches
+  where expires_at < now() - interval '1 day'
+  order by expires_at limit $1
+)
+delete from report_group_launches where ctid in (select ctid from old_rows)
+returning id
+`,
+      [remaining],
+    );
+    return (requests.rowCount ?? 0) + (launches.rowCount ?? 0);
   }
 
   async purgeExpiredViewerTokens(limit = 1000) {
@@ -7316,7 +7815,33 @@ function mapReportViewerTokenMetadataRow(
     jti: String(row.jti),
     targetIdHash:
       typeof row.target_id_hash === "string" ? row.target_id_hash : null,
+    sourceTargetIdHash:
+      typeof row.source_target_id_hash === "string"
+        ? row.source_target_id_hash
+        : null,
     expiresAt: toIsoString(row.expires_at as string | Date),
+  };
+}
+
+function mapGroupReportLaunchRow(
+  row: Record<string, unknown>,
+): GroupReportLaunchRecord {
+  return {
+    id: String(row.id),
+    codeHash: String(row.code_hash),
+    tenantId: row.tenant_id as TenantId,
+    reportKey: row.report_key as ReportKey,
+    runId: String(row.run_id),
+    groupTargetId: String(row.group_target_id),
+    groupTargetIdHash: String(row.group_target_id_hash),
+    lineChannelId: String(row.line_channel_id),
+    notificationRunId:
+      typeof row.notification_run_id === "string" ? row.notification_run_id : null,
+    expiresAt: toIsoString(row.expires_at as string | Date),
+    revokedAt: row.revoked_at
+      ? toIsoString(row.revoked_at as string | Date)
+      : null,
+    createdAt: toIsoString(row.created_at as string | Date),
   };
 }
 
@@ -7428,6 +7953,11 @@ function mapLineChannelRow(row: Record<string, unknown>): LineChannelRecord {
       row.channel_access_token_configured,
     ),
     channel_secret_configured: Boolean(row.channel_secret_configured),
+    basic_id: typeof row.basic_id === "string" ? row.basic_id : null,
+    premium_id: typeof row.premium_id === "string" ? row.premium_id : null,
+    bot_info_synced_at: row.bot_info_synced_at
+      ? toIsoString(row.bot_info_synced_at as string | Date)
+      : null,
     enabled: Boolean(row.enabled),
     source: row.source === "env" ? "env" : "manual",
     created_at: toIsoString(row.created_at as string | Date),
@@ -7670,6 +8200,7 @@ function mapLineTargetRow(row: Record<string, unknown>): StoredLineTargetRecord 
     allowed_actions: normalizeLineActions(row.allowed_actions),
     enabled: Boolean(row.enabled),
     approved: Boolean(row.approved),
+    group_private_viewer_enabled: Boolean(row.group_private_viewer_enabled),
     source: normalizeLineTargetSource(row.source),
     last_delivery_at: row.last_delivery_at
       ? toIsoString(row.last_delivery_at as string | Date)
@@ -8490,6 +9021,10 @@ function normalizeReportViewerTokens(value: unknown): StoredReportViewerToken[] 
         jti: String(token.jti),
         targetIdHash:
           typeof token.targetIdHash === "string" ? token.targetIdHash : null,
+        sourceTargetIdHash:
+          typeof token.sourceTargetIdHash === "string"
+            ? token.sourceTargetIdHash
+            : null,
         expiresAt: String(token.expiresAt),
         sessionId: typeof token.sessionId === "string" ? token.sessionId : null,
         sessionBoundAt:
@@ -8505,6 +9040,90 @@ function normalizeReportViewerTokens(value: unknown): StoredReportViewerToken[] 
   });
 }
 
+function normalizeGroupReportLaunches(value: unknown): GroupReportLaunchRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const launch = entry as Partial<GroupReportLaunchRecord>;
+    if (
+      !launch.id ||
+      !launch.codeHash ||
+      !launch.tenantId ||
+      !launch.reportKey ||
+      !launch.runId ||
+      !launch.groupTargetId ||
+      !launch.groupTargetIdHash ||
+      !launch.lineChannelId ||
+      !launch.expiresAt
+    ) {
+      return [];
+    }
+    return [{
+      id: String(launch.id),
+      codeHash: String(launch.codeHash),
+      tenantId: launch.tenantId as TenantId,
+      reportKey: launch.reportKey as ReportKey,
+      runId: String(launch.runId),
+      groupTargetId: String(launch.groupTargetId),
+      groupTargetIdHash: String(launch.groupTargetIdHash),
+      lineChannelId: String(launch.lineChannelId),
+      notificationRunId:
+        typeof launch.notificationRunId === "string"
+          ? launch.notificationRunId
+          : null,
+      expiresAt: String(launch.expiresAt),
+      revokedAt: typeof launch.revokedAt === "string" ? launch.revokedAt : null,
+      createdAt: launch.createdAt ?? new Date().toISOString(),
+    }];
+  });
+}
+
+function normalizeGroupAccessRequests(
+  value: unknown,
+): StoreFile["groupAccessRequests"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const request = entry as Partial<StoreFile["groupAccessRequests"][number]>;
+    if (
+      !request.webhookEventId ||
+      !request.launchId ||
+      !request.tenantId ||
+      !request.userIdHash
+    ) {
+      return [];
+    }
+    const status: GroupAccessRequestStatus =
+      request.status === "success" ||
+      request.status === "denied" ||
+      request.status === "failed_retryable"
+        ? request.status
+        : "processing";
+    const now = new Date().toISOString();
+    return [{
+      webhookEventId: String(request.webhookEventId),
+      launchId: String(request.launchId),
+      tenantId: request.tenantId as TenantId,
+      userIdHash: String(request.userIdHash),
+      status,
+      viewerTokenJti:
+        typeof request.viewerTokenJti === "string" ? request.viewerTokenJti : null,
+      safeErrorCode:
+        typeof request.safeErrorCode === "string" ? request.safeErrorCode : null,
+      createdAt: request.createdAt ?? now,
+      updatedAt: request.updatedAt ?? now,
+    }];
+  });
+}
+
 function toViewerTokenMetadata(
   token: StoredReportViewerToken,
 ): ReportViewerTokenMetadata {
@@ -8516,6 +9135,7 @@ function toViewerTokenMetadata(
     runId: token.runId,
     jti: token.jti,
     targetIdHash: token.targetIdHash,
+    sourceTargetIdHash: token.sourceTargetIdHash,
     expiresAt: token.expiresAt,
   };
 }
@@ -8987,6 +9607,7 @@ function normalizeLineTarget(value: unknown): StoredLineTargetRecord | null {
     allowed_actions: normalizeLineActions(target.allowed_actions),
     enabled: Boolean(target.enabled),
     approved: Boolean(target.approved),
+    group_private_viewer_enabled: Boolean(target.group_private_viewer_enabled),
     source: normalizeLineTargetSource(target.source),
     last_delivery_at: target.last_delivery_at ?? null,
     created_at: target.created_at ?? new Date().toISOString(),
@@ -9144,6 +9765,12 @@ function normalizeLineChannels(value: unknown): LineChannelRecord[] {
         item.channel_access_token_configured,
       ),
       channel_secret_configured: Boolean(item.channel_secret_configured),
+      basic_id: typeof item.basic_id === "string" ? item.basic_id : null,
+      premium_id: typeof item.premium_id === "string" ? item.premium_id : null,
+      bot_info_synced_at:
+        typeof item.bot_info_synced_at === "string"
+          ? item.bot_info_synced_at
+          : null,
       enabled: item.enabled !== false,
       source: item.source === "env" ? "env" : "manual",
       created_at: item.created_at ?? new Date().toISOString(),
@@ -10054,6 +10681,7 @@ create table if not exists line_targets (
   allowed_actions jsonb not null default '[]'::jsonb,
   enabled boolean not null default false,
   approved boolean not null default false,
+  group_private_viewer_enabled boolean not null default false,
   source text not null default 'manual',
   last_delivery_at timestamptz,
   created_at timestamptz not null default now(),
@@ -10066,6 +10694,9 @@ alter table line_targets
 
 alter table line_targets
   add column if not exists recipient_count_estimate integer;
+
+alter table line_targets
+  add column if not exists group_private_viewer_enabled boolean not null default false;
 
 create table if not exists tenant_report_role_permissions (
   tenant_id text not null references tenants(id) on delete cascade,
@@ -10086,6 +10717,9 @@ create table if not exists line_channels (
   scope text not null default 'tenant',
   channel_access_token_configured boolean not null default false,
   channel_secret_configured boolean not null default false,
+  basic_id text,
+  premium_id text,
+  bot_info_synced_at timestamptz,
   enabled boolean not null default true,
   source text not null default 'manual',
   created_at timestamptz not null default now(),
@@ -10094,6 +10728,11 @@ create table if not exists line_channels (
 
 alter table line_channels
   add column if not exists scope text not null default 'tenant';
+
+alter table line_channels
+  add column if not exists basic_id text,
+  add column if not exists premium_id text,
+  add column if not exists bot_info_synced_at timestamptz;
 
 create index if not exists line_channels_tenant_idx
 on line_channels (tenant_id, updated_at desc);
@@ -10373,6 +11012,7 @@ create table if not exists report_viewer_tokens (
   run_id text not null,
   jti text,
   target_id_hash text,
+  source_target_id_hash text,
   expires_at timestamptz not null,
   consumed_at timestamptz,
   session_id text,
@@ -10386,6 +11026,7 @@ alter table report_viewer_tokens
   add column if not exists report_key text,
   add column if not exists jti text,
   add column if not exists target_id_hash text,
+  add column if not exists source_target_id_hash text,
   add column if not exists session_id text,
   add column if not exists session_bound_at timestamptz,
   add column if not exists revoked_at timestamptz;
@@ -10404,6 +11045,50 @@ where session_id is not null and revoked_at is null;
 create index if not exists report_viewer_tokens_target_idx
 on report_viewer_tokens (tenant_id, target_id_hash, expires_at)
 where target_id_hash is not null and revoked_at is null;
+
+create index if not exists report_viewer_tokens_source_target_idx
+on report_viewer_tokens (tenant_id, source_target_id_hash, target_id_hash, expires_at)
+where source_target_id_hash is not null and revoked_at is null;
+
+create table if not exists report_group_launches (
+  id text primary key,
+  code_hash text not null unique,
+  tenant_id text not null references tenants(id),
+  report_key text not null references report_definitions(report_key),
+  run_id text not null,
+  group_target_id text not null,
+  group_target_id_hash text not null,
+  line_channel_id text not null,
+  notification_run_id text,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists report_group_launches_expiry_idx
+on report_group_launches (expires_at);
+
+create index if not exists report_group_launches_target_idx
+on report_group_launches (tenant_id, group_target_id_hash, expires_at)
+where revoked_at is null;
+
+create table if not exists report_group_access_requests (
+  webhook_event_id text primary key,
+  launch_id text not null references report_group_launches(id) on delete cascade,
+  tenant_id text not null references tenants(id),
+  user_id_hash text not null,
+  status text not null,
+  viewer_token_jti text,
+  safe_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists report_group_access_requests_user_recent_idx
+on report_group_access_requests (user_id_hash, created_at desc);
+
+create index if not exists report_group_access_requests_cleanup_idx
+on report_group_access_requests (updated_at);
 
 create table if not exists dashboard_viewer_tokens (
   token_hash text primary key,

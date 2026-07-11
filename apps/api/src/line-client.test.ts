@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SalesGoodsServicesLinePreview } from "@ai-bcc/shared";
-import { fetchLineTargetDisplayName, sendLineBrief } from "./line-client.js";
+import {
+  fetchLineBotInfo,
+  fetchLineTargetDisplayName,
+  sendLineBrief,
+  sendLineReply,
+  verifyLineGroupMember,
+} from "./line-client.js";
 
 const preview = {
   tenant_id: "tenant_demo_remote",
@@ -349,5 +355,83 @@ describe("sendLineBrief", () => {
         }),
       }),
     );
+  });
+
+  it("loads Bot Info and verifies group membership with bounded LINE calls", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          basicId: "@365sxedv",
+          displayName: "AI Business Center",
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchLineBotInfo({ channelAccessToken: "line-token" }),
+    ).resolves.toEqual({
+      basicId: "@365sxedv",
+      premiumId: null,
+      displayName: "AI Business Center",
+    });
+    await expect(
+      verifyLineGroupMember({
+        channelAccessToken: "line-token",
+        groupId: "C1234567890abcdef",
+        userId: "U1234567890abcdef",
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(fetchSpy.mock.calls[1][0]).toContain(
+      "/group/C1234567890abcdef/member/U1234567890abcdef",
+    );
+  });
+
+  it("classifies membership denial, channel configuration, and retryable failures", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: false, status: 429 });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      verifyLineGroupMember({
+        channelAccessToken: "line-token",
+        groupId: "group",
+        userId: "user",
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: "not_member" });
+    await expect(
+      verifyLineGroupMember({
+        channelAccessToken: "line-token",
+        groupId: "group",
+        userId: "user",
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: "configuration_failure" });
+    await expect(
+      verifyLineGroupMember({
+        channelAccessToken: "line-token",
+        groupId: "group",
+        userId: "user",
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: "temporary_failure" });
+  });
+
+  it("replies with a safe Flex message", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => "{}" });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await sendLineReply({
+      channelAccessToken: "line-token",
+      replyToken: "reply-token",
+      messages: [flexPreview.flex_message],
+    });
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0][1].body));
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].type).toBe("flex");
   });
 });

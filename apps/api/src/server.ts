@@ -146,9 +146,26 @@ import {
 import {
   createSystemStore,
   type ExecutiveDashboardRunRecord,
+  type GroupReportLaunchRecord,
   type SecretRecord,
 } from "./system-store.js";
-import { fetchLineTargetDisplayName, sendLineBrief, sendLineReply, sendLineTextPush } from "./line-client.js";
+import {
+  fetchLineBotInfo,
+  fetchLineTargetDisplayName,
+  sendLineBrief,
+  sendLineReply,
+  sendLineTextPush,
+  verifyLineGroupMember,
+} from "./line-client.js";
+import {
+  buildGroupReportChatUri,
+  createGroupReportLaunch,
+  createGroupReportLaunchCode,
+  decorateGroupReportPreview,
+  hashGroupReportLaunchCode,
+  parseGroupReportCommand,
+  redactGroupReportCommand,
+} from "./group-report-access.js";
 import {
   buildMorningBriefCarouselPreview,
   buildNotificationDigestPreview,
@@ -2971,6 +2988,9 @@ app.post("/api/owner/line-channels", async (request, reply) => {
     scope: body.data.scope,
     channel_access_token_configured: false,
     channel_secret_configured: false,
+    basic_id: null,
+    premium_id: null,
+    bot_info_synced_at: null,
     enabled: body.data.enabled ?? true,
     source: "manual",
     created_at: now,
@@ -3021,13 +3041,15 @@ app.patch("/api/owner/line-channels/:id", async (request, reply) => {
     return reply.status(404).send({ error: "LINE channel not found." });
   }
 
-  const updated = await systemStore.upsertLineChannel({
+  let updated = await systemStore.upsertLineChannel({
     ...channel,
     display_name: body.data.display_name ?? channel.display_name,
     scope: body.data.scope ?? channel.scope ?? "tenant",
     enabled: body.data.enabled ?? channel.enabled,
     updated_at: new Date().toISOString(),
   });
+
+  updated = (await syncLineChannelBotInfo(updated)) ?? updated;
 
   await systemStore.appendAuditLog({
     tenant_id: updated.tenant_id,
@@ -3089,7 +3111,7 @@ app.put("/api/owner/line-channels/:id/secrets", async (request, reply) => {
     },
   });
 
-  const updated = await systemStore.upsertLineChannel({
+  let updated = await systemStore.upsertLineChannel({
     ...channel,
     channel_access_token_configured:
       channel.channel_access_token_configured ||
@@ -3098,6 +3120,8 @@ app.put("/api/owner/line-channels/:id/secrets", async (request, reply) => {
       channel.channel_secret_configured || result.channel_secret_configured,
     updated_at: new Date().toISOString(),
   });
+
+  updated = (await syncLineChannelBotInfo(updated)) ?? updated;
 
   await systemStore.appendAuditLog({
     tenant_id: channel.tenant_id,
@@ -5168,8 +5192,28 @@ app.post("/api/line/webhook", async (request, reply) => {
     preferredLineChannelId: webhookLineChannelId,
   }).catch(() => null);
 
+  const handledGroupReportEventIds = new Set<string>();
+  if (replyCredentials && webhookLineChannelId) {
+    await revokeGroupViewerAccessFromWebhookEvents({
+      events,
+      lineChannelId: webhookLineChannelId,
+    });
+    for (const event of events) {
+      if (!parseGroupReportCommand(event.message_text)) {
+        continue;
+      }
+      handledGroupReportEventIds.add(event.id);
+      await handleGroupReportAccessEvent({
+        event,
+        lineChannelId: webhookLineChannelId,
+        channelAccessToken: replyCredentials.channelAccessToken,
+      });
+    }
+  }
+
   if (replyCredentials) {
     for (const event of events) {
+      if (handledGroupReportEventIds.has(event.id)) continue;
       if (!event.reply_token) continue;
       if (!["follow", "join", "message"].includes(event.event_type)) continue;
 
@@ -5206,16 +5250,20 @@ app.post("/api/line/webhook", async (request, reply) => {
     }
   }
 
-  await systemStore.saveLineWebhookEvents(events);
-  const discoveredTargets = await registerWebhookLineTargets(events, {
+  const persistedEvents = events.map(redactGroupReportWebhookRecord);
+  await systemStore.saveLineWebhookEvents(persistedEvents);
+  const discoveredTargets = await registerWebhookLineTargets(
+    persistedEvents.filter((event) => !handledGroupReportEventIds.has(event.id)), {
     tenantId: webhookTenantId,
     lineChannelId: webhookLineChannelId,
   });
 
-  for (const event of events) {
+  for (const event of persistedEvents) {
     await systemStore.appendAuditLog({
       tenant_id: null,
-      actor_id: event.user_id,
+      actor_id: event.user_id
+        ? hashLineTargetId(event.user_id).slice(0, 12)
+        : null,
       action: "line_webhook_received",
       target_type: "line_webhook_event",
       target_id: event.id,
@@ -5241,6 +5289,355 @@ app.post("/api/line/webhook", async (request, reply) => {
     discovered_target_count: discoveredTargets.length,
   };
 });
+
+async function handleGroupReportAccessEvent(input: {
+  event: ReturnType<typeof normalizeLineWebhookEvents>[number];
+  lineChannelId: string;
+  channelAccessToken: string;
+}) {
+  const startedAt = Date.now();
+  const code = parseGroupReportCommand(input.event.message_text);
+  if (!code || !input.event.reply_token || !input.event.user_id) {
+    if (input.event.reply_token) {
+      await replyGroupReportAccessError({
+        channelAccessToken: input.channelAccessToken,
+        replyToken: input.event.reply_token,
+        text: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+      });
+    }
+    return;
+  }
+  const userIdHash = hashLineTargetId(input.event.user_id);
+  const lookupStartedAt = Date.now();
+  const launch = await systemStore.getGroupReportLaunchByCodeHash(
+    hashGroupReportLaunchCode(code),
+  );
+  const dbLookupMs = Date.now() - lookupStartedAt;
+  if (!launch) {
+    await replyGroupReportAccessError({
+      channelAccessToken: input.channelAccessToken,
+      replyToken: input.event.reply_token,
+      text: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+    });
+    return;
+  }
+
+  const now = new Date();
+  const reservation = await systemStore.reserveGroupAccessRequest({
+    webhookEventId: input.event.id,
+    launchId: launch.id,
+    tenantId: launch.tenantId,
+    userIdHash,
+    now,
+    rateLimitSince: new Date(now.getTime() - 10 * 60 * 1000),
+    rateLimit: 20,
+  });
+  if (!reservation.ok) {
+    if (reservation.reason === "rate_limited") {
+      await replyGroupReportAccessError({
+        channelAccessToken: input.channelAccessToken,
+        replyToken: input.event.reply_token,
+        text: "ขอเปิดรายงานถี่เกินไป กรุณารอ 10 นาทีแล้วลองใหม่",
+      });
+    }
+    return;
+  }
+
+  const deny = async (inputError: {
+    code: string;
+    text: string;
+    retryable?: boolean;
+  }) => {
+    await systemStore.completeGroupAccessRequest({
+      webhookEventId: input.event.id,
+      status: inputError.retryable ? "failed_retryable" : "denied",
+      safeErrorCode: inputError.code,
+    });
+    await replyGroupReportAccessError({
+      channelAccessToken: input.channelAccessToken,
+      replyToken: input.event.reply_token!,
+      text: inputError.text,
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: launch.tenantId,
+      actor_id: null,
+      action: "group_report_access_denied",
+      target_type: "report_group_launch",
+      target_id: launch.id,
+      metadata_json: {
+        report_key: launch.reportKey,
+        run_id: launch.runId,
+        group_target_id_hash_prefix: launch.groupTargetIdHash.slice(0, 12),
+        user_id_hash_prefix: userIdHash.slice(0, 12),
+        safe_error_code: inputError.code,
+      },
+    });
+  };
+
+  const remainingMs = new Date(launch.expiresAt).getTime() - now.getTime();
+  if (
+    launch.revokedAt ||
+    remainingMs < 5 * 60 * 1000 ||
+    launch.lineChannelId !== input.lineChannelId
+  ) {
+    await deny({
+      code: "GROUP_REPORT_LAUNCH_EXPIRED",
+      text: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+    });
+    return;
+  }
+  const [tenant, target, snapshot] = await Promise.all([
+    getTenantOrNull(launch.tenantId),
+    getEffectiveLineTargetById(launch.groupTargetId),
+    systemStore.getSnapshotByRunId(
+      launch.tenantId,
+      launch.runId,
+      launch.reportKey,
+    ),
+  ]);
+  if (!tenant) {
+    await deny({
+      code: "GROUP_REPORT_TENANT_MISSING",
+      text: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+    });
+    return;
+  }
+  const tenantAccess = tenantAccessStatus(tenant);
+  if (!tenantAccess.enabled) {
+    await deny({ code: "GROUP_REPORT_TENANT_DISABLED", text: tenantAccess.message });
+    return;
+  }
+  if (
+    !target ||
+    target.target_type !== "group" ||
+    target.target_id_hash !== launch.groupTargetIdHash ||
+    target.line_channel_id !== input.lineChannelId ||
+    !target.group_private_viewer_enabled ||
+    !canAccessLineReport({
+      tenantId: launch.tenantId,
+      target,
+      reportKey: launch.reportKey,
+      action: "open_signed_viewer",
+    }).allowed
+  ) {
+    await deny({
+      code: "GROUP_REPORT_TARGET_DENIED",
+      text: "เปิดรายงานไม่ได้ บัญชี LINE นี้ไม่มีสิทธิ์เข้าถึงรายงานจากกลุ่มนี้",
+    });
+    return;
+  }
+  if (!snapshot) {
+    await deny({
+      code: "GROUP_REPORT_SNAPSHOT_MISSING",
+      text: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+    });
+    return;
+  }
+
+  const membership = await verifyLineGroupMember({
+    channelAccessToken: input.channelAccessToken,
+    groupId: target.target_id,
+    userId: input.event.user_id,
+  });
+  if (!membership.ok) {
+    await deny({
+      code:
+        membership.reason === "not_member"
+          ? "GROUP_REPORT_NOT_MEMBER"
+          : membership.reason === "configuration_failure"
+            ? "GROUP_REPORT_MEMBERSHIP_CONFIGURATION_FAILURE"
+            : "GROUP_REPORT_MEMBERSHIP_TEMPORARY_FAILURE",
+      text:
+        membership.reason === "not_member"
+          ? "เปิดรายงานไม่ได้ บัญชี LINE นี้ไม่มีสิทธิ์เข้าถึงรายงานจากกลุ่มนี้"
+          : "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
+      retryable: membership.reason === "temporary_failure",
+    });
+    return;
+  }
+
+  let viewerJti: string | null = null;
+  const viewerUrl = await buildReportViewerUrl(snapshot, {
+    targetIdHash: userIdHash,
+    sourceTargetIdHash: launch.groupTargetIdHash,
+    expiresAt: new Date(launch.expiresAt),
+    onIssued: (jti) => {
+      viewerJti = jti;
+    },
+  });
+  const preview = viewerUrl
+    ? renderReportLinePreview(reportRuntimeRegistry, {
+        snapshot,
+        dashboardUrl: viewerUrl,
+        tenantName: tenant.name,
+      })
+    : null;
+  if (!viewerUrl || !preview?.flex_message) {
+    await deny({
+      code: "GROUP_REPORT_VIEWER_UNAVAILABLE",
+      text: "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
+    });
+    return;
+  }
+  try {
+    await sendLineReply({
+      channelAccessToken: input.channelAccessToken,
+      replyToken: input.event.reply_token,
+      messages: [preview.flex_message],
+    });
+  } catch {
+    await systemStore.completeGroupAccessRequest({
+      webhookEventId: input.event.id,
+      status: "denied",
+      safeErrorCode: "GROUP_REPORT_REPLY_FAILED",
+      viewerTokenJti: viewerJti,
+    });
+    return;
+  }
+  await systemStore.completeGroupAccessRequest({
+    webhookEventId: input.event.id,
+    status: "success",
+    viewerTokenJti: viewerJti,
+  });
+  await systemStore.appendAuditLog({
+    tenant_id: launch.tenantId,
+    actor_id: null,
+    action: "group_report_access_granted",
+    target_type: "report_group_launch",
+    target_id: launch.id,
+    metadata_json: {
+      report_key: launch.reportKey,
+      run_id: launch.runId,
+      group_target_id_hash_prefix: launch.groupTargetIdHash.slice(0, 12),
+      user_id_hash_prefix: userIdHash.slice(0, 12),
+      viewer_token_jti: viewerJti,
+      db_lookup_ms: dbLookupMs,
+      membership_ms: membership.latencyMs,
+      total_ms: Date.now() - startedAt,
+    },
+  });
+}
+
+async function replyGroupReportAccessError(input: {
+  channelAccessToken: string;
+  replyToken: string;
+  text: string;
+}) {
+  await sendLineReply({
+    channelAccessToken: input.channelAccessToken,
+    replyToken: input.replyToken,
+    messages: [{ type: "text", text: input.text }],
+  }).catch(() => undefined);
+}
+
+function redactGroupReportWebhookRecord(
+  event: ReturnType<typeof normalizeLineWebhookEvents>[number],
+) {
+  const messageText = redactGroupReportCommand(event.message_text);
+  if (messageText === event.message_text) {
+    return event;
+  }
+  const rawEvent = structuredClone(event.raw_event_json);
+  if (rawEvent.message && typeof rawEvent.message === "object") {
+    (rawEvent.message as Record<string, unknown>).text = messageText;
+  }
+  return { ...event, message_text: messageText, raw_event_json: rawEvent };
+}
+
+async function revokeGroupViewerAccessFromWebhookEvents(input: {
+  events: ReturnType<typeof normalizeLineWebhookEvents>;
+  lineChannelId: string;
+}) {
+  const targets = await systemStore.listLineTargets();
+  for (const event of input.events) {
+    if (
+      event.source_type !== "group" ||
+      !event.source_id ||
+      (event.event_type !== "memberLeft" && event.event_type !== "leave")
+    ) {
+      continue;
+    }
+    const groupHash = hashLineTargetId(event.source_id);
+    const matchingTargets = targets.filter(
+      (target) =>
+        target.target_id_hash === groupHash &&
+        target.line_channel_id === input.lineChannelId,
+    );
+    const leftMembers =
+      event.event_type === "memberLeft"
+        ? extractLineMemberIds(event.raw_event_json)
+        : [];
+    for (const target of matchingTargets) {
+      if (event.event_type === "leave") {
+        const result = await systemStore.revokeGroupViewerAccess({
+          tenantId: target.tenant_id,
+          sourceTargetIdHash: groupHash,
+        });
+        await appendGroupViewerRevocationAudit({
+          target,
+          reason: "bot_left_group",
+          userIdHash: null,
+          result,
+        });
+        continue;
+      }
+      for (const userId of leftMembers) {
+        const userIdHash = hashLineTargetId(userId);
+        const result = await systemStore.revokeGroupViewerAccess({
+          tenantId: target.tenant_id,
+          sourceTargetIdHash: groupHash,
+          userIdHash,
+        });
+        await appendGroupViewerRevocationAudit({
+          target,
+          reason: "member_left_group",
+          userIdHash,
+          result,
+        });
+      }
+    }
+  }
+}
+
+async function appendGroupViewerRevocationAudit(input: {
+  target: StoredLineTargetRecord;
+  reason: "bot_left_group" | "member_left_group";
+  userIdHash: string | null;
+  result: { launches: number; tokens: number };
+}) {
+  await systemStore.appendAuditLog({
+    tenant_id: input.target.tenant_id,
+    actor_id: null,
+    action: "group_report_access_revoked",
+    target_type: "line_target",
+    target_id: input.target.id,
+    metadata_json: {
+      reason: input.reason,
+      group_target_id_hash_prefix: input.target.target_id_hash.slice(0, 12),
+      user_id_hash_prefix: input.userIdHash?.slice(0, 12) ?? null,
+      revoked_launch_count: input.result.launches,
+      revoked_token_count: input.result.tokens,
+    },
+  });
+}
+
+function extractLineMemberIds(rawEvent: Record<string, unknown>) {
+  const left = rawEvent.left;
+  if (!left || typeof left !== "object") {
+    return [];
+  }
+  const members = (left as Record<string, unknown>).members;
+  if (!Array.isArray(members)) {
+    return [];
+  }
+  return members.flatMap((member) => {
+    if (!member || typeof member !== "object") {
+      return [];
+    }
+    const userId = (member as Record<string, unknown>).userId;
+    return typeof userId === "string" ? [userId] : [];
+  });
+}
 
 app.get("/api/line/webhook-events/latest", async (request, reply) => {
   const query = lineWebhookEventsQuerySchema.safeParse(request.query);
@@ -5370,8 +5767,53 @@ app.patch("/api/line-targets/:id", async (request, reply) => {
         : target.recipient_count_estimate,
     enabled: body.data.enabled ?? target.enabled,
     approved: body.data.approved ?? target.approved,
+    group_private_viewer_enabled:
+      target.target_type === "group"
+        ? (body.data.group_private_viewer_enabled ??
+          target.group_private_viewer_enabled)
+        : false,
     updated_at: new Date().toISOString(),
   };
+
+  if (
+    body.data.group_private_viewer_enabled !== undefined &&
+    target.target_type !== "group"
+  ) {
+    return reply.status(400).send({
+      error: "Private group report access is available only for group targets.",
+    });
+  }
+
+  if (body.data.group_private_viewer_enabled === true) {
+    const channels = await systemStore.listLineChannels();
+    const channel = channels.find(
+      (candidate) => candidate.id === target.line_channel_id,
+    );
+    const firstReportKey = target.allowed_report_keys[0];
+    const viewerPermission = firstReportKey
+      ? canAccessLineReport({
+          tenantId: target.tenant_id,
+          target,
+          reportKey: firstReportKey,
+          action: "open_signed_viewer",
+        })
+      : { allowed: false };
+    if (
+      !target.approved ||
+      !target.enabled ||
+      !target.allowed_report_keys.length ||
+      !viewerPermission.allowed ||
+      !channel?.enabled ||
+      !channel.channel_access_token_configured ||
+      !channel.channel_secret_configured ||
+      !(channel.premium_id ?? channel.basic_id)
+    ) {
+      return reply.status(409).send({
+        error:
+          "Group report access is not ready. Approve and enable the group, grant viewer permission, and configure LINE OA token, webhook secret, and Bot Info.",
+      });
+    }
+  }
 
   if (body.data.access_profile_key) {
     updated = await applyTenantRolePermissionDefaults(
@@ -5388,6 +5830,20 @@ app.patch("/api/line-targets/:id", async (request, reply) => {
     updated_at: new Date().toISOString(),
   });
 
+  let revokedGroupAccess: { launches: number; tokens: number } | null = null;
+  if (
+    target.target_type === "group" &&
+    ((!updated.enabled && target.enabled) ||
+      (!updated.approved && target.approved) ||
+      (!updated.group_private_viewer_enabled &&
+        target.group_private_viewer_enabled))
+  ) {
+    revokedGroupAccess = await systemStore.revokeGroupViewerAccess({
+      tenantId: updated.tenant_id,
+      sourceTargetIdHash: updated.target_id_hash,
+    });
+  }
+
   await systemStore.appendAuditLog({
     tenant_id: updated.tenant_id,
     actor_id: null,
@@ -5403,6 +5859,9 @@ app.patch("/api/line-targets/:id", async (request, reply) => {
       allowed_report_keys: updated.allowed_report_keys,
       allowed_actions: updated.allowed_actions,
       recipient_count_estimate: updated.recipient_count_estimate,
+      group_private_viewer_enabled: updated.group_private_viewer_enabled,
+      revoked_group_launch_count: revokedGroupAccess?.launches ?? 0,
+      revoked_group_token_count: revokedGroupAccess?.tokens ?? 0,
     },
   });
 
@@ -8285,6 +8744,9 @@ await app.listen({
 });
 startOpsMonitorLoop();
 startReportViewerTokenCleanupLoop();
+void syncConfiguredLineChannelBotInfo().catch((error) => {
+  app.log.warn({ error }, "LINE Bot Info startup sync failed (non-fatal)");
+});
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
@@ -8841,7 +9303,12 @@ async function buildOwnerHealthCenterStatus(input: {
 
 async function buildReportViewerUrl(
   snapshot: ReportSnapshot,
-  options: { targetIdHash: string },
+  options: {
+    targetIdHash: string;
+    sourceTargetIdHash?: string | null;
+    expiresAt?: Date;
+    onIssued?: (jti: string) => void;
+  },
 ) {
   const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
   const baseUrl = runtimeConfig.app_base_url;
@@ -8856,16 +9323,17 @@ async function buildReportViewerUrl(
     return null;
   }
 
-  const expiresAt = new Date(
+  const configuredExpiresAt = new Date(
     Date.now() +
       Math.min(
         runtimeConfig.report_viewer_link_ttl_hours,
         REPORT_VIEWER_SESSION_TTL_HOURS,
-      ) *
-        60 *
-        60 *
-        1000,
+      ) * 60 * 60 * 1000,
   );
+  const expiresAt =
+    options.expiresAt && options.expiresAt < configuredExpiresAt
+      ? options.expiresAt
+      : configuredExpiresAt;
   const jti = randomUUID();
   const token = createReportViewerToken({
     secret: signingSecret,
@@ -8886,6 +9354,7 @@ async function buildReportViewerUrl(
       runId: snapshot.run_id,
       jti,
       targetIdHash,
+      sourceTargetIdHash: options.sourceTargetIdHash ?? null,
       expiresAt,
     });
     await systemStore.appendAuditLog({
@@ -8900,8 +9369,11 @@ async function buildReportViewerUrl(
         run_id: snapshot.run_id,
         expires_at: expiresAt.toISOString(),
         target_id_hash_prefix: targetIdHash.slice(0, 12),
+        source_target_id_hash_prefix:
+          options.sourceTargetIdHash?.slice(0, 12) ?? null,
       },
     });
+    options.onIssued?.(jti);
   } catch (err) {
     app.log.warn({ err }, "failed to register report viewer token");
     return null;
@@ -13249,6 +13721,28 @@ async function executeNotificationRule(input: {
       continue;
     }
     deliveryTargetHashes.add(target.target_id_hash);
+    const deliveryKey = buildNotificationRuleDeliveryKey({
+      ruleId: input.rule.id,
+      scheduledLocalDate: zoned.date,
+      scheduledLocalTime: zoned.time,
+      targetIdHash: target.target_id_hash,
+      source: input.source,
+      notificationRunId: run.id,
+    });
+    if (input.mode === "send") {
+      const existingDelivery = await systemStore.findSuccessfulLineDeliveryByKey({
+        tenantId: input.rule.tenant_id,
+        deliveryKey,
+      });
+      if (existingDelivery) {
+        deliveries.push(existingDelivery);
+        continue;
+      }
+    }
+    const groupActionContext =
+      input.mode === "send"
+        ? await prepareGroupReportActionContext(target, run.id)
+        : null;
 
     const allowedSignals = businessSignals.filter((signal) =>
       canAccessLineReport({
@@ -13318,6 +13812,7 @@ async function executeNotificationRule(input: {
         tenant,
         target,
         snapshot,
+        groupActionContext,
       });
       reportPreviewCache.set(snapshot.report_key, reportPreview);
       dashboardUrls[snapshot.report_key] = reportPreview.dashboard_url ?? null;
@@ -13371,37 +13866,29 @@ async function executeNotificationRule(input: {
       .map((reportKey) => fallbackPreviewByReportKey.get(reportKey) ?? null)
       .filter((preview): preview is ReportLinePreview => Boolean(preview));
     const targetCanReceiveAiCeo = Boolean(targetAiCeoPreview);
-    const preview = targetAiCeoPreview
+    const basePreview = targetAiCeoPreview
       ? buildNotificationDigestPreview([
           targetAiCeoPreview,
           ...orderedFallbackPreviews,
         ])
       : actionDigestPreview ?? buildNotificationDigestPreview(orderedFallbackPreviews);
+    const preview = groupActionContext
+      ? decorateGroupReportPreview({
+          preview: basePreview,
+          desktopFallbackUrl: groupActionContext.desktopFallbackUrl,
+        })
+      : basePreview;
+    if (groupActionContext?.pendingLaunches.length) {
+      await systemStore.createGroupReportLaunches(
+        groupActionContext.pendingLaunches,
+      );
+    }
     const digestIssueAuditMapping =
       actionDigestSelection?.issues.map((issue) => ({
         issue_key: issue.issue_key,
         raw_signal_ids: issue.raw_signal_ids,
         raw_signal_keys: issue.raw_signal_keys,
       })) ?? [];
-    const deliveryKey = buildNotificationRuleDeliveryKey({
-      ruleId: input.rule.id,
-      scheduledLocalDate: zoned.date,
-      scheduledLocalTime: zoned.time,
-      targetIdHash: target.target_id_hash,
-      source: input.source,
-      notificationRunId: run.id,
-    });
-    if (input.mode === "send") {
-      const existingDelivery = await systemStore.findSuccessfulLineDeliveryByKey({
-        tenantId: input.rule.tenant_id,
-        deliveryKey,
-      });
-      if (existingDelivery) {
-        deliveries.push(existingDelivery);
-        continue;
-      }
-    }
-
     await updateRunProgress({
       stage: "sending_line",
       percent: 94,
@@ -14117,10 +14604,79 @@ async function persistMissingReportRuntime(input: {
   };
 }
 
+type GroupReportActionContext = {
+  oaId: string;
+  lineChannelId: string;
+  notificationRunId: string;
+  expiresAt: Date;
+  desktopFallbackUrl: string;
+  pendingLaunches: GroupReportLaunchRecord[];
+};
+
+async function prepareGroupReportActionContext(
+  target: StoredLineTargetRecord,
+  notificationRunId: string,
+): Promise<GroupReportActionContext | null> {
+  if (
+    target.target_type !== "group" ||
+    !target.group_private_viewer_enabled ||
+    !target.line_channel_id
+  ) {
+    return null;
+  }
+  const credentials = await readStoredLineChannelCredentials({
+    store: systemStore,
+    tenantId: target.tenant_id,
+    preferredLineChannelId: target.line_channel_id,
+  }).catch(() => null);
+  if (!credentials || credentials.lineChannel.id !== target.line_channel_id) {
+    return null;
+  }
+  let channel = credentials.lineChannel;
+  let oaId = channel.premium_id ?? channel.basic_id ?? null;
+  if (!oaId) {
+    const botInfo = await fetchLineBotInfo({
+      channelAccessToken: credentials.channelAccessToken,
+    });
+    if (!botInfo) {
+      return null;
+    }
+    const syncedAt = new Date().toISOString();
+    channel = await systemStore.upsertLineChannel({
+      ...channel,
+      basic_id: botInfo.basicId,
+      premium_id: botInfo.premiumId,
+      bot_info_synced_at: syncedAt,
+      updated_at: syncedAt,
+    });
+    oaId = channel.premium_id ?? channel.basic_id ?? null;
+  }
+  const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+  if (!oaId || !runtimeConfig.app_base_url) {
+    return null;
+  }
+  const ttlHours = Math.min(
+    runtimeConfig.report_viewer_link_ttl_hours,
+    REPORT_VIEWER_SESSION_TTL_HOURS,
+  );
+  return {
+    oaId,
+    lineChannelId: channel.id,
+    notificationRunId,
+    expiresAt: new Date(Date.now() + ttlHours * 60 * 60 * 1000),
+    desktopFallbackUrl: new URL(
+      "/command-center/group-report-mobile",
+      runtimeConfig.app_base_url,
+    ).toString(),
+    pendingLaunches: [],
+  };
+}
+
 async function buildNotificationReportPreview(input: {
   tenant: { id: TenantId; name: string };
   target: StoredLineTargetRecord;
   snapshot: ReportSnapshot;
+  groupActionContext: GroupReportActionContext | null;
 }) {
   const openViewerPermission = canAccessLineReport({
     tenantId: input.tenant.id,
@@ -14133,7 +14689,7 @@ async function buildNotificationReportPreview(input: {
     input.snapshot.report_key,
   );
   const supportsSignedViewer = runtimeEntry?.supportsSignedViewer ?? false;
-  const dashboardUrl =
+  let dashboardUrl =
     canIssueReportViewerLink({
       targetType: input.target.target_type,
       permissionAllowed: openViewerPermission.allowed,
@@ -14143,6 +14699,34 @@ async function buildNotificationReportPreview(input: {
         targetIdHash: input.target.target_id_hash,
       })
     : null;
+  if (
+    !dashboardUrl &&
+    input.target.target_type === "group" &&
+    input.groupActionContext &&
+    openViewerPermission.allowed &&
+    supportsSignedViewer
+  ) {
+    const code = createGroupReportLaunchCode();
+    dashboardUrl = buildGroupReportChatUri({
+      oaId: input.groupActionContext.oaId,
+      code,
+    });
+    if (dashboardUrl) {
+      input.groupActionContext.pendingLaunches.push(
+        createGroupReportLaunch({
+          code,
+          tenantId: input.snapshot.tenant_id,
+          reportKey: input.snapshot.report_key,
+          runId: input.snapshot.run_id,
+          groupTargetId: input.target.id,
+          groupTargetIdHash: input.target.target_id_hash,
+          lineChannelId: input.groupActionContext.lineChannelId,
+          notificationRunId: input.groupActionContext.notificationRunId,
+          expiresAt: input.groupActionContext.expiresAt,
+        }),
+      );
+    }
+  }
 
   const preview = renderReportLinePreview(reportRuntimeRegistry, {
     snapshot: input.snapshot,
@@ -14152,7 +14736,12 @@ async function buildNotificationReportPreview(input: {
   if (!preview) {
     throw new Error(`Missing LINE preview renderer for ${input.snapshot.report_key}`);
   }
-  return preview;
+  return input.target.target_type === "group" && input.groupActionContext
+    ? decorateGroupReportPreview({
+        preview,
+        desktopFallbackUrl: input.groupActionContext.desktopFallbackUrl,
+      })
+    : preview;
 }
 
 type NotificationRuleValidationDetail = {
@@ -15924,18 +16513,34 @@ async function readReportViewerSigningSecret() {
 }
 
 async function cleanupExpiredReportViewerTokens() {
-  let deletedCount = 0;
+  let viewerTokenDeletedCount = 0;
+  let groupArtifactDeletedCount = 0;
   for (let batch = 0; batch < 20; batch += 1) {
     const deleted = await systemStore.purgeExpiredViewerTokens(
       REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE,
     );
-    deletedCount += deleted;
+    viewerTokenDeletedCount += deleted;
     if (deleted < REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE) {
       break;
     }
   }
-  app.log.info({ deleted_count: deletedCount }, "report viewer token cleanup completed");
-  return deletedCount;
+  for (let batch = 0; batch < 20; batch += 1) {
+    const deleted = await systemStore.purgeExpiredGroupViewerArtifacts(
+      REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE,
+    );
+    groupArtifactDeletedCount += deleted;
+    if (deleted < REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE) {
+      break;
+    }
+  }
+  app.log.info(
+    {
+      viewer_token_deleted_count: viewerTokenDeletedCount,
+      group_artifact_deleted_count: groupArtifactDeletedCount,
+    },
+    "report viewer cleanup completed",
+  );
+  return viewerTokenDeletedCount + groupArtifactDeletedCount;
 }
 
 function startReportViewerTokenCleanupLoop() {
@@ -15945,6 +16550,48 @@ function startReportViewerTokenCleanupLoop() {
     });
   }, REPORT_VIEWER_TOKEN_CLEANUP_INTERVAL_MS);
   interval.unref?.();
+}
+
+async function syncLineChannelBotInfo(channel: LineChannelRecord) {
+  if (!channel.enabled || !channel.channel_access_token_configured) {
+    return null;
+  }
+  const credentials = await readStoredLineChannelCredentials({
+    store: systemStore,
+    tenantId: channel.tenant_id,
+    preferredLineChannelId: channel.id,
+  }).catch(() => null);
+  if (credentials?.lineChannel.id !== channel.id) {
+    return null;
+  }
+  const botInfo = await fetchLineBotInfo({
+    channelAccessToken: credentials.channelAccessToken,
+  });
+  if (!botInfo) {
+    return null;
+  }
+  const syncedAt = new Date().toISOString();
+  return systemStore.upsertLineChannel({
+    ...channel,
+    basic_id: botInfo.basicId,
+    premium_id: botInfo.premiumId,
+    bot_info_synced_at: syncedAt,
+    updated_at: syncedAt,
+  });
+}
+
+async function syncConfiguredLineChannelBotInfo() {
+  const channels = await systemStore.listLineChannels();
+  const results = await Promise.allSettled(
+    channels.map((channel) => syncLineChannelBotInfo(channel)),
+  );
+  const syncedCount = results.filter(
+    (result) => result.status === "fulfilled" && result.value,
+  ).length;
+  app.log.info(
+    { synced_count: syncedCount, channel_count: channels.length },
+    "LINE Bot Info startup sync completed",
+  );
 }
 
 function buildMorningBriefDeliveryKey(
@@ -17230,6 +17877,7 @@ const lineTargetPatchSchema = z.object({
   access_profile_key: lineAccessProfileKeySchema.optional(),
   enabled: z.boolean().optional(),
   approved: z.boolean().optional(),
+  group_private_viewer_enabled: z.boolean().optional(),
   allowed_report_keys: z.array(reportKeySchema).optional(),
   allowed_actions: z.array(allowedLineActionSchema).optional(),
   recipient_count_estimate: z.coerce

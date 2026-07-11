@@ -179,6 +179,79 @@ describe("local JSON system store", () => {
     await store.close();
   });
 
+  it("reserves group access requests idempotently and revokes derived viewer access", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+    const now = new Date();
+
+    await store.createGroupReportLaunch({
+      id: "group-launch-1",
+      codeHash: "group-code-hash-1",
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_group_1",
+      groupTargetId: "line_target_group_1",
+      groupTargetIdHash: "group-target-hash-1",
+      lineChannelId: "line_channel_1",
+      notificationRunId: "notification_run_1",
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      revokedAt: null,
+      createdAt: now.toISOString(),
+    });
+
+    const reservations = await Promise.all(
+      Array.from({ length: 50 }, () =>
+        store.reserveGroupAccessRequest({
+        webhookEventId: "event-1",
+        launchId: "group-launch-1",
+        tenantId: "tenant_demo_remote",
+        userIdHash: "user-hash-1",
+        now,
+        rateLimitSince: new Date(now.getTime() - 600_000),
+        rateLimit: 20,
+        }),
+      ),
+    );
+    expect(reservations.filter((reservation) => reservation.ok)).toEqual([
+      { ok: true, reclaimed: false },
+    ]);
+    expect(
+      reservations.filter(
+        (reservation) =>
+          !reservation.ok && reservation.reason === "duplicate",
+      ),
+    ).toHaveLength(49);
+
+    await store.createViewerToken({
+      tokenHash: "group-viewer-token-1",
+      tokenVersion: 2,
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run_group_1",
+      jti: "group-jti-1",
+      targetIdHash: "user-hash-1",
+      sourceTargetIdHash: "group-target-hash-1",
+      expiresAt: new Date(now.getTime() + 60_000),
+    });
+    await expect(
+      store.revokeGroupViewerAccess({
+        tenantId: "tenant_demo_remote",
+        sourceTargetIdHash: "group-target-hash-1",
+        userIdHash: "user-hash-1",
+      }),
+    ).resolves.toEqual({ launches: 0, tokens: 1 });
+    await expect(
+      store.claimViewerToken({
+        tokenHash: "group-viewer-token-1",
+        sessionId: "session-group",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "revoked" });
+    await store.close();
+  });
+
   it("deduplicates concurrent viewer mismatch audit entries", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
     tempDirs.push(dir);

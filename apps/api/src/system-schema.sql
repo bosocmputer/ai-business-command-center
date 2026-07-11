@@ -168,6 +168,7 @@ create table if not exists line_targets (
   allowed_actions jsonb not null default '[]'::jsonb,
   enabled boolean not null default false,
   approved boolean not null default false,
+  group_private_viewer_enabled boolean not null default false,
   source text not null default 'manual',
   last_delivery_at timestamptz,
   created_at timestamptz not null default now(),
@@ -183,6 +184,9 @@ alter table line_targets
 
 alter table line_targets
   add column if not exists recipient_count_estimate integer;
+
+alter table line_targets
+  add column if not exists group_private_viewer_enabled boolean not null default false;
 
 create table if not exists tenant_report_role_permissions (
   tenant_id text not null references tenants(id) on delete cascade,
@@ -203,6 +207,9 @@ create table if not exists line_channels (
   scope text not null default 'tenant',
   channel_access_token_configured boolean not null default false,
   channel_secret_configured boolean not null default false,
+  basic_id text,
+  premium_id text,
+  bot_info_synced_at timestamptz,
   enabled boolean not null default true,
   source text not null default 'manual',
   created_at timestamptz not null default now(),
@@ -211,6 +218,11 @@ create table if not exists line_channels (
 
 alter table line_channels
   add column if not exists scope text not null default 'tenant';
+
+alter table line_channels
+  add column if not exists basic_id text,
+  add column if not exists premium_id text,
+  add column if not exists bot_info_synced_at timestamptz;
 
 create index if not exists line_channels_tenant_idx
 on line_channels (tenant_id, updated_at desc);
@@ -509,6 +521,7 @@ create table if not exists report_viewer_tokens (
   run_id text not null,
   jti text,
   target_id_hash text,
+  source_target_id_hash text,
   expires_at timestamptz not null,
   consumed_at timestamptz,
   session_id text,
@@ -522,6 +535,7 @@ alter table report_viewer_tokens
   add column if not exists report_key text,
   add column if not exists jti text,
   add column if not exists target_id_hash text,
+  add column if not exists source_target_id_hash text,
   add column if not exists session_id text,
   add column if not exists session_bound_at timestamptz,
   add column if not exists revoked_at timestamptz;
@@ -540,6 +554,50 @@ where session_id is not null and revoked_at is null;
 create index if not exists report_viewer_tokens_target_idx
 on report_viewer_tokens (tenant_id, target_id_hash, expires_at)
 where target_id_hash is not null and revoked_at is null;
+
+create index if not exists report_viewer_tokens_source_target_idx
+on report_viewer_tokens (tenant_id, source_target_id_hash, target_id_hash, expires_at)
+where source_target_id_hash is not null and revoked_at is null;
+
+create table if not exists report_group_launches (
+  id text primary key,
+  code_hash text not null unique,
+  tenant_id text not null references tenants(id),
+  report_key text not null references report_definitions(report_key),
+  run_id text not null,
+  group_target_id text not null,
+  group_target_id_hash text not null,
+  line_channel_id text not null,
+  notification_run_id text,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists report_group_launches_expiry_idx
+on report_group_launches (expires_at);
+
+create index if not exists report_group_launches_target_idx
+on report_group_launches (tenant_id, group_target_id_hash, expires_at)
+where revoked_at is null;
+
+create table if not exists report_group_access_requests (
+  webhook_event_id text primary key,
+  launch_id text not null references report_group_launches(id) on delete cascade,
+  tenant_id text not null references tenants(id),
+  user_id_hash text not null,
+  status text not null,
+  viewer_token_jti text,
+  safe_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists report_group_access_requests_user_recent_idx
+on report_group_access_requests (user_id_hash, created_at desc);
+
+create index if not exists report_group_access_requests_cleanup_idx
+on report_group_access_requests (updated_at);
 
 create table if not exists dashboard_viewer_tokens (
   token_hash text primary key,

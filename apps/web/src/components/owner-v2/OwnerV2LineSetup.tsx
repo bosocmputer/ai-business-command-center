@@ -641,6 +641,52 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
     }
   }
 
+  async function toggleGroupPrivateViewer(target: LineTargetRecord) {
+    if (busy !== null || target.target_type !== "group") {
+      return;
+    }
+    const enabling = !target.group_private_viewer_enabled;
+    const confirmed = window.confirm(
+      enabling
+        ? `เปิดลิงก์รายงานส่วนตัวสำหรับ ${target.display_name}? สมาชิกจะต้องกดจากการ์ดในกลุ่มและขอลิงก์ผ่านแชตส่วนตัวกับ OA`
+        : `ปิดลิงก์รายงานส่วนตัวสำหรับ ${target.display_name}? คำขอและลิงก์ที่ออกจากกลุ่มนี้จะถูกยกเลิกทันที`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setBusy(`group-viewer-${target.id}`);
+    setMessage(null);
+    setTechnicalMessage(null);
+    try {
+      const updated = await ownerV2Fetch<LineTargetRecord>(
+        `/api/line-targets/${encodeURIComponent(target.id)}`,
+        {
+          method: "PATCH",
+          body: { group_private_viewer_enabled: enabling },
+        },
+      );
+      setMessage({
+        tone: "success",
+        text: `${updated.display_name}: ${
+          updated.group_private_viewer_enabled
+            ? "เปิดรับลิงก์รายงานส่วนตัวแล้ว"
+            : "ปิดและยกเลิกลิงก์จากกลุ่มแล้ว"
+        }`,
+      });
+      await load();
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: enabling
+          ? "เปิดลิงก์รายงานส่วนตัวไม่สำเร็จ ตรวจ OA, Webhook, Bot Info และสิทธิ์ของกลุ่ม"
+          : "ปิดลิงก์รายงานส่วนตัวไม่สำเร็จ กรุณาลองใหม่",
+      });
+      setTechnicalMessage(toLineTechnicalMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function updateRecipientEstimate(
     target: LineTargetRecord,
     estimate: number | null,
@@ -928,6 +974,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onApproveTarget={approveTarget}
                       onEnableMorningBriefAction={enableMorningBriefAction}
                       onTestSendTarget={testSendTarget}
+                      onToggleGroupPrivateViewer={toggleGroupPrivateViewer}
                       onViewerAccessAction={updateViewerAccess}
                       onTargetProfileChange={(targetId, profileKey) =>
                         setTargetProfileDrafts((current) => ({
@@ -949,6 +996,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onApproveTarget={approveTarget}
                       onEnableMorningBriefAction={enableMorningBriefAction}
                       onTestSendTarget={testSendTarget}
+                      onToggleGroupPrivateViewer={toggleGroupPrivateViewer}
                       onViewerAccessAction={updateViewerAccess}
                       onTargetProfileChange={(targetId, profileKey) =>
                         setTargetProfileDrafts((current) => ({
@@ -970,6 +1018,7 @@ export default function OwnerV2LineSetup({ tenantId }: { tenantId: string }) {
                       onApproveTarget={approveTarget}
                       onEnableMorningBriefAction={enableMorningBriefAction}
                       onTestSendTarget={testSendTarget}
+                      onToggleGroupPrivateViewer={toggleGroupPrivateViewer}
                       onViewerAccessAction={updateViewerAccess}
                       onTargetProfileChange={(targetId, profileKey) =>
                         setTargetProfileDrafts((current) => ({
@@ -1329,6 +1378,10 @@ function ChannelTable({
                   ok={channel.channel_secret_configured}
                   text="รหัสรับ Webhook"
                 />
+                <StatusText
+                  ok={Boolean(channel.premium_id ?? channel.basic_id)}
+                  text="Bot Info"
+                />
               </div>
             </div>
             <Button
@@ -1392,6 +1445,10 @@ function ChannelTable({
                       ok={channel.channel_secret_configured}
                       text="รหัสรับ Webhook"
                     />
+                    <StatusText
+                      ok={Boolean(channel.premium_id ?? channel.basic_id)}
+                      text="Bot Info"
+                    />
                   </div>
                 </td>
                 <td className="py-4 pr-5 sm:pr-6">
@@ -1449,6 +1506,7 @@ function TargetTable({
   onEnableMorningBriefAction,
   onTargetProfileChange,
   onTestSendTarget,
+  onToggleGroupPrivateViewer,
   onViewerAccessAction,
   onToggleTarget,
   onUpdateRecipientEstimate,
@@ -1465,6 +1523,7 @@ function TargetTable({
     profileKey: LineAccessProfileKey,
   ) => void;
   onTestSendTarget: (target: LineTargetRecord) => void;
+  onToggleGroupPrivateViewer: (target: LineTargetRecord) => void;
   onViewerAccessAction: (
     target: LineTargetRecord,
     action: "reset_binding" | "revoke",
@@ -1483,9 +1542,11 @@ function TargetTable({
       <div className="space-y-3 lg:hidden">
         {targets.map((target) => {
           const channel = target.line_channel_id
-            ? channels.find((item) => item.id === target.line_channel_id)
+            ? (channels.find((item) => item.id === target.line_channel_id) ??
+              null)
             : null;
           const ready = isLineTargetReady(target, channels);
+          const groupViewerReady = isGroupPrivateViewerReady(target, channel);
           const missingBriefAction = !target.allowed_actions.includes(
             "receive_morning_brief",
           );
@@ -1567,6 +1628,12 @@ function TargetTable({
                     ok={target.allowed_report_keys.length > 0}
                     text="มีสิทธิ์รายงาน"
                   />
+                  {target.target_type === "group" ? (
+                    <StatusText
+                      ok={groupViewerReady}
+                      text="OA พร้อมออกลิงก์ส่วนตัว"
+                    />
+                  ) : null}
                 </div>
               </div>
 
@@ -1646,6 +1713,23 @@ function TargetTable({
                     target={target}
                   />
                 ) : null}
+                {target.approved && target.target_type === "group" ? (
+                  <Button
+                    disabled={
+                      busy !== null ||
+                      (!target.group_private_viewer_enabled &&
+                        !groupViewerReady)
+                    }
+                    onClick={() => onToggleGroupPrivateViewer(target)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {target.group_private_viewer_enabled
+                      ? "ปิดลิงก์ส่วนตัว"
+                      : "เปิดลิงก์ส่วนตัว"}
+                  </Button>
+                ) : null}
               </div>
             </div>
           );
@@ -1675,9 +1759,14 @@ function TargetTable({
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {targets.map((target) => {
               const channel = target.line_channel_id
-                ? channels.find((item) => item.id === target.line_channel_id)
+                ? (channels.find((item) => item.id === target.line_channel_id) ??
+                  null)
                 : null;
               const ready = isLineTargetReady(target, channels);
+              const groupViewerReady = isGroupPrivateViewerReady(
+                target,
+                channel,
+              );
               const missingBriefAction = !target.allowed_actions.includes(
                 "receive_morning_brief",
               );
@@ -1760,6 +1849,12 @@ function TargetTable({
                           ok={target.allowed_report_keys.length > 0}
                           text="มีสิทธิ์รายงาน"
                         />
+                        {target.target_type === "group" ? (
+                          <StatusText
+                            ok={groupViewerReady}
+                            text="OA พร้อมออกลิงก์ส่วนตัว"
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </td>
@@ -1837,6 +1932,23 @@ function TargetTable({
                           onAction={onViewerAccessAction}
                           target={target}
                         />
+                      ) : null}
+                      {target.approved && target.target_type === "group" ? (
+                        <Button
+                          disabled={
+                            busy !== null ||
+                            (!target.group_private_viewer_enabled &&
+                              !groupViewerReady)
+                          }
+                          onClick={() => onToggleGroupPrivateViewer(target)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          {target.group_private_viewer_enabled
+                            ? "ปิดลิงก์ส่วนตัว"
+                            : "เปิดลิงก์ส่วนตัว"}
+                        </Button>
                       ) : null}
                     </div>
                   </td>
@@ -2171,6 +2283,23 @@ function isLineTargetReady(
     target.allowed_report_keys.length > 0 &&
     channel?.enabled &&
     channel.channel_access_token_configured,
+  );
+}
+
+function isGroupPrivateViewerReady(
+  target: LineTargetRecord,
+  channel: LineChannelRecord | null,
+) {
+  return Boolean(
+    target.target_type === "group" &&
+      target.approved &&
+      target.enabled &&
+      target.allowed_actions.includes("open_signed_viewer") &&
+      target.allowed_report_keys.length > 0 &&
+      channel?.enabled &&
+      channel.channel_access_token_configured &&
+      channel.channel_secret_configured &&
+      (channel.premium_id ?? channel.basic_id),
   );
 }
 
