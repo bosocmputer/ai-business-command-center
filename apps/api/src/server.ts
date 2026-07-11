@@ -6056,55 +6056,36 @@ app.post("/api/line-targets/:id/test-send", async (request, reply) => {
     });
   }
 
-  const openSalesViewerPermission = canAccessLineReport({
-    tenantId: target.tenant_id,
-    target,
-    reportKey: "sales_goods_services",
-    action: "open_signed_viewer",
-  });
-  const salesViewerUrl =
-    canIssueReportViewerLink({
-      targetType: target.target_type,
-      permissionAllowed: openSalesViewerPermission.allowed,
-    }) &&
-    salesSnapshot?.report_key === "sales_goods_services"
-      ? await buildReportViewerUrl(salesSnapshot, {
-          targetIdHash: target.target_id_hash,
-        })
+  const groupActionContext =
+    body.data.mode === "send"
+      ? await prepareGroupReportActionContext(
+          target,
+          `line_target_test_${randomUUID()}`,
+        )
       : null;
-  const targetTenantName = (await getTenantOrNull(target.tenant_id))?.name;
-  const salesPreview =
+  const [salesPreview, purchasePreview] = await Promise.all([
     salesSnapshot?.report_key === "sales_goods_services"
-      ? renderSalesGoodsServicesLinePreview({
+      ? buildNotificationReportPreview({
+          tenant,
+          target,
           snapshot: salesSnapshot,
-          dashboardUrl: salesViewerUrl,
-          tenantName: targetTenantName,
+          groupActionContext,
         })
-      : null;
-  const openPurchaseViewerPermission = canAccessLineReport({
-    tenantId: target.tenant_id,
-    target,
-    reportKey: "purchase_goods_payables",
-    action: "open_signed_viewer",
-  });
-  const purchaseViewerUrl =
-    canIssueReportViewerLink({
-      targetType: target.target_type,
-      permissionAllowed: openPurchaseViewerPermission.allowed,
-    }) &&
+      : null,
     purchaseSnapshot?.report_key === "purchase_goods_payables"
-      ? await buildReportViewerUrl(purchaseSnapshot, {
-          targetIdHash: target.target_id_hash,
-        })
-      : null;
-  const purchasePreview =
-    purchaseSnapshot?.report_key === "purchase_goods_payables"
-      ? renderPurchaseGoodsPayablesLinePreview({
+      ? buildNotificationReportPreview({
+          tenant,
+          target,
           snapshot: purchaseSnapshot,
-          dashboardUrl: purchaseViewerUrl,
-          tenantName: targetTenantName,
+          groupActionContext,
         })
-      : null;
+      : null,
+  ]);
+  if (groupActionContext?.pendingLaunches.length) {
+    await systemStore.createGroupReportLaunches(
+      groupActionContext.pendingLaunches,
+    );
+  }
   const preview = buildMorningBriefCarouselPreview({
     salesPreview,
     purchasePreview,
