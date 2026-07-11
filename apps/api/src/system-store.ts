@@ -233,6 +233,30 @@ export type GroupAccessRequestReservation =
   | { ok: true; reclaimed: boolean }
   | { ok: false; reason: "duplicate" | "rate_limited" };
 
+export type GroupDesktopPairingStatus = "pending" | "approved" | "revoked";
+
+export type GroupDesktopPairingRecord = {
+  id: string;
+  launchId: string;
+  codeHash: string;
+  sessionId: string;
+  status: GroupDesktopPairingStatus;
+  userIdHash: string | null;
+  viewerTokenJti: string | null;
+  expiresAt: string;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GroupDesktopPairingCreateResult =
+  | { ok: true }
+  | { ok: false; reason: "rate_limited" | "duplicate" };
+
+export type GroupDesktopPairingApprovalResult =
+  | { ok: true; pairing: GroupDesktopPairingRecord }
+  | { ok: false; reason: "not_found" | "expired" | "already_used" };
+
 export type SystemStore = {
   readonly kind: "postgres" | "local-json";
   initialize(input: {
@@ -546,6 +570,7 @@ export type SystemStore = {
   createGroupReportLaunch(record: GroupReportLaunchRecord): Promise<void>;
   createGroupReportLaunches(records: GroupReportLaunchRecord[]): Promise<void>;
   getGroupReportLaunchByCodeHash(codeHash: string): Promise<GroupReportLaunchRecord | null>;
+  getGroupReportLaunchById(id: string): Promise<GroupReportLaunchRecord | null>;
   reserveGroupAccessRequest(input: {
     webhookEventId: string;
     launchId: string;
@@ -561,6 +586,30 @@ export type SystemStore = {
     viewerTokenJti?: string | null;
     safeErrorCode?: string | null;
   }): Promise<void>;
+  createGroupDesktopPairing(input: {
+    pairing: GroupDesktopPairingRecord;
+    rateLimitSince: Date;
+    rateLimit: number;
+  }): Promise<GroupDesktopPairingCreateResult>;
+  getGroupDesktopPairing(input: {
+    id: string;
+    sessionId: string;
+  }): Promise<GroupDesktopPairingRecord | null>;
+  approveGroupDesktopPairing(input: {
+    launchId: string;
+    codeHash: string;
+    userIdHash: string;
+    tokenHash: string;
+    tokenVersion: number;
+    tenantId: TenantId;
+    reportKey: ReportKey;
+    runId: string;
+    jti: string;
+    targetIdHash: string;
+    sourceTargetIdHash: string;
+    expiresAt: Date;
+    now: Date;
+  }): Promise<GroupDesktopPairingApprovalResult>;
   revokeGroupViewerAccess(input: {
     tenantId: TenantId;
     sourceTargetIdHash: string;
@@ -645,6 +694,7 @@ type StoreFile = {
     createdAt: string;
     updatedAt: string;
   }>;
+  groupDesktopPairings: GroupDesktopPairingRecord[];
   dashboardViewerTokens: DashboardViewerTokenRecord[];
   executiveDashboardRuns: ExecutiveDashboardRunRecord[];
 };
@@ -2344,6 +2394,13 @@ class LocalJsonSystemStore implements SystemStore {
     );
   }
 
+  async getGroupReportLaunchById(id: string) {
+    return (
+      this.requireData().groupReportLaunches.find((launch) => launch.id === id) ??
+      null
+    );
+  }
+
   async reserveGroupAccessRequest(input: {
     webhookEventId: string;
     launchId: string;
@@ -2413,6 +2470,118 @@ class LocalJsonSystemStore implements SystemStore {
     await this.persist();
   }
 
+  async createGroupDesktopPairing(input: {
+    pairing: GroupDesktopPairingRecord;
+    rateLimitSince: Date;
+    rateLimit: number;
+  }): Promise<GroupDesktopPairingCreateResult> {
+    const data = this.requireData();
+    if (
+      data.groupDesktopPairings.some(
+        (pairing) =>
+          pairing.id === input.pairing.id ||
+          pairing.codeHash === input.pairing.codeHash,
+      )
+    ) {
+      return { ok: false, reason: "duplicate" };
+    }
+    const recentCount = data.groupDesktopPairings.filter(
+      (pairing) =>
+        pairing.sessionId === input.pairing.sessionId &&
+        new Date(pairing.createdAt).getTime() >= input.rateLimitSince.getTime(),
+    ).length;
+    if (recentCount >= input.rateLimit) {
+      return { ok: false, reason: "rate_limited" };
+    }
+    data.groupDesktopPairings.push(input.pairing);
+    await this.persist();
+    return { ok: true };
+  }
+
+  async getGroupDesktopPairing(input: { id: string; sessionId: string }) {
+    return (
+      this.requireData().groupDesktopPairings.find(
+        (pairing) =>
+          pairing.id === input.id && pairing.sessionId === input.sessionId,
+      ) ?? null
+    );
+  }
+
+  async approveGroupDesktopPairing(input: {
+    launchId: string;
+    codeHash: string;
+    userIdHash: string;
+    tokenHash: string;
+    tokenVersion: number;
+    tenantId: TenantId;
+    reportKey: ReportKey;
+    runId: string;
+    jti: string;
+    targetIdHash: string;
+    sourceTargetIdHash: string;
+    expiresAt: Date;
+    now: Date;
+  }): Promise<GroupDesktopPairingApprovalResult> {
+    const data = this.requireData();
+    const pairing = data.groupDesktopPairings.find(
+      (candidate) =>
+        candidate.launchId === input.launchId &&
+        candidate.codeHash === input.codeHash,
+    );
+    if (!pairing) {
+      return { ok: false, reason: "not_found" };
+    }
+    const launch = data.groupReportLaunches.find(
+      (candidate) => candidate.id === pairing.launchId,
+    );
+    if (
+      !launch ||
+      launch.tenantId !== input.tenantId ||
+      launch.reportKey !== input.reportKey ||
+      launch.runId !== input.runId ||
+      launch.groupTargetIdHash !== input.sourceTargetIdHash
+    ) {
+      return { ok: false, reason: "not_found" };
+    }
+    if (new Date(pairing.expiresAt).getTime() <= input.now.getTime()) {
+      return { ok: false, reason: "expired" };
+    }
+    if (pairing.status !== "pending") {
+      return { ok: false, reason: "already_used" };
+    }
+    if (
+      data.reportViewerTokens.some(
+        (token) => token.tokenHash === input.tokenHash || token.jti === input.jti,
+      )
+    ) {
+      return { ok: false, reason: "already_used" };
+    }
+
+    const now = input.now.toISOString();
+    data.reportViewerTokens.push({
+      tokenHash: input.tokenHash,
+      tokenVersion: input.tokenVersion,
+      tenantId: input.tenantId,
+      reportKey: input.reportKey,
+      runId: input.runId,
+      jti: input.jti,
+      targetIdHash: input.targetIdHash,
+      sourceTargetIdHash: input.sourceTargetIdHash,
+      expiresAt: input.expiresAt.toISOString(),
+      sessionId: pairing.sessionId,
+      sessionBoundAt: now,
+      revokedAt: null,
+      createdAt: now,
+    });
+    pairing.status = "approved";
+    pairing.userIdHash = input.userIdHash;
+    pairing.viewerTokenJti = input.jti;
+    pairing.approvedAt = now;
+    pairing.updatedAt = now;
+    await this.persist();
+    return { ok: true, pairing: { ...pairing } };
+  }
+
   async revokeGroupViewerAccess(input: {
     tenantId: TenantId;
     sourceTargetIdHash: string;
@@ -2441,7 +2610,26 @@ class LocalJsonSystemStore implements SystemStore {
     tokens.forEach((token) => {
       token.revokedAt = now;
     });
-    if (launches.length || tokens.length) {
+    const launchIds = new Set(
+      data.groupReportLaunches
+        .filter(
+          (launch) =>
+            launch.tenantId === input.tenantId &&
+            launch.groupTargetIdHash === input.sourceTargetIdHash,
+        )
+        .map((launch) => launch.id),
+    );
+    const pairings = data.groupDesktopPairings.filter(
+      (pairing) =>
+        launchIds.has(pairing.launchId) &&
+        pairing.status !== "revoked" &&
+        (!input.userIdHash || pairing.userIdHash === input.userIdHash),
+    );
+    pairings.forEach((pairing) => {
+      pairing.status = "revoked";
+      pairing.updatedAt = now;
+    });
+    if (launches.length || tokens.length || pairings.length) {
       await this.persist();
     }
     return { launches: launches.length, tokens: tokens.length };
@@ -2461,6 +2649,12 @@ class LocalJsonSystemStore implements SystemStore {
       .filter((request) => new Date(request.updatedAt).getTime() < cutoff)
       .slice(0, Math.max(0, boundedLimit - launchIds.size));
     const requestIds = new Set(oldRequests.map((request) => request.webhookEventId));
+    const pairingIds = new Set(
+      data.groupDesktopPairings
+        .filter((pairing) => new Date(pairing.expiresAt).getTime() < cutoff)
+        .slice(0, Math.max(0, boundedLimit - launchIds.size - requestIds.size))
+        .map((pairing) => pairing.id),
+    );
     data.groupReportLaunches = data.groupReportLaunches.filter(
       (launch) => !launchIds.has(launch.id),
     );
@@ -2468,7 +2662,11 @@ class LocalJsonSystemStore implements SystemStore {
       (request) =>
         !launchIds.has(request.launchId) && !requestIds.has(request.webhookEventId),
     );
-    const count = launchIds.size + requestIds.size;
+    data.groupDesktopPairings = data.groupDesktopPairings.filter(
+      (pairing) =>
+        !launchIds.has(pairing.launchId) && !pairingIds.has(pairing.id),
+    );
+    const count = launchIds.size + requestIds.size + pairingIds.size;
     if (count) {
       await this.persist();
     }
@@ -2648,6 +2846,9 @@ class LocalJsonSystemStore implements SystemStore {
         reportViewerTokens: normalizeReportViewerTokens(parsed.reportViewerTokens),
         groupReportLaunches: normalizeGroupReportLaunches(parsed.groupReportLaunches),
         groupAccessRequests: normalizeGroupAccessRequests(parsed.groupAccessRequests),
+        groupDesktopPairings: normalizeGroupDesktopPairings(
+          parsed.groupDesktopPairings,
+        ),
         dashboardViewerTokens: normalizeDashboardViewerTokens(
           parsed.dashboardViewerTokens,
         ),
@@ -2687,6 +2888,7 @@ class LocalJsonSystemStore implements SystemStore {
         reportViewerTokens: [],
         groupReportLaunches: [],
         groupAccessRequests: [],
+        groupDesktopPairings: [],
         dashboardViewerTokens: [],
         executiveDashboardRuns: [],
       };
@@ -6972,6 +7174,14 @@ on conflict do nothing
     return result.rows[0] ? mapGroupReportLaunchRow(result.rows[0]) : null;
   }
 
+  async getGroupReportLaunchById(id: string) {
+    const result = await this.pool.query(
+      `select * from report_group_launches where id = $1 limit 1`,
+      [id],
+    );
+    return result.rows[0] ? mapGroupReportLaunchRow(result.rows[0]) : null;
+  }
+
   async reserveGroupAccessRequest(input: {
     webhookEventId: string;
     launchId: string;
@@ -7062,6 +7272,170 @@ where webhook_event_id = $1
     );
   }
 
+  async createGroupDesktopPairing(input: {
+    pairing: GroupDesktopPairingRecord;
+    rateLimitSince: Date;
+    rateLimit: number;
+  }): Promise<GroupDesktopPairingCreateResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [
+        input.pairing.sessionId,
+      ]);
+      const recent = await client.query(
+        `select count(*)::int as count from report_group_desktop_pairings where session_id = $1 and created_at >= $2::timestamptz`,
+        [input.pairing.sessionId, input.rateLimitSince.toISOString()],
+      );
+      if (Number(recent.rows[0]?.count ?? 0) >= input.rateLimit) {
+        await client.query("commit");
+        return { ok: false, reason: "rate_limited" };
+      }
+      const result = await client.query(
+        `
+insert into report_group_desktop_pairings (
+  id, launch_id, code_hash, session_id, status, user_id_hash,
+  viewer_token_jti, expires_at, approved_at, created_at, updated_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::timestamptz)
+on conflict do nothing
+returning id
+`,
+        [
+          input.pairing.id,
+          input.pairing.launchId,
+          input.pairing.codeHash,
+          input.pairing.sessionId,
+          input.pairing.status,
+          input.pairing.userIdHash,
+          input.pairing.viewerTokenJti,
+          input.pairing.expiresAt,
+          input.pairing.approvedAt,
+          input.pairing.createdAt,
+          input.pairing.updatedAt,
+        ],
+      );
+      await client.query("commit");
+      return result.rowCount
+        ? { ok: true }
+        : { ok: false, reason: "duplicate" };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getGroupDesktopPairing(input: { id: string; sessionId: string }) {
+    const result = await this.pool.query(
+      `select * from report_group_desktop_pairings where id = $1 and session_id = $2 limit 1`,
+      [input.id, input.sessionId],
+    );
+    return result.rows[0] ? mapGroupDesktopPairingRow(result.rows[0]) : null;
+  }
+
+  async approveGroupDesktopPairing(input: {
+    launchId: string;
+    codeHash: string;
+    userIdHash: string;
+    tokenHash: string;
+    tokenVersion: number;
+    tenantId: TenantId;
+    reportKey: ReportKey;
+    runId: string;
+    jti: string;
+    targetIdHash: string;
+    sourceTargetIdHash: string;
+    expiresAt: Date;
+    now: Date;
+  }): Promise<GroupDesktopPairingApprovalResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const found = await client.query(
+        `
+select pairing.*,
+       launch.tenant_id as launch_tenant_id,
+       launch.report_key as launch_report_key,
+       launch.run_id as launch_run_id,
+       launch.group_target_id_hash as launch_group_target_id_hash
+from report_group_desktop_pairings as pairing
+join report_group_launches as launch on launch.id = pairing.launch_id
+where pairing.launch_id = $1 and pairing.code_hash = $2
+limit 1
+for update of pairing
+`,
+        [input.launchId, input.codeHash],
+      );
+      const row = found.rows[0] as Record<string, unknown> | undefined;
+      if (!row) {
+        await client.query("commit");
+        return { ok: false, reason: "not_found" };
+      }
+      if (
+        row.launch_tenant_id !== input.tenantId ||
+        row.launch_report_key !== input.reportKey ||
+        row.launch_run_id !== input.runId ||
+        row.launch_group_target_id_hash !== input.sourceTargetIdHash
+      ) {
+        await client.query("commit");
+        return { ok: false, reason: "not_found" };
+      }
+      if (new Date(row.expires_at as string | Date).getTime() <= input.now.getTime()) {
+        await client.query("commit");
+        return { ok: false, reason: "expired" };
+      }
+      if (row.status !== "pending") {
+        await client.query("commit");
+        return { ok: false, reason: "already_used" };
+      }
+      await client.query(
+        `
+insert into report_viewer_tokens (
+  token_hash, token_version, tenant_id, report_key, run_id, jti,
+  target_id_hash, source_target_id_hash, expires_at, session_id,
+  session_bound_at, created_at
+)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11::timestamptz, $11::timestamptz)
+`,
+        [
+          input.tokenHash,
+          input.tokenVersion,
+          input.tenantId,
+          input.reportKey,
+          input.runId,
+          input.jti,
+          input.targetIdHash,
+          input.sourceTargetIdHash,
+          input.expiresAt.toISOString(),
+          String(row.session_id),
+          input.now.toISOString(),
+        ],
+      );
+      const updated = await client.query(
+        `
+update report_group_desktop_pairings
+set status = 'approved', user_id_hash = $2, viewer_token_jti = $3,
+    approved_at = $4::timestamptz, updated_at = $4::timestamptz
+where id = $1
+returning *
+`,
+        [String(row.id), input.userIdHash, input.jti, input.now.toISOString()],
+      );
+      await client.query("commit");
+      return {
+        ok: true,
+        pairing: mapGroupDesktopPairingRow(updated.rows[0]),
+      };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async revokeGroupViewerAccess(input: {
     tenantId: TenantId;
     sourceTargetIdHash: string;
@@ -7093,6 +7467,19 @@ returning token_hash
 `,
         [input.tenantId, input.sourceTargetIdHash, input.userIdHash ?? null],
       );
+      await client.query(
+        `
+update report_group_desktop_pairings as pairing
+set status = 'revoked', updated_at = now()
+from report_group_launches as launch
+where pairing.launch_id = launch.id
+  and launch.tenant_id = $1
+  and launch.group_target_id_hash = $2
+  and ($3::text is null or pairing.user_id_hash = $3)
+  and pairing.status <> 'revoked'
+`,
+        [input.tenantId, input.sourceTargetIdHash, input.userIdHash ?? null],
+      );
       await client.query("commit");
       return {
         launches: launches.rowCount ?? 0,
@@ -7108,6 +7495,22 @@ returning token_hash
 
   async purgeExpiredGroupViewerArtifacts(limit = 1000) {
     const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 10_000));
+    const pairings = await this.pool.query(
+      `
+with old_rows as (
+  select ctid from report_group_desktop_pairings
+  where expires_at < now() - interval '1 day'
+  order by expires_at limit $1
+)
+delete from report_group_desktop_pairings where ctid in (select ctid from old_rows)
+returning id
+`,
+      [boundedLimit],
+    );
+    const afterPairings = Math.max(0, boundedLimit - (pairings.rowCount ?? 0));
+    if (!afterPairings) {
+      return pairings.rowCount ?? 0;
+    }
     const requests = await this.pool.query(
       `
 with old_rows as (
@@ -7118,11 +7521,11 @@ with old_rows as (
 delete from report_group_access_requests where ctid in (select ctid from old_rows)
 returning webhook_event_id
 `,
-      [boundedLimit],
+      [afterPairings],
     );
-    const remaining = Math.max(0, boundedLimit - (requests.rowCount ?? 0));
+    const remaining = Math.max(0, afterPairings - (requests.rowCount ?? 0));
     if (!remaining) {
-      return requests.rowCount ?? 0;
+      return (pairings.rowCount ?? 0) + (requests.rowCount ?? 0);
     }
     const launches = await this.pool.query(
       `
@@ -7136,7 +7539,11 @@ returning id
 `,
       [remaining],
     );
-    return (requests.rowCount ?? 0) + (launches.rowCount ?? 0);
+    return (
+      (pairings.rowCount ?? 0) +
+      (requests.rowCount ?? 0) +
+      (launches.rowCount ?? 0)
+    );
   }
 
   async purgeExpiredViewerTokens(limit = 1000) {
@@ -7842,6 +8249,27 @@ function mapGroupReportLaunchRow(
       ? toIsoString(row.revoked_at as string | Date)
       : null,
     createdAt: toIsoString(row.created_at as string | Date),
+  };
+}
+
+function mapGroupDesktopPairingRow(
+  row: Record<string, unknown>,
+): GroupDesktopPairingRecord {
+  return {
+    id: String(row.id),
+    launchId: String(row.launch_id),
+    codeHash: String(row.code_hash),
+    sessionId: String(row.session_id),
+    status: row.status as GroupDesktopPairingStatus,
+    userIdHash: typeof row.user_id_hash === "string" ? row.user_id_hash : null,
+    viewerTokenJti:
+      typeof row.viewer_token_jti === "string" ? row.viewer_token_jti : null,
+    expiresAt: toIsoString(row.expires_at as string | Date),
+    approvedAt: row.approved_at
+      ? toIsoString(row.approved_at as string | Date)
+      : null,
+    createdAt: toIsoString(row.created_at as string | Date),
+    updatedAt: toIsoString(row.updated_at as string | Date),
   };
 }
 
@@ -9120,6 +9548,52 @@ function normalizeGroupAccessRequests(
         typeof request.safeErrorCode === "string" ? request.safeErrorCode : null,
       createdAt: request.createdAt ?? now,
       updatedAt: request.updatedAt ?? now,
+    }];
+  });
+}
+
+function normalizeGroupDesktopPairings(
+  value: unknown,
+): GroupDesktopPairingRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const pairing = entry as Partial<GroupDesktopPairingRecord>;
+    if (
+      !pairing.id ||
+      !pairing.launchId ||
+      !pairing.codeHash ||
+      !pairing.sessionId ||
+      !pairing.expiresAt
+    ) {
+      return [];
+    }
+    const now = new Date().toISOString();
+    const status: GroupDesktopPairingStatus =
+      pairing.status === "approved" || pairing.status === "revoked"
+        ? pairing.status
+        : "pending";
+    return [{
+      id: String(pairing.id),
+      launchId: String(pairing.launchId),
+      codeHash: String(pairing.codeHash),
+      sessionId: String(pairing.sessionId),
+      status,
+      userIdHash:
+        typeof pairing.userIdHash === "string" ? pairing.userIdHash : null,
+      viewerTokenJti:
+        typeof pairing.viewerTokenJti === "string"
+          ? pairing.viewerTokenJti
+          : null,
+      expiresAt: String(pairing.expiresAt),
+      approvedAt:
+        typeof pairing.approvedAt === "string" ? pairing.approvedAt : null,
+      createdAt: pairing.createdAt ?? now,
+      updatedAt: pairing.updatedAt ?? now,
     }];
   });
 }
@@ -11071,6 +11545,34 @@ on report_group_launches (expires_at);
 create index if not exists report_group_launches_target_idx
 on report_group_launches (tenant_id, group_target_id_hash, expires_at)
 where revoked_at is null;
+
+create table if not exists report_group_desktop_pairings (
+  id text primary key,
+  launch_id text not null references report_group_launches(id) on delete cascade,
+  code_hash text not null unique,
+  session_id text not null,
+  status text not null,
+  user_id_hash text,
+  viewer_token_jti text,
+  expires_at timestamptz not null,
+  approved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists report_group_desktop_pairings_session_idx
+on report_group_desktop_pairings (session_id, created_at desc);
+
+create index if not exists report_group_desktop_pairings_launch_pending_idx
+on report_group_desktop_pairings (launch_id, expires_at)
+where status = 'pending';
+
+create index if not exists report_group_desktop_pairings_launch_user_idx
+on report_group_desktop_pairings (launch_id, user_id_hash)
+where user_id_hash is not null;
+
+create index if not exists report_group_desktop_pairings_cleanup_idx
+on report_group_desktop_pairings (expires_at);
 
 create table if not exists report_group_access_requests (
   webhook_event_id text primary key,

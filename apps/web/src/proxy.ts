@@ -51,7 +51,16 @@ export async function proxy(request: NextRequest) {
   }
 
   if (!isProtectedOwnerPath(pathname)) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    if (
+      pathname === "/command-center/group-report-mobile" ||
+      pathname === "/command-center/brief" ||
+      pathname.startsWith("/command-center/brief/")
+    ) {
+      response.headers.set("Cache-Control", "no-store");
+      response.headers.set("Referrer-Policy", "no-referrer");
+    }
+    return response;
   }
 
   const canonicalOwnerPath =

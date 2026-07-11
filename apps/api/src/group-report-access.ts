@@ -5,6 +5,11 @@ import type { GroupReportLaunchRecord } from "./system-store.js";
 const GROUP_REPORT_COMMAND_PREFIX = "ขอลิงก์รายงาน";
 const GROUP_REPORT_CODE_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
+export type GroupReportCommand = {
+  launchCode: string;
+  pairingCode: string | null;
+};
+
 export function createGroupReportLaunchCode() {
   return randomBytes(16).toString("base64url");
 }
@@ -14,27 +19,45 @@ export function hashGroupReportLaunchCode(code: string) {
 }
 
 export function parseGroupReportCommand(value: string | null | undefined) {
+  return parseGroupReportCommandDetails(value)?.launchCode ?? null;
+}
+
+export function parseGroupReportCommandDetails(
+  value: string | null | undefined,
+): GroupReportCommand | null {
   const trimmed = value?.trim() ?? "";
   const prefix = `${GROUP_REPORT_COMMAND_PREFIX} `;
   if (!trimmed.startsWith(prefix)) {
     return null;
   }
-  const code = trimmed.slice(prefix.length).trim();
-  return GROUP_REPORT_CODE_PATTERN.test(code) ? code : null;
+  const codes = trimmed.slice(prefix.length).trim().split(/\s+/);
+  if (
+    (codes.length !== 1 && codes.length !== 2) ||
+    codes.some((code) => !GROUP_REPORT_CODE_PATTERN.test(code))
+  ) {
+    return null;
+  }
+  return { launchCode: codes[0], pairingCode: codes[1] ?? null };
 }
 
 export function buildGroupReportChatUri(input: {
   oaId: string;
   code: string;
+  pairingCode?: string | null;
 }) {
-  if (!GROUP_REPORT_CODE_PATTERN.test(input.code)) {
+  if (
+    !GROUP_REPORT_CODE_PATTERN.test(input.code) ||
+    (input.pairingCode && !GROUP_REPORT_CODE_PATTERN.test(input.pairingCode))
+  ) {
     return null;
   }
   const oaId = input.oaId.trim();
   if (!oaId.startsWith("@") || oaId.length > 64) {
     return null;
   }
-  const message = `${GROUP_REPORT_COMMAND_PREFIX} ${input.code}`;
+  const message = `${GROUP_REPORT_COMMAND_PREFIX} ${input.code}${
+    input.pairingCode ? ` ${input.pairingCode}` : ""
+  }`;
   const uri = `https://line.me/R/oaMessage/${encodeURIComponent(oaId)}/?${encodeURIComponent(message)}`;
   return uri.length <= 1000 ? uri : null;
 }
@@ -70,7 +93,8 @@ export function createGroupReportLaunch(input: {
 
 export function decorateGroupReportPreview(input: {
   preview: ReportLinePreview;
-  desktopFallbackUrl: string;
+  desktopFallbackUrl?: string;
+  desktopFallbackUrlsByUri?: Record<string, string>;
 }) {
   if (!input.preview.flex_message) {
     return input.preview;
@@ -85,8 +109,14 @@ export function decorateGroupReportPreview(input: {
     if (typedAction.type !== "uri" || typeof typedAction.uri !== "string") {
       return;
     }
+    const desktopFallbackUrl =
+      input.desktopFallbackUrlsByUri?.[typedAction.uri] ??
+      input.desktopFallbackUrl;
+    if (!desktopFallbackUrl) {
+      return;
+    }
     typedAction.label = "รับลิงก์ส่วนตัว";
-    typedAction.altUri = { desktop: input.desktopFallbackUrl };
+    typedAction.altUri = { desktop: desktopFallbackUrl };
   });
   return {
     ...input.preview,
@@ -95,7 +125,9 @@ export function decorateGroupReportPreview(input: {
 }
 
 export function redactGroupReportCommand(value: string | null) {
-  return parseGroupReportCommand(value) ? "[group_report_access_request]" : value;
+  return parseGroupReportCommandDetails(value)
+    ? "[group_report_access_request]"
+    : value;
 }
 
 function visitObjects(value: unknown, visitor: (item: Record<string, unknown>) => void) {

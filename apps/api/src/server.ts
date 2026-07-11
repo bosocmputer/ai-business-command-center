@@ -164,6 +164,7 @@ import {
   decorateGroupReportPreview,
   hashGroupReportLaunchCode,
   parseGroupReportCommand,
+  parseGroupReportCommandDetails,
   redactGroupReportCommand,
 } from "./group-report-access.js";
 import {
@@ -472,6 +473,8 @@ const DASHBOARD_TOKEN_RATE_LIMIT_COUNT = 5;
 const DASHBOARD_TOKEN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const REPORT_VIEWER_SESSION_COOKIE = "vt_session";
 const REPORT_VIEWER_SESSION_TTL_HOURS = 72;
+const GROUP_DESKTOP_PAIRING_TTL_MS = 5 * 60 * 1000;
+const GROUP_DESKTOP_PAIRING_RATE_LIMIT = 5;
 const REPORT_VIEWER_TOKEN_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const REPORT_VIEWER_TOKEN_CLEANUP_BATCH_SIZE = 1000;
 
@@ -1672,6 +1675,234 @@ app.get("/api/owner/notification-rules/:id/runs", async (request, reply) => {
       ruleId: rule.id,
       limit: 50,
     }),
+  };
+});
+
+app.post("/api/report-group-pairings", async (request, reply) => {
+  void reply.header("Cache-Control", "no-store");
+  void reply.header("Referrer-Policy", "no-referrer");
+  const body = groupDesktopPairingCreateSchema.safeParse(request.body ?? {});
+  if (!body.success) {
+    return reply.status(400).send({
+      error: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+      code: "GROUP_REPORT_LAUNCH_INVALID",
+    });
+  }
+
+  const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+  const signingSecret = runtimeConfig.report_viewer_signing_secret?.trim();
+  if (!signingSecret || signingSecret.length < 32) {
+    return reply.status(503).send({
+      error: "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
+      code: "VIEWER_LINK_INVALID",
+    });
+  }
+  const sessionVerification = verifyReportViewerSessionCookie({
+    secret: signingSecret,
+    cookieValue: request.cookies[REPORT_VIEWER_SESSION_COOKIE],
+  });
+  if (!sessionVerification.ok) {
+    const cookieValue = createReportViewerSessionCookie({
+      secret: signingSecret,
+      sessionId: randomUUID(),
+    });
+    void reply.setCookie(REPORT_VIEWER_SESSION_COOKIE, cookieValue, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: REPORT_VIEWER_SESSION_TTL_HOURS * 60 * 60,
+      secure: runtimeConfig.app_base_url?.startsWith("https://") ?? false,
+    });
+    return reply.status(428).send({
+      error: "กำลังเตรียมอุปกรณ์สำหรับเปิดรายงาน กรุณาลองอีกครั้ง",
+      code: "VIEWER_SESSION_BOOTSTRAP_REQUIRED",
+    });
+  }
+
+  const launch = await systemStore.getGroupReportLaunchByCodeHash(
+    hashGroupReportLaunchCode(body.data.launch_code),
+  );
+  const now = new Date();
+  if (
+    !launch ||
+    launch.revokedAt ||
+    new Date(launch.expiresAt).getTime() - now.getTime() <
+      GROUP_DESKTOP_PAIRING_TTL_MS
+  ) {
+    return reply.status(410).send({
+      error: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+      code: "GROUP_REPORT_LAUNCH_EXPIRED",
+    });
+  }
+  const [tenant, target, snapshot, credentials] = await Promise.all([
+    getTenantOrNull(launch.tenantId),
+    getEffectiveLineTargetById(launch.groupTargetId),
+    systemStore.getSnapshotByRunId(
+      launch.tenantId,
+      launch.runId,
+      launch.reportKey,
+    ),
+    readStoredLineChannelCredentials({
+      store: systemStore,
+      tenantId: launch.tenantId,
+      preferredLineChannelId: launch.lineChannelId,
+    }).catch(() => null),
+  ]);
+  if (!tenant) {
+    return reply.status(410).send({
+      error: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+      code: "GROUP_REPORT_LAUNCH_EXPIRED",
+    });
+  }
+  const tenantAccess = tenantAccessStatus(tenant);
+  if (!tenantAccess.enabled) {
+    return reply.status(403).send({
+      error: tenantAccess.message,
+      tenant_status: tenant.status,
+    });
+  }
+  if (
+    !target ||
+    target.target_type !== "group" ||
+    target.target_id_hash !== launch.groupTargetIdHash ||
+    target.line_channel_id !== launch.lineChannelId ||
+    !target.group_private_viewer_enabled ||
+    !canAccessLineReport({
+      tenantId: launch.tenantId,
+      target,
+      reportKey: launch.reportKey,
+      action: "open_signed_viewer",
+    }).allowed
+  ) {
+    return reply.status(403).send({
+      error: "เปิดรายงานไม่ได้ กรุณาติดต่อผู้ดูแลระบบ",
+      code: "GROUP_REPORT_TARGET_DENIED",
+    });
+  }
+  const oaId =
+    credentials?.lineChannel.premium_id ??
+    credentials?.lineChannel.basic_id ??
+    null;
+  if (!snapshot || !credentials || !oaId) {
+    return reply.status(503).send({
+      error: "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
+      code: "GROUP_REPORT_PAIRING_UNAVAILABLE",
+    });
+  }
+
+  const pairingCode = createGroupReportLaunchCode();
+  const chatUri = buildGroupReportChatUri({
+    oaId,
+    code: body.data.launch_code,
+    pairingCode,
+  });
+  if (!chatUri) {
+    return reply.status(503).send({
+      error: "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
+      code: "GROUP_REPORT_PAIRING_UNAVAILABLE",
+    });
+  }
+  const pairingId = `group_pairing_${randomUUID()}`;
+  const expiresAt = new Date(
+    Math.min(
+      now.getTime() + GROUP_DESKTOP_PAIRING_TTL_MS,
+      new Date(launch.expiresAt).getTime(),
+    ),
+  );
+  const created = await systemStore.createGroupDesktopPairing({
+    pairing: {
+      id: pairingId,
+      launchId: launch.id,
+      codeHash: hashGroupReportLaunchCode(pairingCode),
+      sessionId: sessionVerification.sessionId,
+      status: "pending",
+      userIdHash: null,
+      viewerTokenJti: null,
+      expiresAt: expiresAt.toISOString(),
+      approvedAt: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    },
+    rateLimitSince: new Date(now.getTime() - 10 * 60 * 1000),
+    rateLimit: GROUP_DESKTOP_PAIRING_RATE_LIMIT,
+  });
+  if (!created.ok) {
+    return reply.status(created.reason === "rate_limited" ? 429 : 409).send({
+      error:
+        created.reason === "rate_limited"
+          ? "สร้างคำขอบนคอมพิวเตอร์ถี่เกินไป กรุณารอ 10 นาทีแล้วลองใหม่"
+          : "สร้างคำขอไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+      code:
+        created.reason === "rate_limited"
+          ? "GROUP_REPORT_PAIRING_RATE_LIMITED"
+          : "GROUP_REPORT_PAIRING_CONFLICT",
+    });
+  }
+  return {
+    data: {
+      pairing_id: pairingId,
+      expires_at: expiresAt.toISOString(),
+      chat_uri: chatUri,
+    },
+  };
+});
+
+app.get("/api/report-group-pairings/:pairingId", async (request, reply) => {
+  void reply.header("Cache-Control", "no-store");
+  void reply.header("Referrer-Policy", "no-referrer");
+  const params = groupDesktopPairingParamsSchema.safeParse(request.params);
+  if (!params.success) {
+    return reply.status(404).send({ error: "ไม่พบคำขอเปิดรายงาน" });
+  }
+  const signingSecret = await readReportViewerSigningSecret();
+  if (!signingSecret) {
+    return reply.status(503).send({
+      error: "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
+    });
+  }
+  const session = verifyReportViewerSessionCookie({
+    secret: signingSecret,
+    cookieValue: request.cookies[REPORT_VIEWER_SESSION_COOKIE],
+  });
+  if (!session.ok) {
+    return reply.status(403).send({
+      error: "ไม่พบสิทธิ์เปิดรายงานในอุปกรณ์นี้",
+      code: "VIEWER_SESSION_MISMATCH",
+    });
+  }
+  const pairing = await systemStore.getGroupDesktopPairing({
+    id: params.data.pairingId,
+    sessionId: session.sessionId,
+  });
+  if (!pairing) {
+    return reply.status(404).send({ error: "ไม่พบคำขอเปิดรายงาน" });
+  }
+  if (pairing.status === "revoked") {
+    return { data: { status: "revoked" } };
+  }
+  if (new Date(pairing.expiresAt).getTime() <= Date.now()) {
+    return { data: { status: "expired" } };
+  }
+  if (pairing.status !== "approved") {
+    return {
+      data: { status: "pending", expires_at: pairing.expiresAt },
+    };
+  }
+  const launch = await systemStore.getGroupReportLaunchById(pairing.launchId);
+  if (
+    !launch ||
+    launch.revokedAt ||
+    new Date(launch.expiresAt).getTime() <= Date.now()
+  ) {
+    return { data: { status: "revoked" } };
+  }
+  const viewerUrl = new URL("/command-center/brief", "http://viewer.local");
+  viewerUrl.searchParams.set("tenant_id", launch.tenantId);
+  viewerUrl.searchParams.set("report_key", launch.reportKey);
+  viewerUrl.searchParams.set("run_id", launch.runId);
+  viewerUrl.searchParams.set("openExternalBrowser", "1");
+  return {
+    data: { status: "approved", viewer_path: `${viewerUrl.pathname}${viewerUrl.search}` },
   };
 });
 
@@ -5296,8 +5527,8 @@ async function handleGroupReportAccessEvent(input: {
   channelAccessToken: string;
 }) {
   const startedAt = Date.now();
-  const code = parseGroupReportCommand(input.event.message_text);
-  if (!code || !input.event.reply_token || !input.event.user_id) {
+  const command = parseGroupReportCommandDetails(input.event.message_text);
+  if (!command || !input.event.reply_token || !input.event.user_id) {
     if (input.event.reply_token) {
       await replyGroupReportAccessError({
         channelAccessToken: input.channelAccessToken,
@@ -5310,7 +5541,7 @@ async function handleGroupReportAccessEvent(input: {
   const userIdHash = hashLineTargetId(input.event.user_id);
   const lookupStartedAt = Date.now();
   const launch = await systemStore.getGroupReportLaunchByCodeHash(
-    hashGroupReportLaunchCode(code),
+    hashGroupReportLaunchCode(command.launchCode),
   );
   const dbLookupMs = Date.now() - lookupStartedAt;
   if (!launch) {
@@ -5377,7 +5608,8 @@ async function handleGroupReportAccessEvent(input: {
   const remainingMs = new Date(launch.expiresAt).getTime() - now.getTime();
   if (
     launch.revokedAt ||
-    remainingMs < 5 * 60 * 1000 ||
+    remainingMs <= 0 ||
+    (!command.pairingCode && remainingMs < 5 * 60 * 1000) ||
     launch.lineChannelId !== input.lineChannelId
   ) {
     await deny({
@@ -5452,6 +5684,76 @@ async function handleGroupReportAccessEvent(input: {
           ? "เปิดรายงานไม่ได้ บัญชี LINE นี้ไม่มีสิทธิ์เข้าถึงรายงานจากกลุ่มนี้"
           : "ตรวจสอบสิทธิ์ไม่สำเร็จชั่วคราว กรุณาลองอีกครั้ง",
       retryable: membership.reason === "temporary_failure",
+    });
+    return;
+  }
+
+  if (command.pairingCode) {
+    const runtimeConfig = await readEffectiveSystemRuntimeConfig(systemStore);
+    const configuredExpiresAt = new Date(
+      now.getTime() +
+        Math.min(
+          runtimeConfig.report_viewer_link_ttl_hours,
+          REPORT_VIEWER_SESSION_TTL_HOURS,
+        ) *
+          60 *
+          60 *
+          1000,
+    );
+    const launchExpiresAt = new Date(launch.expiresAt);
+    const viewerExpiresAt =
+      launchExpiresAt < configuredExpiresAt
+        ? launchExpiresAt
+        : configuredExpiresAt;
+    const viewerJti = randomUUID();
+    const approval = await systemStore.approveGroupDesktopPairing({
+      launchId: launch.id,
+      codeHash: hashGroupReportLaunchCode(command.pairingCode),
+      userIdHash,
+      tokenHash: randomBytes(32).toString("hex"),
+      tokenVersion: 2,
+      tenantId: launch.tenantId,
+      reportKey: launch.reportKey,
+      runId: launch.runId,
+      jti: viewerJti,
+      targetIdHash: userIdHash,
+      sourceTargetIdHash: launch.groupTargetIdHash,
+      expiresAt: viewerExpiresAt,
+      now,
+    });
+    if (!approval.ok) {
+      await deny({
+        code: `GROUP_REPORT_PAIRING_${approval.reason.toUpperCase()}`,
+        text: "คำขอหมดอายุ กรุณากดจากรายงานล่าสุดในกลุ่ม",
+      });
+      return;
+    }
+    await systemStore.completeGroupAccessRequest({
+      webhookEventId: input.event.id,
+      status: "success",
+      viewerTokenJti: viewerJti,
+    });
+    await replyGroupReportAccessError({
+      channelAccessToken: input.channelAccessToken,
+      replyToken: input.event.reply_token,
+      text: "ยืนยันการเปิดรายงานบนคอมพิวเตอร์แล้ว กลับไปที่คอมพิวเตอร์ได้เลย",
+    });
+    await systemStore.appendAuditLog({
+      tenant_id: launch.tenantId,
+      actor_id: null,
+      action: "group_report_desktop_access_granted",
+      target_type: "report_group_launch",
+      target_id: launch.id,
+      metadata_json: {
+        report_key: launch.reportKey,
+        run_id: launch.runId,
+        group_target_id_hash_prefix: launch.groupTargetIdHash.slice(0, 12),
+        user_id_hash_prefix: userIdHash.slice(0, 12),
+        viewer_token_jti: viewerJti,
+        db_lookup_ms: dbLookupMs,
+        membership_ms: membership.latencyMs,
+        total_ms: Date.now() - startedAt,
+      },
     });
     return;
   }
@@ -13856,7 +14158,9 @@ async function executeNotificationRule(input: {
     const preview = groupActionContext
       ? decorateGroupReportPreview({
           preview: basePreview,
-          desktopFallbackUrl: groupActionContext.desktopFallbackUrl,
+          desktopFallbackUrlsByUri: Object.fromEntries(
+            groupActionContext.desktopFallbackUrlsByUri,
+          ),
         })
       : basePreview;
     if (groupActionContext?.pendingLaunches.length) {
@@ -14590,7 +14894,8 @@ type GroupReportActionContext = {
   lineChannelId: string;
   notificationRunId: string;
   expiresAt: Date;
-  desktopFallbackUrl: string;
+  desktopPairingUrl: string;
+  desktopFallbackUrlsByUri: Map<string, string>;
   pendingLaunches: GroupReportLaunchRecord[];
 };
 
@@ -14645,10 +14950,11 @@ async function prepareGroupReportActionContext(
     lineChannelId: channel.id,
     notificationRunId,
     expiresAt: new Date(Date.now() + ttlHours * 60 * 60 * 1000),
-    desktopFallbackUrl: new URL(
+    desktopPairingUrl: new URL(
       "/command-center/group-report-mobile",
       runtimeConfig.app_base_url,
     ).toString(),
+    desktopFallbackUrlsByUri: new Map(),
     pendingLaunches: [],
   };
 }
@@ -14670,6 +14976,7 @@ async function buildNotificationReportPreview(input: {
     input.snapshot.report_key,
   );
   const supportsSignedViewer = runtimeEntry?.supportsSignedViewer ?? false;
+  let desktopFallbackUrl = input.groupActionContext?.desktopPairingUrl ?? "";
   let dashboardUrl =
     canIssueReportViewerLink({
       targetType: input.target.target_type,
@@ -14693,6 +15000,11 @@ async function buildNotificationReportPreview(input: {
       code,
     });
     if (dashboardUrl) {
+      desktopFallbackUrl = `${input.groupActionContext.desktopPairingUrl}#launch=${encodeURIComponent(code)}`;
+      input.groupActionContext.desktopFallbackUrlsByUri.set(
+        dashboardUrl,
+        desktopFallbackUrl,
+      );
       input.groupActionContext.pendingLaunches.push(
         createGroupReportLaunch({
           code,
@@ -14720,7 +15032,7 @@ async function buildNotificationReportPreview(input: {
   return input.target.target_type === "group" && input.groupActionContext
     ? decorateGroupReportPreview({
         preview,
-        desktopFallbackUrl: input.groupActionContext.desktopFallbackUrl,
+        desktopFallbackUrl,
       })
     : preview;
 }
@@ -17276,6 +17588,18 @@ const signedReportSnapshotParamsSchema = signedSnapshotParamsSchema.extend({
 const signedViewerParamsSchema = z.object({
   tenantId: tenantIdSchema,
   reportKey: reportKeySchema,
+});
+
+const groupDesktopPairingCreateSchema = z.object({
+  launch_code: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
+});
+
+const groupDesktopPairingParamsSchema = z.object({
+  pairingId: z
+    .string()
+    .min(20)
+    .max(80)
+    .regex(/^group_pairing_[0-9a-f-]+$/),
 });
 
 const reportRunProgressParamsSchema = z.object({

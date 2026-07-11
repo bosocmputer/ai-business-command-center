@@ -252,6 +252,117 @@ describe("local JSON system store", () => {
     await store.close();
   });
 
+  it("pairs one desktop browser atomically and authorizes its viewer session", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
+    tempDirs.push(dir);
+    process.env.SYSTEM_STORE_FILE = join(dir, "system-store.json");
+    const store = createSystemStore();
+    await store.initialize({ tenants: [], reportDefinitions: [] });
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 5 * 60_000);
+
+    await store.createGroupReportLaunch({
+      id: "desktop-launch-1",
+      codeHash: "desktop-launch-hash-1",
+      tenantId: "tenant_demo_remote",
+      reportKey: "sales_goods_services",
+      runId: "run-desktop-1",
+      groupTargetId: "group-target-1",
+      groupTargetIdHash: "group-hash-1",
+      lineChannelId: "line-channel-1",
+      notificationRunId: "notification-run-1",
+      expiresAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+      revokedAt: null,
+      createdAt: now.toISOString(),
+    });
+    await expect(
+      store.createGroupDesktopPairing({
+        pairing: {
+          id: "desktop-pairing-1",
+          launchId: "desktop-launch-1",
+          codeHash: "desktop-pairing-hash-1",
+          sessionId: "desktop-session-1",
+          status: "pending",
+          userIdHash: null,
+          viewerTokenJti: null,
+          expiresAt: expiresAt.toISOString(),
+          approvedAt: null,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+        rateLimitSince: new Date(now.getTime() - 10 * 60_000),
+        rateLimit: 5,
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    const approvals = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        store.approveGroupDesktopPairing({
+          launchId: "desktop-launch-1",
+          codeHash: "desktop-pairing-hash-1",
+          userIdHash: `user-hash-${index}`,
+          tokenHash: `desktop-token-${index}`,
+          tokenVersion: 2,
+          tenantId: "tenant_demo_remote",
+          reportKey: "sales_goods_services",
+          runId: "run-desktop-1",
+          jti: `desktop-jti-${index}`,
+          targetIdHash: `user-hash-${index}`,
+          sourceTargetIdHash: "group-hash-1",
+          expiresAt: new Date(now.getTime() + 60 * 60_000),
+          now: new Date(),
+        }),
+      ),
+    );
+    expect(approvals.filter((result) => result.ok)).toHaveLength(1);
+    const approved = approvals.find((result) => result.ok);
+    expect(approved).toMatchObject({ ok: true });
+    await expect(
+      store.getGroupDesktopPairing({
+        id: "desktop-pairing-1",
+        sessionId: "desktop-session-1",
+      }),
+    ).resolves.toMatchObject({ status: "approved" });
+    await expect(
+      store.getViewerSessionAccess({
+        sessionId: "desktop-session-1",
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      token: { runId: "run-desktop-1" },
+    });
+    await expect(
+      store.getViewerSessionAccess({
+        sessionId: "another-desktop-session",
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "not_found" });
+    await expect(
+      store.revokeGroupViewerAccess({
+        tenantId: "tenant_demo_remote",
+        sourceTargetIdHash: "group-hash-1",
+        userIdHash: approved?.ok ? approved.pairing.userIdHash : null,
+      }),
+    ).resolves.toMatchObject({ tokens: 1 });
+    await expect(
+      store.getGroupDesktopPairing({
+        id: "desktop-pairing-1",
+        sessionId: "desktop-session-1",
+      }),
+    ).resolves.toMatchObject({ status: "revoked" });
+    await expect(
+      store.getViewerSessionAccess({
+        sessionId: "desktop-session-1",
+        tenantId: "tenant_demo_remote",
+        reportKey: "sales_goods_services",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "revoked" });
+    await store.close();
+  });
+
   it("deduplicates concurrent viewer mismatch audit entries", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ai-bcc-store-"));
     tempDirs.push(dir);
